@@ -32,6 +32,14 @@ local entries = {
 		module = servicesFolder:WaitForChild("Character"):WaitForChild("CharacterService"),
 	},
 	{
+		name = "KitService",
+		module = servicesFolder:WaitForChild("Kit"):WaitForChild("KitService"),
+	},
+	{
+		name = "MatchService",
+		module = servicesFolder:WaitForChild("Match"):WaitForChild("MatchService"),
+	},
+	{
 		name = "ReplicationService",
 		module = servicesFolder:WaitForChild("Replication"):WaitForChild("ReplicationService"),
 	},

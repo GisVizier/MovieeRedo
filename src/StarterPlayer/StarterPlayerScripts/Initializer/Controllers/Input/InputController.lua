@@ -14,6 +14,12 @@ function InputController:ConnectToInput(inputType, callback)
 	return self.Manager:ConnectToInput(inputType, callback)
 end
 
+function InputController:SetGameplayEnabled(enabled: boolean)
+	if self.Manager and self.Manager.SetGameplayEnabled then
+		self.Manager:SetGameplayEnabled(enabled)
+	end
+end
+
 function InputController:GetMovementVector()
 	return self.Manager:GetMovementVector()
 end

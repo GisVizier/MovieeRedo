@@ -1,5 +1,9 @@
 local CameraController = {}
 
+function CameraController:SetGameplayEnabled(_enabled: boolean)
+	-- No-op; UpdateCamera checks InputController.Manager.GameplayEnabled.
+end
+
 -- Services
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -798,6 +802,14 @@ function CameraController:StartCameraLoop()
 end
 
 function CameraController:UpdateCamera()
+	-- Gameplay gating: UI flow disables gameplay until StartMatch.
+	if self._registry then
+		local inputController = self._registry:TryGet("Input")
+		if inputController and inputController.Manager and inputController.Manager.GameplayEnabled == false then
+			return
+		end
+	end
+
 	if not self.Character or not self.Character.Parent then
 		return
 	end

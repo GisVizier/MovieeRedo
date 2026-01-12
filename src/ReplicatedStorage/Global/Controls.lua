@@ -84,6 +84,20 @@ Controls.CustomizableKeybinds = {
 		Category = "Movement",
 	},
 	{
+		Key = "Ability",
+		Label = "Use Ability",
+		DefaultPrimary = Enum.KeyCode.E,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
+		Key = "Ultimate",
+		Label = "Use Ultimate",
+		DefaultPrimary = Enum.KeyCode.Q,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
 		Key = "ToggleCameraMode",
 		Label = "Toggle Camera",
 		DefaultPrimary = Enum.KeyCode.T,

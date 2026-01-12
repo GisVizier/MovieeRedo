@@ -16,6 +16,10 @@ local entries = {
 		module = controllersFolder:WaitForChild("Input"):WaitForChild("InputController"),
 	},
 	{
+		name = "UI",
+		module = controllersFolder:WaitForChild("UI"):WaitForChild("UIController"),
+	},
+	{
 		name = "Character",
 		module = controllersFolder:WaitForChild("Character"):WaitForChild("CharacterController"),
 	},

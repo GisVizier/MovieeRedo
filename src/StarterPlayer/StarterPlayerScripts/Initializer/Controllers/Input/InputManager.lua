@@ -19,6 +19,7 @@ InputManager.IsCrouching = false
 InputManager.IsMenuOpen = false
 InputManager.IsChatFocused = false
 InputManager.IsSettingsOpen = false
+InputManager.GameplayEnabled = false
 
 InputManager.KeyStates = {
 	W = false,
@@ -40,9 +41,18 @@ InputManager.Callbacks = {
 	Sprint = {},
 	Crouch = {},
 	Slide = {},
+	Ability = {},
+	Ultimate = {},
 	ToggleCameraMode = {},
 	ToggleRagdollTest = {},
 }
+
+function InputManager:SetGameplayEnabled(enabled: boolean)
+	self.GameplayEnabled = enabled == true
+	if not self.GameplayEnabled then
+		self:StopAllInputs()
+	end
+end
 
 local function CheckKeybindMatch(input, keybind)
 	if not keybind then
@@ -197,7 +207,7 @@ end
 
 function InputManager:SetupKeyboardMouse()
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
+		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen or not self.GameplayEnabled then
 			return
 		end
 
@@ -230,6 +240,10 @@ function InputManager:SetupKeyboardMouse()
 		elseif self:IsKeybind(input, "Crouch") then
 			self.IsCrouching = true
 			self:FireCallbacks("Crouch", true)
+		elseif self:IsKeybind(input, "Ability") then
+			self:FireCallbacks("Ability", input.UserInputState)
+		elseif self:IsKeybind(input, "Ultimate") then
+			self:FireCallbacks("Ultimate", input.UserInputState)
 		elseif self:IsKeybind(input, "ToggleCameraMode") then
 			self:FireCallbacks("ToggleCameraMode", true)
 		elseif self:IsKeybind(input, "ToggleRagdollTest") then
@@ -238,7 +252,7 @@ function InputManager:SetupKeyboardMouse()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
+		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen or not self.GameplayEnabled then
 			return
 		end
 
@@ -279,11 +293,15 @@ function InputManager:SetupKeyboardMouse()
 		elseif self:IsKeybind(input, "Crouch") then
 			self.IsCrouching = false
 			self:FireCallbacks("Crouch", false)
+		elseif self:IsKeybind(input, "Ability") then
+			self:FireCallbacks("Ability", input.UserInputState)
+		elseif self:IsKeybind(input, "Ultimate") then
+			self:FireCallbacks("Ultimate", input.UserInputState)
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
+		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen or not self.GameplayEnabled then
 			return
 		end
 

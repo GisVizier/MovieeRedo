@@ -21,6 +21,14 @@ local Remotes = {
 	{ name = "CharacterStateReplicated", description = "Server broadcast state batch", unreliable = true },
 	{ name = "ServerCorrection", description = "Server correction to client" },
 	{ name = "RequestInitialStates", description = "Client requests initial states" },
+
+	-- Match / loadout gating
+	{ name = "SubmitLoadout", description = "Client submits selected loadout and ready" },
+	{ name = "StartMatch", description = "Server notifies clients match started" },
+
+	-- Kit system
+	{ name = "KitRequest", description = "Client requests kit actions (purchase/equip/ability)" },
+	{ name = "KitState", description = "Server sends kit state/events" },
 }
 
 return Remotes

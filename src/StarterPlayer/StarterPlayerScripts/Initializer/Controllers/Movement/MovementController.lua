@@ -67,6 +67,18 @@ CharacterController.LastUpdateTime = 0
 CharacterController.MinFrameTime = 0
 CharacterController.Connection = nil
 
+CharacterController.GameplayEnabled = false
+
+function CharacterController:SetGameplayEnabled(enabled: boolean)
+	self.GameplayEnabled = enabled == true
+	if not self.GameplayEnabled then
+		-- Clear any residual input so the character won't drift.
+		if self.InputManager then
+			self.InputManager:ResetInputState()
+		end
+	end
+end
+
 function CharacterController:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -334,6 +346,11 @@ end
 -- =============================================================================
 
 function CharacterController:UpdateMovement(deltaTime)
+	-- Gameplay gating: do not run movement simulation until StartMatch.
+	if self.GameplayEnabled == false then
+		return
+	end
+
 	if not ValidationUtils:IsPrimaryPartValid(self.PrimaryPart) or not self.VectorForce then
 		return
 	end
@@ -761,7 +778,33 @@ function CharacterController:ApplyMovement()
 		end
 	end
 
-	local finalForce = vector3_new(moveForce.X, verticalForce, moveForce.Z)
+	-- Sticky / surface adhesion (ground contact stability):
+	-- - Project movement force onto the ground plane to avoid pushing into the surface.
+	-- - Apply a small downforce along the surface normal to reduce jitter and improve mounting.
+	local finalMoveForce = vector3_new(moveForce.X, 0, moveForce.Z)
+	local adhesionForce = Vector3.zero
+
+	if self.IsGrounded and self.Character and self.RaycastParams then
+		local isGrounded, surfaceNormal = MovementUtils:CheckGroundedWithSlope(self.Character, self.PrimaryPart, self.RaycastParams)
+		if isGrounded and surfaceNormal then
+			local n = surfaceNormal
+			local intoSurface = finalMoveForce:Dot(n)
+			finalMoveForce = finalMoveForce - (n * intoSurface)
+
+			-- Base adhesion on flat ground, stronger on slopes.
+			local up = Vector3.new(0, 1, 0)
+			local slopeAlpha = 1 - math.clamp(n:Dot(up), 0, 1) -- 0 flat -> 1 steep
+			local gravity = workspace.Gravity
+
+			local base = mass * gravity * 0.35
+			local extra = mass * gravity * 0.65
+			local strength = base + (extra * slopeAlpha)
+
+			adhesionForce = -n * strength
+		end
+	end
+
+	local finalForce = vector3_new(finalMoveForce.X, verticalForce, finalMoveForce.Z) + adhesionForce
 	self.VectorForce.Force = finalForce
 
 end

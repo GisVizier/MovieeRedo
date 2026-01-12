@@ -501,7 +501,31 @@ function MovementUtils:CalculateMovementForce(
 	end
 
 	if not shouldPreserveMomentum then
-		desiredVelocity = adjustedInput.Unit * effectiveWalkSpeed
+		-- Momentum handling:
+		-- If the player already has extra speed and continues moving roughly in the same
+		-- direction, do not forcibly pull them back down to walk speed.
+		-- This preserves "carry" without introducing floaty ice-skating on turns/stops.
+		local desiredDir = adjustedInput.Unit
+		local desiredSpeed = effectiveWalkSpeed
+
+		local currentSpeed = currentHorizontalVel.Magnitude
+		if currentSpeed > desiredSpeed + 0.05 then
+			local alignment = 0
+			if currentSpeed > 0.1 then
+				alignment = currentHorizontalVel.Unit:Dot(desiredDir)
+			end
+
+			-- Strong alignment: preserve most/all current speed.
+			-- Partial alignment: blend toward preserving to avoid sharp speed snaps on gentle turns.
+			if alignment > 0.75 then
+				desiredSpeed = currentSpeed
+			elseif alignment > 0 then
+				local preserveAlpha = math.clamp(alignment / 0.75, 0, 1)
+				desiredSpeed = desiredSpeed + (currentSpeed - desiredSpeed) * preserveAlpha
+			end
+		end
+
+		desiredVelocity = desiredDir * desiredSpeed
 	end
 
 	local velocityDifference = desiredVelocity - currentHorizontalVel
