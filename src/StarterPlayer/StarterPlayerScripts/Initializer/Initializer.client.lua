@@ -1,0 +1,40 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local Net = require(Locations.Shared.Net.Net)
+local Loader = require(Locations.Shared.Util.Loader)
+local Registry = require(script.Parent:WaitForChild("Registry"):WaitForChild("Registry"))
+
+Net:Init()
+
+local registry = Registry.new()
+
+local controllersFolder = script.Parent:WaitForChild("Controllers")
+local entries = {
+	{
+		name = "Input",
+		module = controllersFolder:WaitForChild("Input"):WaitForChild("InputController"),
+	},
+	{
+		name = "Character",
+		module = controllersFolder:WaitForChild("Character"):WaitForChild("CharacterController"),
+	},
+	{
+		name = "Movement",
+		module = controllersFolder:WaitForChild("Movement"):WaitForChild("MovementController"),
+	},
+	{
+		name = "AnimationController",
+		module = controllersFolder:WaitForChild("Character"):WaitForChild("AnimationController"),
+	},
+	{
+		name = "Replication",
+		module = controllersFolder:WaitForChild("Replication"):WaitForChild("ReplicationController"),
+	},
+	{
+		name = "Camera",
+		module = controllersFolder:WaitForChild("Camera"):WaitForChild("CameraController"),
+	},
+}
+
+Loader:Load(entries, registry, Net)
