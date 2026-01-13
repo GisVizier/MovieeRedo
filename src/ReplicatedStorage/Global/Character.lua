@@ -74,7 +74,7 @@ local Character = {
 	},
 	GroundRayOffset = 0.25,
 	GroundRayDistance = 0.6,
-	MaxWalkableSlopeAngle = 48,
+	MaxWalkableSlopeAngle = 90,
 	StandingFriction = {
 		IdleFriction = 0.65,
 		MinSlopeAngle = 1,

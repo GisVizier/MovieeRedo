@@ -17,7 +17,22 @@ local SlidingPhysics = require(Locations.Game:WaitForChild("Movement"):WaitForCh
 local SlidingState = require(Locations.Game:WaitForChild("Movement"):WaitForChild("SlidingState"))
 local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("RigRotationUtils"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
-local VFXController = require(Locations.Shared.Util:WaitForChild("VFXController"))
+local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
+
+local function getMovementTemplate(name: string): Instance?
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	local vfx = assets:FindFirstChild("VFX")
+	local movement = vfx and vfx:FindFirstChild("MovementFX")
+	local fromNew = movement and movement:FindFirstChild(name)
+	if fromNew then
+		return fromNew
+	end
+	local legacy = assets:FindFirstChild("MovementFX")
+	return legacy and legacy:FindFirstChild(name) or nil
+end
 
 SlidingSystem.IsSliding = false
 SlidingSystem.SlideVelocity = 0
@@ -354,7 +369,12 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 
 	self:CreateSlideTrail()
 
-	VFXController:StartContinuousVFXReplicated("Slide", self.PrimaryPart)
+	do
+		local template = getMovementTemplate("Slide")
+		if template then
+			VFXPlayer:Start("Slide", template, self.PrimaryPart)
+		end
+	end
 	FOVController:AddEffect("Slide")
 
 	if wasBuffered then
@@ -389,7 +409,83 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 	return true
 end
 
-function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediately)
+function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediately, stopReason)
+	-- Slope push tech (slide release):
+	-- If the player manually cancels a slide while pushing into an uphill slope, give a clean,
+	-- one-shot upward/forward pop. This is intentionally simple: no sticky wall states.
+	if self.IsSliding and self.PrimaryPart and self.Character and self.RaycastParams then
+		local isManualRelease = (stopReason == "ManualRelease" or stopReason == "ManualUncrouchRelease")
+		if isManualRelease then
+			local slideSpeed = self.SlideVelocity or 0
+			if slideSpeed >= 10 then
+				local config = Config.Gameplay.Sliding.JumpCancel
+				local uphillConfig = config and config.UphillBoost
+
+				if uphillConfig and uphillConfig.Enabled then
+					local isGrounded, groundNormal =
+						MovementUtils:CheckGroundedWithSlope(self.Character, self.PrimaryPart, self.RaycastParams)
+
+					if isGrounded and groundNormal then
+						local up = Vector3.new(0, 1, 0)
+						local slopeAngle = math.acos(math.clamp(groundNormal:Dot(up), -1, 1))
+
+						if slopeAngle > (uphillConfig.SlopeThreshold or 0) then
+							local direction = self.SlideDirection
+							if not direction or direction.Magnitude < 0.01 then
+								local look = self.PrimaryPart.CFrame.LookVector
+								direction = Vector3.new(look.X, 0, look.Z)
+							end
+
+							if direction and direction.Magnitude > 0.01 then
+								direction = direction.Unit
+
+								local gravity = Vector3.new(0, -1, 0)
+								local downhill = gravity - gravity:Dot(groundNormal) * groundNormal
+								if downhill.Magnitude > 0.01 then
+									downhill = downhill.Unit
+
+									local alignment = direction:Dot(downhill) -- < 0 means "uphill"
+									if alignment <= (uphillConfig.MinUphillAlignment or -0.4) then
+										local maxSlopeRadians = math.rad(uphillConfig.MaxSlopeAngle or 50)
+										local slopeStrength = math.clamp(slopeAngle / maxSlopeRadians, 0, 1)
+										slopeStrength = slopeStrength ^ (uphillConfig.ScalingExponent or 1)
+
+										local slopeForward = direction - direction:Dot(groundNormal) * groundNormal
+										if slopeForward.Magnitude > 0.01 then
+											slopeForward = slopeForward.Unit
+										else
+											slopeForward = direction
+										end
+
+										local baseHorizontal = math.max(
+											slideSpeed * (uphillConfig.HorizontalVelocityScale or 0.35),
+											uphillConfig.MinHorizontalVelocity or 8
+										)
+
+										local jumpCancelVertical = (uphillConfig.MinVerticalBoost or 50)
+											+ ((uphillConfig.MaxVerticalBoost or 70) - (uphillConfig.MinVerticalBoost or 50))
+												* (1 - slopeStrength)
+
+										-- Scale down from jump-cancel into a smaller "release pop".
+										local releaseVertical = jumpCancelVertical * 0.45
+										local releaseHorizontal = baseHorizontal * 0.55
+
+										local v = self.PrimaryPart.AssemblyLinearVelocity
+										self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
+											v.X + slopeForward.X * releaseHorizontal,
+											math.max(v.Y, releaseVertical),
+											v.Z + slopeForward.Z * releaseHorizontal
+										)
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
 	self.LastSlideStopTime = tick()
 	self.SlideStopDirection = self.SlideDirection
 	self.SlideStopVelocity = self.SlideVelocity
@@ -423,7 +519,7 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 
 	self:RemoveSlideTrail()
 
-	VFXController:StopContinuousVFX("Slide")
+	VFXPlayer:Stop("Slide")
 	FOVController:RemoveEffect("Slide")
 
 	if self.AlignOrientation then
@@ -500,24 +596,23 @@ function SlidingSystem:UpdateSlide(deltaTime)
 	end
 
 	if not self.IsSliding or not self.PrimaryPart then
-		self:StopSlide(false)
+		self:StopSlide(false, nil, "InvalidState")
 		return
 	end
 
 	local isHittingWall = MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, self.SlideDirection)
 	if isHittingWall then
 		LogService:Debug("SLIDING", "Slide stopped - hitting wall during slide")
-		self:StopSlide(false)
+		self:StopSlide(false, nil, "HitWall")
 		return
 	end
 
 	local slideConfig = Config.Gameplay.Sliding
 
-	if self.PrimaryPart and VFXController:IsContinuousVFXActive("Slide") then
-		VFXController:UpdateContinuousVFXOrientation(
+	if self.PrimaryPart and VFXPlayer:IsActive("Slide") then
+		VFXPlayer:UpdateYaw(
 			"Slide",
-			self.SlideDirection and self.SlideDirection * 10 or self.PrimaryPart.CFrame.LookVector * 10,
-			self.PrimaryPart
+			self.SlideDirection and self.SlideDirection * 10 or self.PrimaryPart.CFrame.LookVector * 10
 		)
 	end
 
@@ -606,7 +701,7 @@ function SlidingSystem:UpdateSlide(deltaTime)
 
 					if distanceMoved < (slideTimeoutConfig.MinMovementDistance * slideTimeoutConfig.DistanceCheckInterval)
 					then
-						self:StopSlide(false)
+						self:StopSlide(false, nil, "AirborneTimeoutStuck")
 						return
 					end
 				end
@@ -680,7 +775,7 @@ function SlidingSystem:UpdateSlide(deltaTime)
 	self:ApplySlideVelocity(cappedDeltaTime)
 
 	if self.SlideVelocity <= slideConfig.MinVelocity then
-		self:StopSlide(false)
+		self:StopSlide(false, nil, "MinVelocity")
 		return
 	end
 end
@@ -714,7 +809,7 @@ end
 
 function SlidingSystem:Cleanup()
 	if self.IsSliding then
-		self:StopSlide(false, true)
+		self:StopSlide(false, true, "Cleanup")
 	end
 
 	if self.IsSlideBuffered then

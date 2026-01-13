@@ -6,6 +6,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local SlidingSystem = require(Locations.Game:WaitForChild("Movement"):WaitForChild("SlidingSystem"))
 local MovementUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementUtils"))
+local VaultingSystem = require(Locations.Game:WaitForChild("Movement"):WaitForChild("VaultingSystem"))
 local WallJumpUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChild("WallJumpUtils"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
@@ -158,7 +159,7 @@ function MovementInputProcessor:HandleSlidingJump()
 			LogService:Info("INPUT", "Jump cancel failed, stopping slide")
 		end
 
-		SlidingSystem:StopSlide(false)
+		SlidingSystem:StopSlide(false, nil, "JumpCancelFailed")
 	end
 end
 
@@ -213,6 +214,16 @@ function MovementInputProcessor:HandleNormalJump(isImmediatePress)
 	end
 
 	if isInCoyoteTime and not shouldAttemptWallJump then
+		-- Vaulting: attempt before a normal grounded jump.
+		-- This is raycast-based and intentionally does not create wall-sticking states.
+		if VaultingSystem:TryVault(self.CharacterController) then
+			self:MarkJumpExecuted()
+			if TestMode.Logging.LogSlidingSystem then
+				LogService:Info("INPUT", "Vault executed successfully")
+			end
+			return
+		end
+
 		local currentTime = tick()
 		local timeSinceLastJump = currentTime - self.LastJumpTime
 		if timeSinceLastJump < Config.Gameplay.Cooldowns.Jump then

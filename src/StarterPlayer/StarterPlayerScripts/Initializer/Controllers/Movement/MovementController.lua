@@ -19,8 +19,25 @@ local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Con
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
-local VFXController = require(Locations.Shared.Util:WaitForChild("VFXController"))
+local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+
+local function getMovementTemplate(name: string): Instance?
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	-- Prefer new layout if present: Assets/VFX/MovementFX/<Name>
+	local vfx = assets:FindFirstChild("VFX")
+	local movement = vfx and vfx:FindFirstChild("MovementFX")
+	local fromNew = movement and movement:FindFirstChild(name)
+	if fromNew then
+		return fromNew
+	end
+	-- Legacy: Assets/MovementFX/<Name>
+	local legacy = assets:FindFirstChild("MovementFX")
+	return legacy and legacy:FindFirstChild(name) or nil
+end
 
 local math_rad = math.rad
 local math_deg = math.deg
@@ -68,6 +85,13 @@ CharacterController.MinFrameTime = 0
 CharacterController.Connection = nil
 
 CharacterController.GameplayEnabled = false
+
+-- Vaulting (short movement override)
+CharacterController.IsVaulting = false
+CharacterController.VaultEndTime = 0
+
+-- Respawn / reset reliability
+CharacterController.RespawnRequested = false
 
 function CharacterController:SetGameplayEnabled(enabled: boolean)
 	self.GameplayEnabled = enabled == true
@@ -161,6 +185,11 @@ function CharacterController:OnLocalCharacterReady(character)
 		self.InputManager:ResetInputState()
 	end
 
+	self.RespawnRequested = false
+	self.IsVaulting = false
+	self.VaultEndTime = 0
+	MovementStateManager:Reset()
+
 	if self.CameraController then
 		local cameraAngles = self.CameraController:GetCameraAngles()
 		local cameraYAngle = math.rad(cameraAngles.X)
@@ -188,6 +217,9 @@ function CharacterController:OnLocalCharacterRemoving()
 	self.WasGrounded = false
 	self.IsSprinting = false
 	self.IsCrouching = false
+	self.IsVaulting = false
+	self.VaultEndTime = 0
+	self.RespawnRequested = false
 	self.JumpExecutedThisInput = false
 	self.LastGroundedTime = 0
 
@@ -355,8 +387,39 @@ function CharacterController:UpdateMovement(deltaTime)
 		return
 	end
 
+	if self.RespawnRequested then
+		self.VectorForce.Force = Vector3.zero
+		return
+	end
+
 	self:CheckDeath()
 	self:UpdateCachedCameraRotation()
+
+	-- Ragdoll interaction: disable client movement forces while ragdolled.
+	-- The server ragdoll system welds the character root to a ragdoll; movement forces fighting
+	-- that will look choppy. Keep it simple: zero forces and let ragdoll drive motion.
+	if self.Character and self.Character:GetAttribute("RagdollActive") == true then
+		if SlidingSystem and SlidingSystem.IsSliding then
+			SlidingSystem:StopSlide(false, true, "Ragdoll")
+		end
+		self.IsVaulting = false
+		if self.VectorForce then
+			self.VectorForce.Force = Vector3.zero
+		end
+		return
+	end
+
+	-- Vaulting lock: briefly disable movement forces so the throw feels intentional.
+	if self.IsVaulting then
+		if tick() >= (self.VaultEndTime or 0) then
+			self.IsVaulting = false
+		else
+			if self.VectorForce then
+				self.VectorForce.Force = Vector3.zero
+			end
+			return
+		end
+	end
 
 	if SlidingSystem.IsSlideBuffered and not self.IsGrounded then
 		local primaryPart = self.PrimaryPart
@@ -474,17 +537,20 @@ function CharacterController:UpdateMovement(deltaTime)
 		local shouldShowSpeedFX = horizontalSpeed >= speedThreshold or fallSpeed >= fallThreshold
 
 		if shouldShowSpeedFX then
-			if not VFXController:IsContinuousVFXActive("SpeedFX") then
-				VFXController:StartContinuousVFXReplicated("SpeedFX", self.PrimaryPart)
+			if not VFXPlayer:IsActive("SpeedFX") then
+				local template = getMovementTemplate("SpeedFX")
+				if template then
+					VFXPlayer:Start("SpeedFX", template, self.PrimaryPart)
+				end
 			end
-			VFXController:UpdateContinuousVFXOrientation("SpeedFX", fullVelocity, self.PrimaryPart)
+			VFXPlayer:UpdateYaw("SpeedFX", fullVelocity)
 		else
-			if VFXController:IsContinuousVFXActive("SpeedFX") then
-				VFXController:StopContinuousVFX("SpeedFX")
+			if VFXPlayer:IsActive("SpeedFX") then
+				VFXPlayer:Stop("SpeedFX")
 			end
 		end
-	elseif isSliding and VFXController:IsContinuousVFXActive("SpeedFX") then
-		VFXController:StopContinuousVFX("SpeedFX")
+	elseif isSliding and VFXPlayer:IsActive("SpeedFX") then
+		VFXPlayer:Stop("SpeedFX")
 	end
 end
 
@@ -562,7 +628,10 @@ function CharacterController:CheckGrounded()
 
 		if fallSpeed >= minFallVelocity then
 			local feetPosition = self.FeetPart and self.FeetPart.Position or self.PrimaryPart.Position
-			VFXController:PlayVFXReplicated("Land", feetPosition)
+			local template = getMovementTemplate("Land")
+			if template then
+				VFXPlayer:Play(template, feetPosition)
+			end
 		end
 	else
 		self.JustLanded = false
@@ -639,9 +708,27 @@ function CharacterController:ApplyMovement()
 
 	if isHittingWall then
 		if self.IsGrounded then
-			finalMoveVector = Vector3.new(0, 0, 0)
-			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(0, currentVelocity.Y, 0)
-			currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+			-- Don't hard-stop (feels like an invisible force). Instead, remove the into-wall component
+			-- so the player can slide along geometry and still mount ramps/steps.
+			local horizontalNormal = wallNormal and Vector3.new(wallNormal.X, 0, wallNormal.Z) or nil
+			if horizontalNormal and horizontalNormal.Magnitude > 0.01 then
+				horizontalNormal = horizontalNormal.Unit
+
+				-- Remove into-wall component from desired move vector.
+				finalMoveVector = finalMoveVector - (finalMoveVector:Dot(horizontalNormal)) * horizontalNormal
+
+				-- Remove into-wall component from current horizontal velocity.
+				local hv = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
+				local into = hv:Dot(horizontalNormal)
+				if into < 0 then
+					hv = hv - horizontalNormal * into
+					self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(hv.X, currentVelocity.Y, hv.Z)
+					currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+				end
+			else
+				-- Fallback: if no normal, just stop pushing into it.
+				finalMoveVector = Vector3.new(0, 0, 0)
+			end
 		end
 	end
 
@@ -778,33 +865,11 @@ function CharacterController:ApplyMovement()
 		end
 	end
 
-	-- Sticky / surface adhesion (ground contact stability):
-	-- - Project movement force onto the ground plane to avoid pushing into the surface.
-	-- - Apply a small downforce along the surface normal to reduce jitter and improve mounting.
-	local finalMoveForce = vector3_new(moveForce.X, 0, moveForce.Z)
-	local adhesionForce = Vector3.zero
-
-	if self.IsGrounded and self.Character and self.RaycastParams then
-		local isGrounded, surfaceNormal = MovementUtils:CheckGroundedWithSlope(self.Character, self.PrimaryPart, self.RaycastParams)
-		if isGrounded and surfaceNormal then
-			local n = surfaceNormal
-			local intoSurface = finalMoveForce:Dot(n)
-			finalMoveForce = finalMoveForce - (n * intoSurface)
-
-			-- Base adhesion on flat ground, stronger on slopes.
-			local up = Vector3.new(0, 1, 0)
-			local slopeAlpha = 1 - math.clamp(n:Dot(up), 0, 1) -- 0 flat -> 1 steep
-			local gravity = workspace.Gravity
-
-			local base = mass * gravity * 0.35
-			local extra = mass * gravity * 0.65
-			local strength = base + (extra * slopeAlpha)
-
-			adhesionForce = -n * strength
-		end
-	end
-
-	local finalForce = vector3_new(finalMoveForce.X, verticalForce, finalMoveForce.Z) + adhesionForce
+	-- Simple force application (like Moviee-Proj):
+	-- NO adhesion, NO surface projection for normal walking.
+	-- Roblox physics handles ground contact naturally.
+	-- Adhesion/sticky ground is ONLY used during sliding (handled by SlidingSystem).
+	local finalForce = vector3_new(moveForce.X, verticalForce, moveForce.Z)
 	self.VectorForce.Force = finalForce
 
 end
@@ -942,7 +1007,7 @@ function CharacterController:HandleSlideInput(isSliding)
 		end
 	else
 		if SlidingSystem.IsSliding then
-			SlidingSystem:StopSlide(false, true)
+			SlidingSystem:StopSlide(false, true, "ManualRelease")
 		end
 
 		self:StopUncrouchChecking()
@@ -1055,11 +1120,11 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 	else
 		if SlidingSystem.IsSliding then
 			if CrouchUtils:IsVisuallycrouched(self.Character) and not self:CanUncrouch() then
-				SlidingSystem:StopSlide(true, false)
+				SlidingSystem:StopSlide(true, false, "ManualUncrouchRelease")
 				self:StartUncrouchChecking()
 				return
 			else
-				SlidingSystem:StopSlide(false, true)
+				SlidingSystem:StopSlide(false, true, "ManualUncrouchRelease")
 				self:StopUncrouchChecking()
 			end
 		elseif SlidingSystem.IsSlideBuffered then
@@ -1220,22 +1285,34 @@ function CharacterController:CheckDeath()
 	local deathThreshold = Config.Gameplay.Character.DeathYThreshold
 
 	if currentPosition.Y < deathThreshold then
-		LogService:Info("CHARACTER", "Death detected (fell off map)", {
+		if self.RespawnRequested then
+			return
+		end
+
+		self.RespawnRequested = true
+
+		LogService:Info("CHARACTER", "Death detected (fell off map) - requesting respawn", {
 			Position = currentPosition,
 			Threshold = deathThreshold,
 		})
 
-		local player = Players.LocalPlayer
-		if player and player.Character then
-			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid.Health > 0 then
-				humanoid.Health = 0
-			end
+		-- Clear local movement forces/state immediately; server will handle respawn.
+		if SlidingSystem and SlidingSystem.IsSliding then
+			SlidingSystem:StopSlide(false, true, "Death")
+		end
+		SlidingSystem:Cleanup()
+		MovementStateManager:Reset()
+
+		if self.InputManager then
+			self.InputManager:ResetInputState()
 		end
 
-		if self.Connection then
-			self.Connection:Disconnect()
-			self.Connection = nil
+		if self.VectorForce then
+			self.VectorForce.Force = Vector3.zero
+		end
+
+		if self._net then
+			self._net:FireServer("RequestRespawn")
 		end
 	end
 end

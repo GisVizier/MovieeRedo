@@ -199,9 +199,23 @@ function MovementStateManager:GetIsGrounded()
 end
 
 function MovementStateManager:Reset()
-	self.PreviousState = self.CurrentState
+	local previousState = self.CurrentState
+	self.PreviousState = previousState
 	self.CurrentState = self.States.Walking
-	self:FireStateChangeCallbacks(self.PreviousState, self.CurrentState)
+
+	local previousMoving = self.IsMoving
+	self.IsMoving = false
+	if previousMoving ~= self.IsMoving then
+		self:FireMovementChangeCallbacks(previousMoving, self.IsMoving)
+	end
+
+	local previousGrounded = self.IsGrounded
+	self.IsGrounded = true
+	if previousGrounded ~= self.IsGrounded then
+		self:FireGroundedChangeCallbacks(previousGrounded, self.IsGrounded)
+	end
+
+	self:FireStateChangeCallbacks(previousState, self.CurrentState)
 end
 
 function MovementStateManager:SetCharacter(character)

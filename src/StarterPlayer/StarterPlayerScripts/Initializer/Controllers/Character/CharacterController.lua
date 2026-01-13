@@ -17,6 +17,7 @@ CharacterController._registry = nil
 CharacterController._spawnRequested = false
 CharacterController._setupInProgress = {}
 CharacterController._deathConnections = {}
+CharacterController._healthConnections = {}
 CharacterController._respawnRequested = false
 
 -- Ragdoll tracking
@@ -144,6 +145,16 @@ function CharacterController:_onCharacterRemoving(character)
 		if connection then
 			connection:Disconnect()
 			self._deathConnections[character] = nil
+		end
+
+		local healthConn = self._healthConnections[character]
+		if healthConn then
+			if typeof(healthConn) == "RBXScriptConnection" then
+				healthConn:Disconnect()
+			elseif type(healthConn) == "table" and healthConn.Disconnect then
+				healthConn:Disconnect()
+			end
+			self._healthConnections[character] = nil
 		end
 
 		local movementController = self._registry and self._registry:TryGet("Movement")
@@ -289,6 +300,38 @@ function CharacterController:_setupLocalCharacter(player, character)
 			self._respawnRequested = true
 			self._net:FireServer("RequestRespawn")
 		end)
+	end
+
+	-- Keep HUD health in sync with the local humanoid.
+	-- HUD reads Players.LocalPlayer attributes "Health" and "MaxHealth".
+	if humanoid and not self._healthConnections[character] then
+		local localPlayer = Players.LocalPlayer
+		local function publishHealth()
+			if not humanoid.Parent then
+				return
+			end
+			if localPlayer then
+				localPlayer:SetAttribute("Health", humanoid.Health)
+				localPlayer:SetAttribute("MaxHealth", humanoid.MaxHealth)
+			end
+		end
+
+		local c1 = humanoid.HealthChanged:Connect(function()
+			publishHealth()
+		end)
+		local c2 = humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(function()
+			publishHealth()
+		end)
+
+		-- Store as a small composite disconnectable.
+		self._healthConnections[character] = {
+			Disconnect = function()
+				c1:Disconnect()
+				c2:Disconnect()
+			end,
+		}
+
+		publishHealth()
 	end
 end
 

@@ -15,9 +15,11 @@ export type KitEvent = {
 	event: string,
 	playerId: number?,
 	kitId: string?,
+	effect: string?,
 	abilityType: string?,
 	inputState: any?,
 	position: Vector3?,
+	extraData: any?,
 	serverTime: number?,
 	reason: string?,
 }
@@ -27,7 +29,7 @@ export type KitRequest = {
 	kitId: string?,
 	abilityType: string?,
 	inputState: any?,
-	clientData: any?,
+	extraData: any?,
 }
 
 export type KitContext = {
@@ -50,8 +52,8 @@ export type KitModule = {
 	Destroy: (self: KitModule) -> (),
 	OnEquipped: (self: KitModule) -> (),
 	OnUnequipped: (self: KitModule) -> (),
-	OnAbility: (self: KitModule, inputState: any, clientData: any?) -> boolean,
-	OnUltimate: (self: KitModule, inputState: any, clientData: any?) -> boolean,
+	OnAbility: (self: KitModule, inputState: any, extraData: any?) -> boolean,
+	OnUltimate: (self: KitModule, inputState: any, extraData: any?) -> boolean,
 }
 
 return Types

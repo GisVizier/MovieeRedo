@@ -39,6 +39,14 @@ local entries = {
 		name = "Camera",
 		module = controllersFolder:WaitForChild("Camera"):WaitForChild("CameraController"),
 	},
+	{
+		name = "Viewmodel",
+		module = controllersFolder:WaitForChild("Viewmodel"):WaitForChild("ViewmodelController"),
+	},
+	{
+		name = "KitVFX",
+		module = controllersFolder:WaitForChild("KitVFX"):WaitForChild("KitVFXController"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

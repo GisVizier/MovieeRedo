@@ -140,6 +140,8 @@ function MovementUtils:CheckGrounded(character, primaryPart, raycastParams)
 		baseRayOrigin + Vector3.new(-offsetX, 0, 0),
 	}
 
+	-- Simple ground check: if ANY ray hits, we're grounded.
+	-- (Matching Moviee-Proj - no normal filtering)
 	for _, rayOrigin in ipairs(rayOrigins) do
 		local result = workspace:Raycast(rayOrigin, rayDirection, params)
 		if result then
@@ -184,14 +186,16 @@ function MovementUtils:CheckGroundedWithSlope(character, primaryPart, raycastPar
 		baseRayOrigin + Vector3.new(-offsetX, 0, 0),
 	}
 
+	-- Simple ground check with slope info (matching Moviee-Proj):
+	-- Return first valid result with slope info - no normal filtering.
+	local worldUp = Vector3.new(0, 1, 0)
+
 	for _, rayOrigin in ipairs(rayOrigins) do
 		local result = getCachedRaycast(rayOrigin, rayDirection, params)
 		if result then
 			local surfaceNormal = result.Normal
-			local worldUp = Vector3.new(0, 1, 0)
 			local slopeAngle = math.acos(math.clamp(surfaceNormal:Dot(worldUp), -1, 1))
 			local slopeDegrees = math.deg(slopeAngle)
-
 			return true, surfaceNormal, slopeDegrees
 		end
 	end
@@ -259,12 +263,15 @@ function MovementUtils:IsMovingIntoSteepSlope(character, primaryPart, raycastPar
 	end
 	horizontalDirection = horizontalDirection.Unit
 
+	local maxWalkableAngle = Config.Gameplay.Character.MaxWalkableSlopeAngle
+	-- Keep steep-slope logic simple (Moviee-style):
+	-- Use the stabilized ground normal from CheckGroundedWithSlope (which already ignores near-vertical "ground" hits).
 	local isGrounded, surfaceNormal, slopeDegrees = self:CheckGroundedWithSlope(character, primaryPart, raycastParams)
-	if not isGrounded then
+	if not isGrounded or not surfaceNormal then
 		return false
 	end
 
-	local maxWalkableAngle = Config.Gameplay.Character.MaxWalkableSlopeAngle
+	-- Only block once slope is actually above the walkable limit.
 	if slopeDegrees <= maxWalkableAngle then
 		return false
 	end
@@ -276,7 +283,7 @@ function MovementUtils:IsMovingIntoSteepSlope(character, primaryPart, raycastPar
 	slopeDirection = slopeDirection.Unit
 
 	local movementDot = horizontalDirection:Dot(slopeDirection)
-
+	-- Block if moving meaningfully uphill (against slope direction).
 	return movementDot < -0.1
 end
 
@@ -371,6 +378,8 @@ function MovementUtils:GetValidMovementDirection(primaryPart, desiredDirection, 
 	return Vector3.new(horizontalSlide.X, desiredDirection.Y, horizontalSlide.Z)
 end
 
+-- Simple wall stop (matching Moviee-Proj):
+-- Single raycast from body position, simple angle check.
 function MovementUtils:CheckWallStop(primaryPart, raycastParams, moveDirection)
 	if not primaryPart then
 		return false
@@ -408,21 +417,23 @@ function MovementUtils:CheckWallStop(primaryPart, raycastParams, moveDirection)
 		return false
 	end
 
+	-- Check if it's actually a wall (steep enough angle)
 	local wallNormal = result.Normal
 	local worldUp = Vector3.new(0, 1, 0)
 	local wallAngle = math.deg(math.acos(math.clamp(math.abs(wallNormal:Dot(worldUp)), 0, 1)))
 
 	local minWallAngle = wallStopConfig.MinWallAngle or 70
 	if wallAngle < minWallAngle then
-		return false
+		return false -- Not steep enough, it's a slope (allow movement)
 	end
 
+	-- Check if we're actually moving TOWARD the wall (not parallel)
 	local horizontalNormal = Vector3.new(wallNormal.X, 0, wallNormal.Z)
 	if horizontalNormal.Magnitude > 0.01 then
 		horizontalNormal = horizontalNormal.Unit
 		local movingTowardWall = moveDirectionUnit:Dot(horizontalNormal) < -0.3
 		if not movingTowardWall then
-			return false, nil
+			return false, nil -- Moving parallel or away from wall
 		end
 	end
 

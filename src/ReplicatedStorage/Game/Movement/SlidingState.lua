@@ -10,7 +10,22 @@ local MovementUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChi
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
-local VFXController = require(Locations.Shared.Util:WaitForChild("VFXController"))
+local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
+
+local function getMovementTemplate(name: string): Instance?
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	local vfx = assets:FindFirstChild("VFX")
+	local movement = vfx and vfx:FindFirstChild("MovementFX")
+	local fromNew = movement and movement:FindFirstChild(name)
+	if fromNew then
+		return fromNew
+	end
+	local legacy = assets:FindFirstChild("MovementFX")
+	return legacy and legacy:FindFirstChild(name) or nil
+end
 
 SlidingState.SlidingSystem = nil
 
@@ -266,7 +281,12 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 
 	self.SlidingSystem.PrimaryPart.AssemblyLinearVelocity = finalVelocity
 
-	VFXController:PlayVFXReplicated("SlideCancel", self.SlidingSystem.PrimaryPart.Position)
+	do
+		local template = getMovementTemplate("SlideCancel")
+		if template then
+			VFXPlayer:Play(template, self.SlidingSystem.PrimaryPart.Position)
+		end
+	end
 
 	local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 	local animationController = ServiceRegistry:GetController("AnimationController")
@@ -303,7 +323,7 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	if isCurrentlySliding then
 		local canUncrouch = self:CanUncrouchAfterJumpSlide()
 		if canUncrouch then
-			self.SlidingSystem:StopSlide(false, true)
+			self.SlidingSystem:StopSlide(false, true, "JumpCancel")
 			if characterController then
 				characterController.IsCrouching = false
 				if characterController.InputManager then
@@ -314,7 +334,7 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 				LogService:Info("SLIDING", "Jump cancel: slide stopped, crouch input cleared")
 			end
 		else
-			self.SlidingSystem:StopSlide(true, false)
+			self.SlidingSystem:StopSlide(true, false, "JumpCancel")
 			if TestMode.Logging.LogSlidingSystem then
 				LogService:Info(
 					"SLIDING",

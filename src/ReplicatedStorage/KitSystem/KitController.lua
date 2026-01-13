@@ -63,13 +63,17 @@ function KitController:requestEquipKit(kitId: string)
 	end
 end
 
-function KitController:requestActivateAbility(abilityType: string, inputState, clientData)
+function KitController:requestActivateAbility(abilityType: string, inputState, extraData)
 	if self._net then
+		print("[KitController] ActivateAbility request", {
+			abilityType = abilityType,
+			inputState = tostring(inputState),
+		})
 		self._net:FireServer("KitRequest", {
 			action = "ActivateAbility",
 			abilityType = abilityType,
 			inputState = inputState,
-			clientData = clientData,
+			extraData = extraData,
 		})
 	end
 end

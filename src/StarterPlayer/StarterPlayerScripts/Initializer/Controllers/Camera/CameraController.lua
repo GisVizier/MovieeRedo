@@ -74,6 +74,57 @@ local function getCurrentCamera()
 end
 
 -- =============================================================================
+-- CAMERA SAFETY (Prevent camera going below ground)
+-- =============================================================================
+local CAMERA_GROUND_CLAMP_CLEARANCE = 0.35
+local CAMERA_GROUND_CLAMP_RAY_UP = 6
+local CAMERA_GROUND_CLAMP_RAY_DOWN = 80
+
+function CameraController:_getEnvironmentRaycastParams()
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = {}
+
+	if self.Character then
+		table.insert(raycastParams.FilterDescendantsInstances, self.Character)
+	end
+	if self.Rig then
+		table.insert(raycastParams.FilterDescendantsInstances, self.Rig)
+	end
+
+	-- IMPORTANT: Never let camera collision hit any rigs or ragdolls
+	local rigsFolder = workspace:FindFirstChild("Rigs")
+	if rigsFolder then
+		table.insert(raycastParams.FilterDescendantsInstances, rigsFolder)
+	end
+	local ragdollsFolder = workspace:FindFirstChild("Ragdolls")
+	if ragdollsFolder then
+		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
+	end
+
+	raycastParams.RespectCanCollide = true
+	return raycastParams
+end
+
+function CameraController:_clampPositionAboveGround(pos: Vector3, clearance: number?): Vector3
+	local padding = clearance or CAMERA_GROUND_CLAMP_CLEARANCE
+	local origin = pos + Vector3.new(0, CAMERA_GROUND_CLAMP_RAY_UP, 0)
+	local dir = Vector3.new(0, -CAMERA_GROUND_CLAMP_RAY_DOWN, 0)
+
+	local result = workspace:Raycast(origin, dir, self:_getEnvironmentRaycastParams())
+	if not result then
+		return pos
+	end
+
+	local minY = result.Position.Y + padding
+	if pos.Y < minY then
+		return Vector3.new(pos.X, minY, pos.Z)
+	end
+
+	return pos
+end
+
+-- =============================================================================
 -- STATE
 -- =============================================================================
 CameraController.Character = nil
@@ -996,6 +1047,9 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	else
 		finalPosition = desiredPosition.Position
 	end
+
+	-- Keep camera above ground (prevents crouch/slide dip under terrain)
+	finalPosition = self:_clampPositionAboveGround(finalPosition)
 	
 	-- Look at pivot point
 	camera.CFrame = CFrame.lookAt(finalPosition, pivotPosition)
@@ -1072,6 +1126,9 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	else
 		finalCameraPosition = desiredCameraPosition
 	end
+
+	-- Keep camera above ground (prevents crouch/slide dip under terrain)
+	finalCameraPosition = self:_clampPositionAboveGround(finalCameraPosition)
 
 	--#region agent log H3
 	agentLog("H3", "CameraController:UpdateShoulderCamera", "Shoulder camera computed", {
@@ -1155,7 +1212,12 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	end
 	
 	-- Camera looks around from this offset position (apply vertical rotation)
-	camera.CFrame = offsetPosition * CFrame.Angles(math.rad(self.AngleX), 0, 0)
+	local desiredCF = offsetPosition * CFrame.Angles(math.rad(self.AngleX), 0, 0)
+
+	-- Keep camera above ground (prevents slide/crouch putting camera under terrain)
+	local desiredPos = desiredCF.Position
+	local clampedPos = self:_clampPositionAboveGround(desiredPos)
+	camera.CFrame = CFrame.new(clampedPos) * desiredCF.Rotation
 	
 	-- CRITICAL: Update Camera.Focus to tell Roblox where to prioritize rendering
 	-- This controls shadow distance, LOD, dynamic lighting, and other rendering optimizations

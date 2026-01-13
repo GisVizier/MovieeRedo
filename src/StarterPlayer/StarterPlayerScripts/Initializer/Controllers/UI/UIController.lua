@@ -163,6 +163,11 @@ function UIController:_onStartMatch(matchData)
 		self._coreUi:hide("Loadout")
 	end)
 
+	-- Match start: show in-game HUD.
+	safeCall(function()
+		self._coreUi:show("HUD", true)
+	end)
+
 	-- Allow Map module to receive round data if you want to show it later
 	local mapModule = self._coreUi:getModule("Map")
 	if mapModule and mapModule.setRoundData and typeof(matchData) == "table" then

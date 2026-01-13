@@ -74,6 +74,18 @@ function KitService:_fireState(player: Player, info, state)
 	self._net:FireClient("KitState", player, state)
 end
 
+function KitService:_fireEvent(player: Player, eventName: string, payload)
+	if not self._net then
+		return
+	end
+
+	local message = payload or {}
+	message.kind = "Event"
+	message.event = eventName
+	message.serverTime = os.clock()
+	self._net:FireClient("KitState", player, message)
+end
+
 function KitService:_fireEventAll(eventName: string, payload)
 	if not self._net then
 		return
@@ -84,6 +96,36 @@ function KitService:_fireEventAll(eventName: string, payload)
 	message.event = eventName
 	message.serverTime = os.clock()
 	self._net:FireAllClients("KitState", message)
+end
+
+local function makeExtraData(position: Vector3?)
+	-- Contract: extraData is always a table for VFX events.
+	return {
+		position = position,
+	}
+end
+
+-- Public helper for kit modules:
+-- Lets a kit author replicate any custom event + VFX path without a registry.
+function KitService:ReplicateVFXAll(eventName: string, payload)
+	-- Dummy-simple: replicate any custom VFX event to all clients.
+	-- Contract:
+	-- - payload.kitId: string
+	-- - payload.effect: string (used by client dispatcher)
+	-- - payload.extraData.position: Vector3
+	if type(payload) ~= "table" then
+		return
+	end
+	if type(payload.kitId) ~= "string" or type(payload.effect) ~= "string" then
+		return
+	end
+	local extra = payload.extraData
+	if type(extra) ~= "table" or typeof(extra.position) ~= "Vector3" then
+		return
+	end
+
+	payload.extraData = makeExtraData(extra.position)
+	self:_fireEventAll(eventName, payload)
 end
 
 function KitService:_destroyKit(player: Player, reason: string?)
@@ -255,12 +297,20 @@ function KitService:_equip(player: Player, info, kitId: string)
 	self:_fireState(player, info, { lastAction = "Equipped" })
 end
 
-function KitService:_activateAbility(player: Player, info, abilityType: string, inputState, clientData)
+function KitService:_activateAbility(player: Player, info, abilityType: string, inputState, extraData)
 	local kitId = info.equippedKitId
 	if not kitId then
 		self:_fireState(player, info, { lastError = "NoKitEquipped" })
 		return
 	end
+
+	print("[KitService] ActivateAbility", {
+		player = player.Name,
+		userId = player.UserId,
+		kitId = kitId,
+		abilityType = abilityType,
+		inputState = tostring(inputState),
+	})
 
 	local character = player.Character
 	if not character or not character.Parent then
@@ -287,44 +337,57 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 	local payload = {
 		playerId = player.UserId,
 		kitId = kitId,
+		effect = abilityType,
 		abilityType = abilityType,
 		inputState = inputState,
 		position = position,
 	}
 
-	local function reject(code: string)
-		self:_fireState(player, info, { lastError = code })
+	local function rejectInterrupt()
+		print("[KitService] AbilityInterrupted", {
+			player = player.Name,
+			kitId = kitId,
+			abilityType = abilityType,
+		})
+		payload.extraData = makeExtraData(position)
+		self:_fireEvent(player, "AbilityInterrupted", payload)
 	end
 
 	local function callKit()
 		if isAbility then
-			return kit:OnAbility(inputState, clientData)
+			return kit:OnAbility(inputState, extraData)
 		end
-		return kit:OnUltimate(inputState, clientData)
+		return kit:OnUltimate(inputState, extraData)
 	end
 
 	if inputState ~= Enum.UserInputState.Begin then
 		pcall(callKit)
+		print("[KitService] AbilityEnded", {
+			player = player.Name,
+			kitId = kitId,
+			abilityType = abilityType,
+		})
+		payload.extraData = makeExtraData(position)
 		self:_fireEventAll("AbilityEnded", payload)
 		return
 	end
 
 	if isAbility and now < (info.abilityCooldownEndsAt or 0) then
-		reject("OnCooldown")
+		rejectInterrupt()
 		return
 	end
 
 	if isUltimate then
 		local cost = KitConfig.getUltimateCost(kitId)
 		if (info.ultimate or 0) < cost then
-			reject("NotEnoughUlt")
+			rejectInterrupt()
 			return
 		end
 	end
 
 	local okCall, did = pcall(callKit)
 	if not okCall or did ~= true then
-		reject("Rejected")
+		rejectInterrupt()
 		return
 	end
 
@@ -338,6 +401,13 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 		self:_fireState(player, info, { lastAction = "UltimateBegan" })
 	end
 
+	payload.extraData = makeExtraData(position)
+	print("[KitService] AbilityActivated", {
+		player = player.Name,
+		kitId = kitId,
+		abilityType = abilityType,
+		position = position,
+	})
 	self:_fireEventAll("AbilityActivated", payload)
 end
 
@@ -395,7 +465,7 @@ function KitService:start()
 			elseif action == "EquipKit" then
 				self:_equip(player, info, payload.kitId)
 			elseif action == "ActivateAbility" then
-				self:_activateAbility(player, info, payload.abilityType, payload.inputState, payload.clientData)
+				self:_activateAbility(player, info, payload.abilityType, payload.inputState, payload.extraData)
 			elseif action == "RequestKitState" then
 				self:_fireState(player, info, { lastAction = "State" })
 			else
