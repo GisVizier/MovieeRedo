@@ -72,6 +72,15 @@ local Character = {
 		RayDistance = 1.5,
 		MinWallAngle = 70,
 	},
+	-- Slope Magnet (snap to ground when about to launch off ramps/slopes)
+	-- Keeps grounded state stable on sloped collision seams so walking uphill doesn't "airborne flicker".
+	SlopeMagnet = {
+		Enabled = true,
+		RayLength = 3.0,
+		SnapVelocity = -80,
+		JumpCooldown = 0.25,
+		MinAirborneHeight = 0.5,
+	},
 	GroundRayOffset = 0.25,
 	GroundRayDistance = 0.6,
 	MaxWalkableSlopeAngle = 90,

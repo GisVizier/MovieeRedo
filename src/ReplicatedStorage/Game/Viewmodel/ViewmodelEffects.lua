@@ -12,6 +12,19 @@ ViewmodelEffects.__index = ViewmodelEffects
 
 local LocalPlayer = Players.LocalPlayer
 
+local function expAlpha(dt: number, k: number): number
+	-- Framerate-independent smoothing: alpha = 1 - exp(-k*dt)
+	if dt <= 0 then
+		return 0
+	end
+	return 1 - math.exp(-k * dt)
+end
+
+local function clampDt(dt: number): number
+	-- Prevent hitch spikes from causing visible snaps.
+	return math.clamp(dt, 0, 1 / 20)
+end
+
 local function getRootPart(): BasePart?
 	local character = LocalPlayer and LocalPlayer.Character
 	if not character then
@@ -39,6 +52,7 @@ function ViewmodelEffects:Reset()
 end
 
 function ViewmodelEffects:Update(dt: number, cameraCFrame: CFrame, weaponId: string?): CFrame
+	dt = clampDt(dt)
 	local cfg = ViewmodelConfig
 	local effects = cfg.Effects
 
@@ -54,10 +68,11 @@ function ViewmodelEffects:Update(dt: number, cameraCFrame: CFrame, weaponId: str
 			math.clamp(-delta.Y * sens, -maxAngle, maxAngle)
 		)
 
-		local alpha = math.clamp(dt * returnSpeed, 0, 1)
+		-- Framerate-independent smoothing (reduces snap on dt variance).
+		local alpha = math.clamp(expAlpha(dt, returnSpeed), 0, 1)
 		self._sway = self._sway:Lerp(target, alpha)
 		-- Return-to-center so you don't "stick" if input stops.
-		self._sway = self._sway:Lerp(Vector2.zero, math.clamp(dt * (returnSpeed * 0.6), 0, 1))
+		self._sway = self._sway:Lerp(Vector2.zero, math.clamp(expAlpha(dt, returnSpeed * 0.6), 0, 1))
 		self._swayCF = CFrame.Angles(math.rad(self._sway.Y), math.rad(self._sway.X), 0)
 	else
 		self._swayCF = CFrame.new()

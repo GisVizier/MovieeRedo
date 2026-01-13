@@ -29,6 +29,7 @@ ViewmodelController._effects = nil
 ViewmodelController._animator = nil
 
 ViewmodelController._renderConn = nil
+ViewmodelController._renderBound = false
 ViewmodelController._kitConn = nil
 ViewmodelController._startMatchConn = nil
 ViewmodelController._attrConn = nil
@@ -243,11 +244,17 @@ function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 end
 
 function ViewmodelController:_ensureRenderLoop()
-	if self._renderConn then
+	if self._renderConn or self._renderBound then
 		return
 	end
 
-	self._renderConn = RunService.RenderStepped:Connect(function(dt)
+	-- Update AFTER CameraController ("MovieeV2CameraController" runs at Camera + 10).
+	-- This removes the 1-frame "delay" feeling when flicking the camera.
+	self._renderBound = true
+	pcall(function()
+		RunService:UnbindFromRenderStep("ViewmodelRender")
+	end)
+	RunService:BindToRenderStep("ViewmodelRender", Enum.RenderPriority.Camera.Value + 11, function(dt)
 		self:_render(dt)
 	end)
 end
@@ -395,6 +402,12 @@ function ViewmodelController:Destroy()
 	if self._renderConn then
 		self._renderConn:Disconnect()
 		self._renderConn = nil
+	end
+	if self._renderBound then
+		self._renderBound = false
+		pcall(function()
+			RunService:UnbindFromRenderStep("ViewmodelRender")
+		end)
 	end
 	if self._kitConn then
 		self._kitConn:Disconnect()

@@ -437,6 +437,11 @@ function CharacterController:UpdateMovement(deltaTime)
 
 	self:CheckGrounded()
 
+	-- Slope Magnet (ported from Moviee-Proj):
+	-- If we are slightly airborne over sloped ground (common at ramp seams/crests),
+	-- snap downward so "grounded" doesn't flicker and uphill walking remains responsive.
+	local wasMagnetized = self:ApplySlopeMagnet()
+
 	if not self.IsGrounded and self.WasGrounded then
 		self.AirborneStartTime = tick()
 		self.CrouchCancelUsedThisJump = false
@@ -449,7 +454,7 @@ function CharacterController:UpdateMovement(deltaTime)
 
 	self.LastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
 
-	if not SlidingSystem.IsSlideBuffered then
+	if not wasMagnetized and not SlidingSystem.IsSlideBuffered then
 		self:ApplyAirborneDownforce(deltaTime)
 	end
 
@@ -552,6 +557,53 @@ function CharacterController:UpdateMovement(deltaTime)
 	elseif isSliding and VFXPlayer:IsActive("SpeedFX") then
 		VFXPlayer:Stop("SpeedFX")
 	end
+end
+
+function CharacterController:ApplySlopeMagnet()
+	if not self.Character or not self.PrimaryPart or not self.RaycastParams then
+		return false
+	end
+
+	local magnetConfig = Config.Gameplay.Character.SlopeMagnet
+	if not magnetConfig or not magnetConfig.Enabled then
+		return false
+	end
+
+	-- Only apply when NOT grounded (slightly airborne) and not ascending.
+	if self.IsGrounded then
+		return false
+	end
+
+	local lastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
+	if lastJumpTime > 0 and (tick() - lastJumpTime) < (magnetConfig.JumpCooldown or 0.25) then
+		return false
+	end
+
+	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+	if currentVelocity.Y > 0 then
+		return false
+	end
+
+	local rayOrigin = self.PrimaryPart.Position
+	local rayDirection = Vector3.new(0, -(magnetConfig.RayLength or 3.0), 0)
+	local rayResult = workspace:Raycast(rayOrigin, rayDirection, self.RaycastParams)
+	if not rayResult then
+		return false
+	end
+
+	local groundDistance = rayResult.Distance
+	local minHeight = magnetConfig.MinAirborneHeight or 0.5
+	if groundDistance < minHeight then
+		return false
+	end
+
+	self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
+		currentVelocity.X,
+		magnetConfig.SnapVelocity or -80,
+		currentVelocity.Z
+	)
+
+	return true
 end
 
 -- =============================================================================
@@ -869,7 +921,39 @@ function CharacterController:ApplyMovement()
 	-- NO adhesion, NO surface projection for normal walking.
 	-- Roblox physics handles ground contact naturally.
 	-- Adhesion/sticky ground is ONLY used during sliding (handled by SlidingSystem).
-	local finalForce = vector3_new(moveForce.X, verticalForce, moveForce.Z)
+	-- NOTE: We *do* allow a slope-tangent Y component while grounded (computed in MovementUtils),
+	-- but still keep airborne vertical forces driven by fall tuning.
+	local appliedY = verticalForce
+	if self.IsGrounded then
+		appliedY = moveForce.Y
+	end
+
+	-- WEDGE / RAMP ASSIST:
+	-- Cancel the component of gravity that acts *along* the slope so:
+	-- - standing mid-ramp doesn't slowly slide back
+	-- - moving uphill doesn't feel like slow motion (you aren't fighting gravity every frame)
+	-- We do NOT cancel gravity into the surface (normal component), so the character still
+	-- stays pressed into the ramp naturally.
+	local slopeAssistForce = Vector3.zero
+	if self.IsGrounded and self.Character and self.PrimaryPart and self.RaycastParams then
+		local grounded, groundNormal, slopeDegrees =
+			MovementUtils:CheckGroundedWithSlope(self.Character, self.PrimaryPart, self.RaycastParams)
+
+		if grounded and groundNormal then
+			local maxWalkableAngle = Config.Gameplay.Character.MaxWalkableSlopeAngle
+			local wallStopConfig = Config.Gameplay.Character.WallStop
+			local minWallAngle = (wallStopConfig and wallStopConfig.MinWallAngle) or 70
+
+			if slopeDegrees > 0.5 and slopeDegrees <= maxWalkableAngle and slopeDegrees < minWallAngle then
+				local gravityAccel = ConfigCache.WORLD_GRAVITY or workspace.Gravity
+				local gravity = Vector3.new(0, -gravityAccel, 0)
+				local gravityParallel = gravity - (gravity:Dot(groundNormal)) * groundNormal
+				slopeAssistForce = -gravityParallel * mass
+			end
+		end
+	end
+
+	local finalForce = vector3_new(moveForce.X, appliedY, moveForce.Z) + slopeAssistForce
 	self.VectorForce.Force = finalForce
 
 end
