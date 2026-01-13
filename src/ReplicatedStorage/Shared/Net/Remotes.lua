@@ -23,6 +23,8 @@ local Remotes = {
 	{ name = "RequestInitialStates", description = "Client requests initial states" },
 
 	-- Match / loadout gating
+	{ name = "MapVoteCast", description = "Client casts/changes their map vote" },
+	{ name = "MapVoteUpdate", description = "Server broadcasts current map votes snapshot" },
 	{ name = "SubmitLoadout", description = "Client submits selected loadout and ready" },
 	{ name = "StartMatch", description = "Server notifies clients match started" },
 

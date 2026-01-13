@@ -2,6 +2,9 @@ local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local Net = require(Locations.Shared.Net.Net)
+
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local MapConfig = require(Configs.MapConfig)
 local GamemodeConfig = require(Configs.GamemodeConfig)
@@ -61,7 +64,11 @@ function module.start(export, ui)
 
 	self._rewardTemplates = {}
 	self._mapTemplates = {}
-	self._mapVotes = {}
+	-- Votes are tracked as:
+	-- - _mapVotersByMap[mapId][userId] = true
+	-- - _mapBlipsByMap[mapId][userId] = blipInstance
+	self._mapVotersByMap = {}
+	self._mapBlipsByMap = {}
 	self._selectedMapId = nil
 	self._rightSideHolderVisible = false
 
@@ -101,13 +108,14 @@ function module:_init()
 end
 
 function module:_setupNetworkListeners()
-	-- TODO: Add remote event listeners here for receiving vote updates from server
-	-- Example: RemoteEvent.OnClientEvent:Connect(function(mapId, votes) self:onVoteUpdate(mapId, votes) end)
+	-- Server broadcasts a full snapshot: { [mapId] = { userId1, userId2, ... }, ... }
+	self._connections:add(Net:ConnectClient("MapVoteUpdate", function(votesByMap)
+		self:onVotesSnapshot(votesByMap)
+	end), "mapVoteNet")
 end
 
 function module:fireMapVote(mapId)
-	-- TODO: Fire remote event to server with map vote
-	-- Example: RemoteEvent:FireServer("VoteMap", mapId)
+	Net:FireServer("MapVoteCast", mapId)
 end
 
 function module:_getLocalPlayer()
@@ -753,8 +761,13 @@ function module:_addPlayerBlip(mapId, userId)
 		return nil
 	end
 
+	self._mapBlipsByMap[mapId] = self._mapBlipsByMap[mapId] or {}
+	self._mapVotersByMap[mapId] = self._mapVotersByMap[mapId] or {}
+
 	local existingBlip = voteHolder:FindFirstChild("Blip_" .. userId)
 	if existingBlip then
+		self._mapBlipsByMap[mapId][userId] = existingBlip
+		self._mapVotersByMap[mapId][userId] = true
 		return existingBlip
 	end
 
@@ -774,10 +787,8 @@ function module:_addPlayerBlip(mapId, userId)
 
 	blip.Parent = voteHolder
 
-	if not self._mapVotes[mapId] then
-		self._mapVotes[mapId] = {}
-	end
-	self._mapVotes[mapId][userId] = blip
+	self._mapBlipsByMap[mapId][userId] = blip
+	self._mapVotersByMap[mapId][userId] = true
 
 	task.spawn(function()
 		local success, content = pcall(function()
@@ -803,11 +814,11 @@ function module:_addPlayerBlip(mapId, userId)
 end
 
 function module:_removePlayerBlip(mapId, userId)
-	if not self._mapVotes[mapId] or not self._mapVotes[mapId][userId] then
+	if not self._mapBlipsByMap[mapId] or not self._mapBlipsByMap[mapId][userId] then
 		return false
 	end
 
-	local blip = self._mapVotes[mapId][userId]
+	local blip = self._mapBlipsByMap[mapId][userId]
 	local uiScale = blip:FindFirstChild("UIScale")
 
 	if uiScale then
@@ -822,18 +833,26 @@ function module:_removePlayerBlip(mapId, userId)
 		blip:Destroy()
 	end
 
-	self._mapVotes[mapId][userId] = nil
+	self._mapBlipsByMap[mapId][userId] = nil
+	if self._mapVotersByMap[mapId] then
+		self._mapVotersByMap[mapId][userId] = nil
+	end
 
 	return true
 end
 
 function module:_clearAllPlayerBlips()
-	for mapId, votes in self._mapVotes do
-		for userId in votes do
+	for mapId, blips in self._mapBlipsByMap do
+		local toRemove = {}
+		for userId in blips do
+			table.insert(toRemove, userId)
+		end
+		for _, userId in ipairs(toRemove) do
 			self:_removePlayerBlip(mapId, userId)
 		end
 	end
-	table.clear(self._mapVotes)
+	table.clear(self._mapBlipsByMap)
+	table.clear(self._mapVotersByMap)
 end
 
 function module:_showRightSideHolder(mapId)
@@ -920,8 +939,8 @@ function module:_recalculateVotes()
 	local totalVotesCast = 0
 	
 	-- First pass: count total votes
-	for _, votes in self._mapVotes do
-		for _ in votes do
+	for _, voters in self._mapVotersByMap do
+		for _ in voters do
 			totalVotesCast = totalVotesCast + 1
 		end
 	end
@@ -929,8 +948,8 @@ function module:_recalculateVotes()
 	-- Second pass: update percentages
 	for mapId in self._mapTemplates do
 		local voteCount = 0
-		if self._mapVotes[mapId] then
-			for _ in self._mapVotes[mapId] do
+		if self._mapVotersByMap[mapId] then
+			for _ in self._mapVotersByMap[mapId] do
 				voteCount = voteCount + 1
 			end
 		end
@@ -940,43 +959,70 @@ function module:_recalculateVotes()
 			votePercent = (voteCount / totalVotesCast) * 100
 		end
 		
-		self:updateMapVote(mapId, voteCount, votePercent)
+		self:updateMapVote(mapId, voteCount, votePercent, totalVotesCast)
 	end
 	
 	self:_checkAllVoted()
 end
 
-function module:onVoteUpdate(mapId, votes)
-	if not self._mapVotes[mapId] then
-		self._mapVotes[mapId] = {}
+function module:onVotesSnapshot(votesByMap)
+	if typeof(votesByMap) ~= "table" then
+		return
 	end
 
-	local currentVoters = {}
-	for oduserId in self._mapVotes[mapId] do
-		currentVoters[oduserId] = true
-	end
-
-	for _, oduserId in ipairs(votes) do
-		if not currentVoters[oduserId] then
-			self:_addPlayerBlip(mapId, oduserId)
+	-- Apply per-map updates; also clear maps not present in snapshot.
+	for mapId in self._mapTemplates do
+		local votes = votesByMap[mapId]
+		if typeof(votes) ~= "table" then
+			votes = {}
 		end
-		currentVoters[oduserId] = nil
+		self:onVoteUpdate(mapId, votes)
 	end
 
-	for oduserId in currentVoters do
-		self:_removePlayerBlip(mapId, oduserId)
+	-- If server sent votes for a map not in our UI, ignore.
+end
+
+function module:onVoteUpdate(mapId, votes)
+	if typeof(mapId) ~= "string" or mapId == "" then
+		return
+	end
+	if typeof(votes) ~= "table" then
+		votes = {}
 	end
 
-	local newVotes = {}
+	self._mapVotersByMap[mapId] = self._mapVotersByMap[mapId] or {}
+	self._mapBlipsByMap[mapId] = self._mapBlipsByMap[mapId] or {}
+
+	local desired = {}
 	for _, userId in ipairs(votes) do
-		newVotes[userId] = true
+		if typeof(userId) == "number" then
+			desired[userId] = true
+		end
 	end
-	self._mapVotes[mapId] = newVotes
 
+	-- Add new voters
+	for userId in desired do
+		if not self._mapVotersByMap[mapId][userId] then
+			self:_addPlayerBlip(mapId, userId)
+		end
+	end
+
+	-- Remove voters who are no longer on this map
+	local toRemove = {}
+	for userId in self._mapVotersByMap[mapId] do
+		if not desired[userId] then
+			table.insert(toRemove, userId)
+		end
+	end
+	for _, userId in ipairs(toRemove) do
+		self:_removePlayerBlip(mapId, userId)
+	end
+
+	self._mapVotersByMap[mapId] = desired
 	self:_recalculateVotes()
 end
 
-function module:updateMapVote(mapId, voteCount, votePercent)
+function module:updateMapVote(mapId, voteCount, votePercent, totalVotesCast)
 	local data = self._mapTemplates[mapId]
 	if not data then
 		return false
@@ -994,7 +1040,7 @@ function module:updateMapVote(mapId, voteCount, votePercent)
 				local mapNameLabel = holderCanvas:FindFirstChild("MapName")
 				if mapNameLabel then
 					local displayName = data.mapData.name
-					if votePercent > 0 then
+					if (totalVotesCast or 0) > 0 then
 						mapNameLabel.Text = string.upper(displayName) .. " - " .. math.floor(votePercent) .. "%"
 					else
 						mapNameLabel.Text = string.upper(displayName)
@@ -1357,8 +1403,8 @@ function module:_checkAllVoted()
 	if totalPlayers == 0 then totalPlayers = 1 end
 
 	local totalVotes = 0
-	for _, votes in self._mapVotes do
-		for _ in votes do
+	for _, voters in self._mapVotersByMap do
+		for _ in voters do
 			totalVotes = totalVotes + 1
 		end
 	end
@@ -1384,22 +1430,14 @@ function module:startTimer()
 		end
 
 		local matchCreatedTime = RoundCreateData.matchCreatedTime or os.time()
-		local duration = 30
+		local duration = 5
 		local endTime = matchCreatedTime + duration
-		local lastShortenCheck = false
 
 		while self._initialized and self._timerRunning do
 			local currentTime = os.time()
 			local timeLeft = endTime - currentTime
 
-			-- "All Voted" logic: shorten timer if everyone voted and time > 5s
-			if self._allVoted and not lastShortenCheck then
-				if timeLeft > 5 then
-					endTime = currentTime + 5
-					timeLeft = 5
-				end
-				lastShortenCheck = true
-			end
+			-- For now: keep voting timer fixed at 30s (no early shorten).
 
 			if timeLeft < 0 then timeLeft = 0 end
 
@@ -1429,9 +1467,9 @@ function module:finishVoting()
 	self._votingFinished = true
 
 	local votesData = {}
-	for mapId, votes in self._mapVotes do
+	for mapId, voters in self._mapVotersByMap do
 		local userIds = {}
-		for oduserId in votes do
+		for oduserId in voters do
 			table.insert(userIds, oduserId)
 		end
 		votesData[mapId] = userIds

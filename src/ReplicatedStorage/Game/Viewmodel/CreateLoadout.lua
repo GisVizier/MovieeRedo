@@ -54,7 +54,7 @@ local function cloneRig(modelPath: string, name: string, player: Player?, silent
 	return rig
 end
 
-function CreateLoadout.create(loadout: {[string]: any}, player: Player?)
+function CreateLoadout.create(loadout: { [string]: any }, player: Player?)
 	-- Slots:
 	-- - Fists (fallback / default)
 	-- - Primary (weapon)
@@ -75,7 +75,8 @@ function CreateLoadout.create(loadout: {[string]: any}, player: Player?)
 		end
 
 		local weaponCfg = ViewmodelConfig.Weapons[weaponId]
-		local path = weaponCfg and weaponCfg.ModelPath or (ViewmodelConfig.Models.ByWeaponId and ViewmodelConfig.Models.ByWeaponId[weaponId])
+		local path = weaponCfg and weaponCfg.ModelPath
+			or (ViewmodelConfig.Models.ByWeaponId and ViewmodelConfig.Models.ByWeaponId[weaponId])
 		if type(path) ~= "string" or path == "" then
 			-- Silently skip: missing config should not spam output during development.
 			return
@@ -112,4 +113,3 @@ function CreateLoadout.create(loadout: {[string]: any}, player: Player?)
 end
 
 return CreateLoadout
-
