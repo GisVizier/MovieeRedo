@@ -30,6 +30,7 @@ function ViewmodelAnimator.new()
 	self._tracks = {}
 	self._currentMove = nil
 	self._conn = nil
+	self._initialized = false
 	return self
 end
 
@@ -39,6 +40,7 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	self._rig = rig
 	self._tracks = {}
 	self._currentMove = nil
+	self._initialized = false
 
 	if not rig or not rig.Animator then
 		return
@@ -58,11 +60,27 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 		end
 	end
 
-	-- Default idle
-	self:Play("Idle", 0.15, true)
+	-- Pre-load all movement animations by playing and immediately stopping them
+	-- This "primes" the animation system so they're ready when needed
+	for name, track in pairs(self._tracks) do
+		if name == "Walk" or name == "Run" then
+			track:Play(0)
+			track:Stop(0)
+		end
+	end
 
+	-- Start with idle
+	self:Play("Idle", 0.15, true)
+	self._currentMove = "Idle"
+
+	-- Start the movement update loop immediately
 	self._conn = RunService.Heartbeat:Connect(function()
 		self:_updateMovement()
+	end)
+
+	-- Mark as initialized after a short delay to ensure animation system is ready
+	task.delay(0.1, function()
+		self._initialized = true
 	end)
 end
 
@@ -83,6 +101,7 @@ function ViewmodelAnimator:Unbind()
 	self._rig = nil
 	self._tracks = {}
 	self._currentMove = nil
+	self._initialized = false
 end
 
 function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolean?)
@@ -112,7 +131,7 @@ function ViewmodelAnimator:GetTrack(name: string)
 end
 
 function ViewmodelAnimator:_updateMovement()
-	if not self._rig then
+	if not self._rig or not self._initialized then
 		return
 	end
 
@@ -132,8 +151,15 @@ function ViewmodelAnimator:_updateMovement()
 		end
 	end
 
-	if self._currentMove ~= target then
-		if self._currentMove then
+	-- Always ensure the correct animation is playing
+	local targetTrack = self._tracks[target]
+	if not targetTrack then
+		return
+	end
+
+	-- If we need to change animations OR the target isn't playing, switch to it
+	if self._currentMove ~= target or not targetTrack.IsPlaying then
+		if self._currentMove and self._currentMove ~= target then
 			self:Stop(self._currentMove, 0.15)
 		end
 		self:Play(target, 0.15, false)
@@ -142,4 +168,3 @@ function ViewmodelAnimator:_updateMovement()
 end
 
 return ViewmodelAnimator
-

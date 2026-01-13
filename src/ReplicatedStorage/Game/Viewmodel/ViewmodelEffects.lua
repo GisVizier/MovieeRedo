@@ -146,4 +146,3 @@ function ViewmodelEffects:Update(dt: number, cameraCFrame: CFrame, weaponId: str
 end
 
 return ViewmodelEffects
-
