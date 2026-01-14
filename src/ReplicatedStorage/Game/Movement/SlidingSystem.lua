@@ -317,17 +317,32 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 
 		local immediateVelocity = slideDirection * self.SlideVelocity
 
-		local initVel = Instance.new("BodyVelocity")
-		initVel.Name = "SlideInitVelocity"
+		-- Standstill slide fix: apply immediate velocity in a network-friendly way.
+		-- Use LinearVelocity (constraint replacement for BodyVelocity) to match our slide driver.
+		local primaryPart = self.PrimaryPart
+		local attachment = primaryPart:FindFirstChild("SlideAttachment")
+		if not attachment then
+			attachment = Instance.new("Attachment")
+			attachment.Name = "SlideAttachment"
+			attachment.Parent = primaryPart
+		end
+
+		local initVel = Instance.new("LinearVelocity")
+		initVel.Name = "SlideInitLinearVelocity"
+		initVel.Attachment0 = attachment
+		initVel.RelativeTo = Enum.ActuatorRelativeTo.World
+		initVel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		initVel.ForceLimitsEnabled = true
+		initVel.ForceLimitMode = Enum.ForceLimitMode.PerAxis
 
 		if isAtEdge then
-			initVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			initVel.Velocity = Vector3.new(immediateVelocity.X, -10, immediateVelocity.Z)
+			initVel.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+			initVel.VectorVelocity = Vector3.new(immediateVelocity.X, -10, immediateVelocity.Z)
 		else
-			initVel.MaxForce = Vector3.new(math.huge, 0, math.huge)
-			initVel.Velocity = Vector3.new(immediateVelocity.X, 0, immediateVelocity.Z)
+			initVel.MaxAxesForce = Vector3.new(math.huge, 0, math.huge)
+			initVel.VectorVelocity = Vector3.new(immediateVelocity.X, 0, immediateVelocity.Z)
 		end
-		initVel.Parent = self.PrimaryPart
+		initVel.Parent = primaryPart
 
 		if isAtEdge then
 			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
@@ -410,89 +425,32 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 end
 
 function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediately, stopReason)
-	-- Slope push tech (slide release):
-	-- If the player manually cancels a slide while pushing into an uphill slope, give a clean,
-	-- one-shot upward/forward pop. This is intentionally simple: no sticky wall states.
-	if self.IsSliding and self.PrimaryPart and self.Character and self.RaycastParams then
-		local isManualRelease = (stopReason == "ManualRelease" or stopReason == "ManualUncrouchRelease")
-		if isManualRelease then
-			local slideSpeed = self.SlideVelocity or 0
-			if slideSpeed >= 10 then
-				local config = Config.Gameplay.Sliding.JumpCancel
-				local uphillConfig = config and config.UphillBoost
-
-				if uphillConfig and uphillConfig.Enabled then
-					local isGrounded, groundNormal =
-						MovementUtils:CheckGroundedWithSlope(self.Character, self.PrimaryPart, self.RaycastParams)
-
-					if isGrounded and groundNormal then
-						local up = Vector3.new(0, 1, 0)
-						local slopeAngle = math.acos(math.clamp(groundNormal:Dot(up), -1, 1))
-
-						if slopeAngle > (uphillConfig.SlopeThreshold or 0) then
-							local direction = self.SlideDirection
-							if not direction or direction.Magnitude < 0.01 then
-								local look = self.PrimaryPart.CFrame.LookVector
-								direction = Vector3.new(look.X, 0, look.Z)
-							end
-
-							if direction and direction.Magnitude > 0.01 then
-								direction = direction.Unit
-
-								local gravity = Vector3.new(0, -1, 0)
-								local downhill = gravity - gravity:Dot(groundNormal) * groundNormal
-								if downhill.Magnitude > 0.01 then
-									downhill = downhill.Unit
-
-									local alignment = direction:Dot(downhill) -- < 0 means "uphill"
-									if alignment <= (uphillConfig.MinUphillAlignment or -0.4) then
-										local maxSlopeRadians = math.rad(uphillConfig.MaxSlopeAngle or 50)
-										local slopeStrength = math.clamp(slopeAngle / maxSlopeRadians, 0, 1)
-										slopeStrength = slopeStrength ^ (uphillConfig.ScalingExponent or 1)
-
-										local slopeForward = direction - direction:Dot(groundNormal) * groundNormal
-										if slopeForward.Magnitude > 0.01 then
-											slopeForward = slopeForward.Unit
-										else
-											slopeForward = direction
-										end
-
-										local baseHorizontal = math.max(
-											slideSpeed * (uphillConfig.HorizontalVelocityScale or 0.35),
-											uphillConfig.MinHorizontalVelocity or 8
-										)
-
-										local jumpCancelVertical = (uphillConfig.MinVerticalBoost or 50)
-											+ ((uphillConfig.MaxVerticalBoost or 70) - (uphillConfig.MinVerticalBoost or 50))
-												* (1 - slopeStrength)
-
-										-- Scale down from jump-cancel into a smaller "release pop".
-										local releaseVertical = jumpCancelVertical * 0.45
-										local releaseHorizontal = baseHorizontal * 0.55
-
-										local v = self.PrimaryPart.AssemblyLinearVelocity
-										self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-											v.X + slopeForward.X * releaseHorizontal,
-											math.max(v.Y, releaseVertical),
-											v.Z + slopeForward.Z * releaseHorizontal
-										)
-									end
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-	end
+	-- NOTE: Slide cancel should never inject forward momentum.
+	-- Slope-jump tech belongs in jump logic (MovementUtils:ApplySlopeJump), not in StopSlide.
 
 	self.LastSlideStopTime = tick()
 	self.SlideStopDirection = self.SlideDirection
 	self.SlideStopVelocity = self.SlideVelocity
 
-	local slideBodyVel = self.PrimaryPart and self.PrimaryPart:FindFirstChild("SlideBodyVelocity")
-	if slideBodyVel then
-		slideBodyVel:Destroy()
+	-- Clean up both old and new slide force systems
+	if self.PrimaryPart then
+		-- Legacy + init movers (migration safety)
+		local initLinearVel = self.PrimaryPart:FindFirstChild("SlideInitLinearVelocity")
+		if initLinearVel then
+			initLinearVel:Destroy()
+		end
+		local slideBodyVel = self.PrimaryPart:FindFirstChild("SlideBodyVelocity")
+		if slideBodyVel then
+			slideBodyVel:Destroy()
+		end
+		local slideLinearVel = self.PrimaryPart:FindFirstChild("SlideLinearVelocity")
+		if slideLinearVel then
+			slideLinearVel:Destroy()
+		end
+		local slideForce = self.PrimaryPart:FindFirstChild("SlideForce")
+		if slideForce then
+			slideForce:Destroy()
+		end
 	end
 
 	self.IsSliding = false
@@ -774,6 +732,7 @@ function SlidingSystem:UpdateSlide(deltaTime)
 
 	self:ApplySlideVelocity(cappedDeltaTime)
 
+	-- Stop slide if too slow - ALWAYS stand up (Moviee behavior).
 	if self.SlideVelocity <= slideConfig.MinVelocity then
 		self:StopSlide(false, nil, "MinVelocity")
 		return
