@@ -204,25 +204,35 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 			end
 		end
 
-		local distanceToGround = (primaryPart.Position - bestHit.Position).Magnitude
+		-- NOTE: Use vertical gap from the *bottom of the rig* (not root center, not 3D distance).
+		-- Using the root center causes constant "digging" because the center is always ~half a part-height above the ground.
+		-- Also add a small deadzone + damping (PD-style) so we don't "dig" into ground at any speed.
+		local feetPart = CharacterLocations:GetFeet(self.SlidingSystem.Character) or primaryPart
+		local feetBottomY = feetPart.Position.Y - (feetPart.Size.Y * 0.5)
 
-		-- Velocity-scaled surface stickiness
-		if slideSpeed > 5 then
-			local speedFactor = math.clamp((slideSpeed - 5) / 45, 0, 1)
-			local baseStrength = 220
-			local maxStrength = 300
-			local stickStrength = baseStrength + (maxStrength - baseStrength) * speedFactor
+		local verticalGap = feetBottomY - bestHit.Position.Y
+		verticalGap = math.max(0, verticalGap)
 
-			local distanceMultiplier = math.clamp(distanceToGround / 3, 0.5, 2.0)
-			local stickForce = stickStrength * distanceMultiplier
+		-- Deadzone: if we're already close enough to the surface, don't force extra downward velocity.
+		local targetGap = 0.2
+		local gapError = verticalGap - targetGap
 
-			-- Pull toward ground
-			yVelocity = -stickForce
+		if gapError > 0 then
+			-- Pull down proportional to gap, with damping against current vertical velocity.
+			-- Scale slightly with slide speed so faster slides re-attach more aggressively.
+			local speedFactor = math.clamp(slideSpeed / 60, 0, 1)
+			local kP = 120 + 80 * speedFactor
+			local kD = 10 + 6 * speedFactor
+
+			yVelocity = -(kP * gapError) - (kD * currentVelocity.Y)
 
 			-- If already moving downward faster, keep that.
 			if currentVelocity.Y < yVelocity then
 				yVelocity = currentVelocity.Y
 			end
+		else
+			-- At/under target gap: let gravity handle it; never push upward.
+			yVelocity = math.min(currentVelocity.Y, 0)
 		end
 	end
 

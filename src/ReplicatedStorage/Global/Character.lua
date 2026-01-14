@@ -1,6 +1,6 @@
 local Character = {
-	SprintSpeed = 26,
-	WalkSpeed = 20,
+	SprintSpeed = 22,
+	WalkSpeed = 17,
 	JumpPower = 35,
 	AutoSprint = false,
 	CoyoteTime = 0.12,

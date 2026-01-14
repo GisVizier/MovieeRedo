@@ -366,6 +366,14 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 	end
 
 	local impulseConfig = Config.Gameplay.Sliding.ImpulseSlide
+
+	-- Apply low-friction slide properties for ALL slides (prevents V-only "drag" on ramps).
+	-- Keep the impulse ("pop") gated by existing momentum.
+	if impulseConfig and impulseConfig.Enabled and self.PrimaryPart then
+		local glideProps = PhysicalProperties.new(0.01, impulseConfig.SlideFriction, 0, 100, 100)
+		self.PrimaryPart.CustomPhysicalProperties = glideProps
+	end
+
 	local hasExistingMomentum = currentHorizontalVelocity.Magnitude > 5
 	if impulseConfig and impulseConfig.Enabled and hasExistingMomentum then
 		local mass = self.PrimaryPart.AssemblyMass
@@ -373,9 +381,6 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 		local impulseVector = slideDirection * impulseMagnitude
 
 		self.PrimaryPart:ApplyImpulse(impulseVector)
-
-		local glideProps = PhysicalProperties.new(0.01, impulseConfig.SlideFriction, 0, 100, 100)
-		self.PrimaryPart.CustomPhysicalProperties = glideProps
 	end
 
 	if airborneBonus > 0 then
