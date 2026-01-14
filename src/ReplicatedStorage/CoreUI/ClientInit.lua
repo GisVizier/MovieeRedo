@@ -6,7 +6,6 @@ local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 local KitController = require(ReplicatedStorage.KitSystem.KitController)
 
 local ClientInit = {}
--- local KitController = require(ReplicatedStorage.KitSystem.KitController)
 
 function ClientInit.start(screenGui)
 	print("[ClientInit] Starting with ScreenGui:", screenGui.Name)
