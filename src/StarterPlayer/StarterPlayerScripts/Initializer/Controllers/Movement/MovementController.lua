@@ -20,7 +20,7 @@ local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
-local VFXRep = require(Locations.Game:WaitForChild("Movement"):WaitForChild("VFXRep"))
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local function getMovementTemplate(name: string): Instance?
