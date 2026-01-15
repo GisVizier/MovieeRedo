@@ -62,12 +62,12 @@ KitConfig.RarityInfo = {
 
 	Rare = {
 		TEXT = "RARE",
-		COLOR = Color3.fromRGB(66, 123, 255),
+		COLOR = Color3.fromRGB(125, 188, 255),
 	},
 
 	Common = {
 		TEXT = "COMMON",
-		COLOR = Color3.fromRGB(77, 79, 83),
+		COLOR = Color3.fromRGB(203, 208, 218),
 	},
 }
 
