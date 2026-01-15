@@ -8,23 +8,8 @@ local CharacterLocations = require(Locations.Game:WaitForChild("Character"):Wait
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
-local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
-
-local function getMovementTemplate(name: string): Instance?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if not assets then
-		return nil
-	end
-	local vfx = assets:FindFirstChild("VFX")
-	local movement = vfx and vfx:FindFirstChild("MovementFX")
-	local fromNew = movement and movement:FindFirstChild(name)
-	if fromNew then
-		return fromNew
-	end
-	local legacy = assets:FindFirstChild("MovementFX")
-	return legacy and legacy:FindFirstChild(name) or nil
-end
 
 WallJumpUtils.RemainingCharges = 3
 WallJumpUtils.HasResetThisLanding = true
@@ -214,13 +199,7 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 	self.HasResetThisLanding = false
 	self.LastWallJumpTime = tick()
 
-	do
-		local template = getMovementTemplate("WallJump")
-		if template then
-			local vfxCfg = Config.Gameplay.VFX and Config.Gameplay.VFX.WallJump
-			VFXPlayer:Play(template, wallData.Position, vfxCfg and vfxCfg.Lifetime or nil)
-		end
-	end
+	VFXRep:Fire("All", { Module = "WallJump" }, { position = wallData.Position })
 
 	local animationController = ServiceRegistry:GetController("AnimationController")
 

@@ -10,22 +10,7 @@ local MovementUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChi
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
-local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
-
-local function getMovementTemplate(name: string): Instance?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if not assets then
-		return nil
-	end
-	local vfx = assets:FindFirstChild("VFX")
-	local movement = vfx and vfx:FindFirstChild("MovementFX")
-	local fromNew = movement and movement:FindFirstChild(name)
-	if fromNew then
-		return fromNew
-	end
-	local legacy = assets:FindFirstChild("MovementFX")
-	return legacy and legacy:FindFirstChild(name) or nil
-end
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 
 SlidingState.SlidingSystem = nil
 
@@ -281,13 +266,9 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 
 	self.SlidingSystem.PrimaryPart.AssemblyLinearVelocity = finalVelocity
 
-	do
-		local template = getMovementTemplate("SlideCancel")
-		if template then
-			local vfxCfg = Config.Gameplay.VFX and Config.Gameplay.VFX.SlideCancel
-			VFXPlayer:Play(template, self.SlidingSystem.PrimaryPart.Position, vfxCfg and vfxCfg.Lifetime or nil)
-		end
-	end
+	VFXRep:Fire("All", { Module = "SlideCancel" }, {
+		position = self.SlidingSystem.PrimaryPart.Position,
+	})
 
 	local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 	local animationController = ServiceRegistry:GetController("AnimationController")

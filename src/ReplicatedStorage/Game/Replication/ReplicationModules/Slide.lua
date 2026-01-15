@@ -9,9 +9,13 @@ local Slide = {}
 local active = {}
 
 function Slide:Validate(_player, data)
-	return typeof(data) == "table"
-		and (data.state == "Start" or data.state == "End")
-		and (data.direction == nil or typeof(data.direction) == "Vector3")
+	if typeof(data) ~= "table" then
+		return false
+	end
+	if data.state == "Start" or data.state == "End" then
+		return data.direction == nil or typeof(data.direction) == "Vector3"
+	end
+	return typeof(data.direction) == "Vector3"
 end
 
 function Slide:Execute(originUserId, data)
@@ -40,6 +44,17 @@ function Slide:Execute(originUserId, data)
 		VFXPlayer:Stop(key)
 		active[originUserId] = nil
 	end
+end
+
+function Slide:Update(originUserId, data)
+	if not data or typeof(data.direction) ~= "Vector3" then
+		return
+	end
+	if not active[originUserId] then
+		return
+	end
+	local key = "Slide_" .. tostring(originUserId)
+	VFXPlayer:UpdateYaw(key, data.direction)
 end
 
 return Slide

@@ -19,26 +19,8 @@ local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Con
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
-local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
-
-local function getMovementTemplate(name: string): Instance?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if not assets then
-		return nil
-	end
-	-- Prefer new layout if present: Assets/VFX/MovementFX/<Name>
-	local vfx = assets:FindFirstChild("VFX")
-	local movement = vfx and vfx:FindFirstChild("MovementFX")
-	local fromNew = movement and movement:FindFirstChild(name)
-	if fromNew then
-		return fromNew
-	end
-	-- Legacy: Assets/MovementFX/<Name>
-	local legacy = assets:FindFirstChild("MovementFX")
-	return legacy and legacy:FindFirstChild(name) or nil
-end
 
 local math_rad = math.rad
 local math_deg = math.deg
@@ -538,31 +520,21 @@ function CharacterController:UpdateMovement(deltaTime)
 	local effectiveSpeed = math.sqrt(horizontalSpeed * horizontalSpeed + verticalSpeed * verticalSpeed)
 	FOVController:UpdateMomentum(effectiveSpeed)
 
-	local speedFXConfig = Config.Gameplay.VFX and Config.Gameplay.VFX.SpeedFX
-	local isSliding = MovementStateManager:IsSliding()
-
-	if speedFXConfig and speedFXConfig.Enabled and self.PrimaryPart and not isSliding then
-		local speedThreshold = speedFXConfig.Threshold or 80
-		local fallThreshold = speedFXConfig.FallThreshold or 70
+	if self.PrimaryPart then
 		local fallSpeed = math.abs(fullVelocity.Y)
+		local speedForFx = math.max(horizontalSpeed, fallSpeed)
 
-		local shouldShowSpeedFX = horizontalSpeed >= speedThreshold or fallSpeed >= fallThreshold
-
-		if shouldShowSpeedFX then
-			if not VFXPlayer:IsActive("SpeedFX") then
-				local template = getMovementTemplate("SpeedFX")
-				if template then
-					VFXPlayer:Start("SpeedFX", template, self.PrimaryPart)
-				end
-			end
-			VFXPlayer:UpdateYaw("SpeedFX", fullVelocity)
+		if not MovementStateManager:IsSliding() then
+			VFXRep:Fire("Others", { Module = "Speed" }, {
+				direction = fullVelocity,
+				speed = speedForFx,
+			})
 		else
-			if VFXPlayer:IsActive("SpeedFX") then
-				VFXPlayer:Stop("SpeedFX")
-			end
+			VFXRep:Fire("Others", { Module = "Speed" }, {
+				direction = Vector3.zero,
+				speed = 0,
+			})
 		end
-	elseif isSliding and VFXPlayer:IsActive("SpeedFX") then
-		VFXPlayer:Stop("SpeedFX")
 	end
 end
 
@@ -687,10 +659,7 @@ function CharacterController:CheckGrounded()
 
 		if fallSpeed >= minFallVelocity then
 			local feetPosition = self.FeetPart and self.FeetPart.Position or self.PrimaryPart.Position
-			local template = getMovementTemplate("Land")
-			if template then
-				VFXPlayer:Play(template, feetPosition, landConfig and landConfig.Lifetime or nil)
-			end
+			VFXRep:Fire("All", { Module = "Land" }, { position = feetPosition })
 		end
 	else
 		self.JustLanded = false

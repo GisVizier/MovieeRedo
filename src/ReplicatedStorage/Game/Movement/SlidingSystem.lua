@@ -17,22 +17,7 @@ local SlidingPhysics = require(Locations.Game:WaitForChild("Movement"):WaitForCh
 local SlidingState = require(Locations.Game:WaitForChild("Movement"):WaitForChild("SlidingState"))
 local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("RigRotationUtils"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
-local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
-
-local function getMovementTemplate(name: string): Instance?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if not assets then
-		return nil
-	end
-	local vfx = assets:FindFirstChild("VFX")
-	local movement = vfx and vfx:FindFirstChild("MovementFX")
-	local fromNew = movement and movement:FindFirstChild(name)
-	if fromNew then
-		return fromNew
-	end
-	local legacy = assets:FindFirstChild("MovementFX")
-	return legacy and legacy:FindFirstChild(name) or nil
-end
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 
 SlidingSystem.IsSliding = false
 SlidingSystem.SlideVelocity = 0
@@ -392,12 +377,7 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 
 	self:CreateSlideTrail()
 
-	do
-		local template = getMovementTemplate("Slide")
-		if template then
-			VFXPlayer:Start("Slide", template, self.PrimaryPart)
-		end
-	end
+	VFXRep:Fire("All", { Module = "Slide" }, { state = "Start", direction = slideDirection })
 	FOVController:AddEffect("Slide")
 
 	if wasBuffered then
@@ -485,7 +465,7 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 
 	self:RemoveSlideTrail()
 
-	VFXPlayer:Stop("Slide")
+	VFXRep:Fire("All", { Module = "Slide" }, { state = "End" })
 	FOVController:RemoveEffect("Slide")
 
 	if self.AlignOrientation then
@@ -575,11 +555,10 @@ function SlidingSystem:UpdateSlide(deltaTime)
 
 	local slideConfig = Config.Gameplay.Sliding
 
-	if self.PrimaryPart and VFXPlayer:IsActive("Slide") then
-		VFXPlayer:UpdateYaw(
-			"Slide",
-			self.SlideDirection and self.SlideDirection * 10 or self.PrimaryPart.CFrame.LookVector * 10
-		)
+	if self.PrimaryPart then
+		VFXRep:Fire("All", { Module = "Slide", Function = "Update" }, {
+			direction = self.SlideDirection and self.SlideDirection * 10 or self.PrimaryPart.CFrame.LookVector * 10,
+		})
 	end
 
 	local cappedDeltaTime = deltaTime
