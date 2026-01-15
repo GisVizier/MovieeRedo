@@ -28,6 +28,9 @@ local Remotes = {
 	{ name = "SubmitLoadout", description = "Client submits selected loadout and ready" },
 	{ name = "StartMatch", description = "Server notifies clients match started" },
 
+	-- VFX replication (generic)
+	{ name = "VFXRep", description = "VFX replication", unreliable = true },
+
 	-- Kit system
 	{ name = "KitRequest", description = "Client requests kit actions (purchase/equip/ability)" },
 	{ name = "KitState", description = "Server sends kit state/events" },

@@ -20,6 +20,7 @@ local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
+local VFXRep = require(Locations.Game:WaitForChild("Movement"):WaitForChild("VFXRep"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local function getMovementTemplate(name: string): Instance?
@@ -119,6 +120,7 @@ function CharacterController:Init(registry, net)
 	self.MovementInputProcessor:Init(self)
 
 	SlidingSystem:Init()
+	VFXRep:Init(net, false)
 
 	MovementStateManager:ConnectToStateChange(function(previousState, newState)
 		if previousState == MovementStateManager.States.Sliding and newState == MovementStateManager.States.Crouching then
