@@ -244,6 +244,38 @@ KitConfig.Kits = {
 			UltCost = 100,
 		},
 	},
+
+	Airborne = {
+		Icon = "rbxassetid://80058231826369",
+		Name = "AIRBORNE",
+		Description = "He bends wind for speed and control, launching himself through the air with bursts of momentum. He wins fights by outmoving everyone.",
+		Rarity = "Rare",
+		Price = 570,
+		Module = "Airborne",
+
+		Ability = {
+			Name = "CLOUDSKIP",
+			Description = "Use wind that boosts you, letting you cut angles fast and land in the perfect position.",
+			Video = "",
+			Cooldown = 7,
+		},
+
+		Passive = {
+			Name = "AIR CUSHION",
+			Description = "Slows your fall, letting you float down and land softly without taking heavy impact.",
+			Video = "",
+			PassiveType = "Movement",
+		},
+
+		Ultimate = {
+			Name = "HURRICANE",
+			Description = "Unleash a raging tornado that pulls in nearby enemies, spins them helplessly, then launches them outward to scatter the fight.",
+			Video = "",
+			DamageType = "AOE",
+			Destruction = "Big",
+			UltCost = 100,
+		},
+	},
 }
 
 KitConfig.Input = {
