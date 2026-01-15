@@ -46,7 +46,7 @@ function WallBoostDirectionDetector:GetWallBoostAnimationType(cameraDirection, m
 	elseif angleDegrees >= lateralStart and angleDegrees <= lateralEnd then
 		return "Right"
 	elseif angleDegrees >= backwardStart and angleDegrees <= backwardEnd then
-		return "Forward"
+		return "Back"
 	end
 
 	return "Left"
@@ -61,6 +61,8 @@ function WallBoostDirectionDetector:GetWallBoostAnimationName(cameraDirection, m
 		return "WallBoostLeft"
 	elseif animationType == "Right" then
 		return "WallBoostRight"
+	elseif animationType == "Back" then
+		return "WallBoostBack"
 	end
 
 	return "WallBoostForward"

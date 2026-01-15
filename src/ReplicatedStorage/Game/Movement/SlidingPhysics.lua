@@ -150,16 +150,33 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 		return
 	end
 
-	local slideVelocityVector = self.SlidingSystem.SlideDirection * self.SlidingSystem.SlideVelocity
-	local currentVelocity = self.SlidingSystem.PrimaryPart.AssemblyLinearVelocity
-
-	local yVelocity = currentVelocity.Y
+	-- Moviee-Proj style (old feel): drive slide with a velocity target (not force).
+	-- We use LinearVelocity (constraint-based replacement for BodyVelocity) for modern parity.
 	local primaryPart = self.SlidingSystem.PrimaryPart
 	local raycastParams = self.SlidingSystem.RaycastParams
 
+	-- Ensure any prior force-based slide driver is removed.
+	local slideForce = primaryPart:FindFirstChild("SlideForce")
+	if slideForce then
+		slideForce:Destroy()
+	end
+	-- Ensure any legacy BodyVelocity slide driver is removed (migration safety).
+	local legacyBodyVel = primaryPart:FindFirstChild("SlideBodyVelocity")
+	if legacyBodyVel then
+		legacyBodyVel:Destroy()
+	end
+
+	local slideVelocityVector = self.SlidingSystem.SlideDirection * self.SlidingSystem.SlideVelocity
+	local currentVelocity = primaryPart.AssemblyLinearVelocity
+
+	-- Preserve gravity/jumping unless we detect ground and want stickiness.
+	local yVelocity = currentVelocity.Y
+
+	-- Raycast straight down
 	local downRayDistance = Config.Gameplay.Sliding.GroundCheckDistance or 10
 	local downRay = workspace:Raycast(primaryPart.Position, Vector3.new(0, -downRayDistance, 0), raycastParams)
 
+	-- Raycast forward-down to catch upcoming slopes
 	local forwardDownRay = nil
 	local slideSpeed = self.SlidingSystem.SlideVelocity or 0
 	if slideSpeed > 5 then
@@ -174,8 +191,10 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 		end
 	end
 
+	-- If ANY ground is detected, apply strong stickiness
 	local groundDetected = downRay or forwardDownRay
 	if groundDetected then
+		-- Prefer the higher/closer ground hit
 		local bestHit = downRay
 		if forwardDownRay then
 			if not downRay then
@@ -185,37 +204,64 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 			end
 		end
 
-		local distanceToGround = (primaryPart.Position - bestHit.Position).Magnitude
+		-- NOTE: Use vertical gap from the *bottom of the rig* (not root center, not 3D distance).
+		-- Using the root center causes constant "digging" because the center is always ~half a part-height above the ground.
+		-- Also add a small deadzone + damping (PD-style) so we don't "dig" into ground at any speed.
+		local feetPart = CharacterLocations:GetFeet(self.SlidingSystem.Character) or primaryPart
+		local feetBottomY = feetPart.Position.Y - (feetPart.Size.Y * 0.5)
 
-		local slideSpeedValue = self.SlidingSystem.SlideVelocity or 0
-		if slideSpeedValue > 5 then
-			local speedFactor = math.clamp((slideSpeedValue - 5) / 45, 0, 1)
-			local baseStrength = 220
-			local maxStrength = 300
-			local stickStrength = baseStrength + (maxStrength - baseStrength) * speedFactor
+		local verticalGap = feetBottomY - bestHit.Position.Y
+		verticalGap = math.max(0, verticalGap)
 
-			local distanceMultiplier = math.clamp(distanceToGround / 3, 0.5, 2.0)
-			local stickForce = stickStrength * distanceMultiplier
+		-- Deadzone: if we're already close enough to the surface, don't force extra downward velocity.
+		local targetGap = 0.2
+		local gapError = verticalGap - targetGap
 
-			yVelocity = -stickForce
+		if gapError > 0 then
+			-- Pull down proportional to gap, with damping against current vertical velocity.
+			-- Scale slightly with slide speed so faster slides re-attach more aggressively.
+			local speedFactor = math.clamp(slideSpeed / 60, 0, 1)
+			local kP = 120 + 80 * speedFactor
+			local kD = 10 + 6 * speedFactor
 
+			yVelocity = -(kP * gapError) - (kD * currentVelocity.Y)
+
+			-- If already moving downward faster, keep that.
 			if currentVelocity.Y < yVelocity then
 				yVelocity = currentVelocity.Y
 			end
+		else
+			-- At/under target gap: let gravity handle it; never push upward.
+			yVelocity = math.min(currentVelocity.Y, 0)
 		end
 	end
 
+	-- Clamp Y velocity (prevents extreme values)
 	yVelocity = math.clamp(yVelocity, -250, 30)
 
-	local bodyVel = self.SlidingSystem.PrimaryPart:FindFirstChild("SlideBodyVelocity")
-	if not bodyVel then
-		bodyVel = Instance.new("BodyVelocity")
-		bodyVel.Name = "SlideBodyVelocity"
-		bodyVel.Parent = self.SlidingSystem.PrimaryPart
+	-- Use LinearVelocity with per-axis force limits to match old BodyVelocity behavior.
+	local attachment = primaryPart:FindFirstChild("SlideAttachment")
+	if not attachment then
+		attachment = Instance.new("Attachment")
+		attachment.Name = "SlideAttachment"
+		attachment.Parent = primaryPart
 	end
 
-	bodyVel.MaxForce = Vector3.new(40000, 30000, 40000)
-	bodyVel.Velocity = Vector3.new(slideVelocityVector.X, yVelocity, slideVelocityVector.Z)
+	local linearVel = primaryPart:FindFirstChild("SlideLinearVelocity")
+	if not linearVel then
+		linearVel = Instance.new("LinearVelocity")
+		linearVel.Name = "SlideLinearVelocity"
+		linearVel.Attachment0 = attachment
+		linearVel.RelativeTo = Enum.ActuatorRelativeTo.World
+		linearVel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		linearVel.ForceLimitsEnabled = true
+		linearVel.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+		linearVel.Parent = primaryPart
+	end
+
+	-- Match prior per-axis MaxForce used by SlideBodyVelocity.
+	linearVel.MaxAxesForce = Vector3.new(40000, 30000, 40000)
+	linearVel.VectorVelocity = Vector3.new(slideVelocityVector.X, yVelocity, slideVelocityVector.Z)
 end
 
 function SlidingPhysics:UpdateSlideDirection()

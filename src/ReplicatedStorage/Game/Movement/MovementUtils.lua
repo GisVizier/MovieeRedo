@@ -548,10 +548,105 @@ function MovementUtils:CalculateMovementForce(
 	end
 
 	if not isGrounded then
-		forceMultiplier = forceMultiplier * AIR_CONTROL_MULTIPLIER
+		-- Rivals-like air control: extremely limited steering.
+		-- We already have AirControlMultiplier, but also apply AirResistance (if present)
+		-- to make direction changes much harder at speed.
+		local airControl = AIR_CONTROL_MULTIPLIER
+
+		-- AirResistance is tuned as "higher = less steering".
+		-- Use a small scaling so values like 25 still allow some control.
+		local airResistance = Config.Gameplay.Character.AirResistance or 0
+		local resistanceFactor = 1 / (1 + (airResistance * 0.25)) -- airResistance=25 => ~0.138
+
+		forceMultiplier = forceMultiplier * airControl * resistanceFactor
 	end
 
 	return velocityDifference * forceMultiplier
+end
+
+function MovementUtils:ApplySlopeJump(primaryPart, character, raycastParams, movementDirection, cameraYAngle)
+	-- Slope jump: apply a controlled horizontal carry/boost when jumping on a downhill slope.
+	-- Keep it raycast-based and stateless (no wall sticking / no fake states).
+	if not character or not primaryPart or not raycastParams or not movementDirection then
+		return false, 0
+	end
+
+	local currentVelocity = primaryPart.AssemblyLinearVelocity
+	local currentHorizontal = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
+	local currentSpeed = currentHorizontal.Magnitude
+
+	-- Prevent "free speed" from a near-standstill hop.
+	-- (No new config surface area; keep as a small constant.)
+	if currentSpeed < 10 then
+		return false, 0
+	end
+
+	local isGrounded, groundNormal, slopeDegrees = self:CheckGroundedWithSlope(character, primaryPart, raycastParams)
+	if not isGrounded or not groundNormal then
+		return false, 0
+	end
+
+	-- Only apply slope jump on significant slopes
+	local minSlopeAngle = Config.Gameplay.Character.SlopeJump and Config.Gameplay.Character.SlopeJump.MinSlopeAngle or 8
+	local maxSlopeAngle = Config.Gameplay.Character.MaxWalkableSlopeAngle or 50
+
+	if slopeDegrees < minSlopeAngle or slopeDegrees > maxSlopeAngle then
+		return false, 0
+	end
+
+	-- Calculate downhill direction along the slope plane.
+	local gravity = Vector3.new(0, -1, 0)
+	local downhillDirection = gravity - gravity:Dot(groundNormal) * groundNormal
+	if downhillDirection.Magnitude < 0.01 then
+		return false, 0
+	end
+	downhillDirection = downhillDirection.Unit
+
+	-- Determine intended direction: prefer input; fall back to current velocity direction.
+	local intendedDir = nil
+	local worldMovement = self:CalculateWorldMovementDirection(movementDirection, cameraYAngle, false)
+	if worldMovement.Magnitude >= 0.1 then
+		intendedDir = Vector3.new(worldMovement.X, 0, worldMovement.Z)
+	end
+	if not intendedDir or intendedDir.Magnitude < 0.1 then
+		intendedDir = currentHorizontal
+	end
+	if intendedDir.Magnitude < 0.1 then
+		return false, 0
+	end
+	intendedDir = intendedDir.Unit
+
+	-- Only apply when actually moving meaningfully downhill.
+	local movementAlignment = intendedDir:Dot(downhillDirection)
+	if movementAlignment < 0.2 then
+		return false, 0
+	end
+
+	-- Calculate slope jump boost
+	local slopeJumpConfig = Config.Gameplay.Character.SlopeJump or {
+		BaseBoost = 15,
+		MaxBoost = 35,
+		SlopeScaling = 1.5,
+	}
+
+	local slopeStrength = math.clamp((slopeDegrees - minSlopeAngle) / (maxSlopeAngle - minSlopeAngle), 0, 1)
+	local alignmentBonus = math.clamp(movementAlignment, 0.2, 1)
+
+	local horizontalBoost = slopeJumpConfig.BaseBoost
+		+ (slopeJumpConfig.MaxBoost - slopeJumpConfig.BaseBoost) * slopeStrength * alignmentBonus
+	horizontalBoost = horizontalBoost * (slopeJumpConfig.SlopeScaling or 1.5)
+
+	-- Apply boost along slope-tangent movement (more reliable than pure input yaw).
+	-- Project intended direction onto the slope plane to avoid injecting into-ground components.
+	local boostDirection = intendedDir - intendedDir:Dot(groundNormal) * groundNormal
+	if boostDirection.Magnitude > 0.01 then
+		boostDirection = boostDirection.Unit
+	else
+		boostDirection = intendedDir
+	end
+
+	local newHorizontal = currentHorizontal + boostDirection * horizontalBoost
+	return true, horizontalBoost, Vector3.new(newHorizontal.X, currentVelocity.Y, newHorizontal.Z)
 end
 
 function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastParams, movementDirection, cameraYAngle)
@@ -611,6 +706,27 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 	local currentVelocity = primaryPart.AssemblyLinearVelocity
 	local jumpVelocity = Vector3.new(currentVelocity.X, JUMP_POWER, currentVelocity.Z)
 
+	-- Check for slope jump boost
+	local appliedSlopeJump, boostAmount, slopeVelocity = self:ApplySlopeJump(
+		primaryPart,
+		character,
+		raycastParams,
+		movementDirection,
+		cameraYAngle
+	)
+
+	if appliedSlopeJump and slopeVelocity then
+		jumpVelocity = Vector3.new(slopeVelocity.X, JUMP_POWER, slopeVelocity.Z)
+
+		if TestMode.Logging.LogSlidingSystem then
+			LogService:Info("MOVEMENT", "SLOPE JUMP BOOST APPLIED", {
+				BoostAmount = boostAmount,
+				PreviousHorizontal = Vector3.new(currentVelocity.X, 0, currentVelocity.Z).Magnitude,
+				NewHorizontal = Vector3.new(jumpVelocity.X, 0, jumpVelocity.Z).Magnitude,
+			})
+		end
+	end
+
 	primaryPart.AssemblyLinearVelocity = jumpVelocity
 
 	local animationController = ServiceRegistry:GetController("AnimationController")
@@ -626,6 +742,7 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 			HorizontalVelocityPreserved = Vector3.new(currentVelocity.X, 0, currentVelocity.Z),
 			PrimaryPartPosition = primaryPart.Position,
 			Timestamp = tick(),
+			SlopeJumpApplied = appliedSlopeJump,
 		})
 	end
 

@@ -123,7 +123,7 @@ function WallJumpUtils:AttemptWallJump(character, primaryPart, raycastParams, ca
 	return true, wallData
 end
 
-function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, _characterController)
+function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, characterController)
 	local config = Config.Gameplay.Character.WallJump
 
 	local yaw = math.rad(cameraAngles.X)
@@ -141,23 +141,63 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, _cha
 	local incomingHorizontal = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
 	local angleMultiplier = config.AnglePushMultiplier or 1.5
 
-	local pushDirection
-	if incomingHorizontal.Magnitude > 1 then
-		local incomingDir = incomingHorizontal.Unit
-		local dotProduct = incomingDir:Dot(wallNormalHorizontal)
-		local reflection = incomingDir - 2 * dotProduct * wallNormalHorizontal
-		local blendedDirection = (reflection * angleMultiplier + wallNormalHorizontal)
-		if blendedDirection.Magnitude > 0.01 then
-			pushDirection = blendedDirection.Unit
+	-- 4-direction wall boost selection:
+	-- Use player intent (movement input / facing) + wall normal to pick Forward/Back/Left/Right.
+	local intentDir = nil
+	if characterController and characterController.MovementInput and characterController.MovementInput.Magnitude > 0.1 then
+		intentDir = characterController:CalculateMovementDirection()
+	end
+	if not intentDir or intentDir.Magnitude < 0.1 then
+		-- Prefer incoming velocity (feels consistent at speed), then fallback to camera.
+		intentDir = incomingHorizontal.Magnitude > 0.1 and incomingHorizontal or cameraDirection
+	end
+	intentDir = Vector3.new(intentDir.X, 0, intentDir.Z)
+	if intentDir.Magnitude < 0.01 then
+		intentDir = -wallNormalHorizontal
+	end
+	intentDir = intentDir.Unit
+
+	-- Determine relative direction to wall.
+	local intoWall = intentDir:Dot(-wallNormalHorizontal) -- + = pushing into wall
+	local boostType = "lateral"
+	if intoWall > 0.55 then
+		boostType = "forward"
+	elseif intoWall < -0.55 then
+		boostType = "backward"
+	end
+
+	local pushDirection = wallNormalHorizontal
+	local horizontalBoost = config.HorizontalBoost
+	if boostType == "forward" then
+		-- Reflect (bounce) based on approach angle; more reliable than just wall normal.
+		if incomingHorizontal.Magnitude > 1 then
+			local incomingDir = incomingHorizontal.Unit
+			local dotProduct = incomingDir:Dot(wallNormalHorizontal)
+			local reflection = incomingDir - 2 * dotProduct * wallNormalHorizontal
+			pushDirection = reflection.Unit
 		else
 			pushDirection = wallNormalHorizontal
 		end
+		horizontalBoost = horizontalBoost * 1.15
+	elseif boostType == "backward" then
+		-- Pulling away from wall: bias toward your intent direction with a lift.
+		pushDirection = intentDir
+		horizontalBoost = horizontalBoost * 0.85
 	else
-		pushDirection = wallNormalHorizontal
+		-- Left/right: blend reflection + wall normal, then bias by side sign.
+		if incomingHorizontal.Magnitude > 1 then
+			local incomingDir = incomingHorizontal.Unit
+			local dotProduct = incomingDir:Dot(wallNormalHorizontal)
+			local reflection = incomingDir - 2 * dotProduct * wallNormalHorizontal
+			local blendedDirection = (reflection * angleMultiplier + wallNormalHorizontal)
+			if blendedDirection.Magnitude > 0.01 then
+				pushDirection = blendedDirection.Unit
+			end
+		end
 	end
 
 	local wallPushVelocity = pushDirection * config.WallPushForce
-	local cameraPushVelocity = cameraDirection * config.HorizontalBoost
+	local cameraPushVelocity = cameraDirection * horizontalBoost
 
 	local horizontalVelocity = wallPushVelocity + cameraPushVelocity
 	local verticalVelocity = config.VerticalBoost
@@ -192,23 +232,14 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, _cha
 	end
 
 	if animationController and animationController.TriggerWallBoostAnimation then
-		local cameraDirXZ = Vector3.new(cameraDirection.X, 0, cameraDirection.Z)
-		local wallNormalXZ = Vector3.new(wallNormal.X, 0, wallNormal.Z)
-
-		local animationName
-
-		if cameraDirXZ.Magnitude < 0.01 or wallNormalXZ.Magnitude < 0.01 then
-			animationName = math.random() > 0.5 and "WallBoostRight" or "WallBoostLeft"
-		else
-			cameraDirXZ = cameraDirXZ.Unit
-			wallNormalXZ = wallNormalXZ.Unit
-
-			local crossProduct = cameraDirXZ:Cross(wallNormalXZ)
-			if crossProduct.Y > 0 then
-				animationName = "WallBoostRight"
-			else
-				animationName = "WallBoostLeft"
-			end
+		-- Drive animation name from selected boostType.
+		local animationName = "WallBoostForward"
+		if boostType == "backward" then
+			animationName = "WallBoostBack"
+		elseif boostType == "lateral" then
+			-- Use wall side relative to intent.
+			local side = intentDir:Cross(wallNormalHorizontal).Y
+			animationName = (side > 0) and "WallBoostRight" or "WallBoostLeft"
 		end
 
 		animationController:PlayAirborneAnimation(animationName)

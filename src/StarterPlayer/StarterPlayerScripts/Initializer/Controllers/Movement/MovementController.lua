@@ -515,6 +515,11 @@ function CharacterController:UpdateMovement(deltaTime)
 	if not MovementStateManager:IsSliding() then
 		self:UpdateRotation()
 		self:ApplyMovement()
+	else
+		-- Sliding movement is handled by SlidingSystem; ensure walking VectorForce can't "push" during slide.
+		if self.VectorForce then
+			self.VectorForce.Force = Vector3.zero
+		end
 	end
 
 	if self.MovementInputProcessor then
