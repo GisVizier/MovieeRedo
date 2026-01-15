@@ -20,44 +20,8 @@ local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local ScreenShakeController = require(script.Parent:WaitForChild("ScreenShakeController"))
 
--- =============================================================================
--- DEBUG FLAG (set to false to disable debug prints)
--- =============================================================================
-local DEBUG_CAMERA = true
-
-local function debugPrint(...)
-	if DEBUG_CAMERA then
-		print("[CAMERA DEBUG]", ...)
-	end
-end
-
---#region agent log helper
-local DEBUG_INGEST_ENDPOINT =
-	"http://127.0.0.1:7242/ingest/e0c73788-5ff2-4277-bd58-dff153e77b5b"
-
-local function agentLog(hypothesisId, location, message, data, runId)
-	local payload = {
-		sessionId = "debug-session",
-		runId = runId or "pre-fix",
-		hypothesisId = hypothesisId,
-		location = location,
-		message = message,
-		data = data or {},
-		timestamp = DateTime.now().UnixTimestampMillis,
-	}
-
-	-- Always print locally so we still get signal if HttpService is disabled.
-	print("[CAMERA AGENT LOG]", hypothesisId, location, message, HttpService:JSONEncode(payload.data))
-
-	if not HttpService.HttpEnabled then
-		return
-	end
-
-	pcall(function()
-		HttpService:PostAsync(DEBUG_INGEST_ENDPOINT, HttpService:JSONEncode(payload), Enum.HttpContentType.ApplicationJson, false)
-	end)
-end
---#endregion
+local function debugPrint(...) end
+local function agentLog(...) end
 
 -- =============================================================================
 -- UTILITY FUNCTIONS
