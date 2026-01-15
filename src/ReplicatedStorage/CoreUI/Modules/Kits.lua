@@ -4,7 +4,7 @@ local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Configs = require(ReplicatedStorage.Configs)
-local KitsConfig = Configs.KitsConfig
+local KitsConfig = Configs.KitsUI
 local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 
 local module = {}

@@ -244,6 +244,68 @@ KitConfig.Kits = {
 			UltCost = 100,
 		},
 	},
+
+	HonoredOne = {
+		Icon = "rbxassetid://106069283820738",
+		Name = "HONORED ONE",
+		Description = "A legendary sorcerer who bends space itself, untouchable in battle and overwhelming in power. Calm, confident, and unstoppable, he treats every fight like it’s already won.",
+		Rarity = "Mythic",
+		Price = 12570,
+		Module = "HonoredOne",
+
+		Ability = {
+			Name = "DUALITY",
+			Description = "Wield limitless force through two states, Pull to drag enemies in and Push to blast them away. Master both to control space, movement, and the fight itself.",
+			Video = "",
+			Cooldown = 8,
+		},
+
+		Passive = {
+			Name = "SIX EYES",
+			Description = "Enemies you damage are briefly revealed, and your cooldowns recover faster as you stay locked in. The more you fight, the sharper you become.",
+			Video = "",
+			PassiveType = "Focus",
+		},
+
+		Ultimate = {
+			Name = "PURPLE SINGULARITY",
+			Description = "Fuse Push and Pull into a single limitless blast that erases everything in its path. A straight-line shot of pure destruction that leaves nothing behind.",
+			Video = "",
+			UltCost = 100,
+		},
+	},
+
+	Airborne = {
+		Icon = "rbxassetid://80058231826369",
+		Name = "AIRBORNE",
+		Description = "He bends wind for speed and control, launching himself through the air with bursts of momentum. He wins fights by outmoving everyone.",
+		Rarity = "Rare",
+		Price = 570,
+		Module = "Airborne",
+
+		Ability = {
+			Name = "CLOUDSKIP",
+			Description = "Use wind that boosts you, letting you cut angles fast and land in the perfect position.",
+			Video = "",
+			Cooldown = 7,
+		},
+
+		Passive = {
+			Name = "AIR CUSHION",
+			Description = "Slows your fall, letting you float down and land softly without taking heavy impact.",
+			Video = "",
+			PassiveType = "Movement",
+		},
+
+		Ultimate = {
+			Name = "HURRICANE",
+			Description = "Unleash a raging tornado that pulls in nearby enemies, spins them helplessly, then launches them outward to scatter the fight.",
+			Video = "",
+			DamageType = "AOE",
+			Destruction = "Big",
+			UltCost = 100,
+		},
+	},
 }
 
 KitConfig.Input = {

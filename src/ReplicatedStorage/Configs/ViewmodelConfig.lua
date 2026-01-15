@@ -37,6 +37,14 @@ ViewmodelConfig.Effects = {
 		ReturnSpeed = 14,
 	},
 
+	MovementSmoothing = {
+		SpeedSmoothness = 12,
+		DirectionSmoothness = 14,
+		BobBlendSpeed = 10,
+		MoveStartSpeed = 1.25,
+		MoveStopSpeed = 0.75,
+	},
+
 	WalkBob = {
 		Enabled = true,
 		Amplitude = Vector3.new(0.035, 0.045, 0),
@@ -55,6 +63,16 @@ ViewmodelConfig.Effects = {
 		Offset = Vector3.new(0.14, -0.12, 0.06),
 		RotationDeg = Vector3.new(8, 10, 0),
 		TransitionSpeed = 10,
+	},
+
+	Impulse = {
+		Enabled = true,
+		Stiffness = 80,
+		Damping = 18,
+		MaxOffset = 0.22,
+		SlideKick = Vector3.new(0, -0.05, 0.06),
+		VaultKick = Vector3.new(0, 0.09, 0.1),
+		JumpCancelKick = Vector3.new(0, 0.08, 0.12),
 	},
 }
 

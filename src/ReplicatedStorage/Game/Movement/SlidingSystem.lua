@@ -59,6 +59,7 @@ SlidingSystem.JumpCancelBufferStartTime = 0
 
 SlidingSystem.JumpCancelPerformed = false
 SlidingSystem.HasLandedAfterJumpCancel = false
+SlidingSystem.LastJumpCancelTime = 0
 
 SlidingSystem.LastSlideStopTime = 0
 SlidingSystem.SlideStopDirection = Vector3.new(0, 0, 0)
@@ -286,7 +287,8 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 
 	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
 	local currentHorizontalVelocity = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
-	local preservedMomentum = currentHorizontalVelocity.Magnitude * Config.Gameplay.Sliding.StartMomentumPreservation
+	local slideConfig = Config.Gameplay.Sliding
+	local preservedMomentum = currentHorizontalVelocity.Magnitude * slideConfig.StartMomentumPreservation
 
 	local slideDirection
 	if movementDirection.Magnitude < 0.001 then
@@ -303,7 +305,8 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 	end
 
 	self.IsSliding = true
-	self.SlideVelocity = Config.Gameplay.Sliding.InitialVelocity + airborneBonus + preservedMomentum
+	local rawSlideVelocity = slideConfig.InitialVelocity + airborneBonus + preservedMomentum
+	self.SlideVelocity = math.min(rawSlideVelocity, slideConfig.MaxVelocity)
 	self.SlideDirection = slideDirection
 	self.OriginalSlideDirection = slideDirection
 
