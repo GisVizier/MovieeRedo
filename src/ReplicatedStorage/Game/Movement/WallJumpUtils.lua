@@ -199,7 +199,13 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 	self.HasResetThisLanding = false
 	self.LastWallJumpTime = tick()
 
-	VFXRep:Fire("All", { Module = "WallJump" }, { position = wallData.Position })
+	local wallPos = wallData.Position
+	local wallNormal = wallData.Normal
+	local pivot = CFrame.lookAt(wallPos, wallPos + wallNormal)
+	VFXRep:Fire("All", { Module = "WallJump" }, {
+		position = wallPos,
+		pivot = pivot,
+	})
 
 	local animationController = ServiceRegistry:GetController("AnimationController")
 

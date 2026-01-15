@@ -9,16 +9,23 @@ local Util = require(script.Parent.Util)
 local WallJump = {}
 
 function WallJump:Validate(_player, data)
-	return typeof(data) == "table" and typeof(data.position) == "Vector3"
+	return typeof(data) == "table"
+		and typeof(data.position) == "Vector3"
+		and (data.pivot == nil or typeof(data.pivot) == "CFrame")
 end
 
 function WallJump:Execute(_originUserId, data)
-	local template = Util.getMovementTemplate("WallJump")
-	if not template then
-		return
+	local fxFolder = script:FindFirstChild("_effect")
+	local effectsFolder = workspace:FindFirstChild("Effects") or workspace
+	local root = Util.getPlayerRoot(_originUserId)
+	local fx = fxFolder and fxFolder:FindFirstChild("WallJump")
+	if root and fx then
+		fx = fx:Clone()
+		fx.Parent = effectsFolder
+
+		local pivot = data.pivot or CFrame.new(data.position)
+		fx:PivotTo(pivot)
 	end
-	local vfxCfg = Config.Gameplay.VFX and Config.Gameplay.VFX.WallJump
-	VFXPlayer:Play(template, data.position, vfxCfg and vfxCfg.Lifetime or nil)
 end
 
 return WallJump

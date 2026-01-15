@@ -78,12 +78,12 @@ Camera.FirstPerson = {
 	-- X = left/right (0 = centered)
 	-- Y = up/down (0.25 = slightly above head center)
 	-- Z = forward/back (-1 = 1 stud forward from head)
-	Offset = Vector3.new(0, 0.25, -1),
+	Offset = Vector3.new(0, -0.15, 0),
 
 	-- v2 option: pivot off the visual rig's Head (not the humanoid head),
 	-- and apply an offset "in front of" that head-space.
 	FollowHead = true,
-	HeadOffset = Vector3.new(0, 0.25, -1),
+	HeadOffset = Vector3.new(0, -0.15, 0),
 	HeadRotationOffset = Vector3.new(0, 0, 0), -- degrees (X,Y,Z)
 	
 	RotateCharacter = true,     -- Auto-rotate character to camera yaw

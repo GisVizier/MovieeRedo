@@ -1225,33 +1225,25 @@ function CameraController:ApplyFirstPersonTransparency()
 
 	local charCfg = Config.Gameplay.Character
 	local showRigForTesting = charCfg.ShowRigForTesting
-	local hideFromLocalPlayer = charCfg.HideFromLocalPlayer
 
-	-- If the game wants the rig visible (or we're explicitly testing), do not hide anything.
-	if showRigForTesting or not hideFromLocalPlayer then
+	-- If the game wants the rig visible (testing), do not hide anything.
+	if showRigForTesting then
 		self:ShowEntireRig()
-		return
-	end
+	else
+		CharacterLocations:ForEachRigPart(self.Character, function(rigPart)
+			rigPart.LocalTransparencyModifier = 1
+		end)
 
-	local visibleCount = 0
-	local totalCount = 0
-	CharacterLocations:ForEachRigPart(self.Character, function(rigPart)
-		totalCount += 1
-		-- Hard whitelist: hide everything except Torso + Legs
-		rigPart.LocalTransparencyModifier = FIRST_PERSON_VISIBLE[rigPart.Name] and 0 or 1
-		if rigPart.LocalTransparencyModifier == 0 then
-			visibleCount += 1
+		local head = CharacterLocations:GetHumanoidHead(self.Character)
+		if head then
+			head.LocalTransparencyModifier = 1
 		end
-	end)
 
-	--#region agent log H4
-	agentLog("H4", "CameraController:ApplyFirstPersonTransparency", "Applied first-person transparency", {
-		showRigForTesting = showRigForTesting,
-		hideFromLocalPlayer = hideFromLocalPlayer,
-		visibleParts = visibleCount,
-		totalParts = totalCount,
-	}, "pre-fix")
-	--#endregion
+		local colliderHead = CharacterLocations:GetHead(self.Character)
+		if colliderHead then
+			colliderHead.LocalTransparencyModifier = 1
+		end
+	end
 
 	-- Always hide accessories in first person
 	local rigHumanoid = self.Rig:FindFirstChildOfClass("Humanoid")
@@ -1259,7 +1251,7 @@ function CameraController:ApplyFirstPersonTransparency()
 		for _, accessory in pairs(rigHumanoid:GetAccessories()) do
 			local handle = accessory:FindFirstChild("Handle")
 			if handle and handle:IsA("BasePart") then
-				handle.LocalTransparencyModifier = 1
+				handle.LocalTransparencyModifier = showRigForTesting and 0 or 1
 			end
 		end
 	end
@@ -1336,10 +1328,6 @@ end
 function CameraController:UpdateCrouchOffset(deltaTime)
 	local cameraConfig = Config.Camera
 	local crouchReduction = Config.Gameplay.Character.CrouchHeightReduction
-	local fpConfig = cameraConfig and cameraConfig.FirstPerson
-	if fpConfig and fpConfig.FollowHead == true then
-		crouchReduction = 0.25
-	end
 	
 	if self.IsCrouching ~= self.LastCrouchState then
 		if cameraConfig.Smoothing.EnableCrouchTransition then
