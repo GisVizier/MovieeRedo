@@ -829,14 +829,7 @@ function AnimationController:GetCurrentWalkAnimationName()
 		-- Use character facing as the reference so directional animations are based on
 		-- movement relative to character rotation (not raw input or camera yaw).
 		if not shouldRotateToCamera then
-			local primaryPart = self.CharacterController.PrimaryPart
-			local movementDirection = self.CharacterController:CalculateMovementDirection()
-			if not primaryPart or movementDirection.Magnitude < 0.1 then
 				return "WalkingForward"
-			end
-
-			local characterFacing = primaryPart.CFrame.LookVector
-			return WalkDirectionDetector:GetWalkAnimationName(characterFacing, movementDirection)
 		end
 	end
 
@@ -916,15 +909,7 @@ function AnimationController:GetCurrentCrouchAnimationName()
 		
 		-- In Orbit mode, use character facing as reference for directional crouch animations.
 		if not shouldRotateToCamera then
-			local primaryPart = self.CharacterController.PrimaryPart
-			local movementDirection = self.CharacterController:CalculateMovementDirection()
-			if not primaryPart or movementDirection.Magnitude < 0.1 then
 				return "CrouchWalkingForward"
-			end
-
-			local characterFacing = primaryPart.CFrame.LookVector
-			local walkAnimName = WalkDirectionDetector:GetWalkAnimationName(characterFacing, movementDirection)
-			return walkAnimName:gsub("Walking", "CrouchWalking")
 		end
 	end
 

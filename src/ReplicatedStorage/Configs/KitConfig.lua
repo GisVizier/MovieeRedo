@@ -216,7 +216,7 @@ KitConfig.Kits = {
 		Icon = "rbxassetid://136186193137355",
 		Name = "AKI",
 		Description = "A disciplined fighter who makes binding deals with spirits and devils, gaining power at the cost of pain, stamina, and pieces of his soul.",
-		Rarity = "Mythic",
+		Rarity = "Epic",
 		Price = 12570,
 		Module = "Aki",
 

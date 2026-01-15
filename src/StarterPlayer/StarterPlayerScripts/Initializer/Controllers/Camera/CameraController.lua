@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local ScreenShakeController = require(script.Parent:WaitForChild("ScreenShakeController"))
@@ -1343,6 +1344,10 @@ end
 -- CROUCH HANDLING
 -- =============================================================================
 function CameraController:GetCrouchState()
+	if MovementStateManager and MovementStateManager:IsSliding() then
+		return true
+	end
+
 	if not self.Character then
 		return false
 	end
@@ -1366,19 +1371,24 @@ end
 
 function CameraController:UpdateCrouchOffset(deltaTime)
 	local cameraConfig = Config.Camera
+	local crouchReduction = Config.Gameplay.Character.CrouchHeightReduction
+	local fpConfig = cameraConfig and cameraConfig.FirstPerson
+	if fpConfig and fpConfig.FollowHead == true then
+		crouchReduction = 0.25
+	end
 	
 	if self.IsCrouching ~= self.LastCrouchState then
 		if cameraConfig.Smoothing.EnableCrouchTransition then
 			self.IsTransitioning = true
 		else
 			self.IsTransitioning = false
-			self.CurrentCrouchOffset = self.IsCrouching and -Config.Gameplay.Character.CrouchHeightReduction or 0
+			self.CurrentCrouchOffset = self.IsCrouching and -crouchReduction or 0
 		end
 		self.LastCrouchState = self.IsCrouching
 	end
 	
 	if cameraConfig.Smoothing.EnableCrouchTransition then
-		local targetOffset = self.IsCrouching and -Config.Gameplay.Character.CrouchHeightReduction or 0
+		local targetOffset = self.IsCrouching and -crouchReduction or 0
 		self.CurrentCrouchOffset = lerp(
 			self.CurrentCrouchOffset,
 			targetOffset,
@@ -1390,7 +1400,7 @@ function CameraController:UpdateCrouchOffset(deltaTime)
 			self.IsTransitioning = false
 		end
 	else
-		self.CurrentCrouchOffset = self.IsCrouching and -Config.Gameplay.Character.CrouchHeightReduction or 0
+		self.CurrentCrouchOffset = self.IsCrouching and -crouchReduction or 0
 	end
 end
 
