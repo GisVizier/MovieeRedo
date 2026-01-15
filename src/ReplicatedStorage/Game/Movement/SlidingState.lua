@@ -284,7 +284,8 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	do
 		local template = getMovementTemplate("SlideCancel")
 		if template then
-			VFXPlayer:Play(template, self.SlidingSystem.PrimaryPart.Position)
+			local vfxCfg = Config.Gameplay.VFX and Config.Gameplay.VFX.SlideCancel
+			VFXPlayer:Play(template, self.SlidingSystem.PrimaryPart.Position, vfxCfg and vfxCfg.Lifetime or nil)
 		end
 	end
 
@@ -309,6 +310,7 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	end
 
 	self.SlidingSystem.JumpCancelPerformed = true
+	self.SlidingSystem.LastJumpCancelTime = tick()
 
 	self:ResetCooldownsFromJumpCancel(characterController)
 	if TestMode.Logging.LogSlidingSystem then

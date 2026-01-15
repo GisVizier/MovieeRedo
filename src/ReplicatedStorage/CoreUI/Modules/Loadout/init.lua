@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local LoadoutConfig = require(Configs.LoadoutConfig)
-local KitsConfig = require(Configs.KitsConfig)
+local KitsConfig = require(Configs.KitsUI)
 local MapConfig = require(Configs.MapConfig)
 local TweenConfig = require(script.TweenConfig)
 local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)

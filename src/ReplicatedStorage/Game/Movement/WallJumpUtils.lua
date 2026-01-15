@@ -217,7 +217,8 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 	do
 		local template = getMovementTemplate("WallJump")
 		if template then
-			VFXPlayer:Play(template, wallData.Position)
+			local vfxCfg = Config.Gameplay.VFX and Config.Gameplay.VFX.WallJump
+			VFXPlayer:Play(template, wallData.Position, vfxCfg and vfxCfg.Lifetime or nil)
 		end
 	end
 

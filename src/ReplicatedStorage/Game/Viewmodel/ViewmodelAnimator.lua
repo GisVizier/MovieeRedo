@@ -12,6 +12,13 @@ ViewmodelAnimator.__index = ViewmodelAnimator
 
 local LocalPlayer = Players.LocalPlayer
 
+local function expAlpha(dt: number, k: number): number
+	if dt <= 0 then
+		return 0
+	end
+	return 1 - math.exp(-k * dt)
+end
+
 local function getRootPart(): BasePart?
 	local character = LocalPlayer and LocalPlayer.Character
 	if not character then
@@ -31,6 +38,7 @@ function ViewmodelAnimator.new()
 	self._currentMove = nil
 	self._conn = nil
 	self._initialized = false
+	self._smoothedSpeed = 0
 	return self
 end
 
@@ -41,6 +49,7 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	self._tracks = {}
 	self._currentMove = nil
 	self._initialized = false
+	self._smoothedSpeed = 0
 
 	if not rig or not rig.Animator then
 		return
@@ -74,8 +83,8 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	self._currentMove = "Idle"
 
 	-- Start the movement update loop immediately
-	self._conn = RunService.Heartbeat:Connect(function()
-		self:_updateMovement()
+	self._conn = RunService.Heartbeat:Connect(function(dt)
+		self:_updateMovement(dt)
 	end)
 
 	-- Mark as initialized after a short delay to ensure animation system is ready
@@ -130,7 +139,7 @@ function ViewmodelAnimator:GetTrack(name: string)
 	return self._tracks[name]
 end
 
-function ViewmodelAnimator:_updateMovement()
+function ViewmodelAnimator:_updateMovement(dt: number)
 	if not self._rig or not self._initialized then
 		return
 	end
@@ -138,33 +147,39 @@ function ViewmodelAnimator:_updateMovement()
 	local root = getRootPart()
 	local vel = root and root.AssemblyLinearVelocity or Vector3.zero
 	local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+	dt = dt or (1 / 60)
+	local smoothCfg = ViewmodelConfig.Effects and ViewmodelConfig.Effects.MovementSmoothing or {}
+	local speedAlpha = math.clamp(expAlpha(dt, smoothCfg.SpeedSmoothness or 12), 0, 1)
+	self._smoothedSpeed = self._smoothedSpeed + (speed - self._smoothedSpeed) * speedAlpha
 
 	local grounded = MovementStateManager:GetIsGrounded()
 	local state = MovementStateManager:GetCurrentState()
 
 	local target = "Idle"
-	if grounded and speed > 1 then
-		if state == MovementStateManager.States.Sprinting then
-			target = self._tracks.Run and "Run" or "Walk"
-		else
-			target = "Walk"
-		end
+	local moveStart = smoothCfg.MoveStartSpeed or 1.25
+	local moveStop = smoothCfg.MoveStopSpeed or 0.75
+	local isMoving = self._smoothedSpeed > moveStart or (self._currentMove ~= "Idle" and self._smoothedSpeed > moveStop)
+
+	if grounded and isMoving then
+		target = (state == MovementStateManager.States.Sprinting and self._tracks.Run) and "Run" or "Walk"
+	end
+	if not self._tracks[target] then
+		target = "Idle"
 	end
 
-	-- Always ensure the correct animation is playing
-	local targetTrack = self._tracks[target]
-	if not targetTrack then
-		return
-	end
-
-	-- If we need to change animations OR the target isn't playing, switch to it
-	if self._currentMove ~= target or not targetTrack.IsPlaying then
-		if self._currentMove and self._currentMove ~= target then
-			self:Stop(self._currentMove, 0.15)
+	-- Smooth crossfade between idle/walk/run.
+	local fade = 0.18
+	for _, name in ipairs({ "Idle", "Walk", "Run" }) do
+		local track = self._tracks[name]
+		if track then
+			if not track.IsPlaying then
+				track:Play(0)
+			end
+			local weight = (name == target) and 1 or 0
+			track:AdjustWeight(weight, fade)
 		end
-		self:Play(target, 0.15, false)
-		self._currentMove = target
 	end
+	self._currentMove = target
 end
 
 return ViewmodelAnimator

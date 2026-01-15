@@ -687,7 +687,7 @@ function CharacterController:CheckGrounded()
 			local feetPosition = self.FeetPart and self.FeetPart.Position or self.PrimaryPart.Position
 			local template = getMovementTemplate("Land")
 			if template then
-				VFXPlayer:Play(template, feetPosition)
+				VFXPlayer:Play(template, feetPosition, landConfig and landConfig.Lifetime or nil)
 			end
 		end
 	else
