@@ -816,9 +816,13 @@ function AnimationController:GetCurrentWalkAnimationName()
 	if not camera then
 		return "WalkingForward"
 	end
+
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController and cameraController.CurrentMode == "Orbit" then
+		return "WalkingForward"
+	end
 	
 	-- Check if we're in Orbit mode (character faces movement, not camera)
-	local cameraController = ServiceRegistry:GetController("CameraController")
 	if cameraController then
 		local shouldRotateToCamera = true
 		if cameraController.ShouldRotateCharacterToCamera then
@@ -898,9 +902,13 @@ function AnimationController:GetCurrentCrouchAnimationName()
 	if not camera then
 		return "CrouchWalkingForward"
 	end
+
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController and cameraController.CurrentMode == "Orbit" then
+		return "CrouchWalkingForward"
+	end
 	
 	-- Check if we're in Orbit mode (character faces movement, not camera)
-	local cameraController = ServiceRegistry:GetController("CameraController")
 	if cameraController then
 		local shouldRotateToCamera = true
 		if cameraController.ShouldRotateCharacterToCamera then
