@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local LoadoutConfig = require(Configs.LoadoutConfig)
-local KitsConfig = require(Configs.KitsUI)
+local KitsConfig = require(Configs.KitConfig)
 local MapConfig = require(Configs.MapConfig)
 local TweenConfig = require(script.TweenConfig)
 local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
@@ -15,13 +15,13 @@ local module = {}
 module.__index = module
 
 local RoundData = {
-	players = {949024059, 9124290782, 1565898941, 204471960},
+	players = { 949024059, 9124290782, 1565898941, 204471960 },
 	mapId = "ApexArena",
 	gamemodeId = "TwoVTwo",
 	timeStarted = os.clock(),
 }
 
-local SLOT_TYPES = {"Kit", "Primary", "Secondary", "Melee"}
+local SLOT_TYPES = { "Kit", "Primary", "Secondary", "Melee" }
 local TIMER_DURATION = 30
 
 local RARITY_TEMPLATE_MAP = {
@@ -209,12 +209,16 @@ local function resolveSkinImage(weaponId, weaponData)
 		end
 	end
 
-	if skinId
-		and ((hasSkinApi and PlayerDataTable.isSkinOwned(weaponId, skinId))
-			or (not hasSkinApi and table.find(ownedSkins or {}, skinId)))
+	if
+		skinId
+		and ((hasSkinApi and PlayerDataTable.isSkinOwned(weaponId, skinId)) or (not hasSkinApi and table.find(
+			ownedSkins or {},
+			skinId
+		)))
 		and weaponData.skins
 		and weaponData.skins[skinId]
-		and weaponData.skins[skinId].imageId then
+		and weaponData.skins[skinId].imageId
+	then
 		log("skinApplied", weaponId, skinId, weaponData.skins[skinId].imageId)
 		return weaponData.skins[skinId].imageId
 	end
@@ -303,14 +307,14 @@ function module:_init()
 	self._initialized = true
 	log("init")
 	self:_setupMapName()
+	self:_setupPreviewCharacter()
 	self:_setupTemplateReferences()
 	self:_setupCurrentItems()
 	self:_setupNetworkListeners()
 	self:_selectSlot(self._selectedSlot, true)
 end
 
-function module:_setupNetworkListeners()
-end
+function module:_setupNetworkListeners() end
 
 function module:_startGradientSpin(key, root)
 	self:_stopGradientSpin(key)
@@ -424,6 +428,145 @@ function module:_setupMapName()
 	end
 end
 
+function module:_setupPreviewCharacter()
+	if not self._preview then
+		log("previewCharacter", "Preview missing")
+		return
+	end
+
+	-- Preview might BE the ViewportFrame, or contain it
+	local viewportFrame = self._preview
+	if not viewportFrame:IsA("ViewportFrame") then
+		viewportFrame = self._preview:FindFirstChild("ViewportFrame", true)
+	end
+	
+	if not viewportFrame then
+		log("previewCharacter", "ViewportFrame missing", self._preview.ClassName)
+		return
+	end
+
+	-- WorldModel should be direct child of ViewportFrame
+	local worldModel = viewportFrame:FindFirstChildOfClass("WorldModel")
+	if not worldModel then
+		worldModel = viewportFrame:FindFirstChild("WorldModel", true)
+	end
+	
+	if not worldModel then
+		log("previewCharacter", "WorldModel missing")
+		return
+	end
+
+	local userModel = worldModel:FindFirstChild("User")
+	if not userModel then
+		log("previewCharacter", "User model missing")
+		return
+	end
+
+	local humanoid = userModel:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		log("previewCharacter", "Humanoid missing")
+		return
+	end
+
+	-- Get local player
+	local player = Players.LocalPlayer
+	if not player then
+		log("previewCharacter", "LocalPlayer missing")
+		return
+	end
+
+	-- Apply player's clothing and accessories to the existing User rig
+	task.spawn(function()
+		-- Find the player's rig in workspace.Rigs (created by RigManager with appearance applied)
+		local Workspace = game:GetService("Workspace")
+		local rigsFolder = Workspace:FindFirstChild("Rigs")
+		
+		if not rigsFolder then
+			-- Wait for it to be created
+			rigsFolder = Workspace:WaitForChild("Rigs", 5)
+		end
+		
+		if not rigsFolder then
+			log("previewCharacter", "Rigs folder not found in workspace")
+			return
+		end
+
+		local rigName = player.Name .. "_Rig"
+		local playerRig = rigsFolder:FindFirstChild(rigName)
+		
+		if not playerRig then
+			-- Wait for rig to be created
+			playerRig = rigsFolder:WaitForChild(rigName, 5)
+		end
+		
+		if not playerRig then
+			log("previewCharacter", "Player rig not found:", rigName)
+			return
+		end
+		
+		-- Wait for appearance to fully load on the rig
+		task.wait(0.5)
+		
+		if not userModel.Parent then
+			log("previewCharacter", "userModel no longer exists")
+			return
+		end
+
+		log("previewCharacter", "Found player rig:", playerRig:GetFullName())
+
+		-- Clone and apply Shirt
+		local shirt = playerRig:FindFirstChildOfClass("Shirt")
+		if shirt then
+			local existingShirt = userModel:FindFirstChildOfClass("Shirt")
+			if existingShirt then
+				existingShirt:Destroy()
+			end
+			shirt:Clone().Parent = userModel
+			log("previewCharacter", "Applied Shirt")
+		end
+
+		-- Clone and apply Pants
+		local pants = playerRig:FindFirstChildOfClass("Pants")
+		if pants then
+			local existingPants = userModel:FindFirstChildOfClass("Pants")
+			if existingPants then
+				existingPants:Destroy()
+			end
+			pants:Clone().Parent = userModel
+			log("previewCharacter", "Applied Pants")
+		end
+
+		-- Clone and apply BodyColors
+		local bodyColors = playerRig:FindFirstChildOfClass("BodyColors")
+		if bodyColors then
+			local existingBC = userModel:FindFirstChildOfClass("BodyColors")
+			if existingBC then
+				existingBC:Destroy()
+			end
+			bodyColors:Clone().Parent = userModel
+			log("previewCharacter", "Applied BodyColors")
+		end
+
+		-- Clone and apply accessories (hats, hair, face, etc)
+		local accessoryCount = 0
+		for _, accessory in playerRig:GetChildren() do
+			if accessory:IsA("Accessory") then
+				local clone = accessory:Clone()
+				-- Remove any scripts from accessories
+				for _, desc in clone:GetDescendants() do
+					if desc:IsA("Script") or desc:IsA("LocalScript") then
+						desc:Destroy()
+					end
+				end
+				humanoid:AddAccessory(clone)
+				accessoryCount = accessoryCount + 1
+			end
+		end
+
+		log("previewCharacter", "✓ Applied appearance from workspace rig", player.Name, "accessories:", accessoryCount)
+	end)
+end
+
 function module:_setupCurrentItems()
 	if not self._currentItems then
 		log("currentItems", "missing")
@@ -495,7 +638,9 @@ function module:_setupSlotHover(slot, slotType)
 	local isHovering = false
 
 	self._connections:track(button, "MouseEnter", function()
-		if isHovering then return end
+		if isHovering then
+			return
+		end
 		isHovering = true
 
 		self:_cancelTweens("slotHover_" .. slotType)
@@ -516,7 +661,9 @@ function module:_setupSlotHover(slot, slotType)
 	end, groupName)
 
 	self._connections:track(button, "MouseLeave", function()
-		if not isHovering then return end
+		if not isHovering then
+			return
+		end
 		isHovering = false
 
 		self:_cancelTweens("slotHover_" .. slotType)
@@ -670,7 +817,8 @@ function module:_createItemTemplate(weaponId, weaponData, index)
 	end
 
 	local templateName = ITEM_TEMPLATE_MAP[weaponData.rarity] or "CommonTemp"
-	local templateSource = resolveTemplateByRarity(self._itemScrollerTemplates, weaponData.rarity, templateName, "CommonTemp")
+	local templateSource =
+		resolveTemplateByRarity(self._itemScrollerTemplates, weaponData.rarity, templateName, "CommonTemp")
 	if not templateSource then
 		log("itemTemplate", "missing", templateName, weaponId)
 		return
@@ -696,7 +844,9 @@ function module:_createItemTemplate(weaponId, weaponData, index)
 		imageLabel.Image = weaponData.imageId
 	end
 
-	local nameLabel = item:FindFirstChild("ItemNameText", true) or item:FindFirstChild("Name") or item:FindFirstChild("NameLabel")
+	local nameLabel = item:FindFirstChild("ItemNameText", true)
+		or item:FindFirstChild("Name")
+		or item:FindFirstChild("NameLabel")
 	if nameLabel then
 		nameLabel.Text = weaponData.name
 	end
@@ -783,7 +933,9 @@ function module:_setupItemHover(item, weaponId)
 	local isHovering = false
 
 	self._connections:track(button, "MouseEnter", function()
-		if isHovering then return end
+		if isHovering then
+			return
+		end
 		isHovering = true
 
 		self:_cancelTweens("itemHover_" .. weaponId)
@@ -805,7 +957,9 @@ function module:_setupItemHover(item, weaponId)
 	end, groupName)
 
 	self._connections:track(button, "MouseLeave", function()
-		if not isHovering then return end
+		if not isHovering then
+			return
+		end
 		isHovering = false
 
 		self:_cancelTweens("itemHover_" .. weaponId)
@@ -932,7 +1086,8 @@ function module:_updateSlotWithWeapon(slotType, weaponId, weaponData)
 	end
 
 	local templateName = RARITY_TEMPLATE_MAP[weaponData.rarity] or "CommonItemPicker"
-	local templateSource = resolvePickerByRarity(self._previewTemplates, weaponData.rarity, templateName, "CommonItemPicker")
+	local templateSource =
+		resolvePickerByRarity(self._previewTemplates, weaponData.rarity, templateName, "CommonItemPicker")
 	if not templateSource then
 		log("updateSlot", "template missing", templateName, slotType)
 		return
@@ -955,7 +1110,9 @@ function module:_updateSlotWithWeapon(slotType, weaponId, weaponData)
 		imageLabel.Image = weaponData.imageId
 	end
 
-	local nameLabel = newSlot:FindFirstChild("ItemNameText", true) or newSlot:FindFirstChild("Name") or newSlot:FindFirstChild("NameLabel")
+	local nameLabel = newSlot:FindFirstChild("ItemNameText", true)
+		or newSlot:FindFirstChild("Name")
+		or newSlot:FindFirstChild("NameLabel")
 	if nameLabel then
 		nameLabel.Text = weaponData.name
 	end

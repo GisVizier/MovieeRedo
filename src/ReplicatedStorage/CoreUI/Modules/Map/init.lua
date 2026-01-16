@@ -3,7 +3,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
-local Net = require(Locations.Shared.Net.Net)
 
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local MapConfig = require(Configs.MapConfig)
@@ -108,14 +107,10 @@ function module:_init()
 end
 
 function module:_setupNetworkListeners()
-	-- Server broadcasts a full snapshot: { [mapId] = { userId1, userId2, ... }, ... }
-	self._connections:add(Net:ConnectClient("MapVoteUpdate", function(votesByMap)
-		self:onVotesSnapshot(votesByMap)
-	end), "mapVoteNet")
 end
 
 function module:fireMapVote(mapId)
-	Net:FireServer("MapVoteCast", mapId)
+	return mapId
 end
 
 function module:_getLocalPlayer()

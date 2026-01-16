@@ -22,7 +22,7 @@ function KitService:_ensurePlayer(player: Player)
 		return self._data[player]
 	end
 
-	local owned = { "WhiteBeard", "Genji", "Aki", "Airborne" }
+	local owned = { "WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne" }
 	local info = {
 		gems = 15000,
 		ownedKits = owned,

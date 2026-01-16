@@ -7,7 +7,6 @@ UIController._registry = nil
 UIController._net = nil
 UIController._coreUi = nil
 UIController._kitController = nil
-UIController._selectedMapId = nil
 
 local function safeCall(fn, ...)
 	local args = table.pack(...)
@@ -71,7 +70,7 @@ function UIController:_bootstrapUi()
 	self._coreUi = ui
 
 	-- Force-hide any UI that might be Visible by default in Studio.
-	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Loadout", "Black", "TallFade", "HUD" }) do
+	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Map", "Loadout", "Black", "TallFade", "HUD" }) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then
 			inst.Visible = false
@@ -95,35 +94,31 @@ function UIController:_bootstrapUi()
 		end
 	end)
 
-	ui:on("MapVoteComplete", function(mapId)
-		self._selectedMapId = mapId
-	end)
-
 	ui:on("LoadoutComplete", function(data)
 		self:_onLoadoutComplete(data)
 	end)
 
-	-- Initial UI: Map -> Loadout only (RojoUiReference testing flow).
+	-- Initial UI: Loadout only (RojoUiReference testing flow).
 	do
-		local mapModule = ui:getModule("Map")
-		if mapModule and mapModule.setRoundData then
+		local loadoutModule = ui:getModule("Loadout")
+		if loadoutModule and loadoutModule.setRoundData then
 			local userIds = {}
 			for _, p in ipairs(Players:GetPlayers()) do
 				table.insert(userIds, p.UserId)
 			end
 
 			pcall(function()
-				mapModule:setRoundData({
+				loadoutModule:setRoundData({
 					players = userIds,
-					teams = { team1 = userIds, team2 = {} },
+					mapId = "ApexArena",
 					gamemodeId = "Duels",
-					matchCreatedTime = os.time(),
+					timeStarted = os.clock(),
 				})
 			end)
 		end
 	end
 
-	ui:show("Map", true)
+	ui:show("Loadout", true)
 end
 
 function UIController:_onLoadoutComplete(data)
@@ -137,7 +132,7 @@ function UIController:_onLoadoutComplete(data)
 	end
 
 	local payload = {
-		mapId = data.mapId or self._selectedMapId,
+		mapId = data.mapId or "ApexArena",
 		gamemodeId = data.gamemodeId,
 		loadout = loadout,
 	}

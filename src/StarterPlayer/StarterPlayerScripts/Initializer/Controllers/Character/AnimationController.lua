@@ -74,7 +74,7 @@ local function getDefaultSettings(name)
 		Speed = 1.0,
 	}
 
-	if name == "Jump" or name == "JumpCancel" or name:match("^WallBoost") then
+	if name == "Jump" or name == "JumpCancel" or name:match("^WallBoost") or name == "Vault" then
 		settings.FadeInTime = 0.05
 		settings.FadeOutTime = 0.15
 		settings.Loop = false
@@ -148,6 +148,9 @@ local function getAnimationCategory(animationName)
 	end
 
 	if animationName == "Jump" or animationName == "JumpCancel" or animationName == "Falling" then
+		return "Airborne"
+	end
+	if animationName == "Vault" then
 		return "Airborne"
 	end
 
@@ -235,6 +238,9 @@ function AnimationController:_loadTrack(animator, animation, name)
 	local settings = self.AnimationSettings[name]
 	if not settings then
 		settings = applyAttributes(animation, getDefaultSettings(name))
+		if name == "Vault" then
+			settings.Loop = false
+		end
 		self.AnimationSettings[name] = settings
 	end
 
@@ -675,7 +681,11 @@ function AnimationController:PlayAirborneAnimation(animationName, forceVariantIn
 
 	local settings = self.AnimationSettings[animationName] or getDefaultSettings(animationName)
 
-	if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation ~= track and self.CurrentAirborneAnimation.IsPlaying then
+	if
+		self.CurrentAirborneAnimation
+		and self.CurrentAirborneAnimation ~= track
+		and self.CurrentAirborneAnimation.IsPlaying
+	then
 		self.CurrentAirborneAnimation:Stop(settings.FadeOutTime)
 	end
 
@@ -720,6 +730,22 @@ function AnimationController:TriggerWallBoostAnimation(cameraDirection, movement
 		animationName = WallBoostDirectionDetector:GetWallBoostAnimationName(cameraDirection, movementDirection)
 	end
 	self:PlayAirborneAnimation(animationName)
+end
+
+function AnimationController:TriggerVaultAnimation()
+	if not self.LocalAnimator then
+		return
+	end
+
+	local track = self.LocalAnimationTracks.Vault
+	if type(track) == "table" then
+		track = track[1]
+	end
+	if track and track.IsPlaying then
+		return
+	end
+
+	self:PlayAirborneAnimation("Vault")
 end
 
 function AnimationController:StartSlideAnimationUpdates()
@@ -821,19 +847,19 @@ function AnimationController:GetCurrentWalkAnimationName()
 	if cameraController and cameraController.CurrentMode == "Orbit" then
 		return "WalkingForward"
 	end
-	
+
 	-- Check if we're in Orbit mode (character faces movement, not camera)
 	if cameraController then
 		local shouldRotateToCamera = true
 		if cameraController.ShouldRotateCharacterToCamera then
 			shouldRotateToCamera = cameraController:ShouldRotateCharacterToCamera()
 		end
-		
+
 		-- In Orbit mode, character rotation is driven by movement direction (not camera).
 		-- Use character facing as the reference so directional animations are based on
 		-- movement relative to character rotation (not raw input or camera yaw).
 		if not shouldRotateToCamera then
-				return "WalkingForward"
+			return "WalkingForward"
 		end
 	end
 
@@ -907,17 +933,17 @@ function AnimationController:GetCurrentCrouchAnimationName()
 	if cameraController and cameraController.CurrentMode == "Orbit" then
 		return "CrouchWalkingForward"
 	end
-	
+
 	-- Check if we're in Orbit mode (character faces movement, not camera)
 	if cameraController then
 		local shouldRotateToCamera = true
 		if cameraController.ShouldRotateCharacterToCamera then
 			shouldRotateToCamera = cameraController:ShouldRotateCharacterToCamera()
 		end
-		
+
 		-- In Orbit mode, use character facing as reference for directional crouch animations.
 		if not shouldRotateToCamera then
-				return "CrouchWalkingForward"
+			return "CrouchWalkingForward"
 		end
 	end
 
@@ -994,7 +1020,8 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 	if animationName == "JumpCancel" then
 		if not track then
 			track = {}
-			local variants = #self.JumpCancelVariants > 0 and self.JumpCancelVariants or { self.AnimationInstances.JumpCancel }
+			local variants = #self.JumpCancelVariants > 0 and self.JumpCancelVariants
+				or { self.AnimationInstances.JumpCancel }
 			for _, animation in ipairs(variants) do
 				table.insert(track, self:_loadTrack(animator, animation, "JumpCancel"))
 			end

@@ -214,13 +214,9 @@ function MovementInputProcessor:HandleNormalJump(isImmediatePress)
 	end
 
 	if isInCoyoteTime and not shouldAttemptWallJump then
-		-- Vaulting: attempt before a normal grounded jump.
-		-- This is raycast-based and intentionally does not create wall-sticking states.
+		-- Try vault first (jump can trigger vault if near ledge)
 		if VaultingSystem:TryVault(self.CharacterController) then
 			self:MarkJumpExecuted()
-			if TestMode.Logging.LogSlidingSystem then
-				LogService:Info("INPUT", "Vault executed successfully")
-			end
 			return
 		end
 
