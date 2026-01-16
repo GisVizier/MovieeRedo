@@ -2,11 +2,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
-local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
 
 local Util = require(script.Parent.Util)
 
 local Speed = {}
+local active = {} -- [userId] = fxInstance
 
 function Speed:Validate(_player, data)
 	return typeof(data) == "table"
@@ -14,8 +14,12 @@ function Speed:Validate(_player, data)
 		and typeof(data.speed) == "number"
 end
 
+local function createFx(): Instance?
+	local template = Util.getMovementTemplate("SpeedFX")
+	return template and template:Clone() or nil
+end
+
 function Speed:Execute(originUserId, data)
-	local key = "SpeedFX_" .. tostring(originUserId)
 	local root = Util.getPlayerRoot(originUserId)
 	if not root then
 		return
@@ -27,16 +31,27 @@ function Speed:Execute(originUserId, data)
 	end
 
 	if data.speed >= (cfg.Threshold or 80) then
-		if not VFXPlayer:IsActive(key) then
-			local template = Util.getMovementTemplate("SpeedFX")
-			if template then
-				VFXPlayer:Start(key, template, root)
+		local fx = active[originUserId]
+		if not fx then
+			fx = createFx()
+			if not fx then
+				return
 			end
+			fx.Parent = workspace:FindFirstChild("Effects") or workspace
+			active[originUserId] = fx
 		end
-		VFXPlayer:UpdateYaw(key, data.direction)
+
+		local dir = data.direction
+		if dir.Magnitude > 0.001 then
+			local pos = root.Position
+			local cf = CFrame.lookAt(pos, pos + dir.Unit)
+			fx:PivotTo(cf)
+		end
 	else
-		if VFXPlayer:IsActive(key) then
-			VFXPlayer:Stop(key)
+		local fx = active[originUserId]
+		if fx then
+			fx:Destroy()
+			active[originUserId] = nil
 		end
 	end
 end
