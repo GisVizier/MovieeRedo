@@ -15,8 +15,9 @@ function WallJump:Validate(_player, data)
 end
 
 function WallJump:Execute(_originUserId, data)
-	local fxFolder = script:FindFirstChild("_effect")
-	local effectsFolder = workspace:FindFirstChild("Effects") or workspace
+	local Assets = ReplicatedStorage.Assets.MovementFX
+	local fxFolder = Assets;
+	
 	local root = Util.getPlayerRoot(_originUserId)
 	local fx = fxFolder and fxFolder:FindFirstChild("WallJump")
 	if root and fx then

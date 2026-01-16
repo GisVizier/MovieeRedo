@@ -8,8 +8,8 @@ local Util = require(script.Parent.Util)
 local ReturnService = require(game.ReplicatedStorage.Shared.Util.FXLibaray)
 local Utils = ReturnService();
 
-local Assets = script
-local FxFolder = Assets._effect;
+local Assets = ReplicatedStorage.Assets.MovementFX
+local FxFolder = Assets;
 
 local EffectsFolder = workspace.Effects
 
