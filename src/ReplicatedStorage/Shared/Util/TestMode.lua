@@ -4,7 +4,7 @@ return {
 		LogCharacterMovement = false,
 		LogGroundDetection = false,
 		LogPhysicsChanges = false,
-		LogSlidingSystem = false,
+		LogSlidingSystem = true,
 		LogAnimationSystem = false,
 	},
 	Visual = {

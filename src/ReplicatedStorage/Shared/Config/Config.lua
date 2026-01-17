@@ -6,6 +6,7 @@ local Movement = require(Global:WaitForChild("Movement"))
 local Controls = require(Global:WaitForChild("Controls"))
 local Camera = require(Global:WaitForChild("Camera"))
 local System = require(Global:WaitForChild("System"))
+local Audio = require(Global:WaitForChild("Audio"))
 
 local Config = {
 	Controls = Controls,
@@ -17,6 +18,7 @@ local Config = {
 		VFX = Movement.VFX,
 	},
 	System = System,
+	Audio = Audio,
 }
 
 return Config

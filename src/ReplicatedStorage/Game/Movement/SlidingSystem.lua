@@ -19,6 +19,7 @@ local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitFo
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 
+
 SlidingSystem.IsSliding = false
 SlidingSystem.SlideVelocity = 0
 SlidingSystem.SlideDirection = Vector3.new(0, 0, 0)
@@ -263,13 +264,6 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 		end
 	end
 
-	if not MovementStateManager:TransitionTo(MovementStateManager.States.Sliding) then
-		LogService:Warn("SLIDING", "Failed to transition to sliding state")
-		return false
-	end
-
-	self.LastSlideEndTime = tick()
-
 	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
 	local currentHorizontalVelocity = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
 	local slideConfig = Config.Gameplay.Sliding
@@ -277,10 +271,63 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 
 	local slideDirection
 	if movementDirection.Magnitude < 0.001 then
-		local lookVector = self.PrimaryPart.CFrame.LookVector
-		slideDirection = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+		local cameraDir = nil
+		if self.CameraController then
+			local cameraAngles = self.CameraController:GetCameraAngles()
+			local cameraY = math.rad(cameraAngles.X)
+			cameraDir = Vector3.new(math.sin(cameraY), 0, math.cos(cameraY))
+		end
+		if cameraDir and cameraDir.Magnitude > 0.1 then
+			local isGrounded, groundNormal = MovementUtils:CheckGroundedWithSlope(
+				self.Character,
+				self.PrimaryPart,
+				self.RaycastParams
+			)
+			if isGrounded and groundNormal then
+				local projected = cameraDir - cameraDir:Dot(groundNormal) * groundNormal
+				if projected.Magnitude > 0.05 then
+					slideDirection = projected.Unit
+				else
+					slideDirection = cameraDir.Unit
+				end
+			else
+				slideDirection = cameraDir.Unit
+			end
+		else
+			local lookVector = self.PrimaryPart.CFrame.LookVector
+			local horizontal = Vector3.new(lookVector.X, 0, lookVector.Z)
+			if horizontal.Magnitude < 0.1 then
+				local vel = self.PrimaryPart.AssemblyLinearVelocity
+				horizontal = Vector3.new(vel.X, 0, vel.Z)
+			end
+			if horizontal.Magnitude < 0.1 then
+				horizontal = Vector3.new(0, 0, -1)
+			end
+			slideDirection = horizontal.Unit
+		end
 	else
 		slideDirection = movementDirection.Unit
+	end
+
+	-- Pre-slide ground validation: ensure there's actual surface to slide on.
+	local feetPart = CharacterLocations:GetFeet(self.Character) or self.PrimaryPart
+	local feetBottom = feetPart.Position - Vector3.new(0, feetPart.Size.Y / 2, 0)
+	local groundOffset = slideConfig.GroundCheckOffset or 0.5
+	local groundDistance = slideConfig.GroundCheckDistance or 10
+	local baseRayOrigin = feetBottom + Vector3.new(0, groundOffset, 0)
+	local downRay = workspace:Raycast(baseRayOrigin, Vector3.new(0, -groundDistance, 0), self.RaycastParams)
+
+	local forwardDownRay = nil
+	local horizontalDir = Vector3.new(slideDirection.X, 0, slideDirection.Z)
+	if horizontalDir.Magnitude > 0.1 then
+		horizontalDir = horizontalDir.Unit
+		local forwardDownDirection = (horizontalDir * groundDistance) + Vector3.new(0, -groundDistance, 0)
+		forwardDownRay = workspace:Raycast(baseRayOrigin, forwardDownDirection, self.RaycastParams)
+	end
+
+	if not downRay and not forwardDownRay then
+		LogService:Debug("SLIDING", "Slide cancelled - no valid ground detected")
+		return false
 	end
 
 	local isHittingWall = MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, slideDirection)
@@ -289,69 +336,19 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 		return false
 	end
 
+	if not MovementStateManager:TransitionTo(MovementStateManager.States.Sliding) then
+		LogService:Warn("SLIDING", "Failed to transition to sliding state")
+		return false
+	end
+
+	self.LastSlideEndTime = tick()
+
 	self.IsSliding = true
 	local rawSlideVelocity = slideConfig.InitialVelocity + airborneBonus + preservedMomentum
 	self.SlideVelocity = math.min(rawSlideVelocity, slideConfig.MaxVelocity)
 	self.SlideDirection = slideDirection
 	self.OriginalSlideDirection = slideDirection
 
-	if currentHorizontalVelocity.Magnitude < 5 then
-		local edgeCheckRay = workspace:Raycast(
-			self.PrimaryPart.Position + slideDirection * 2,
-			Vector3.new(0, -3, 0),
-			self.RaycastParams
-		)
-		local isAtEdge = (edgeCheckRay == nil)
-
-		local immediateVelocity = slideDirection * self.SlideVelocity
-
-		-- Standstill slide fix: apply immediate velocity in a network-friendly way.
-		-- Use LinearVelocity (constraint replacement for BodyVelocity) to match our slide driver.
-		local primaryPart = self.PrimaryPart
-		local attachment = primaryPart:FindFirstChild("SlideAttachment")
-		if not attachment then
-			attachment = Instance.new("Attachment")
-			attachment.Name = "SlideAttachment"
-			attachment.Parent = primaryPart
-		end
-
-		local initVel = Instance.new("LinearVelocity")
-		initVel.Name = "SlideInitLinearVelocity"
-		initVel.Attachment0 = attachment
-		initVel.RelativeTo = Enum.ActuatorRelativeTo.World
-		initVel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-		initVel.ForceLimitsEnabled = true
-		initVel.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-
-		if isAtEdge then
-			initVel.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			initVel.VectorVelocity = Vector3.new(immediateVelocity.X, -10, immediateVelocity.Z)
-		else
-			initVel.MaxAxesForce = Vector3.new(math.huge, 0, math.huge)
-			initVel.VectorVelocity = Vector3.new(immediateVelocity.X, 0, immediateVelocity.Z)
-		end
-		initVel.Parent = primaryPart
-
-		if isAtEdge then
-			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-				immediateVelocity.X,
-				math.min(self.PrimaryPart.AssemblyLinearVelocity.Y, -10),
-				immediateVelocity.Z
-			)
-		else
-			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-				immediateVelocity.X,
-				self.PrimaryPart.AssemblyLinearVelocity.Y,
-				immediateVelocity.Z
-			)
-		end
-
-		task.delay(0.1, function()
-			if initVel and initVel.Parent then
-				initVel:Destroy()
-			end
-		end)
-	end
 
 	local impulseConfig = Config.Gameplay.Sliding.ImpulseSlide
 
@@ -419,6 +416,7 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 	self.LastSlideStopTime = tick()
 	self.SlideStopDirection = self.SlideDirection
 	self.SlideStopVelocity = self.SlideVelocity
+
 
 	-- Clean up both old and new slide force systems
 	if self.PrimaryPart then
@@ -545,6 +543,7 @@ function SlidingSystem:UpdateSlide(deltaTime)
 		self:StopSlide(false, nil, "InvalidState")
 		return
 	end
+
 
 	local isHittingWall = MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, self.SlideDirection)
 	if isHittingWall then

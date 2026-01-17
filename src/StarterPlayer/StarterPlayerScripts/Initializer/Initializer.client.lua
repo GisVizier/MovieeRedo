@@ -4,8 +4,10 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local Net = require(Locations.Shared.Net.Net)
 local Loader = require(Locations.Shared.Util.Loader)
 local Registry = require(script.Parent:WaitForChild("Registry"):WaitForChild("Registry"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 Net:Init()
+SoundManager:Init()
 
 local registry = Registry.new()
 

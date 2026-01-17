@@ -19,6 +19,7 @@ local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Con
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
@@ -57,6 +58,10 @@ CharacterController.CameraRotationChanged = false
 
 CharacterController.SmoothedVerticalForce = 0
 CharacterController.LastDeltaTime = 1 / 60
+
+CharacterController.LastFootstepTime = 0
+CharacterController.LastJumpSoundTime = 0
+CharacterController.FallSoundPlayed = false
 
 CharacterController.VectorForce = nil
 CharacterController.AlignOrientation = nil
@@ -404,6 +409,9 @@ function CharacterController:UpdateMovement(deltaTime)
 	end
 
 	self:CheckGrounded()
+
+	self:UpdateFootsteps()
+	self:UpdateMovementAudio()
 
 	-- Slope Magnet (ported from Moviee-Proj):
 	-- If we are slightly airborne over sloped ground (common at ramp seams/crests),
@@ -960,6 +968,106 @@ function CharacterController:GetCurrentSpeed()
 
 	local velocity = self.PrimaryPart.AssemblyLinearVelocity
 	return Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+end
+
+function CharacterController:PlayMovementSound(soundName, position, pitch)
+	if not soundName then
+		return
+	end
+
+	local parent = self.PrimaryPart
+	SoundManager:PlaySound("Movement", soundName, parent, pitch)
+	SoundManager:RequestSoundReplication("Movement", soundName, position, pitch)
+end
+
+function CharacterController:UpdateFootsteps()
+	if not self.Character or not self.PrimaryPart then
+		return
+	end
+
+	if not self.IsGrounded or MovementStateManager:IsSliding() then
+		return
+	end
+
+	local velocity = self.PrimaryPart.AssemblyLinearVelocity
+	local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+
+	local footstepConfig = Config.Audio and Config.Audio.Footsteps
+	if not footstepConfig then
+		return
+	end
+
+	local minSpeed = footstepConfig.MinSpeed or 2
+	if horizontalSpeed < minSpeed then
+		return
+	end
+
+	local factor = footstepConfig.Factor or 8.1
+	if MovementStateManager:IsCrouching() then
+		factor = footstepConfig.CrouchFactor or 12.0
+	elseif MovementStateManager:IsSprinting() then
+		factor = footstepConfig.SprintFactor or 6.0
+	end
+
+	local walkSpeed = Config.Gameplay.Character.WalkSpeed or 16
+	local effectiveSpeed = math.max(horizontalSpeed, walkSpeed * 0.5)
+	local footstepInterval = factor / effectiveSpeed
+
+	local now = tick()
+	if (now - self.LastFootstepTime) < footstepInterval then
+		return
+	end
+
+	self.LastFootstepTime = now
+
+	local grounded, materialName = MovementUtils:CheckGroundedWithMaterial(
+		self.Character,
+		self.PrimaryPart,
+		self.RaycastParams
+	)
+
+	if not grounded or not materialName then
+		return
+	end
+
+	local soundName = (footstepConfig.MaterialMap and footstepConfig.MaterialMap[materialName])
+		or footstepConfig.DefaultSound
+		or "FootstepConcrete"
+
+	local feetPart = CharacterLocations:GetFeet(self.Character) or self.PrimaryPart
+	local pitch = 0.9 + math.random() * 0.2
+	self:PlayMovementSound(soundName, feetPart.Position, pitch)
+end
+
+function CharacterController:UpdateMovementAudio()
+	if not self.PrimaryPart then
+		return
+	end
+
+	local movementSounds = Config.Audio and Config.Audio.Sounds and Config.Audio.Sounds.Movement
+	if not movementSounds then
+		return
+	end
+
+	local lastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
+	if lastJumpTime > self.LastJumpSoundTime then
+		self.LastJumpSoundTime = lastJumpTime
+		self.FallSoundPlayed = false
+		self:PlayMovementSound("Jump", self.PrimaryPart.Position, movementSounds.Jump and movementSounds.Jump.Pitch)
+	end
+
+	local velocity = self.PrimaryPart.AssemblyLinearVelocity
+	if not self.IsGrounded then
+		if not self.FallSoundPlayed and velocity.Y < -35 then
+			self.FallSoundPlayed = true
+			self:PlayMovementSound("Fall", self.PrimaryPart.Position, movementSounds.Fall and movementSounds.Fall.Pitch)
+		end
+	else
+		if not self.WasGrounded and math.abs(velocity.Y) >= 35 then
+			self:PlayMovementSound("Land", self.PrimaryPart.Position, movementSounds.Land and movementSounds.Land.Pitch)
+		end
+		self.FallSoundPlayed = false
+	end
 end
 
 -- =============================================================================

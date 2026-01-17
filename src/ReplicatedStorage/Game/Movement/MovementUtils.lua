@@ -241,12 +241,25 @@ function MovementUtils:CheckGroundedWithMaterial(character, primaryPart, raycast
 		params.CollisionGroup = "Players"
 	end
 
-	local result = workspace:Raycast(baseRayOrigin, rayDirection, params)
-	if result then
-		local materialName = tostring(result.Material)
-		local materialParts = string.split(materialName, ".")
-		local cleanMaterialName = materialParts[#materialParts] or "Plastic"
-		return true, cleanMaterialName
+	local offsetX = feetSize.X / 4
+	local offsetZ = feetSize.Z / 4
+
+	local rayOrigins = {
+		baseRayOrigin,
+		baseRayOrigin + Vector3.new(0, 0, offsetZ),
+		baseRayOrigin + Vector3.new(0, 0, -offsetZ),
+		baseRayOrigin + Vector3.new(offsetX, 0, 0),
+		baseRayOrigin + Vector3.new(-offsetX, 0, 0),
+	}
+
+	for _, rayOrigin in ipairs(rayOrigins) do
+		local result = workspace:Raycast(rayOrigin, rayDirection, params)
+		if result then
+			local materialName = tostring(result.Material)
+			local materialParts = string.split(materialName, ".")
+			local cleanMaterialName = materialParts[#materialParts] or "Plastic"
+			return true, cleanMaterialName
+		end
 	end
 
 	return false, nil
