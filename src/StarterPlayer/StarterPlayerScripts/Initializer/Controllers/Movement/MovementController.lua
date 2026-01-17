@@ -79,6 +79,10 @@ CharacterController.GameplayEnabled = false
 
 -- Respawn / reset reliability
 CharacterController.RespawnRequested = false
+CharacterController.StepUpRemaining = 0
+CharacterController.LastStepUpTime = 0
+CharacterController.StepUpBoostTime = 0
+CharacterController.StepUpRequiredVelocity = 0
 
 function CharacterController:SetGameplayEnabled(enabled: boolean)
 	self.GameplayEnabled = enabled == true
@@ -204,6 +208,10 @@ function CharacterController:OnLocalCharacterRemoving()
 	self.IsSprinting = false
 	self.IsCrouching = false
 	self.RespawnRequested = false
+	self.StepUpRemaining = 0
+	self.LastStepUpTime = 0
+	self.StepUpBoostTime = 0
+	self.StepUpRequiredVelocity = 0
 	self.JumpExecutedThisInput = false
 	self.LastGroundedTime = 0
 
@@ -409,6 +417,13 @@ function CharacterController:UpdateMovement(deltaTime)
 	end
 
 	self:CheckGrounded()
+
+	if self.IsGrounded and not self.WasGrounded then
+		local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+		self.PrimaryPart.AssemblyLinearVelocity = currentVelocity * 0.5
+	end
+
+	self:TryStepUp(deltaTime)
 
 	self:UpdateFootsteps()
 	self:UpdateMovementAudio()
@@ -700,6 +715,103 @@ end
 -- MOVEMENT APPLICATION
 -- =============================================================================
 
+function CharacterController:TryStepUp(deltaTime)
+	if not self.PrimaryPart or not self.FeetPart or not self.RaycastParams then
+		return
+	end
+
+	local stepHeight = 1.0
+	local forwardDistance = 2.0
+	local cooldown = 0.12
+
+	local moveVector = self:CalculateMovement()
+	local horizontal = Vector3.new(moveVector.X, 0, moveVector.Z)
+	if horizontal.Magnitude < 0.05 then
+		return
+	end
+
+	local forward = horizontal.Unit
+	local feet = self.FeetPart
+	local feetSize = feet.Size
+	local feetBottomY = feet.Position.Y - (feetSize.Y * 0.5)
+
+	local midOrigin = Vector3.new(feet.Position.X, feetBottomY + 0.9, feet.Position.Z)
+	local debugPart = workspace:FindFirstChild("StepUpDebug")
+	if not debugPart then
+		debugPart = Instance.new("Part")
+		debugPart.Name = "StepUpDebug"
+		debugPart.Size = Vector3.new(0.2, 0.2, 0.2)
+		debugPart.Anchored = true
+		debugPart.CanCollide = false
+		debugPart.CanQuery = false
+		debugPart.CanTouch = false
+		debugPart.Material = Enum.Material.Neon
+		debugPart.Color = Color3.fromRGB(255, 0, 255)
+		debugPart.Parent = workspace
+	end
+	debugPart.CFrame = CFrame.lookAt(
+		midOrigin + (forward * forwardDistance),
+		midOrigin + (forward * forwardDistance) + forward
+	)
+
+	local hitLow = workspace:Raycast(midOrigin, forward * forwardDistance, self.RaycastParams)
+	print("[STEP_UP] hitLow", hitLow and hitLow.Instance and hitLow.Instance.Name or "nil")
+	if hitLow then
+		local highOrigin = Vector3.new(feet.Position.X, feetBottomY + stepHeight, feet.Position.Z)
+		local hitHigh = workspace:Raycast(highOrigin, forward * forwardDistance, self.RaycastParams)
+		print("[STEP_UP] hitHigh", hitHigh and hitHigh.Instance and hitHigh.Instance.Name or "nil")
+		if not hitHigh then
+			local downOrigin = Vector3.new(
+				feet.Position.X,
+				feetBottomY + stepHeight + 0.5,
+				feet.Position.Z
+			) + (forward * forwardDistance)
+			local downDistance = stepHeight + 1
+			local hitDown = workspace:Raycast(
+				downOrigin,
+				Vector3.new(0, -downDistance, 0),
+				self.RaycastParams
+			)
+			print("[STEP_UP] hitDown", hitDown and hitDown.Instance and hitDown.Instance.Name or "nil")
+			if hitDown and hitDown.Normal.Y >= 0.6 then
+				local stepDelta = hitDown.Position.Y - feetBottomY
+				print("[STEP_UP] stepDelta", stepDelta)
+				if stepDelta > 0.05 and stepDelta <= stepHeight then
+					local now = tick()
+					if (now - (self.LastStepUpTime or 0)) >= cooldown then
+						self.StepUpRemaining = math.max(self.StepUpRemaining or 0, stepDelta)
+						self.LastStepUpTime = now
+						local gravity = workspace.Gravity
+						self.StepUpRequiredVelocity = math.sqrt(2 * gravity * stepDelta) * 0.4
+						self.StepUpBoostTime = 0.06
+					end
+				end
+			end
+		end
+	end
+
+	if self.StepUpBoostTime and self.StepUpBoostTime > 0 then
+		local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+		local required = self.StepUpRequiredVelocity or 0
+		if currentVelocity.Y < 0 then
+			required = required + 1
+		end
+		if required > 0 then
+			local newY = math.max(currentVelocity.Y, required)
+			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
+				currentVelocity.X,
+				newY,
+				currentVelocity.Z
+			)
+		end
+		self.StepUpBoostTime = math.max(0, self.StepUpBoostTime - deltaTime)
+		if self.StepUpBoostTime == 0 then
+			self.StepUpRemaining = 0
+			self.StepUpRequiredVelocity = 0
+		end
+	end
+end
+
 function CharacterController:ApplyMovement()
 	local moveVector = self:CalculateMovement()
 	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
@@ -909,10 +1021,7 @@ function CharacterController:ApplyMovement()
 
 		if grounded and groundNormal then
 			local maxWalkableAngle = Config.Gameplay.Character.MaxWalkableSlopeAngle
-			local wallStopConfig = Config.Gameplay.Character.WallStop
-			local minWallAngle = (wallStopConfig and wallStopConfig.MinWallAngle) or 70
-
-			if slopeDegrees > 0.5 and slopeDegrees <= maxWalkableAngle and slopeDegrees < minWallAngle then
+			if slopeDegrees > 0.5 and slopeDegrees <= maxWalkableAngle then
 				local gravityAccel = ConfigCache.WORLD_GRAVITY or workspace.Gravity
 				local gravity = Vector3.new(0, -gravityAccel, 0)
 				local gravityParallel = gravity - (gravity:Dot(groundNormal)) * groundNormal
@@ -1611,6 +1720,9 @@ function CharacterController:ApplyAirborneDownforce(deltaTime)
 	local mass = self.PrimaryPart.AssemblyMass
 	local gravity = workspace.Gravity
 	local dampingForce = mass * gravity * self.SmoothedGravityMultiplier
+	if currentVelocity.Y < 0 then
+		dampingForce = dampingForce * 1.35
+	end
 
 	local newYVelocity = currentVelocity.Y + (dampingForce / mass * deltaTime)
 

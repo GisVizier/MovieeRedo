@@ -83,7 +83,7 @@ local Character = {
 		MinAirborneHeight = 0.5,
 	},
 	GroundRayOffset = 0.25,
-	GroundRayDistance = 0.6,
+	GroundRayDistance = 1.2,
 	MaxWalkableSlopeAngle = 90,
 	StandingFriction = {
 		IdleFriction = 0.65,
