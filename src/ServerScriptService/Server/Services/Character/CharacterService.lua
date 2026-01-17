@@ -31,6 +31,7 @@ function CharacterService:Init(registry, net)
 	Players.CharacterAutoLoads = false
 
 	self:_cacheTemplate()
+	self:_ensureEntitiesContainer()
 	self:_createRagdollContainer()
 	self:_bindRemotes()
 
@@ -112,6 +113,16 @@ function CharacterService:_createRagdollContainer()
 	self._ragdollContainer = container
 end
 
+function CharacterService:_ensureEntitiesContainer()
+	local container = workspace:FindFirstChild("Entities")
+	if not container then
+		container = Instance.new("Folder")
+		container.Name = "Entities"
+		container.Parent = workspace
+	end
+	self._entitiesContainer = container
+end
+
 function CharacterService:_sendExistingCharacters(player)
 	for otherPlayer, character in pairs(self.ActiveCharacters) do
 		if otherPlayer ~= player and character and character.Parent then
@@ -134,7 +145,7 @@ function CharacterService:SpawnCharacter(player)
 
 	local character = Instance.new("Model")
 	character.Name = player.Name
-	character.Parent = workspace
+	character.Parent = self._entitiesContainer or workspace
 
 	local templateHumanoid = self._template:FindFirstChildOfClass("Humanoid")
 	local templateRootPart = self._template:FindFirstChild("HumanoidRootPart")

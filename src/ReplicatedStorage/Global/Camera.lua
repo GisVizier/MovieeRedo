@@ -98,10 +98,10 @@ Camera.FOV = {
 	-- Velocity-based FOV
 	Velocity = {
 		Enabled = true,
-		MinSpeed = 18,          -- Speed threshold to start FOV increase
-		MaxSpeed = 100,         -- Speed at max FOV boost
+			MinSpeed = 22,          -- Speed threshold to start FOV increase
+			MaxSpeed = 140,         -- Speed at max FOV boost
 		MinBoost = 0,           -- FOV boost at min speed
-		MaxBoost = 30,          -- FOV boost at max speed
+			MaxBoost = 12,          -- FOV boost at max speed
 	},
 	
 	-- State-based FOV effects
@@ -112,7 +112,7 @@ Camera.FOV = {
 	},
 	
 	-- Smoothing
-	LerpAlpha = 0.06,           -- Lower = smoother transitions
+		LerpAlpha = 0.04,           -- Lower = smoother transitions
 }
 
 -- =============================================================================

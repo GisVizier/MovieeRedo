@@ -55,6 +55,9 @@ CharacterController.CachedCameraYAngle = 0
 CharacterController.LastCameraAngles = nil
 CharacterController.CameraRotationChanged = false
 
+CharacterController.SmoothedVerticalForce = 0
+CharacterController.LastDeltaTime = 1 / 60
+
 CharacterController.VectorForce = nil
 CharacterController.AlignOrientation = nil
 CharacterController.Attachment0 = nil
@@ -367,6 +370,8 @@ function CharacterController:UpdateMovement(deltaTime)
 		self.VectorForce.Force = Vector3.zero
 		return
 	end
+
+	self.LastDeltaTime = deltaTime
 
 	self:CheckDeath()
 	self:UpdateCachedCameraRotation()
@@ -908,7 +913,12 @@ function CharacterController:ApplyMovement()
 		end
 	end
 
-	local finalForce = vector3_new(moveForce.X, appliedY, moveForce.Z) + slopeAssistForce
+	local dt = self.LastDeltaTime or (1 / 60)
+	local smoothing = Config.Gameplay.Character.FallSpeed.VerticalForceLerp or 12
+	self.SmoothedVerticalForce = self.SmoothedVerticalForce
+		+ (appliedY - self.SmoothedVerticalForce) * math.clamp(smoothing * dt, 0, 1)
+
+	local finalForce = vector3_new(moveForce.X, self.SmoothedVerticalForce, moveForce.Z) + slopeAssistForce
 	self.VectorForce.Force = finalForce
 
 end

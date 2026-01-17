@@ -24,7 +24,7 @@ function SlideCancel:Execute(_originUserId, data)
 	local dir = Vector3.new(0, -8, 0)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {}
+	rayParams.FilterDescendantsInstances = {workspace.Rigs, workspace.Ragdolls, workspace.Entities  }
 	rayParams.RespectCanCollide = true
 
 	if not workspace:Raycast(origin, dir, rayParams) then

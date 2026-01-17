@@ -4,6 +4,9 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local VFXPlayer = require(Locations.Shared.Util:WaitForChild("VFXPlayer"))
 
+local ReturnService = require(game.ReplicatedStorage.Shared.Util.FXLibaray)
+local Utils = ReturnService();
+
 local Util = require(script.Parent.Util)
 
 local WallJump = {}
@@ -22,10 +25,12 @@ function WallJump:Execute(_originUserId, data)
 	local fx = fxFolder and fxFolder:FindFirstChild("WallJump")
 	if root and fx then
 		fx = fx:Clone()
-		fx.Parent = effectsFolder
+		fx.Parent = workspace.Effects
 
 		local pivot = data.pivot or CFrame.new(data.position)
 		fx:PivotTo(pivot)
+
+		Utils.PlayAttachment(fx, 5)
 	end
 end
 

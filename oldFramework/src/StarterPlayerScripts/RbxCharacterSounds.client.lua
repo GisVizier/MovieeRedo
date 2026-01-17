@@ -1,0 +1,2 @@
+--!nonstrict
+-- Roblox character sound script (totally real)

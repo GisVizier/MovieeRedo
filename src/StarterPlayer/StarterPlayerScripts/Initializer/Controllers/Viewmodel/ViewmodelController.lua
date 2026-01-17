@@ -9,7 +9,6 @@ local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local CreateLoadout = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("CreateLoadout"))
-local ViewmodelEffects = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("ViewmodelEffects"))
 local ViewmodelAnimator = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("ViewmodelAnimator"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 
@@ -25,7 +24,6 @@ ViewmodelController._loadoutVm = nil -- object from CreateLoadout
 ViewmodelController._activeSlot = nil
 ViewmodelController._previousSlot = nil
 
-ViewmodelController._effects = nil
 ViewmodelController._animator = nil
 
 ViewmodelController._renderConn = nil
@@ -64,7 +62,6 @@ function ViewmodelController:Init(registry, net)
 	ServiceRegistry:SetRegistry(registry)
 	ServiceRegistry:RegisterController("Viewmodel", self)
 
-	self._effects = ViewmodelEffects.new()
 	self._animator = ViewmodelAnimator.new()
 
 	-- Listen for match start (Option A: equip Primary).
@@ -207,9 +204,6 @@ function ViewmodelController:SetActiveSlot(slot: string)
 		end
 	end
 
-	-- Reset effects on swaps for crisp feel.
-	self._effects:Reset()
-
 	-- Bind animator to the active rig (movement loops).
 	do
 		local rig = getRigForSlot(self, slot)
@@ -289,25 +283,14 @@ function ViewmodelController:_render(dt: number)
 		rig.Model.Parent = cam
 	end
 
-	local weaponId = nil
-	if self._activeSlot == "Fists" then
-		weaponId = "Fists"
-	elseif self._loadout and type(self._loadout[self._activeSlot]) == "string" then
-		weaponId = self._loadout[self._activeSlot]
-	end
-
-	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
-	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
-
-	local effectsOffset = self._effects:Update(dt, cam.CFrame, weaponId)
-
 	-- Align rig so its Anchor part matches the camera.
 	-- Equivalent to Moviee: Camera.CFrame * (modelPivot:ToObjectSpace(anchorPivot))^-1 * offsets
 	local pivot = rig.Model:GetPivot()
 	local anchorPivot = rig.Anchor:GetPivot()
 	local align = pivot:ToObjectSpace(anchorPivot):Inverse()
 
-	local target = cam.CFrame * align * baseOffset * effectsOffset
+	-- No effects/offsets for now; align directly to the camera.
+	local target = cam.CFrame * align
 	rig.Model:PivotTo(target)
 end
 
