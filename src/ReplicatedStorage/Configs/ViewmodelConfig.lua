@@ -71,7 +71,6 @@ ViewmodelConfig.Effects = {
 		Damping = 18,
 		MaxOffset = 0.22,
 		SlideKick = Vector3.new(0, -0.05, 0.06),
-		VaultKick = Vector3.new(0, 0.09, 0.1),
 		JumpCancelKick = Vector3.new(0, 0.08, 0.12),
 	},
 }

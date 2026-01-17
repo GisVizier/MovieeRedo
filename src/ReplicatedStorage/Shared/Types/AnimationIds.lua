@@ -24,7 +24,6 @@ AnimationIds.Enum = {
 	WallBoostForward = 22,
 	WallBoostLeft = 23,
 	WallBoostRight = 24,
-	Vault = 28,
 }
 
 AnimationIds.Names = {}

@@ -11,7 +11,6 @@ local MovementUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChi
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local SlidingSystem = require(Locations.Game:WaitForChild("Movement"):WaitForChild("SlidingSystem"))
 local WallJumpUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChild("WallJumpUtils"))
-local VaultingSystem = require(Locations.Game:WaitForChild("Movement"):WaitForChild("VaultingSystem"))
 local CrouchUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CrouchUtils"))
 local MovementInputProcessor = require(script.Parent:WaitForChild("MovementInputProcessor"))
 local ValidationUtils = require(Locations.Shared.Util:WaitForChild("ValidationUtils"))
@@ -69,12 +68,6 @@ CharacterController.MinFrameTime = 0
 CharacterController.Connection = nil
 
 CharacterController.GameplayEnabled = false
-
--- Vaulting (short movement override)
-CharacterController.IsVaulting = false
-CharacterController.VaultEndTime = 0
-CharacterController.LastVaultAttempt = 0
-CharacterController.VaultAnimPlayed = false
 
 -- Respawn / reset reliability
 CharacterController.RespawnRequested = false
@@ -173,10 +166,6 @@ function CharacterController:OnLocalCharacterReady(character)
 	end
 
 	self.RespawnRequested = false
-	self.IsVaulting = false
-	self.VaultEndTime = 0
-	self.LastVaultAttempt = 0
-	self.VaultAnimPlayed = false
 	MovementStateManager:Reset()
 
 	if self.CameraController then
@@ -206,10 +195,6 @@ function CharacterController:OnLocalCharacterRemoving()
 	self.WasGrounded = false
 	self.IsSprinting = false
 	self.IsCrouching = false
-	self.IsVaulting = false
-	self.VaultEndTime = 0
-	self.LastVaultAttempt = 0
-	self.VaultAnimPlayed = false
 	self.RespawnRequested = false
 	self.JumpExecutedThisInput = false
 	self.LastGroundedTime = 0
@@ -393,24 +378,10 @@ function CharacterController:UpdateMovement(deltaTime)
 		if SlidingSystem and SlidingSystem.IsSliding then
 			SlidingSystem:StopSlide(false, true, "Ragdoll")
 		end
-		self.IsVaulting = false
 		if self.VectorForce then
 			self.VectorForce.Force = Vector3.zero
 		end
 		return
-	end
-
-	-- Vaulting lock: briefly disable movement forces so the throw feels intentional.
-	if self.IsVaulting then
-		if tick() >= (self.VaultEndTime or 0) then
-			self.IsVaulting = false
-			self.VaultAnimPlayed = false
-		else
-			if self.VectorForce then
-				self.VectorForce.Force = Vector3.zero
-			end
-			return
-		end
 	end
 
 	if SlidingSystem.IsSlideBuffered and not self.IsGrounded then
@@ -428,22 +399,6 @@ function CharacterController:UpdateMovement(deltaTime)
 	end
 
 	self:CheckGrounded()
-
-	-- Auto-vault detection (smooth, minimal checks)
-	if self.IsGrounded
-		and not self.IsVaulting
-		and not MovementStateManager:IsSliding()
-		and not MovementStateManager:IsCrouching()
-		and self.MovementInput.Magnitude > 0.1
-	then
-		local primaryPart = self.PrimaryPart
-		local vel = primaryPart and primaryPart.AssemblyLinearVelocity or Vector3.zero
-		
-		-- Only vault when moving forward, not during jump startup
-		if vel.Y <= 2 then
-			VaultingSystem:TryVault(self)
-		end
-	end
 
 	-- Slope Magnet (ported from Moviee-Proj):
 	-- If we are slightly airborne over sloped ground (common at ramp seams/crests),

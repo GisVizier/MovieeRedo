@@ -58,7 +58,6 @@ function ViewmodelEffects.new()
 	self._bobWeight = 0
 	self._lastSlideDir = Vector3.new(0, 0, -1)
 	self._wasSliding = false
-	self._wasVaulting = false
 	self._lastJumpCancelTime = 0
 	self._movementController = nil
 	return self
@@ -78,7 +77,6 @@ function ViewmodelEffects:Reset()
 	self._bobWeight = 0
 	self._lastSlideDir = Vector3.new(0, 0, -1)
 	self._wasSliding = false
-	self._wasVaulting = false
 	self._lastJumpCancelTime = 0
 end
 
@@ -191,7 +189,7 @@ function ViewmodelEffects:Update(dt: number, cameraCFrame: CFrame, weaponId: str
 		end
 	end
 
-	-- Impulse response (vault, slide start, jump cancel).
+	-- Impulse response (slide start, jump cancel).
 	do
 		local impulseCfg = effects.Impulse
 		if impulseCfg and impulseCfg.Enabled then
@@ -205,12 +203,6 @@ function ViewmodelEffects:Update(dt: number, cameraCFrame: CFrame, weaponId: str
 				self._impulseVelocity += impulseCfg.SlideKick
 			end
 			self._wasSliding = isSliding
-
-			local isVaulting = self._movementController and self._movementController.IsVaulting or false
-			if isVaulting and not self._wasVaulting and impulseCfg.VaultKick then
-				self._impulseVelocity += impulseCfg.VaultKick
-			end
-			self._wasVaulting = isVaulting
 
 			local jumpCancelTime = SlidingSystem.LastJumpCancelTime or 0
 			if jumpCancelTime > (self._lastJumpCancelTime or 0) and impulseCfg.JumpCancelKick then

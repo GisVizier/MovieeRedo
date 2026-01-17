@@ -6,7 +6,6 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local SlidingSystem = require(Locations.Game:WaitForChild("Movement"):WaitForChild("SlidingSystem"))
 local MovementUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementUtils"))
-local VaultingSystem = require(Locations.Game:WaitForChild("Movement"):WaitForChild("VaultingSystem"))
 local WallJumpUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChild("WallJumpUtils"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
@@ -214,12 +213,6 @@ function MovementInputProcessor:HandleNormalJump(isImmediatePress)
 	end
 
 	if isInCoyoteTime and not shouldAttemptWallJump then
-		-- Try vault first (jump can trigger vault if near ledge)
-		if VaultingSystem:TryVault(self.CharacterController) then
-			self:MarkJumpExecuted()
-			return
-		end
-
 		local currentTime = tick()
 		local timeSinceLastJump = currentTime - self.LastJumpTime
 		if timeSinceLastJump < Config.Gameplay.Cooldowns.Jump then

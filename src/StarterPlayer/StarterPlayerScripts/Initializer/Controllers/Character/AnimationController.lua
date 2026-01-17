@@ -74,7 +74,7 @@ local function getDefaultSettings(name)
 		Speed = 1.0,
 	}
 
-	if name == "Jump" or name == "JumpCancel" or name:match("^WallBoost") or name == "Vault" then
+	if name == "Jump" or name == "JumpCancel" or name:match("^WallBoost") then
 		settings.FadeInTime = 0.05
 		settings.FadeOutTime = 0.15
 		settings.Loop = false
@@ -148,9 +148,6 @@ local function getAnimationCategory(animationName)
 	end
 
 	if animationName == "Jump" or animationName == "JumpCancel" or animationName == "Falling" then
-		return "Airborne"
-	end
-	if animationName == "Vault" then
 		return "Airborne"
 	end
 
@@ -238,9 +235,6 @@ function AnimationController:_loadTrack(animator, animation, name)
 	local settings = self.AnimationSettings[name]
 	if not settings then
 		settings = applyAttributes(animation, getDefaultSettings(name))
-		if name == "Vault" then
-			settings.Loop = false
-		end
 		self.AnimationSettings[name] = settings
 	end
 
@@ -730,22 +724,6 @@ function AnimationController:TriggerWallBoostAnimation(cameraDirection, movement
 		animationName = WallBoostDirectionDetector:GetWallBoostAnimationName(cameraDirection, movementDirection)
 	end
 	self:PlayAirborneAnimation(animationName)
-end
-
-function AnimationController:TriggerVaultAnimation()
-	if not self.LocalAnimator then
-		return
-	end
-
-	local track = self.LocalAnimationTracks.Vault
-	if type(track) == "table" then
-		track = track[1]
-	end
-	if track and track.IsPlaying then
-		return
-	end
-
-	self:PlayAirborneAnimation("Vault")
 end
 
 function AnimationController:StartSlideAnimationUpdates()
