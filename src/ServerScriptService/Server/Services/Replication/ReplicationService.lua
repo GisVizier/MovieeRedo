@@ -76,6 +76,14 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 		return
 	end
 
+	-- Check if this is the first state update (LastState is nil)
+	if not playerData.LastState then
+		playerData.LastState = state
+		playerData.CachedCompressedState = compressedState
+		playerData.LastUpdateTime = tick()
+		return
+	end
+
 	-- Anti-cheat validation
 	local deltaTime = state.Timestamp - playerData.LastState.Timestamp
 	local isValid = MovementValidator:Validate(player, state, deltaTime)
