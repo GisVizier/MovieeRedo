@@ -12,20 +12,20 @@ local function formatMessage(level, tag, message, data)
 	return string.format("[%s][%s] %s%s", level, tag, tostring(message), suffix)
 end
 
-function LogService:Info(tag, message, data)
-	print(formatMessage("INFO", tag, message, data))
+function LogService:Info(_tag, _message, _data)
+	-- Disabled: no-op
 end
 
-function LogService:Debug(tag, message, data)
-	print(formatMessage("DEBUG", tag, message, data))
+function LogService:Debug(_tag, _message, _data)
+	-- Disabled: no-op
 end
 
-function LogService:Warn(tag, message, data)
-	warn(formatMessage("WARN", tag, message, data))
+function LogService:Warn(_tag, _message, _data)
+	-- Disabled: no-op
 end
 
-function LogService:Error(tag, message, data)
-	warn(formatMessage("ERROR", tag, message, data))
+function LogService:Error(_tag, _message, _data)
+	-- Disabled: no-op
 end
 
 return LogService
