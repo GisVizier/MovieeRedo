@@ -4,6 +4,8 @@ Audio.SoundIds = {
 	Jump = "rbxassetid://0",
 	Fall = "rbxassetid://0",
 	Land = "rbxassetid://0",
+	Crouch = "rbxassetid://0",
+	Slide = "rbxassetid://0",
 
 	FootstepPlastic = "rbxassetid://7326203155",
 	FootstepGrass = "rbxassetid://507863105",
@@ -20,6 +22,8 @@ Audio.Sounds = {
 		Jump = { Id = Audio.SoundIds.Jump, Volume = 0.6, Pitch = 1.0 },
 		Fall = { Id = Audio.SoundIds.Fall, Volume = 0.6, Pitch = 1.0 },
 		Land = { Id = Audio.SoundIds.Land, Volume = 0.6, Pitch = 1.0 },
+		Crouch = { Id = Audio.SoundIds.Crouch, Volume = 0.5, Pitch = 1.0 },
+		Slide = { Id = Audio.SoundIds.Slide, Volume = 0.6, Pitch = 1.0 },
 
 		FootstepPlastic = { Id = Audio.SoundIds.FootstepPlastic, Volume = 0.5, Pitch = 1.0 },
 		FootstepGrass = { Id = Audio.SoundIds.FootstepGrass, Volume = 0.5, Pitch = 1.0 },

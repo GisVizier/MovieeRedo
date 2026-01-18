@@ -2,6 +2,7 @@ local SlidingSystem = {}
 
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
@@ -33,6 +34,7 @@ SlidingSystem.AirborneStartY = 0
 SlidingSystem.AirbornePeakY = 0
 SlidingSystem.IsAirborne = false
 SlidingSystem.WasAirborneLastFrame = false
+SlidingSystem.SlideSound = nil
 
 SlidingSystem.IsSlideBuffered = false
 SlidingSystem.BufferedSlideDirection = Vector3.new(0, 0, 0)
@@ -220,6 +222,68 @@ function SlidingSystem:SetCharacterController(characterController)
 	self.CharacterController = characterController
 end
 
+local function getSlideSoundDefinition()
+	local audioConfig = Config.Audio
+	return audioConfig and audioConfig.Sounds and audioConfig.Sounds.Movement
+		and audioConfig.Sounds.Movement.Slide
+end
+
+local function getMovementSoundGroup()
+	local existing = SoundService:FindFirstChild("Movement")
+	if existing and existing:IsA("SoundGroup") then
+		return existing
+	end
+	return nil
+end
+
+local function ensureSlideSound(self)
+	if self.SlideSound and self.SlideSound.Parent then
+		return self.SlideSound
+	end
+
+	if not self.PrimaryPart then
+		return nil
+	end
+
+	local definition = getSlideSoundDefinition()
+	if not definition or not definition.Id then
+		return nil
+	end
+
+	local sound = Instance.new("Sound")
+	sound.Name = "SlideLoop"
+	sound.SoundId = definition.Id
+	sound.Volume = definition.Volume or 0.6
+	sound.PlaybackSpeed = definition.Pitch or 1.0
+	sound.RollOffMode = definition.RollOffMode or Enum.RollOffMode.Linear
+	sound.EmitterSize = definition.EmitterSize or 10
+	sound.MinDistance = definition.MinDistance or 5
+	sound.MaxDistance = definition.MaxDistance or 30
+	sound.Looped = true
+	sound.SoundGroup = getMovementSoundGroup()
+	sound.Parent = self.PrimaryPart
+
+	self.SlideSound = sound
+	return sound
+end
+
+local function updateSlideSound(self, isGrounded)
+	local sound = ensureSlideSound(self)
+	if not sound then
+		return
+	end
+
+	if isGrounded then
+		if not sound.IsPlaying then
+			sound:Play()
+		end
+	else
+		if sound.IsPlaying then
+			sound:Stop()
+		end
+	end
+end
+
 function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 	if not self.PrimaryPart then
 		LogService:Warn("SLIDING", "Cannot start slide - missing character components")
@@ -349,6 +413,7 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 	self.SlideDirection = slideDirection
 	self.OriginalSlideDirection = slideDirection
 
+	updateSlideSound(self, self:CheckGroundedForSliding())
 
 	local impulseConfig = Config.Gameplay.Sliding.ImpulseSlide
 
@@ -453,6 +518,12 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 	self.AirborneStartY = 0
 	self.AirbornePeakY = 0
 	self.WasAirborneLastFrame = false
+
+	if self.SlideSound then
+		self.SlideSound:Stop()
+		self.SlideSound:Destroy()
+		self.SlideSound = nil
+	end
 
 	RigRotationUtils:ResetRigRotation(self.Character, self.PrimaryPart, true)
 
@@ -565,6 +636,8 @@ function SlidingSystem:UpdateSlide(deltaTime)
 	local wasAirborneLastFrame = self.WasAirborneLastFrame
 	local isGrounded = self:CheckGroundedForSliding()
 	local isAirborne = not isGrounded
+
+	updateSlideSound(self, isGrounded)
 
 	if isAirborne and not wasAirborneLastFrame then
 		self.IsAirborne = true

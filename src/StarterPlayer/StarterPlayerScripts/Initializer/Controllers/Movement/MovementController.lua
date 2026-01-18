@@ -1129,6 +1129,10 @@ function CharacterController:HandleCrouch(isCrouching)
 	if isCrouching then
 		self:StopUncrouchChecking()
 		CrouchUtils:Crouch(self.Character)
+		local movementSounds = Config.Audio and Config.Audio.Sounds and Config.Audio.Sounds.Movement
+		if movementSounds and movementSounds.Crouch and self.PrimaryPart then
+			self:PlayMovementSound("Crouch", self.PrimaryPart.Position, movementSounds.Crouch.Pitch)
+		end
 		MovementStateManager:TransitionTo(MovementStateManager.States.Crouching)
 	else
 		if CrouchUtils:IsVisuallycrouched(self.Character) then
