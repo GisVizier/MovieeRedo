@@ -33,6 +33,41 @@ local function isValidAnimId(animId: any): boolean
 	return type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0"
 end
 
+local function getAnimationInstance(weaponId: string, animName: string): Animation?
+	-- Try to load from Assets/Animations/ViewModel/{WeaponId}/{AnimName}
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	
+	local animations = assets:FindFirstChild("Animations")
+	if not animations then
+		return nil
+	end
+	
+	local viewModel = animations:FindFirstChild("ViewModel")
+	if not viewModel then
+		return nil
+	end
+	
+	local weaponFolder = viewModel:FindFirstChild(weaponId)
+	if not weaponFolder then
+		return nil
+	end
+	
+	local viewmodelFolder = weaponFolder:FindFirstChild("Viewmodel")
+	if not viewmodelFolder then
+		return nil
+	end
+	
+	local animInstance = viewmodelFolder:FindFirstChild(animName)
+	if animInstance and animInstance:IsA("Animation") then
+		return animInstance
+	end
+	
+	return nil
+end
+
 function ViewmodelAnimator.new()
 	local self = setmetatable({}, ViewmodelAnimator)
 	self._rig = nil
@@ -60,11 +95,25 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
 	local anims = cfg and cfg.Animations or {}
 
-	for name, animId in pairs(anims) do
-		if isValidAnimId(animId) then
-			local anim = Instance.new("Animation")
-			anim.AnimationId = animId
-			local track = rig.Animator:LoadAnimation(anim)
+	for name, animRef in pairs(anims) do
+		local animInstance = nil
+		
+		-- Try to load as Animation instance first
+		if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
+			animInstance = getAnimationInstance(weaponId, animRef)
+			if animInstance then
+				print(string.format("[ViewmodelAnimator] Loaded Animation instance: %s/%s", weaponId, name))
+			end
+		end
+		
+		-- Fall back to asset ID if no instance found
+		if not animInstance and isValidAnimId(animRef) then
+			animInstance = Instance.new("Animation")
+			animInstance.AnimationId = animRef
+		end
+		
+		if animInstance then
+			local track = rig.Animator:LoadAnimation(animInstance)
 			track.Priority = Enum.AnimationPriority.Action
 			track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
 			self._tracks[name] = track

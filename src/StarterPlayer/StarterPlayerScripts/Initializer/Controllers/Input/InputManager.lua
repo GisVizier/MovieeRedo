@@ -44,6 +44,8 @@ InputManager.Callbacks = {
 	Ability = {},
 	Ultimate = {},
 	Fire = {},
+	Reload = {},
+	Inspect = {},
 	ToggleCameraMode = {},
 	ToggleRagdollTest = {},
 }
@@ -192,12 +194,15 @@ end
 function InputManager:DetectInputMode()
 	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
 		self.InputMode = "Mobile"
-	elseif UserInputService.GamepadEnabled and (
-		self.LastInputType == Enum.UserInputType.Gamepad1
-		or self.LastInputType == Enum.UserInputType.Gamepad2
-		or self.LastInputType == Enum.UserInputType.Gamepad3
-		or self.LastInputType == Enum.UserInputType.Gamepad4
-	) then
+	elseif
+		UserInputService.GamepadEnabled
+		and (
+			self.LastInputType == Enum.UserInputType.Gamepad1
+			or self.LastInputType == Enum.UserInputType.Gamepad2
+			or self.LastInputType == Enum.UserInputType.Gamepad3
+			or self.LastInputType == Enum.UserInputType.Gamepad4
+		)
+	then
 		self.InputMode = "Controller"
 	elseif UserInputService.KeyboardEnabled then
 		self.InputMode = "PC"
@@ -208,12 +213,22 @@ end
 
 function InputManager:SetupKeyboardMouse()
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen or not self.GameplayEnabled then
+		if
+			gameProcessed
+			or self.IsMenuOpen
+			or self.IsChatFocused
+			or self.IsSettingsOpen
+			or not self.GameplayEnabled
+		then
 			return
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			self:FireCallbacks("Fire", true)
+		elseif input.KeyCode == Enum.KeyCode.R then
+			self:FireCallbacks("Reload", true)
+		elseif input.KeyCode == Enum.KeyCode.F then
+			self:FireCallbacks("Inspect", true)
 		elseif self:IsKeybind(input, "MoveForward") then
 			self.KeyStates.W = true
 			self.VerticalPriority = "W"
@@ -255,7 +270,13 @@ function InputManager:SetupKeyboardMouse()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen or not self.GameplayEnabled then
+		if
+			gameProcessed
+			or self.IsMenuOpen
+			or self.IsChatFocused
+			or self.IsSettingsOpen
+			or not self.GameplayEnabled
+		then
 			return
 		end
 
@@ -306,7 +327,13 @@ function InputManager:SetupKeyboardMouse()
 	end)
 
 	UserInputService.InputChanged:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen or not self.GameplayEnabled then
+		if
+			gameProcessed
+			or self.IsMenuOpen
+			or self.IsChatFocused
+			or self.IsSettingsOpen
+			or not self.GameplayEnabled
+		then
 			return
 		end
 
