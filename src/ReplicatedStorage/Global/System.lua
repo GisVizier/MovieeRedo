@@ -54,8 +54,8 @@ System.Debug = {
 	ShowGroundRaycast = false,
 	ShowCharacterBounds = false,
 	ShowPhysicsForces = false,
-	LogMovementInput = false,
-	LogGroundDetection = false,
+	LogMovementInput = true,
+	LogGroundDetection = true,
 	LogPhysicsChanges = false,
 }
 

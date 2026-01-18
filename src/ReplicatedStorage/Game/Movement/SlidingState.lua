@@ -184,8 +184,15 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	local horizontalPower = 0
 
 	if config.UphillBoost.Enabled then
+		local jumpCancelRayDistance = config.GroundRayDistance
 		local isGrounded, groundNormal, slopeDegrees =
-			MovementUtils:CheckGroundedWithSlope(self.SlidingSystem.Character, self.SlidingSystem.PrimaryPart, self.SlidingSystem.RaycastParams)
+			MovementUtils:CheckGroundedWithSlope(
+				self.SlidingSystem.Character,
+				self.SlidingSystem.PrimaryPart,
+				self.SlidingSystem.RaycastParams,
+				jumpCancelRayDistance
+			)
+
 
 		if isGrounded and groundNormal then
 			local worldUp = Vector3.new(0, 1, 0)

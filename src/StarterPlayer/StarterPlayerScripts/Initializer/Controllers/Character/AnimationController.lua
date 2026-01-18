@@ -14,6 +14,55 @@ local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Con
 local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
+local Net = require(Locations.Shared.Net.Net)
+
+local DEBUG_THROTTLE_SECONDS = 0.2
+local lastDebugTimes = {}
+
+local function getJumpCancelAge()
+	if SlidingSystem and SlidingSystem.LastJumpCancelTime and SlidingSystem.LastJumpCancelTime > 0 then
+		return tick() - SlidingSystem.LastJumpCancelTime
+	end
+	return nil
+end
+
+local function debugLog(hypothesisId, location, message, data)
+	local now = tick()
+	local key = string.format("%s|%s|%s", tostring(hypothesisId), tostring(location), tostring(message))
+	local lastTime = lastDebugTimes[key]
+	if lastTime and (now - lastTime) < DEBUG_THROTTLE_SECONDS then
+		return
+	end
+	lastDebugTimes[key] = now
+
+	local ok, payload = pcall(function()
+		return {
+			sessionId = "debug-session",
+			runId = AnimationController.DebugRunId or "run1",
+			hypothesisId = hypothesisId,
+			location = location,
+			message = message,
+			data = data,
+			timestamp = DateTime.now().UnixTimestampMillis,
+		}
+	end)
+	if not ok then
+		return
+	end
+
+	Net:FireServer("DebugLog", payload)
+end
+
+local function isJumpCancelProtected(self)
+	local jumpCancelGrace = Config.Gameplay.Sliding.JumpCancel.AnimationGraceTime or 0
+	local jumpCancelAge = tick() - (self.LastJumpCancelAnimationTime or 0)
+	return self.CurrentAirborneAnimation
+		and self.CurrentAirborneAnimation.IsPlaying
+		and self:GetCurrentAnimationName() == "JumpCancel"
+		and jumpCancelGrace > 0
+		and jumpCancelAge >= 0
+		and jumpCancelAge < jumpCancelGrace
+end
 
 AnimationController.Initialized = false
 AnimationController.LocalCharacter = nil
@@ -34,6 +83,7 @@ AnimationController.CurrentAnimationName = "IdleStanding"
 AnimationController.CurrentAnimationId = 1
 AnimationController.LastAirborneAnimationTime = 0
 AnimationController.LastJumpCancelAnimationIndex = nil
+AnimationController.LastJumpCancelAnimationTime = 0
 
 AnimationController.SlideAnimationUpdateConnection = nil
 AnimationController.WalkAnimationUpdateConnection = nil
@@ -79,6 +129,9 @@ local function getDefaultSettings(name)
 		settings.FadeInTime = 0.05
 		settings.FadeOutTime = 0.15
 		settings.Loop = false
+		if name == "JumpCancel" then
+			settings.Priority = Enum.AnimationPriority.Action
+		end
 	end
 
 	if name == "Falling" then
@@ -253,6 +306,9 @@ function AnimationController:_loadTrack(animator, animation, name)
 	local track = animator:LoadAnimation(animation)
 	track.Priority = settings.Priority
 	track.Looped = settings.Loop
+	if name == "JumpCancel" then
+		track.Looped = false
+	end
 
 	return track
 end
@@ -404,8 +460,22 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 	local isSliding = (newState == "Sliding")
 	local isMoving = MovementStateManager:GetIsMoving()
 	local isGrounded = MovementStateManager:GetIsGrounded()
+	local isJumpCancelProtected = isJumpCancelProtected(self)
 
 	if not isGrounded and not isSliding then
+		if isJumpCancelProtected(self) then
+			return
+		end
+		-- #region agent log
+		debugLog("H2", "AnimationController.lua:OnMovementStateChanged", "falling branch", {
+			previousState = previousState,
+			newState = newState,
+			isSliding = isSliding,
+			isMoving = isMoving,
+			isGrounded = isGrounded,
+			currentAirborne = self.CurrentAirborneAnimation and self:GetCurrentAnimationName() or nil,
+		})
+		-- #endregion
 		if not self.CurrentAirborneAnimation or not self.CurrentAirborneAnimation.IsPlaying then
 			self:PlayFallingAnimation()
 		end
@@ -423,9 +493,18 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 	end
 
 	if previousState == "Sliding" and not isSliding then
-		if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying and isGrounded then
+		if
+			self.CurrentAirborneAnimation
+			and self.CurrentAirborneAnimation.IsPlaying
+			and isGrounded
+			and not isJumpCancelProtected
+		then
 			self:StopAirborneAnimation()
 		end
+	end
+
+	if isJumpCancelProtected and not isSliding then
+		return
 	end
 
 	if isSliding then
@@ -482,9 +561,14 @@ function AnimationController:OnMovementChanged(_wasMoving, isMoving)
 
 	local currentState = MovementStateManager:GetCurrentState()
 	local isGrounded = MovementStateManager:GetIsGrounded()
+	local isJumpCancelProtected = isJumpCancelProtected(self)
 
 	local isSliding = (currentState == "Sliding")
 	if isSliding then
+		return
+	end
+
+	if isJumpCancelProtected then
 		return
 	end
 
@@ -521,8 +605,22 @@ function AnimationController:OnGroundedChanged(wasGrounded, isGrounded)
 
 	local currentState = MovementStateManager:GetCurrentState()
 	local isSliding = (currentState == "Sliding")
+	local isJumpCancelProtected = isJumpCancelProtected(self)
+	-- #region agent log
+	debugLog("H3", "AnimationController.lua:OnGroundedChanged", "grounded transition", {
+		wasGrounded = wasGrounded,
+		isGrounded = isGrounded,
+		currentState = currentState,
+		isSliding = isSliding,
+		currentAirborne = self.CurrentAirborneAnimation and self:GetCurrentAnimationName() or nil,
+		jumpCancelAge = getJumpCancelAge(),
+	})
+	-- #endregion
 
 	if isGrounded then
+		if isJumpCancelProtected then
+			return
+		end
 		self:StopAirborneAnimation()
 
 		if not wasGrounded and not isSliding then
@@ -556,6 +654,13 @@ function AnimationController:OnGroundedChanged(wasGrounded, isGrounded)
 end
 
 function AnimationController:IsCharacterGrounded()
+	if MovementStateManager and MovementStateManager.GetIsGrounded then
+		local grounded = MovementStateManager:GetIsGrounded()
+		if grounded ~= nil then
+			return grounded
+		end
+	end
+
 	if self.LocalCharacter then
 		local humanoid = self.LocalCharacter:FindFirstChildOfClass("Humanoid")
 		if humanoid then
@@ -563,7 +668,7 @@ function AnimationController:IsCharacterGrounded()
 		end
 	end
 
-	return MovementStateManager:GetIsGrounded()
+	return false
 end
 
 function AnimationController:PlayStateAnimation(animationName)
@@ -653,6 +758,8 @@ function AnimationController:PlayActionAnimation(animationName)
 	if track.IsPlaying then
 		track:Stop(0)
 	end
+	-- Enforce loop behavior from settings; some assets may have Loop=true set.
+	track.Looped = settings.Loop
 	track:Play(settings.FadeInTime, settings.Weight, settings.Speed)
 	self.CurrentActionAnimation = track
 	self:SetCurrentAnimation(animationName)
@@ -729,7 +836,18 @@ function AnimationController:PlayAirborneAnimation(animationName, forceVariantIn
 	end
 
 	if not track then
+		if animationName == "JumpCancel" then
+			warn("[ANIMATION] JumpCancel track missing - cannot play")
+		end
 		return
+	end
+
+	if animationName == "JumpCancel" then
+		track.Priority = Enum.AnimationPriority.Action
+		track.Looped = false
+		if track.IsPlaying then
+			track:Stop(0)
+		end
 	end
 
 	local settings = self.AnimationSettings[animationName] or getDefaultSettings(animationName)
@@ -754,26 +872,71 @@ function AnimationController:PlayAirborneAnimation(animationName, forceVariantIn
 	self.CurrentAirborneAnimation = track
 	self.LastAirborneAnimationTime = tick()
 	self:SetCurrentAnimation(animationName)
+	-- #region agent log
+	debugLog("H1", "AnimationController.lua:PlayAirborneAnimation", "airborne play", {
+		animationName = animationName,
+		looped = track.Looped,
+		isGrounded = MovementStateManager:GetIsGrounded(),
+		currentState = MovementStateManager:GetCurrentState(),
+		jumpCancelAge = getJumpCancelAge(),
+	})
+	-- #endregion
+	if animationName == "JumpCancel" then
+	end
 end
 
 function AnimationController:StopAirborneAnimation()
 	if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
 		local name = self:GetCurrentAnimationName()
 		local settings = self.AnimationSettings[name] or getDefaultSettings(name)
+		-- #region agent log
+		debugLog("H1", "AnimationController.lua:StopAirborneAnimation", "airborne stop", {
+			animationName = name,
+			looped = self.CurrentAirborneAnimation.Looped,
+			isGrounded = MovementStateManager:GetIsGrounded(),
+			currentState = MovementStateManager:GetCurrentState(),
+		jumpCancelAge = getJumpCancelAge(),
+		})
+		-- #endregion
 		self.CurrentAirborneAnimation:Stop(settings.FadeOutTime)
 	end
 	self.CurrentAirborneAnimation = nil
 end
 
 function AnimationController:PlayFallingAnimation()
+	if isJumpCancelProtected(self) then
+		return
+	end
+	-- #region agent log
+	debugLog("H2", "AnimationController.lua:PlayFallingAnimation", "falling play", {
+		isGrounded = MovementStateManager:GetIsGrounded(),
+		currentState = MovementStateManager:GetCurrentState(),
+		currentAirborne = self.CurrentAirborneAnimation and self:GetCurrentAnimationName() or nil,
+		jumpCancelAge = getJumpCancelAge(),
+	})
+	-- #endregion
 	self:PlayAirborneAnimation("Falling")
 end
 
 function AnimationController:TriggerJumpAnimation()
+	-- #region agent log
+	debugLog("H4", "AnimationController.lua:TriggerJumpAnimation", "jump trigger", {
+		isGrounded = MovementStateManager:GetIsGrounded(),
+		currentState = MovementStateManager:GetCurrentState(),
+	})
+	-- #endregion
 	self:PlayAirborneAnimation("Jump")
 end
 
 function AnimationController:TriggerJumpCancelAnimation()
+	-- #region agent log
+	debugLog("H4", "AnimationController.lua:TriggerJumpCancelAnimation", "jump cancel trigger", {
+		isGrounded = MovementStateManager:GetIsGrounded(),
+		currentState = MovementStateManager:GetCurrentState(),
+		jumpCancelAge = getJumpCancelAge(),
+	})
+	-- #endregion
+	self.LastJumpCancelAnimationTime = tick()
 	self:PlayAirborneAnimation("JumpCancel")
 end
 
@@ -782,6 +945,13 @@ function AnimationController:TriggerWallBoostAnimation(cameraDirection, movement
 	if cameraDirection and movementDirection then
 		animationName = WallBoostDirectionDetector:GetWallBoostAnimationName(cameraDirection, movementDirection)
 	end
+	-- #region agent log
+	debugLog("H4", "AnimationController.lua:TriggerWallBoostAnimation", "wall boost trigger", {
+		animationName = animationName,
+		isGrounded = MovementStateManager:GetIsGrounded(),
+		currentState = MovementStateManager:GetCurrentState(),
+	})
+	-- #endregion
 	self:PlayAirborneAnimation(animationName)
 end
 
@@ -1176,11 +1346,25 @@ function AnimationController:UpdateAnimationSpeed()
 	local isGrounded = self:IsCharacterGrounded()
 
 	if not isSliding then
+		-- #region agent log
+		debugLog("H1", "AnimationController.lua:UpdateAnimationSpeed", "airborne gating", {
+			isGrounded = isGrounded,
+			currentState = currentState,
+			currentAirborne = self.CurrentAirborneAnimation and self:GetCurrentAnimationName() or nil,
+			currentAirborneLooped = self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.Looped or nil,
+		jumpCancelAge = getJumpCancelAge(),
+		})
+		-- #endregion
 		if isGrounded then
-			if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
-				self:StopAirborneAnimation()
-			elseif self.CurrentAirborneAnimation and not self.CurrentAirborneAnimation.IsPlaying then
-				self.CurrentAirborneAnimation = nil
+			if self.CurrentAirborneAnimation then
+				if self.CurrentAirborneAnimation.IsPlaying then
+					-- Allow non-looping airborne animations (Jump/JumpCancel/WallBoost) to finish on ground.
+					if self.CurrentAirborneAnimation.Looped then
+						self:StopAirborneAnimation()
+					end
+				else
+					self.CurrentAirborneAnimation = nil
+				end
 			end
 		else
 			local airborneTrack = self.CurrentAirborneAnimation

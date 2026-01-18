@@ -152,7 +152,101 @@ function MovementUtils:CheckGrounded(character, primaryPart, raycastParams)
 	return false
 end
 
-function MovementUtils:CheckGroundedWithSlope(character, primaryPart, raycastParams)
+function MovementUtils:GetGroundCheckDebugInfo(character, primaryPart, raycastParams, groundRayDistanceOverride)
+	if not character or not primaryPart then
+		return nil
+	end
+
+	local feetPart = CharacterLocations:GetFeet(character) or primaryPart
+	if not feetPart then
+		return nil
+	end
+
+	local feetPosition = feetPart.Position
+	local feetSize = feetPart.Size
+	local bottomOfFeet = feetPosition - Vector3.new(0, feetSize.Y / 2, 0)
+	local baseRayOrigin = bottomOfFeet + Vector3.new(0, GROUND_RAY_OFFSET, 0)
+	local rayDistance = groundRayDistanceOverride or GROUND_RAY_DISTANCE
+	local rayDirection = Vector3.new(0, -rayDistance, 0)
+
+	local params = raycastParams
+	if not params then
+		params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+		params.RespectCanCollide = true
+		params.CollisionGroup = "Players"
+	end
+
+	local offsetX = feetSize.X / 4
+	local offsetZ = feetSize.Z / 4
+	local rayOrigins = {
+		baseRayOrigin,
+		baseRayOrigin + Vector3.new(0, 0, offsetZ),
+		baseRayOrigin + Vector3.new(0, 0, -offsetZ),
+		baseRayOrigin + Vector3.new(offsetX, 0, 0),
+		baseRayOrigin + Vector3.new(-offsetX, 0, 0),
+	}
+
+	local rays = {}
+	local hitCount = 0
+	for _, rayOrigin in ipairs(rayOrigins) do
+		local result = workspace:Raycast(rayOrigin, rayDirection, params)
+		local rayInfo = {
+			origin = rayOrigin,
+			hit = result ~= nil,
+		}
+		if result then
+			hitCount += 1
+			rayInfo.instance = result.Instance
+			rayInfo.distance = result.Distance
+			rayInfo.material = tostring(result.Material)
+			rayInfo.normal = result.Normal
+			rayInfo.position = result.Position
+		end
+		table.insert(rays, rayInfo)
+	end
+
+	local paramsInfo = {
+		FilterType = params.FilterType,
+		FilterCount = params.FilterDescendantsInstances and #params.FilterDescendantsInstances or 0,
+		RespectCanCollide = params.RespectCanCollide,
+		CollisionGroup = params.CollisionGroup,
+	}
+
+	local nonCollideHit = nil
+	if hitCount == 0 and params.RespectCanCollide == true then
+		local fallbackParams = RaycastParams.new()
+		fallbackParams.FilterType = params.FilterType
+		fallbackParams.FilterDescendantsInstances = params.FilterDescendantsInstances
+		fallbackParams.CollisionGroup = params.CollisionGroup
+		fallbackParams.RespectCanCollide = false
+		for _, rayOrigin in ipairs(rayOrigins) do
+			local result = workspace:Raycast(rayOrigin, rayDirection, fallbackParams)
+			if result then
+				nonCollideHit = {
+					instance = result.Instance,
+					distance = result.Distance,
+					material = tostring(result.Material),
+				}
+				break
+			end
+		end
+	end
+
+	return {
+		feetPart = feetPart,
+		feetSize = feetSize,
+		feetPosition = feetPosition,
+		baseRayOrigin = baseRayOrigin,
+		rayDirection = rayDirection,
+		params = paramsInfo,
+		rays = rays,
+		nonCollideHit = nonCollideHit,
+	}
+end
+
+function MovementUtils:CheckGroundedWithSlope(character, primaryPart, raycastParams, groundRayDistanceOverride)
 	if not character or not primaryPart then
 		return false, nil, 0
 	end
@@ -164,7 +258,8 @@ function MovementUtils:CheckGroundedWithSlope(character, primaryPart, raycastPar
 	local bottomOfFeet = feetPosition - Vector3.new(0, feetSize.Y / 2, 0)
 	local baseRayOrigin = bottomOfFeet + Vector3.new(0, GROUND_RAY_OFFSET, 0)
 
-	local rayDirection = Vector3.new(0, -GROUND_RAY_DISTANCE, 0)
+	local rayDistance = groundRayDistanceOverride or GROUND_RAY_DISTANCE
+	local rayDirection = Vector3.new(0, -rayDistance, 0)
 
 	local params = raycastParams
 	if not params then

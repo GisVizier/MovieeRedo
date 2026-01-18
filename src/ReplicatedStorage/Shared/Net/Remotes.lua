@@ -36,6 +36,9 @@ local Remotes = {
 	-- Weapon system
 	{ name = "WeaponFired", description = "Client sends weapon fire data for validation" },
 	{ name = "HitConfirmed", description = "Server broadcasts validated hit", unreliable = true },
+
+	-- Debug logging
+	{ name = "DebugLog", description = "Client debug log forwarding" },
 }
 
 return Remotes

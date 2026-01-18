@@ -20,11 +20,32 @@ local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local Net = require(Locations.Shared.Net.Net)
 
 local math_rad = math.rad
 local math_deg = math.deg
 local vector2_new = Vector2.new
 local vector3_new = Vector3.new
+
+local function toVec3(value)
+	if typeof(value) == "Vector3" then
+		return { x = value.X, y = value.Y, z = value.Z }
+	end
+	return value
+end
+
+local function sendDebug(hypothesisId, location, message, data)
+	local payload = {
+		sessionId = "debug-session",
+		runId = "walljump_debug",
+		hypothesisId = hypothesisId,
+		location = location,
+		message = message,
+		data = data,
+		timestamp = DateTime.now().UnixTimestampMillis,
+	}
+	Net:FireServer("DebugLog", payload)
+end
 
 CharacterController.Character = nil
 CharacterController.PrimaryPart = nil
@@ -60,6 +81,8 @@ CharacterController.LastDeltaTime = 1 / 60
 CharacterController.LastFootstepTime = 0
 CharacterController.LastJumpSoundTime = 0
 CharacterController.FallSoundPlayed = false
+CharacterController.LastGroundDebugTime = 0
+CharacterController.LastMovementDebugTime = 0
 
 CharacterController.VectorForce = nil
 CharacterController.AlignOrientation = nil
@@ -149,6 +172,111 @@ function CharacterController:OnLocalCharacterReady(character)
 		return
 	end
 
+	-- #region agent log
+	sendDebug("H1", "MovementController.lua:OnLocalCharacterReady", "character_ready", {
+		hasRoot = CharacterLocations:GetRoot(character) ~= nil,
+		hasCollider = character:FindFirstChild("Collider") ~= nil,
+	})
+	-- #endregion
+
+	if self._debugConnections then
+		for _, conn in ipairs(self._debugConnections) do
+			conn:Disconnect()
+		end
+	end
+	self._debugConnections = {}
+
+	local function watchPart(part, label)
+		if not part then
+			warn(("[CHAR_PART] missing_at_ready %s"):format(label))
+			-- #region agent log
+			sendDebug("H9", "MovementController.lua:OnLocalCharacterReady", "missing_at_ready", {
+				part = label,
+			})
+			-- #endregion
+			return
+		end
+
+		table.insert(self._debugConnections, part.AncestryChanged:Connect(function(_, parent)
+			if parent == nil then
+				warn(("[CHAR_PART] unparented %s"):format(label))
+				-- #region agent log
+				sendDebug("H9", "MovementController.lua:OnLocalCharacterReady", "part_unparented", {
+					part = label,
+				})
+				-- #endregion
+			end
+		end))
+
+		if part.Destroying then
+			table.insert(self._debugConnections, part.Destroying:Connect(function()
+				warn(("[CHAR_PART] destroying %s"):format(label))
+				-- #region agent log
+				sendDebug("H9", "MovementController.lua:OnLocalCharacterReady", "part_destroying", {
+					part = label,
+				})
+				-- #endregion
+			end))
+		end
+	end
+
+	table.insert(self._debugConnections, character.ChildRemoved:Connect(function(child)
+		if child and (child.Name == "Root" or child.Name == "Collider") then
+			-- #region agent log
+			sendDebug("H2", "MovementController.lua:OnLocalCharacterReady", "child_removed", {
+				childName = child.Name,
+			})
+			-- #endregion
+		end
+	end))
+
+	local rootPart = CharacterLocations:GetRoot(character)
+	watchPart(rootPart, "Root")
+	if rootPart then
+		table.insert(self._debugConnections, rootPart.AncestryChanged:Connect(function(_, parent)
+			if parent == nil then
+				-- #region agent log
+				sendDebug("H2", "MovementController.lua:OnLocalCharacterReady", "root_unparented", {})
+				-- #endregion
+			end
+		end))
+	end
+
+	local colliderModel = character:FindFirstChild("Collider")
+	watchPart(colliderModel, "Collider")
+	if colliderModel then
+		table.insert(self._debugConnections, colliderModel.AncestryChanged:Connect(function(_, parent)
+			if parent == nil then
+				-- #region agent log
+				sendDebug("H2", "MovementController.lua:OnLocalCharacterReady", "collider_unparented", {})
+				-- #endregion
+			end
+		end))
+	end
+
+	watchPart(CharacterLocations:GetBody(character), "Body")
+	watchPart(CharacterLocations:GetFeet(character), "Feet")
+
+	table.insert(self._debugConnections, character.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then
+			warn("[CHAR_MODEL] character unparented " .. character.Name)
+		end
+	end))
+
+	local player = Players.LocalPlayer
+	if player then
+		table.insert(self._debugConnections, player.CharacterRemoving:Connect(function(char)
+			warn("[CHAR_MODEL] CharacterRemoving " .. (char and char.Name or "nil"))
+		end))
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		table.insert(self._debugConnections, humanoid.Died:Connect(function()
+			warn(("[CHAR_MODEL] Humanoid.Died health=%s"):format(tostring(humanoid.Health)))
+		end))
+	end
+
 	self.FeetPart = CharacterLocations:GetFeet(character) or self.PrimaryPart
 
 	self:SetupModernPhysics()
@@ -219,6 +347,13 @@ function CharacterController:OnLocalCharacterRemoving()
 		self.Connection:Disconnect()
 		self.Connection = nil
 	end
+
+	if self._debugConnections then
+		for _, conn in ipairs(self._debugConnections) do
+			conn:Disconnect()
+		end
+		self._debugConnections = nil
+	end
 end
 
 function CharacterController:ConnectToInputs(inputManager, cameraController)
@@ -236,8 +371,12 @@ function CharacterController:ConnectToInputs(inputManager, cameraController)
 	end
 
 	self.InputManager:ConnectToInput("Movement", function(movement)
+		local wasMoving = self.MovementInput.Magnitude > 0
 		self.MovementInput = movement
 		local isMoving = movement.Magnitude > 0
+		if ConfigCache.DEBUG_MOVEMENT_INPUT and wasMoving ~= isMoving then
+			self:DebugMovementInput(wasMoving, isMoving, movement)
+		end
 		MovementStateManager:UpdateMovementState(isMoving)
 	end)
 
@@ -373,7 +512,33 @@ function CharacterController:UpdateMovement(deltaTime)
 		return
 	end
 
+	if self.Character then
+		if not self._missingRootLogged and not CharacterLocations:GetRoot(self.Character) then
+			self._missingRootLogged = true
+			-- #region agent log
+			sendDebug("H2", "MovementController.lua:UpdateMovement", "missing_root", {})
+			-- #endregion
+		end
+		if not self._missingColliderLogged and not self.Character:FindFirstChild("Collider") then
+			self._missingColliderLogged = true
+			-- #region agent log
+			sendDebug("H2", "MovementController.lua:UpdateMovement", "missing_collider", {})
+			-- #endregion
+		end
+	end
+
 	if not ValidationUtils:IsPrimaryPartValid(self.PrimaryPart) or not self.VectorForce then
+		if not self._missingPrimaryLogged then
+			self._missingPrimaryLogged = true
+			-- #region agent log
+			sendDebug("H6", "MovementController.lua:UpdateMovement", "missing_primary_or_force", {
+				hasPrimary = self.PrimaryPart ~= nil,
+				hasVectorForce = self.VectorForce ~= nil,
+				primaryAnchored = self.PrimaryPart and self.PrimaryPart.Anchored or false,
+				primaryParent = self.PrimaryPart and self.PrimaryPart.Parent and self.PrimaryPart.Parent.Name or "nil",
+			})
+			-- #endregion
+		end
 		return
 	end
 
@@ -391,6 +556,12 @@ function CharacterController:UpdateMovement(deltaTime)
 	-- The server ragdoll system welds the character root to a ragdoll; movement forces fighting
 	-- that will look choppy. Keep it simple: zero forces and let ragdoll drive motion.
 	if self.Character and self.Character:GetAttribute("RagdollActive") == true then
+		if not self._ragdollLogged then
+			self._ragdollLogged = true
+			-- #region agent log
+			sendDebug("H6", "MovementController.lua:UpdateMovement", "ragdoll_active", {})
+			-- #endregion
+		end
 		if SlidingSystem and SlidingSystem.IsSliding then
 			SlidingSystem:StopSlide(false, true, "Ragdoll")
 		end
@@ -398,6 +569,20 @@ function CharacterController:UpdateMovement(deltaTime)
 			self.VectorForce.Force = Vector3.zero
 		end
 		return
+	end
+
+	if self.Character and not self._missingColliderPartLogged then
+		local body = CharacterLocations:GetBody(self.Character)
+		local feet = CharacterLocations:GetFeet(self.Character)
+		if not body or not feet then
+			self._missingColliderPartLogged = true
+			-- #region agent log
+			sendDebug("H6", "MovementController.lua:UpdateMovement", "missing_collider_parts", {
+				hasBody = body ~= nil,
+				hasFeet = feet ~= nil,
+			})
+			-- #endregion
+		end
 	end
 
 	if SlidingSystem.IsSlideBuffered and not self.IsGrounded then
@@ -625,9 +810,21 @@ function CharacterController:CheckGrounded()
 	end
 
 	self.WasGrounded = self.IsGrounded
+	local graceTime = Config.Gameplay.Sliding.JumpCancel.GroundedGraceTime or 0
+	if graceTime > 0 and SlidingSystem and SlidingSystem.LastJumpCancelTime and SlidingSystem.LastJumpCancelTime > 0 then
+		local age = tick() - SlidingSystem.LastJumpCancelTime
+		if age >= 0 and age < graceTime then
+			self.IsGrounded = false
+			MovementStateManager:UpdateGroundedState(false)
+			self:DebugGroundDetection()
+			return
+		end
+	end
+
 	self.IsGrounded = MovementUtils:CheckGrounded(self.Character, self.PrimaryPart, self.RaycastParams)
 
 	MovementStateManager:UpdateGroundedState(self.IsGrounded)
+	self:DebugGroundDetection()
 
 	if not self.WasGrounded and self.IsGrounded then
 		self.JustLanded = true
@@ -653,6 +850,155 @@ function CharacterController:CheckGrounded()
 	end
 
 	local lastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
+end
+
+function CharacterController:DebugMovementInput(wasMoving, isMoving, movement)
+	if not ConfigCache.DEBUG_MOVEMENT_INPUT then
+		return
+	end
+
+	local now = tick()
+	local minInterval = 0.2
+	if (now - (self.LastMovementDebugTime or 0)) < minInterval and wasMoving == isMoving then
+		return
+	end
+
+	self.LastMovementDebugTime = now
+end
+
+function CharacterController:DebugGroundDetection()
+	local showRaycast = Config.System.Debug.ShowGroundRaycast == true
+	if not ConfigCache.DEBUG_GROUND_DETECTION and not showRaycast then
+		return
+	end
+
+	local now = tick()
+	local minInterval = 0.25
+	local stateChanged = self.WasGrounded ~= self.IsGrounded
+	if not stateChanged and (now - (self.LastGroundDebugTime or 0)) < minInterval then
+		return
+	end
+
+	self.LastGroundDebugTime = now
+
+	local info = MovementUtils:GetGroundCheckDebugInfo(self.Character, self.PrimaryPart, self.RaycastParams)
+	if not info then
+		if ConfigCache.DEBUG_GROUND_DETECTION then
+			warn("[MOVEMENT][GROUND] debug skipped - missing ground info")
+		end
+		return
+	end
+
+	local hitCount = 0
+	local hitParts = {}
+	for _, ray in ipairs(info.rays or {}) do
+		if ray.hit and ray.instance then
+			hitCount += 1
+			table.insert(hitParts, string.format("%s(%s)", ray.instance.Name, ray.instance.CollisionGroup))
+		end
+	end
+
+	local params = info.params or {}
+	local nonCollideNote = ""
+	if info.nonCollideHit and info.nonCollideHit.instance then
+		nonCollideNote = string.format(" nonCollideHit=%s", info.nonCollideHit.instance.Name)
+	end
+
+	if stateChanged or hitCount == 0 then
+		local hitSummary = (#hitParts > 0) and table.concat(hitParts, ", ") or "none"
+	end
+
+	if showRaycast then
+		self:UpdateGroundRayDebugVisual(info)
+	else
+		self:ClearGroundRayDebugVisual()
+	end
+end
+
+function CharacterController:UpdateGroundRayDebugVisual(info)
+	if not info then
+		return
+	end
+
+	local folder = self.GroundRayDebugFolder
+	if not folder or not folder.Parent then
+		folder = Instance.new("Folder")
+		local playerId = Players.LocalPlayer and Players.LocalPlayer.UserId or "Local"
+		folder.Name = "GroundRayDebug_" .. tostring(playerId)
+		folder.Parent = workspace
+		self.GroundRayDebugFolder = folder
+		self.GroundRayDebugParts = {}
+	end
+
+	local rays = info.rays or {}
+	for index, ray in ipairs(rays) do
+		local debugSet = self.GroundRayDebugParts[index]
+		if not debugSet then
+			debugSet = {}
+
+			local rayPart = Instance.new("Part")
+			rayPart.Name = "Ray" .. tostring(index)
+			rayPart.Anchored = true
+			rayPart.CanCollide = false
+			rayPart.CanQuery = false
+			rayPart.CanTouch = false
+			rayPart.CastShadow = false
+			rayPart.Material = Enum.Material.Neon
+			rayPart.Transparency = 0.35
+			rayPart.Parent = folder
+			debugSet.rayPart = rayPart
+
+			local hitPart = Instance.new("Part")
+			hitPart.Name = "Hit" .. tostring(index)
+			hitPart.Shape = Enum.PartType.Ball
+			hitPart.Anchored = true
+			hitPart.CanCollide = false
+			hitPart.CanQuery = false
+			hitPart.CanTouch = false
+			hitPart.CastShadow = false
+			hitPart.Material = Enum.Material.Neon
+			hitPart.Size = Vector3.new(0.2, 0.2, 0.2)
+			hitPart.Parent = folder
+			debugSet.hitPart = hitPart
+
+			self.GroundRayDebugParts[index] = debugSet
+		end
+
+		local origin = ray.origin
+		local direction = info.rayDirection
+		local length = direction.Magnitude
+		if ray.hit and ray.distance then
+			length = ray.distance
+		end
+
+		local rayPart = debugSet.rayPart
+		if rayPart then
+			rayPart.Size = Vector3.new(0.08, 0.08, math.max(length, 0.05))
+			rayPart.CFrame = CFrame.new(origin, origin + direction) * CFrame.new(0, 0, -length / 2)
+			rayPart.Color = ray.hit and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 80, 80)
+			rayPart.Transparency = ray.hit and 0.2 or 0.45
+		end
+
+		local hitPart = debugSet.hitPart
+		if hitPart then
+			if ray.hit and ray.position then
+				hitPart.CFrame = CFrame.new(ray.position)
+				hitPart.Color = Color3.fromRGB(0, 255, 0)
+				hitPart.Transparency = 0
+				hitPart.Size = Vector3.new(0.2, 0.2, 0.2)
+			else
+				hitPart.Transparency = 1
+			end
+		end
+	end
+end
+
+function CharacterController:ClearGroundRayDebugVisual()
+	if self.GroundRayDebugFolder and self.GroundRayDebugFolder.Parent then
+		self.GroundRayDebugFolder:Destroy()
+	end
+	self.GroundRayDebugFolder = nil
+	self.GroundRayDebugParts = nil
 end
 
 function CharacterController:IsInCoyoteTime()
@@ -776,6 +1122,17 @@ function CharacterController:ApplyMovement()
 	local finalMoveVector = moveVector
 
 	if isHittingWall then
+		if not self._wallHitLogged then
+			self._wallHitLogged = true
+			-- #region agent log
+			sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_hit", {
+				isGrounded = self.IsGrounded,
+				wallNormal = toVec3(wallNormal),
+				moveVector = toVec3(moveVector),
+				currentVelocity = toVec3(currentVelocity),
+			})
+			-- #endregion
+		end
 		if self.IsGrounded then
 			-- Don't hard-stop (feels like an invisible force). Instead, remove the into-wall component
 			-- so the player can slide along geometry and still mount ramps/steps.
@@ -799,6 +1156,9 @@ function CharacterController:ApplyMovement()
 				finalMoveVector = Vector3.new(0, 0, 0)
 			end
 		end
+	end
+	if not isHittingWall then
+		self._wallHitLogged = nil
 	end
 
 	local horizontalVelocity = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
@@ -852,6 +1212,18 @@ function CharacterController:ApplyMovement()
 				)
 			end
 
+			if not self._wallStuckLogged then
+				self._wallStuckLogged = true
+				-- #region agent log
+				sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_stuck", {
+					horizontalSpeed = horizontalSpeed,
+					isNearWallLook = isNearWallLook,
+					isNearWallVel = isNearWallVel,
+					stuckWallNormal = toVec3(stuckWallNormal),
+				})
+				-- #endregion
+			end
+
 			if stuckWallNormal then
 				local escapeDir = Vector3.new(stuckWallNormal.X, 0, stuckWallNormal.Z)
 				if escapeDir.Magnitude > 0.01 then
@@ -862,6 +1234,12 @@ function CharacterController:ApplyMovement()
 						escapeDir.Z * 30
 					)
 					currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+					-- #region agent log
+					sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_escape", {
+						escapeDir = toVec3(escapeDir),
+						newVelocity = toVec3(currentVelocity),
+					})
+					-- #endregion
 				end
 			else
 				local backDir = -self.PrimaryPart.CFrame.LookVector
@@ -871,11 +1249,19 @@ function CharacterController:ApplyMovement()
 					backDir.Z * 25
 				)
 				currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+				-- #region agent log
+				sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_escape_back", {
+					backDir = toVec3(backDir),
+					newVelocity = toVec3(currentVelocity),
+				})
+				-- #endregion
 			end
 			self.WallStuckStartTime = nil
+			self._wallStuckLogged = nil
 		end
 	else
 		self.WallStuckStartTime = nil
+		self._wallStuckLogged = nil
 	end
 
 	local moveForce = MovementUtils:CalculateMovementForce(

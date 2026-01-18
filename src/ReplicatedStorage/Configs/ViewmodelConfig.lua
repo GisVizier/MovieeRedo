@@ -93,7 +93,7 @@ ViewmodelConfig.Weapons = {
 
 	Shotgun = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shotgun,
-		Offset = CFrame.new(0, 0, 0.5),
+		Offset = CFrame.new(-.2, -.15, 0.25),
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
 			Idle = "Idle",

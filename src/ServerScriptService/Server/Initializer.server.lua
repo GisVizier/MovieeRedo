@@ -48,6 +48,10 @@ local entries = {
 		module = servicesFolder:WaitForChild("Movement"):WaitForChild("MovementService"),
 	},
 	{
+		name = "DebugLogService",
+		module = servicesFolder:WaitForChild("Debug"):WaitForChild("DebugLogService"),
+	},
+	{
 		name = "WeaponService",
 		module = servicesFolder:WaitForChild("Weapon"):WaitForChild("WeaponService"),
 	},

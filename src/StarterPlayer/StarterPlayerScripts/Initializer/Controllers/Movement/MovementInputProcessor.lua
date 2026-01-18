@@ -10,6 +10,30 @@ local WallJumpUtils = require(Locations.Game:WaitForChild("Movement"):WaitForChi
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
+local Net = require(Locations.Shared.Net.Net)
+
+local function toVec3(value)
+	if typeof(value) == "Vector3" then
+		return { x = value.X, y = value.Y, z = value.Z }
+	end
+	return value
+end
+
+local function sendDebug(hypothesisId, location, message, data)
+	if false then
+		return
+	end
+	local payload = {
+		sessionId = "debug-session",
+		runId = "walljump_debug",
+		hypothesisId = hypothesisId,
+		location = location,
+		message = message,
+		data = data,
+		timestamp = DateTime.now().UnixTimestampMillis,
+	}
+	Net:FireServer("DebugLog", payload)
+end
 
 MovementInputProcessor.JumpPressed = false
 MovementInputProcessor.JumpExecuted = false
@@ -202,6 +226,14 @@ function MovementInputProcessor:HandleNormalJump(isImmediatePress)
 
 	local isInCoyoteTime = self.CharacterController:IsInCoyoteTime()
 	local shouldAttemptWallJump = isImmediatePress and not self.CharacterController.IsGrounded and not isInCoyoteTime
+	-- #region agent log
+	sendDebug("H1", "MovementInputProcessor.lua:HandleNormalJump", "jump_decision", {
+		isGrounded = self.CharacterController.IsGrounded,
+		isInCoyoteTime = isInCoyoteTime,
+		isImmediatePress = isImmediatePress,
+		shouldAttemptWallJump = shouldAttemptWallJump,
+	})
+	-- #endregion
 
 	if TestMode.Logging.LogSlidingSystem then
 		LogService:Debug("INPUT", "HandleNormalJump - Jump type decision", {
@@ -251,6 +283,15 @@ function MovementInputProcessor:HandleNormalJump(isImmediatePress)
 end
 
 function MovementInputProcessor:HandleWallJump()
+	-- #region agent log
+	sendDebug("H1", "MovementInputProcessor.lua:HandleWallJump", "attempt_start", {
+		isGrounded = self.CharacterController.IsGrounded,
+		timeSinceGrounded = tick() - self.CharacterController.LastGroundedTime,
+		movementInput = toVec3(self.CharacterController.MovementInput),
+		cameraAngles = self.CharacterController.LastCameraAngles,
+	})
+	-- #endregion
+
 	if TestMode.Logging.LogSlidingSystem then
 		LogService:Debug("INPUT", "Normal jump not available, attempting wall jump", {
 			IsGrounded = self.CharacterController.IsGrounded,
@@ -268,6 +309,13 @@ function MovementInputProcessor:HandleWallJump()
 	)
 
 	if wallJumpSucceeded then
+		-- #region agent log
+		sendDebug("H1", "MovementInputProcessor.lua:HandleWallJump", "attempt_success", {
+			wallPart = wallData and wallData.Part and wallData.Part.Name or "nil",
+			wallNormal = wallData and toVec3(wallData.Normal) or nil,
+			wallDistance = wallData and wallData.Distance or nil,
+		})
+		-- #endregion
 		self:MarkJumpExecuted()
 
 		if TestMode.Logging.LogSlidingSystem then
@@ -277,6 +325,9 @@ function MovementInputProcessor:HandleWallJump()
 			})
 		end
 	else
+		-- #region agent log
+		sendDebug("H1", "MovementInputProcessor.lua:HandleWallJump", "attempt_failed", {})
+		-- #endregion
 		self:MarkJumpExecuted()
 
 		if TestMode.Logging.LogSlidingSystem then
