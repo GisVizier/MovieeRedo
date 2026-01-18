@@ -1,11 +1,11 @@
 local Audio = {}
 
 Audio.SoundIds = {
-	Jump = "rbxassetid://0",
-	Fall = "rbxassetid://0",
-	Land = "rbxassetid://0",
+	Jump = "rbxassetid://98842894180480",
+	Fall = "rbxasset://sounds/action_falling.ogg",
+	Land = "rrbxasset://sounds/action_jump_land.mp3",
 	Crouch = "rbxassetid://0",
-	Slide = "rbxassetid://0",
+	Slide = "rbxassetid://124754503461240",
 
 	FootstepPlastic = "rbxassetid://7326203155",
 	FootstepGrass = "rbxassetid://507863105",
