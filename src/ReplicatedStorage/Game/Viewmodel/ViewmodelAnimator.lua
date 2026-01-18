@@ -10,6 +10,8 @@ local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitFo
 local ViewmodelAnimator = {}
 ViewmodelAnimator.__index = ViewmodelAnimator
 
+local AIRBORNE_SPRINT_SPEED = 0.2
+
 local LocalPlayer = Players.LocalPlayer
 
 local function expAlpha(dt: number, k: number): number
@@ -160,8 +162,13 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 	local moveStop = smoothCfg.MoveStopSpeed or 0.75
 	local isMoving = self._smoothedSpeed > moveStart or (self._currentMove ~= "Idle" and self._smoothedSpeed > moveStop)
 
-	if grounded and isMoving then
-		target = (state == MovementStateManager.States.Sprinting and self._tracks.Run) and "Run" or "Walk"
+	if isMoving then
+		if state == MovementStateManager.States.Sprinting and self._tracks.Run then
+			-- Keep sprint animation even while airborne.
+			target = "Run"
+		elseif grounded then
+			target = "Walk"
+		end
 	end
 	if not self._tracks[target] then
 		target = "Idle"
@@ -177,6 +184,13 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 			end
 			local weight = (name == target) and 1 or 0
 			track:AdjustWeight(weight, fade)
+		end
+	end
+	do
+		local runTrack = self._tracks.Run
+		if runTrack then
+			local speed = (target == "Run" and not grounded) and AIRBORNE_SPRINT_SPEED or 1
+			runTrack:AdjustSpeed(speed)
 		end
 	end
 	self._currentMove = target
