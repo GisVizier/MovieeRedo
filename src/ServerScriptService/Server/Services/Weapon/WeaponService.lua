@@ -5,13 +5,10 @@ local Players = game:GetService("Players")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
-local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 
 function WeaponService:Init(registry, net)
 	self._registry = registry
 	self._net = net
-
-	HitValidator:Init()
 
 	-- Listen for weapon fire events
 	net:ConnectServer("WeaponFired", function(player, shotData)
@@ -39,15 +36,6 @@ function WeaponService:OnWeaponFired(player, shotData)
 
 	-- TODO: Validate player actually has this weapon equipped
 	-- This would check player's loadout attribute
-
-	-- Validate the hit with anti-cheat
-	local isValid, reason = HitValidator:ValidateHit(player, shotData, weaponConfig)
-
-	if not isValid then
-		warn("[WeaponService] Invalid shot from", player.Name, "Reason:", reason)
-		HitValidator:RecordViolation(player, reason, 1)
-		return
-	end
 
 	-- Calculate damage
 	local damage = self:CalculateDamage(shotData, weaponConfig)
