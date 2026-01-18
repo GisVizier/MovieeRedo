@@ -43,6 +43,7 @@ InputManager.Callbacks = {
 	Slide = {},
 	Ability = {},
 	Ultimate = {},
+	Fire = {},
 	ToggleCameraMode = {},
 	ToggleRagdollTest = {},
 }
@@ -211,7 +212,9 @@ function InputManager:SetupKeyboardMouse()
 			return
 		end
 
-		if self:IsKeybind(input, "MoveForward") then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			self:FireCallbacks("Fire", true)
+		elseif self:IsKeybind(input, "MoveForward") then
 			self.KeyStates.W = true
 			self.VerticalPriority = "W"
 			self:UpdateMovement()
@@ -256,7 +259,9 @@ function InputManager:SetupKeyboardMouse()
 			return
 		end
 
-		if self:IsKeybind(input, "MoveForward") then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			self:FireCallbacks("Fire", false)
+		elseif self:IsKeybind(input, "MoveForward") then
 			self.KeyStates.W = false
 			if self.VerticalPriority == "W" then
 				self.VerticalPriority = self.KeyStates.S and "S" or nil

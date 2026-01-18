@@ -47,6 +47,10 @@ local entries = {
 		name = "MovementService",
 		module = servicesFolder:WaitForChild("Movement"):WaitForChild("MovementService"),
 	},
+	{
+		name = "WeaponService",
+		module = servicesFolder:WaitForChild("Weapon"):WaitForChild("WeaponService"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

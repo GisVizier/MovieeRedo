@@ -65,6 +65,19 @@ LoadoutConfig.Weapons = {
 		clipSize = 5,
 		reloadTime = 2.5,
 		isAbility = false,
+
+		-- Weapon ballistics
+		damage = 80,
+		headshotMultiplier = 2.0,
+		range = 500,
+		fireRate = 60, -- Rounds per minute
+		projectileSpeed = 500, -- studs/second (nil = hitscan)
+		bulletDrop = true,
+		gravity = 196.2,
+		minRange = 100, -- Full damage under this distance
+		maxRange = 500,
+		minDamage = 35, -- Damage at max range
+		tracerColor = Color3.fromRGB(255, 200, 100),
 	},
 
 	Shotgun = {
@@ -84,6 +97,20 @@ LoadoutConfig.Weapons = {
 		clipSize = 8,
 		reloadTime = 2.0,
 		isAbility = false,
+
+		-- Weapon ballistics
+		damage = 15, -- Per pellet
+		pelletsPerShot = 8,
+		headshotMultiplier = 1.5,
+		range = 50,
+		fireRate = 75, -- Rounds per minute
+		projectileSpeed = nil, -- Hitscan
+		bulletDrop = false,
+		spread = 0.15, -- Spread angle in radians
+		minRange = 5,
+		maxRange = 50,
+		minDamage = 5, -- Per pellet at max range
+		tracerColor = Color3.fromRGB(255, 150, 50),
 	},
 
 	AssaultRifle = {
@@ -103,6 +130,19 @@ LoadoutConfig.Weapons = {
 		clipSize = 30,
 		reloadTime = 1.8,
 		isAbility = false,
+
+		-- Weapon ballistics
+		damage = 25,
+		headshotMultiplier = 1.75,
+		range = 300,
+		fireRate = 600, -- Rounds per minute (automatic)
+		projectileSpeed = nil, -- Hitscan
+		bulletDrop = false,
+		spread = 0.02,
+		minRange = 50,
+		maxRange = 300,
+		minDamage = 12,
+		tracerColor = Color3.fromRGB(255, 230, 150),
 	},
 
 	Revolver = {
@@ -147,6 +187,18 @@ LoadoutConfig.Weapons = {
 		clipSize = 6,
 		reloadTime = 1.5,
 		isAbility = false,
+
+		-- Weapon ballistics
+		damage = 45,
+		headshotMultiplier = 2.0,
+		range = 200,
+		fireRate = 120, -- Rounds per minute
+		projectileSpeed = nil, -- Hitscan
+		bulletDrop = false,
+		minRange = 30,
+		maxRange = 200,
+		minDamage = 20,
+		tracerColor = Color3.fromRGB(255, 100, 50),
 	},
 
 	Knife = {
