@@ -32,6 +32,10 @@ local Remotes = {
 	-- Kit system
 	{ name = "KitRequest", description = "Client requests kit actions (purchase/equip/ability)" },
 	{ name = "KitState", description = "Server sends kit state/events" },
+
+	-- Weapon system
+	{ name = "WeaponFired", description = "Client sends weapon fire data for validation" },
+	{ name = "HitConfirmed", description = "Server broadcasts validated hit", unreliable = true },
 }
 
 return Remotes
