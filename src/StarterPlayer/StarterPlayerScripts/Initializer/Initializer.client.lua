@@ -49,6 +49,10 @@ local entries = {
 		name = "KitVFX",
 		module = controllersFolder:WaitForChild("KitVFX"):WaitForChild("KitVFXController"),
 	},
+	{
+		name = "Weapon",
+		module = controllersFolder:WaitForChild("Weapon"):WaitForChild("WeaponController"),
+	},
 }
 
 Loader:Load(entries, registry, Net)
