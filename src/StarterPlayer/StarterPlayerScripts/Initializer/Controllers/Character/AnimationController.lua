@@ -26,6 +26,7 @@ AnimationController.JumpCancelVariants = {}
 AnimationController.CurrentStateAnimation = nil
 AnimationController.CurrentIdleAnimation = nil
 AnimationController.CurrentAirborneAnimation = nil
+AnimationController.CurrentActionAnimation = nil
 AnimationController.CurrentSlideAnimationName = nil
 AnimationController.CurrentWalkAnimationName = nil
 AnimationController.CurrentCrouchAnimationName = nil
@@ -84,6 +85,13 @@ local function getDefaultSettings(name)
 		settings.FadeInTime = 0.2
 		settings.FadeOutTime = 0.15
 		settings.Loop = true
+	end
+
+	if name == "Land" or name == "Landing" then
+		settings.FadeInTime = 0.05
+		settings.FadeOutTime = 0.15
+		settings.Loop = false
+		settings.Priority = Enum.AnimationPriority.Action
 	end
 
 	if name:match("^Sliding") then
@@ -149,6 +157,10 @@ local function getAnimationCategory(animationName)
 
 	if animationName == "Jump" or animationName == "JumpCancel" or animationName == "Falling" then
 		return "Airborne"
+	end
+
+	if animationName == "Land" or animationName == "Landing" then
+		return "Action"
 	end
 
 	if animationName:match("^WallBoost") then
@@ -502,7 +514,7 @@ function AnimationController:OnMovementChanged(_wasMoving, isMoving)
 	end
 end
 
-function AnimationController:OnGroundedChanged(_wasGrounded, isGrounded)
+function AnimationController:OnGroundedChanged(wasGrounded, isGrounded)
 	if not self.LocalCharacter or not self.LocalAnimator then
 		return
 	end
@@ -512,6 +524,14 @@ function AnimationController:OnGroundedChanged(_wasGrounded, isGrounded)
 
 	if isGrounded then
 		self:StopAirborneAnimation()
+
+		if not wasGrounded and not isSliding then
+			local landName = self.LocalAnimationTracks.Land and "Land"
+				or (self.LocalAnimationTracks.Landing and "Landing")
+			if landName then
+				self:PlayActionAnimation(landName)
+			end
+		end
 
 		local isMoving = MovementStateManager:GetIsMoving()
 		if isSliding or isMoving then
@@ -533,6 +553,17 @@ function AnimationController:OnGroundedChanged(_wasGrounded, isGrounded)
 			end
 		end
 	end
+end
+
+function AnimationController:IsCharacterGrounded()
+	if self.LocalCharacter then
+		local humanoid = self.LocalCharacter:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			return humanoid.FloorMaterial ~= Enum.Material.Air
+		end
+	end
+
+	return MovementStateManager:GetIsGrounded()
 end
 
 function AnimationController:PlayStateAnimation(animationName)
@@ -600,6 +631,33 @@ function AnimationController:PlayIdleAnimation(animationName)
 	end
 end
 
+function AnimationController:PlayActionAnimation(animationName)
+	if not self.LocalAnimator then
+		return
+	end
+
+	local track = self.LocalAnimationTracks[animationName]
+	if type(track) == "table" then
+		track = track[1]
+	end
+	if not track then
+		return
+	end
+
+	local settings = self.AnimationSettings[animationName] or getDefaultSettings(animationName)
+
+	if self.CurrentActionAnimation and self.CurrentActionAnimation ~= track and self.CurrentActionAnimation.IsPlaying then
+		self.CurrentActionAnimation:Stop(settings.FadeOutTime)
+	end
+
+	if track.IsPlaying then
+		track:Stop(0)
+	end
+	track:Play(settings.FadeInTime, settings.Weight, settings.Speed)
+	self.CurrentActionAnimation = track
+	self:SetCurrentAnimation(animationName)
+end
+
 function AnimationController:StopAllLocalAnimations()
 	for _, track in pairs(self.LocalAnimationTracks) do
 		if typeof(track) == "Instance" then
@@ -618,6 +676,7 @@ function AnimationController:StopAllLocalAnimations()
 	self.CurrentStateAnimation = nil
 	self.CurrentIdleAnimation = nil
 	self.CurrentAirborneAnimation = nil
+	self.CurrentActionAnimation = nil
 end
 
 function AnimationController:SelectRandomJumpCancelTrack(forceVariantIndex)
@@ -1111,6 +1170,25 @@ function AnimationController:UpdateAnimationSpeed()
 
 	local velocity = primaryPart.AssemblyLinearVelocity
 	local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+
+	local currentState = MovementStateManager:GetCurrentState()
+	local isSliding = currentState == "Sliding"
+	local isGrounded = self:IsCharacterGrounded()
+
+	if not isSliding then
+		if isGrounded then
+			if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
+				self:StopAirborneAnimation()
+			elseif self.CurrentAirborneAnimation and not self.CurrentAirborneAnimation.IsPlaying then
+				self.CurrentAirborneAnimation = nil
+			end
+		else
+			local airborneTrack = self.CurrentAirborneAnimation
+			if not airborneTrack or not airborneTrack.IsPlaying then
+				self:PlayFallingAnimation()
+			end
+		end
+	end
 
 	local isCrouchAnimation = MovementStateManager:IsCrouching()
 	local baseSpeed = isCrouchAnimation and Config.Gameplay.Character.CrouchSpeed or Config.Gameplay.Character.WalkSpeed
