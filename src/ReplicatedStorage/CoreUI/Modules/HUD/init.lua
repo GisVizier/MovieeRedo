@@ -141,6 +141,10 @@ function module:_cacheWeaponUI()
 
 	self._itemHolderOriginalPosition = self._itemHolderSpace.Position
 
+	self._ammoCounter = self._ui:FindFirstChild("Counter", true)
+	self._ammoCounterAmmo = self._ammoCounter and self._ammoCounter:FindFirstChild("Ammo", true)
+	self._ammoCounterMax = self._ammoCounter and self._ammoCounter:FindFirstChild("Max", true)
+
 	local actionsFrame = self._itemHolderSpace:FindFirstChild("Actions") or self._itemHolderSpace
 	self._itemListFrame = actionsFrame:FindFirstChild("ItemHolder")
 	self._weaponTemplateSource = self._itemListFrame and self._itemListFrame:FindFirstChild("Item1")
@@ -729,6 +733,14 @@ function module:_updateItemDesc(weaponData)
 
 	if self._itemDescMax then
 		self._itemDescMax.Text = tostring(weaponData.MaxAmmo or 0)
+	end
+
+	if self._ammoCounterAmmo then
+		self._ammoCounterAmmo.Text = tostring(weaponData.Ammo or 0)
+	end
+
+	if self._ammoCounterMax then
+		self._ammoCounterMax.Text = tostring(weaponData.MaxAmmo or 0)
 	end
 
 	if self._itemDescName then

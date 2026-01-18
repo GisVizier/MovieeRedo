@@ -2,6 +2,7 @@ local WeaponService = {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local workspace = game:GetService("Workspace")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
@@ -37,6 +38,60 @@ function WeaponService:OnWeaponFired(player, shotData)
 	local weaponConfig = LoadoutConfig.getWeapon(shotData.weaponId)
 	if not weaponConfig then
 		warn("[WeaponService] Invalid weapon:", shotData.weaponId, "from", player.Name)
+		return
+	end
+
+	-- Shotgun pellet handling (server-authoritative)
+	if weaponConfig.pelletsPerShot and weaponConfig.pelletsPerShot > 1 and shotData.pelletDirections then
+		local valid, reason = self:_validatePellets(shotData, weaponConfig)
+		if not valid then
+			warn("[WeaponService] Invalid pellet data from", player.Name, "Reason:", reason)
+			return
+		end
+
+		local pelletResult = self:_processPellets(player, shotData, weaponConfig)
+		if not pelletResult then
+			warn("[WeaponService] Pellet processing failed for", player.Name)
+			return
+		end
+
+		local victimPlayer = pelletResult.hitCharacter and Players:GetPlayerFromCharacter(pelletResult.hitCharacter) or nil
+
+		-- Broadcast validated hit to all clients for VFX
+		self._net:FireAllClients("HitConfirmed", {
+			shooter = player.UserId,
+			weaponId = shotData.weaponId,
+			origin = shotData.origin,
+			hitPosition = pelletResult.hitPosition,
+			hitPlayer = victimPlayer and victimPlayer.UserId or nil,
+			hitCharacterName = pelletResult.hitCharacter and pelletResult.hitCharacter.Name or nil,
+			damage = pelletResult.damageTotal,
+			isHeadshot = pelletResult.headshotCount > 0,
+		})
+
+		if victimPlayer then
+			print(string.format(
+				"[WeaponService] %s hit player %s with pellets for %d damage (headshots: %d)",
+				player.Name,
+				victimPlayer.Name,
+				pelletResult.damageTotal,
+				pelletResult.headshotCount
+			))
+		elseif pelletResult.hitCharacter then
+			print(string.format(
+				"[WeaponService] %s hit dummy/rig '%s' with pellets for %d damage (headshots: %d)",
+				player.Name,
+				pelletResult.hitCharacter.Name,
+				pelletResult.damageTotal,
+				pelletResult.headshotCount
+			))
+		else
+			print(string.format(
+				"[WeaponService] %s fired pellets (no target hit)",
+				player.Name
+			))
+		end
+
 		return
 	end
 
@@ -104,6 +159,98 @@ function WeaponService:OnWeaponFired(player, shotData)
 			tostring(shotData.hitPosition)
 		))
 	end
+end
+
+function WeaponService:_validatePellets(shotData, weaponConfig)
+	if type(shotData.pelletDirections) ~= "table" then
+		return false, "PelletDirectionsMissing"
+	end
+
+	if #shotData.pelletDirections == 0 then
+		return false, "NoPellets"
+	end
+
+	if #shotData.pelletDirections > weaponConfig.pelletsPerShot then
+		return false, "TooManyPellets"
+	end
+
+	for _, dir in ipairs(shotData.pelletDirections) do
+		if typeof(dir) ~= "Vector3" then
+			return false, "PelletDirNotVector"
+		end
+		if math.abs(dir.Magnitude - 1) > 0.2 then
+			return false, "PelletDirNotUnit"
+		end
+	end
+
+	return true
+end
+
+function WeaponService:_processPellets(player, shotData, weaponConfig)
+	local origin = shotData.origin
+	if typeof(origin) ~= "Vector3" then
+		return nil
+	end
+
+	local range = weaponConfig.range or 50
+	local damagePerPellet = weaponConfig.damage or 10
+	local headshotMultiplier = weaponConfig.headshotMultiplier or 1.5
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	local ignoreList = {}
+	if player.Character then
+		table.insert(ignoreList, player.Character)
+	end
+	raycastParams.FilterDescendantsInstances = ignoreList
+
+	local damageByCharacter = {}
+	local headshotByCharacter = {}
+	local firstHitPosition = nil
+	local firstHitCharacter = nil
+
+	for _, dir in ipairs(shotData.pelletDirections) do
+		local result = workspace:Raycast(origin, dir * range, raycastParams)
+		if result then
+			if not firstHitPosition then
+				firstHitPosition = result.Position
+			end
+
+			local character = result.Instance and result.Instance.Parent
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				if not firstHitCharacter then
+					firstHitCharacter = character
+				end
+
+				local isHeadshot = result.Instance.Name == "Head"
+				local pelletDamage = isHeadshot and (damagePerPellet * headshotMultiplier) or damagePerPellet
+				damageByCharacter[character] = (damageByCharacter[character] or 0) + pelletDamage
+				headshotByCharacter[character] = (headshotByCharacter[character] or 0) + (isHeadshot and 1 or 0)
+			end
+		end
+	end
+
+	local totalDamage = 0
+	local totalHeadshots = 0
+	for character, damage in pairs(damageByCharacter) do
+		totalDamage = totalDamage + damage
+		totalHeadshots = totalHeadshots + (headshotByCharacter[character] or 0)
+		self:ApplyDamageToCharacter(character, damage, player, (headshotByCharacter[character] or 0) > 0)
+	end
+
+	-- If no hits, pick a fallback position for VFX
+	if not firstHitPosition then
+		local firstDir = shotData.pelletDirections[1]
+		firstHitPosition = origin + firstDir * range
+	end
+
+	return {
+		hitPosition = firstHitPosition,
+		hitCharacter = firstHitCharacter,
+		damageTotal = math.floor(totalDamage + 0.5),
+		headshotCount = totalHeadshots,
+	}
 end
 
 function WeaponService:CalculateDamage(shotData, weaponConfig)
