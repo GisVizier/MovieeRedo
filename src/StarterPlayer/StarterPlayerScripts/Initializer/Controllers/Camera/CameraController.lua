@@ -131,6 +131,13 @@ CameraController.IsTransitioning = false
 CameraController.CurrentMode = nil
 CameraController.CurrentModeIndex = 1
 
+-- Camera mode transition
+CameraController.IsModeTransitioning = false
+CameraController.ModeTransitionStartT = 0
+CameraController.ModeTransitionDuration = 0.15
+CameraController.ModeTransitionStartCFrame = nil
+CameraController.ModeTransitionStartFocus = nil
+
 -- Orbit mode specific
 CameraController.OrbitDistance = 12
 CameraController.OrbitTargetDistance = 12
@@ -558,6 +565,7 @@ function CameraController:CycleCameraMode()
 	self:ApplyCameraModeSettings()
 	self:ApplyRigVisibility()
 	self:HideColliderParts()
+	self:_startModeTransition()
 
 	--#region agent log H1
 	agentLog("H1", "CameraController:CycleCameraMode", "Mode cycled", {
@@ -611,6 +619,20 @@ function CameraController:ApplyCameraModeSettings()
 	end
 end
 
+function CameraController:_startModeTransition()
+	local camera = getCurrentCamera()
+	if not camera then
+		return
+	end
+
+	local duration = (Config.Camera.Smoothing and Config.Camera.Smoothing.ModeTransitionTime) or 0.15
+	self.IsModeTransitioning = duration > 0
+	self.ModeTransitionStartT = tick()
+	self.ModeTransitionDuration = duration
+	self.ModeTransitionStartCFrame = camera.CFrame
+	self.ModeTransitionStartFocus = camera.Focus
+end
+
 function CameraController:GetCurrentMode()
 	return self.CurrentMode
 end
@@ -623,6 +645,7 @@ function CameraController:SetMode(modeName)
 			self.CurrentModeIndex = i
 			self:ApplyCameraModeSettings()
 			self:ApplyRigVisibility()
+			self:_startModeTransition()
 			return true
 		end
 	end
@@ -916,17 +939,41 @@ function CameraController:UpdateCamera()
 	self:UpdateCrouchOffset(deltaTime)
 	
 	-- Update camera based on current mode
+	local desiredCFrame = nil
+	local desiredFocus = nil
 	if self.CurrentMode == "Orbit" then
-		self:UpdateOrbitCamera(camera, deltaTime)
+		desiredCFrame, desiredFocus = self:UpdateOrbitCamera(camera, deltaTime)
 		-- Orbit mode: ensure rig is visible
 		self:ShowEntireRig()
 	elseif self.CurrentMode == "Shoulder" then
-		self:UpdateShoulderCamera(camera, deltaTime)
+		desiredCFrame, desiredFocus = self:UpdateShoulderCamera(camera, deltaTime)
 		-- Shoulder mode: ensure rig is visible
 		self:ShowEntireRig()
 	elseif self.CurrentMode == "FirstPerson" then
 		-- FirstPerson handles its own transparency via ApplyFirstPersonTransparency
-		self:UpdateFirstPersonCamera(camera, deltaTime)
+		desiredCFrame, desiredFocus = self:UpdateFirstPersonCamera(camera, deltaTime)
+	end
+
+	if desiredCFrame and desiredFocus then
+		if self.IsModeTransitioning and self.ModeTransitionStartCFrame and self.ModeTransitionStartFocus then
+			local elapsed = tick() - self.ModeTransitionStartT
+			local alpha = math.clamp(elapsed / math.max(self.ModeTransitionDuration, 1e-3), 0, 1)
+
+			local blendedCFrame = self.ModeTransitionStartCFrame:Lerp(desiredCFrame, alpha)
+			local startFocusPos = self.ModeTransitionStartFocus.Position
+			local targetFocusPos = desiredFocus.Position
+			local blendedFocus = CFrame.new(startFocusPos:Lerp(targetFocusPos, alpha))
+
+			camera.CFrame = blendedCFrame
+			camera.Focus = blendedFocus
+
+			if alpha >= 1 then
+				self.IsModeTransitioning = false
+			end
+		else
+			camera.CFrame = desiredCFrame
+			camera.Focus = desiredFocus
+		end
 	end
 
 	-- Save last applied CFrame for override detection (checked on RenderStepped)
@@ -1017,8 +1064,9 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	finalPosition = self:_clampPositionAboveGround(finalPosition)
 	
 	-- Look at pivot point
-	camera.CFrame = CFrame.lookAt(finalPosition, pivotPosition)
-	camera.Focus = CFrame.new(pivotPosition)
+	local desiredCFrame = CFrame.lookAt(finalPosition, pivotPosition)
+	local desiredFocus = CFrame.new(pivotPosition)
+	return desiredCFrame, desiredFocus
 end
 
 -- =============================================================================
@@ -1110,7 +1158,7 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	
 	-- Look forward along aim direction (NOT at the head)
 	local lookDir = aimCF.LookVector
-	camera.CFrame = CFrame.lookAt(finalCameraPosition, finalCameraPosition + lookDir)
+	local desiredCFrame = CFrame.lookAt(finalCameraPosition, finalCameraPosition + lookDir)
 	
 	-- Distance-based transparency
 	local isRagdolled = self.Character and self.Character:GetAttribute("RagdollActive")
@@ -1121,7 +1169,8 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	end
 	
 	-- CRITICAL: Update Camera.Focus
-	camera.Focus = CFrame.new(baseHeadPosition)
+	local desiredFocus = CFrame.new(baseHeadPosition)
+	return desiredCFrame, desiredFocus
 end
 
 -- =============================================================================
@@ -1182,12 +1231,12 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	-- Keep camera above ground (prevents slide/crouch putting camera under terrain)
 	local desiredPos = desiredCF.Position
 	local clampedPos = self:_clampPositionAboveGround(desiredPos)
-	camera.CFrame = CFrame.new(clampedPos) * desiredCF.Rotation
+	local desiredCFrame = CFrame.new(clampedPos) * desiredCF.Rotation
 	
 	-- CRITICAL: Update Camera.Focus to tell Roblox where to prioritize rendering
 	-- This controls shadow distance, LOD, dynamic lighting, and other rendering optimizations
 	-- Without this, rendering is centered at world origin (0,0,0) instead of the player
-	camera.Focus = CFrame.new(baseHeadPosition)
+	local desiredFocus = CFrame.new(baseHeadPosition)
 
 	--#region agent log H4
 	agentLog("H4", "CameraController:UpdateFirstPersonCamera", "First person camera computed", {
@@ -1209,6 +1258,8 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	if self.Rig and not isRagdolled then
 		self:ApplyFirstPersonTransparency()
 	end
+
+	return desiredCFrame, desiredFocus
 end
 
 -- =============================================================================

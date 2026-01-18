@@ -41,6 +41,7 @@ Camera.Smoothing = {
 	AngleSmoothness = 50,       -- Higher = smoother (less responsive)
 	CrouchTransitionSpeed = 12,
 	EnableCrouchTransition = true,
+	ModeTransitionTime = 0.15,  -- Seconds to blend between camera modes
 }
 
 -- =============================================================================
