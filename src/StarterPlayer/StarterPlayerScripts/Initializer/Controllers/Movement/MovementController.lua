@@ -16,8 +16,6 @@ local MovementInputProcessor = require(script.Parent:WaitForChild("MovementInput
 local ValidationUtils = require(Locations.Shared.Util:WaitForChild("ValidationUtils"))
 local ConfigCache = require(Locations.Shared.Util:WaitForChild("ConfigCache"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
-local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
-local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
@@ -460,39 +458,14 @@ function CharacterController:UpdateMovement(deltaTime)
 				-50,
 				currentVelocity.Z
 			)
-			if TestMode.Logging.LogSlidingSystem then
-				LogService:Debug("SLIDING", "Applied grounding force on buffered landing", {
-					OriginalY = currentVelocity.Y,
-					NewY = -50,
-				})
-			end
 		end
 
 		local currentDirection = self:CalculateMovementDirection()
 		local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 
-		if TestMode.Logging.LogSlidingSystem then
-			LogService:Info("CHARACTER", "SLIDE BUFFER LANDING DETECTED", {
-				BufferDuration = tick() - SlidingSystem.SlideBufferStartTime,
-				HasMovementInput = currentDirection.Magnitude > 0,
-				MovementMagnitude = currentDirection.Magnitude,
-				LandingPosition = self.PrimaryPart.Position.Y,
-			})
-		end
-
 		if currentDirection.Magnitude > 0 then
-			if TestMode.Logging.LogSlidingSystem then
-				LogService:Info("SLIDING", "SLIDE BUFFER EXECUTED SUCCESSFULLY", {
-					BufferDuration = tick() - SlidingSystem.SlideBufferStartTime,
-					ExecutionTrigger = "Player landed with movement input",
-					MovementMagnitude = currentDirection.Magnitude,
-				})
-			end
 			SlidingSystem:StartSlide(currentDirection, currentCameraAngle)
 		else
-			if TestMode.Logging.LogSlidingSystem then
-				LogService:Info("CHARACTER", "Cancelling slide buffer - no movement input")
-			end
 			SlidingSystem:CancelSlideBuffer("No movement input at landing")
 		end
 	end
@@ -680,21 +653,6 @@ function CharacterController:CheckGrounded()
 	end
 
 	local lastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
-	if not self.WasGrounded and self.IsGrounded and lastJumpTime > 0 then
-		local timeSinceJump = tick() - lastJumpTime
-		if timeSinceJump < 10 then
-			LogService:Debug("CHARACTER", "Landing detected after recorded jump", {
-				TimeSinceJump = timeSinceJump,
-			})
-		end
-	end
-
-	if Config.System.Debug.LogGroundDetection and self.WasGrounded ~= self.IsGrounded then
-		LogService:Debug("GROUND", "Ground state changed", {
-			IsGrounded = self.IsGrounded,
-			WasGrounded = self.WasGrounded,
-		})
-	end
 end
 
 function CharacterController:IsInCoyoteTime()
@@ -720,7 +678,7 @@ function CharacterController:TryStepUp(deltaTime)
 		return
 	end
 
-	local stepHeight = 1.0
+	local stepHeight = 1.1
 	local forwardDistance = 2.0
 	local cooldown = 0.12
 
@@ -736,30 +694,11 @@ function CharacterController:TryStepUp(deltaTime)
 	local feetBottomY = feet.Position.Y - (feetSize.Y * 0.5)
 
 	local midOrigin = Vector3.new(feet.Position.X, feetBottomY + 0.9, feet.Position.Z)
-	local debugPart = workspace:FindFirstChild("StepUpDebug")
-	if not debugPart then
-		debugPart = Instance.new("Part")
-		debugPart.Name = "StepUpDebug"
-		debugPart.Size = Vector3.new(0.2, 0.2, 0.2)
-		debugPart.Anchored = true
-		debugPart.CanCollide = false
-		debugPart.CanQuery = false
-		debugPart.CanTouch = false
-		debugPart.Material = Enum.Material.Neon
-		debugPart.Color = Color3.fromRGB(255, 0, 255)
-		debugPart.Parent = workspace
-	end
-	debugPart.CFrame = CFrame.lookAt(
-		midOrigin + (forward * forwardDistance),
-		midOrigin + (forward * forwardDistance) + forward
-	)
 
 	local hitLow = workspace:Raycast(midOrigin, forward * forwardDistance, self.RaycastParams)
-	print("[STEP_UP] hitLow", hitLow and hitLow.Instance and hitLow.Instance.Name or "nil")
 	if hitLow then
 		local highOrigin = Vector3.new(feet.Position.X, feetBottomY + stepHeight, feet.Position.Z)
 		local hitHigh = workspace:Raycast(highOrigin, forward * forwardDistance, self.RaycastParams)
-		print("[STEP_UP] hitHigh", hitHigh and hitHigh.Instance and hitHigh.Instance.Name or "nil")
 		if not hitHigh then
 			local downOrigin = Vector3.new(
 				feet.Position.X,
@@ -772,18 +711,16 @@ function CharacterController:TryStepUp(deltaTime)
 				Vector3.new(0, -downDistance, 0),
 				self.RaycastParams
 			)
-			print("[STEP_UP] hitDown", hitDown and hitDown.Instance and hitDown.Instance.Name or "nil")
 			if hitDown and hitDown.Normal.Y >= 0.6 then
 				local stepDelta = hitDown.Position.Y - feetBottomY
-				print("[STEP_UP] stepDelta", stepDelta)
 				if stepDelta > 0.05 and stepDelta <= stepHeight then
 					local now = tick()
 					if (now - (self.LastStepUpTime or 0)) >= cooldown then
 						self.StepUpRemaining = math.max(self.StepUpRemaining or 0, stepDelta)
 						self.LastStepUpTime = now
 						local gravity = workspace.Gravity
-						self.StepUpRequiredVelocity = math.sqrt(2 * gravity * stepDelta) * 0.4
-						self.StepUpBoostTime = 0.06
+						self.StepUpRequiredVelocity = math.sqrt(2 * gravity * stepDelta) * 0.6
+						self.StepUpBoostTime = 0.07
 					end
 				end
 			end
@@ -881,12 +818,6 @@ function CharacterController:ApplyMovement()
 
 		local airborneStuckDuration = tick() - self.AirborneStuckStartTime
 		if airborneStuckDuration > 0.1 then
-			LogService:Warn("AIR_STUCK", "Player stuck in air - applying gravity", {
-				Duration = airborneStuckDuration,
-				Velocity = currentVelocity,
-				Position = self.PrimaryPart.Position,
-			})
-
 			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
 				currentVelocity.X,
 				math.min(currentVelocity.Y, -30),
@@ -904,21 +835,10 @@ function CharacterController:ApplyMovement()
 	if isStuckCondition then
 		if not self.WallStuckStartTime then
 			self.WallStuckStartTime = tick()
-			LogService:Debug("WALL_STUCK", "Potential stuck detected - starting timer", {
-				HorizontalSpeed = horizontalSpeed,
-				IsAirborne = not self.IsGrounded,
-				TimeSinceWallJump = timeSinceWallJump,
-			})
 		end
 
 		local stuckDuration = tick() - self.WallStuckStartTime
 		if stuckDuration > 0.15 then
-			LogService:Warn("WALL_STUCK", "Player stuck against wall - applying escape", {
-				StuckDuration = stuckDuration,
-				Position = self.PrimaryPart.Position,
-				Velocity = currentVelocity,
-			})
-
 			local _, stuckWallNormal = MovementUtils:CheckWallStopWithNormal(
 				self.PrimaryPart,
 				self.RaycastParams,
@@ -1262,14 +1182,7 @@ function CharacterController:HandleSlideInput(isSliding)
 			)
 			if canBuffer then
 				SlidingSystem:StartSlideBuffer(movementDirection, false)
-				LogService:Debug("SLIDING", "Slide buffered while airborne")
 			end
-		else
-			LogService:Debug("SLIDING", "Slide attempt failed in HandleSlideInput", {
-				Reason = reason,
-				IsGrounded = self.IsGrounded,
-				TimeSinceLastSlide = tick() - SlidingSystem.LastSlideEndTime,
-			})
 		end
 	else
 		if SlidingSystem.IsSliding then
@@ -1308,15 +1221,6 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 		local shouldApplyCooldown = timeSinceLastCrouch >= (Config.Gameplay.Cooldowns.Crouch - 0.001)
 		local isCrouchCooldownActive = SlidingSystem:IsCrouchCooldownActive(self)
 
-		if TestMode.Logging.LogSlidingSystem then
-			LogService:Debug("SLIDING", "Cooldown evaluation during crouch input", {
-				TimeSinceLastCrouch = string.format("%.3f", timeSinceLastCrouch),
-				ShouldApplyCooldown = shouldApplyCooldown,
-				IsCrouchCooldownActive = isCrouchCooldownActive,
-				AutoSlideEnabled = autoSlideEnabled,
-			})
-		end
-
 		if shouldApplyCooldown then
 			self.LastCrouchTime = currentTime
 		end
@@ -1333,22 +1237,9 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 			)
 
 			if canSlide then
-				if TestMode.Logging.LogSlidingSystem then
-					LogService:Debug("SLIDING", "Using auto-slide (sprint + crouch)", {
-						TimeSinceLastSlide = tick() - SlidingSystem.LastSlideEndTime,
-						CooldownRequired = Config.Gameplay.Cooldowns.Slide,
-					})
-				end
 				local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 				SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 				return
-			else
-				LogService:Debug("SLIDING", "Auto-slide attempt failed", {
-					Reason = reason,
-					MovementMagnitude = self.MovementInput.Magnitude,
-					IsGrounded = self.IsGrounded,
-					TimeSinceLastSlide = tick() - SlidingSystem.LastSlideEndTime,
-				})
 			end
 		end
 
@@ -1361,24 +1252,11 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 			)
 
 			if canBuffer then
-				if TestMode.Logging.LogSlidingSystem then
-					LogService:Debug("SLIDING", "Buffering auto-slide", {
-						MovementMagnitude = self.MovementInput.Magnitude,
-						IsAirborne = not self.IsGrounded,
-					})
-				end
 				local movementDirection = self:CalculateMovementDirection()
 				if movementDirection.Magnitude > 0 then
 					SlidingSystem:StartSlideBuffer(movementDirection, false)
 				end
 				return
-			else
-				LogService:Debug("CHARACTER", "Cannot buffer slide", {
-					Reason = reason,
-					MovementMagnitude = self.MovementInput.Magnitude,
-					IsGrounded = self.IsGrounded,
-					IsCrouching = isCrouching,
-				})
 			end
 		end
 
@@ -1515,32 +1393,9 @@ function CharacterController:HandleAutomaticCrouchAfterSlide()
 		CrouchUtils.CharacterCrouchState[self.Character].IsCrouched = true
 	end
 
-	if TestMode.Logging.LogSlidingSystem then
-		LogService:Info("CHARACTER", "Automatic crouch after slide - crouch state set up")
-	end
 end
 
-function CharacterController:LogSlopeAngle()
-	local currentTime = tick()
-	if currentTime - self.LastSlopeLogTime < 1.0 then
-		return
-	end
-	self.LastSlopeLogTime = currentTime
-
-	if not self.IsGrounded or not self.Character or not self.PrimaryPart or not self.RaycastParams then
-		return
-	end
-
-	local _, slopeDegrees = MovementUtils:IsSlopeWalkable(self.Character, self.PrimaryPart, self.RaycastParams)
-
-	if Config.System.Debug.LogSlopeAngles and slopeDegrees > 1 then
-		LogService:Debug("MOVEMENT", "Current slope angle", {
-			SlopeDegrees = string.format("%.1f", slopeDegrees),
-			CharacterPosition = self.PrimaryPart.Position,
-			IsGrounded = self.IsGrounded,
-		})
-	end
-end
+function CharacterController:LogSlopeAngle() end
 
 -- =============================================================================
 -- DEATH DETECTION
@@ -1556,11 +1411,6 @@ function CharacterController:CheckDeath()
 		end
 
 		self.RespawnRequested = true
-
-		LogService:Info("CHARACTER", "Death detected (fell off map) - requesting respawn", {
-			Position = currentPosition,
-			Threshold = deathThreshold,
-		})
 
 		-- Clear local movement forces/state immediately; server will handle respawn.
 		if SlidingSystem and SlidingSystem.IsSliding then
@@ -1634,14 +1484,6 @@ function CharacterController:CheckCrouchCancelJump()
 		self.InputManager.IsCrouching = false
 	end
 
-	if TestMode.Logging.LogSlidingSystem then
-		LogService:Info("CHARACTER", "CROUCH CANCEL JUMP EXECUTED", {
-			OldYVelocity = currentVelocity.Y,
-			NewYVelocity = newYVelocity,
-			AirborneTime = airborneTime,
-			DownforceApplied = downforce,
-		})
-	end
 end
 
 function CharacterController:ApplyAirborneDownforce(deltaTime)
