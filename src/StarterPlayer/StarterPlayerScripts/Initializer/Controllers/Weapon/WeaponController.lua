@@ -22,6 +22,9 @@ WeaponController._lastFireTime = 0
 WeaponController._currentWeaponId = nil
 WeaponController._isAutomatic = false
 WeaponController._autoFireConn = nil
+WeaponController._isReloading = false
+WeaponController._currentAmmo = 0
+WeaponController._reserveAmmo = 0
 
 function WeaponController:Init(registry, net)
 	self._registry = registry
@@ -54,6 +57,20 @@ function WeaponController:Start()
 				self:_stopAutoFire()
 			end
 		end)
+		
+		-- Connect to Reload input
+		self._inputManager:ConnectToInput("Reload", function(isPressed)
+			if isPressed and not self._isReloading then
+				self:Reload()
+			end
+		end)
+		
+		-- Connect to Inspect input
+		self._inputManager:ConnectToInput("Inspect", function(isPressed)
+			if isPressed and not self._isReloading and not self._isFiring then
+				self:Inspect()
+			end
+		end)
 	end
 
 	LogService:Info("WEAPON", "WeaponController started")
@@ -61,6 +78,11 @@ end
 
 function WeaponController:_onFirePressed()
 	local currentTime = os.clock()
+
+	-- Block firing while reloading
+	if self._isReloading then
+		return
+	end
 
 	-- Get current weapon
 	local weaponId = self:_getCurrentWeaponId()
@@ -86,6 +108,8 @@ function WeaponController:_onFirePressed()
 
 	if hitData then
 		-- Send to server for validation
+		print(string.format("[WeaponController] Firing %s at %s", weaponId, tostring(hitData.hitPosition)))
+		
 		self._net:FireServer("WeaponFired", {
 			weaponId = weaponId,
 			timestamp = currentTime,
@@ -94,6 +118,7 @@ function WeaponController:_onFirePressed()
 			hitPart = hitData.hitPart,
 			hitPosition = hitData.hitPosition,
 			hitPlayer = hitData.hitPlayer,
+			hitCharacter = hitData.hitCharacter, -- NEW: Send character model
 			isHeadshot = hitData.isHeadshot,
 		})
 
@@ -189,6 +214,12 @@ function WeaponController:_performRaycast(weaponConfig)
 	if result then
 		local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent)
 		local isHeadshot = result.Instance.Name == "Head"
+		
+		-- Check if we hit a character/rig (has Humanoid)
+		local hitCharacter = nil
+		if result.Instance.Parent:FindFirstChildOfClass("Humanoid") then
+			hitCharacter = result.Instance.Parent
+		end
 
 		return {
 			origin = origin,
@@ -196,6 +227,7 @@ function WeaponController:_performRaycast(weaponConfig)
 			hitPart = result.Instance,
 			hitPosition = result.Position,
 			hitPlayer = hitPlayer,
+			hitCharacter = hitCharacter, -- NEW: Send the character model
 			isHeadshot = isHeadshot,
 			travelTime = weaponConfig.projectileSpeed and
 				(result.Position - origin).Magnitude / weaponConfig.projectileSpeed,
@@ -228,8 +260,16 @@ function WeaponController:_getCurrentWeaponId()
 end
 
 function WeaponController:_playFireEffects(weaponId, hitData)
-	-- TODO: Play muzzle flash, recoil, sound
-	-- ViewmodelController can handle this via its animator
+	-- Play Fire animation on viewmodel
+	if self._viewmodelController and self._viewmodelController._animator then
+		local animator = self._viewmodelController._animator
+		animator:Play("Fire", 0.05, true) -- Fast blend, restart if already playing
+	end
+	
+	-- TODO: Play muzzle flash VFX
+	-- TODO: Add recoil camera shake
+	-- TODO: Add fire sound effect
+	
 	LogService:Debug("WEAPON", "Fire effects", { weaponId = weaponId })
 end
 
@@ -290,6 +330,48 @@ end
 function WeaponController:_showDamageIndicator(hitData)
 	-- TODO: Show damage direction indicator
 	LogService:Debug("WEAPON", "Taking damage", { damage = hitData.damage })
+end
+
+function WeaponController:Reload()
+	local weaponId = self:_getCurrentWeaponId()
+	if not weaponId or weaponId == "Fists" then
+		return
+	end
+	
+	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+	if not weaponConfig or not weaponConfig.reloadTime then
+		return
+	end
+	
+	-- Play reload animation
+	if self._viewmodelController and self._viewmodelController._animator then
+		self._viewmodelController._animator:Play("Reload", 0.1, true)
+	end
+	
+	-- Set reloading state
+	self._isReloading = true
+	
+	LogService:Info("WEAPON", "Reloading", { weaponId = weaponId, duration = weaponConfig.reloadTime })
+	
+	-- Wait for reload animation to complete
+	task.delay(weaponConfig.reloadTime, function()
+		self._isReloading = false
+		LogService:Info("WEAPON", "Reload complete", { weaponId = weaponId })
+	end)
+end
+
+function WeaponController:Inspect()
+	local weaponId = self:_getCurrentWeaponId()
+	if not weaponId or weaponId == "Fists" then
+		return
+	end
+	
+	-- Play inspect animation
+	if self._viewmodelController and self._viewmodelController._animator then
+		self._viewmodelController._animator:Play("Inspect", 0.1, true)
+	end
+	
+	LogService:Debug("WEAPON", "Inspecting", { weaponId = weaponId })
 end
 
 function WeaponController:Destroy()

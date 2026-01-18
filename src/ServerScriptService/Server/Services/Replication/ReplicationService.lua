@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CompressionUtils = require(Locations.Shared.Util:WaitForChild("CompressionUtils"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
+local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator)
+local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 
 ReplicationService.PlayerStates = {}
 ReplicationService.LastBroadcastTime = 0
@@ -14,6 +16,10 @@ ReplicationService._net = nil
 function ReplicationService:Init(registry, net)
 	self._registry = registry
 	self._net = net
+
+	-- Initialize anti-cheat
+	-- MovementValidator:Init() -- DISABLED - too aggressive for slide/jump mechanics
+	-- HitValidator:Init() -- Now initialized in WeaponService
 
 	self._net:ConnectServer("CharacterStateUpdate", function(player, compressedState)
 		self:OnClientStateUpdate(player, compressedState)
@@ -78,10 +84,22 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 		return
 	end
 
-	-- Update state
+	-- Anti-cheat validation (DISABLED - too aggressive)
+	-- local deltaTime = state.Timestamp - playerData.LastState.Timestamp
+	-- local isValid = MovementValidator:Validate(player, state, deltaTime)
+	--
+	-- if not isValid then
+	-- 	-- Reject invalid state - don't update or broadcast
+	-- 	return
+	-- end
+
+	-- Valid state - proceed normally
 	playerData.LastState = state
 	playerData.CachedCompressedState = compressedState
 	playerData.LastUpdateTime = tick()
+
+	-- Store position for weapon hit lag compensation
+	HitValidator:StorePosition(player, state.Position, state.Timestamp)
 end
 
 function ReplicationService:BroadcastStates()

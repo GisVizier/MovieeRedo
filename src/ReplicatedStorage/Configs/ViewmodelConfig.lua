@@ -82,6 +82,7 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.Fists,
 		Offset = CFrame.new(0, 0, 0),
 		Animations = {
+			-- Fists animations (currently using placeholders)
 			Idle = "rbxassetid://0",
 			Walk = "rbxassetid://0",
 			Run = "rbxassetid://0",
@@ -94,15 +95,14 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shotgun,
 		Offset = CFrame.new(0, 0, 0.5),
 		Animations = {
-			-- Pulled from Moviee-Proj (ViewmodelConfig.lua)
-			Idle = "rbxassetid://105684508981313",
-			Walk = "rbxassetid://105684508981313",
-			Run = "rbxassetid://107238400783744",
-			ADS = "rbxassetid://105684508981313",
-			Fire = "rbxassetid://103738677784397",
-			Reload = "rbxassetid://0",
-			Equip = "rbxassetid://0",
-			Inspect = "rbxassetid://90823849535495",
+			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
+			ADS = "Aim", -- Maps to your "Aim" animation
+			Fire = "Fire",
+			Inspect = "Inspect",
+			-- Reload & Equip not created yet (system handles gracefully)
 		},
 	},
 
@@ -110,7 +110,7 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Revolver,
 		Offset = CFrame.new(0, 0, 0.4),
 		Animations = {
-			-- Pulled from Moviee-Proj (ViewmodelConfig.lua)
+			-- Using legacy asset IDs (can be migrated to Animation instances later)
 			Idle = "rbxassetid://109130838280246",
 			Walk = "rbxassetid://109130838280246",
 			Run = "rbxassetid://70374674712630",
@@ -126,6 +126,7 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.AssaultRifle,
 		Offset = CFrame.new(0, 0, 0.5),
 		Animations = {
+			-- Placeholder animations (add real ones when available)
 			Idle = "rbxassetid://0",
 			Walk = "rbxassetid://0",
 			Run = "rbxassetid://0",
