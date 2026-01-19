@@ -20,7 +20,7 @@ local Character = {
 	},
 	Jump = {
 		WallRaycast = {
-			Enabled = true,
+			Enabled = false,
 			RayDistance = 2.5,
 			MinWallAngle = 75,
 		},

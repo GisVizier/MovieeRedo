@@ -47,23 +47,28 @@ function CharacterController:Init(registry, net)
 	end)
 
 	self._net:ConnectClient("CharacterSpawned", function(character)
+		warn("[CLIENT_TRACE] CharacterSpawned received char=" .. (character and character.Name or "nil"))
 		self:_onCharacterSpawned(character)
 	end)
 
 	self._net:ConnectClient("CharacterRemoving", function(character)
+		warn("[CLIENT_TRACE] CharacterRemoving received char=" .. (character and character.Name or "nil"))
 		self:_onCharacterRemoving(character)
 	end)
 
 	self._net:ConnectClient("PlayerRagdolled", function(player, ragdollData)
+		warn("[CLIENT_TRACE] PlayerRagdolled received player=" .. (player and player.Name or "nil"))
 		self:_onPlayerRagdolled(player, ragdollData)
 	end)
 
 	-- Ragdoll events
 	self._net:ConnectClient("RagdollStarted", function(player, ragdoll)
+		warn("[CLIENT_TRACE] RagdollStarted received player=" .. (player and player.Name or "nil"))
 		self:_onRagdollStarted(player, ragdoll)
 	end)
 
 	self._net:ConnectClient("RagdollEnded", function(player)
+		warn("[CLIENT_TRACE] RagdollEnded received player=" .. (player and player.Name or "nil"))
 		self:_onRagdollEnded(player)
 	end)
 
@@ -294,6 +299,7 @@ function CharacterController:_setupLocalCharacter(player, character)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid and not self._deathConnections[character] then
 		self._deathConnections[character] = humanoid.Died:Connect(function()
+			warn("[CHAR_DEATH] Humanoid.Died -> RequestRespawn")
 			if self._respawnRequested then
 				return
 			end
@@ -373,7 +379,12 @@ function CharacterController:_setupRemoteCharacter(player, character)
 		end
 	end
 
-	local targetCFrame = character.PrimaryPart.CFrame * rigOffset
+	-- Use Root if available, fallback to PrimaryPart for remote characters
+	local rootPart = character:FindFirstChild("Root") or character.PrimaryPart
+	if not rootPart then
+		return
+	end
+	local targetCFrame = rootPart.CFrame * rigOffset
 	for _, part in ipairs(rig:GetDescendants()) do
 		if part:IsA("BasePart") then
 			part.CFrame = targetCFrame

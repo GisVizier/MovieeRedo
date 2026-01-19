@@ -20,32 +20,11 @@ local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
-local Net = require(Locations.Shared.Net.Net)
 
 local math_rad = math.rad
 local math_deg = math.deg
 local vector2_new = Vector2.new
 local vector3_new = Vector3.new
-
-local function toVec3(value)
-	if typeof(value) == "Vector3" then
-		return { x = value.X, y = value.Y, z = value.Z }
-	end
-	return value
-end
-
-local function sendDebug(hypothesisId, location, message, data)
-	local payload = {
-		sessionId = "debug-session",
-		runId = "walljump_debug",
-		hypothesisId = hypothesisId,
-		location = location,
-		message = message,
-		data = data,
-		timestamp = DateTime.now().UnixTimestampMillis,
-	}
-	Net:FireServer("DebugLog", payload)
-end
 
 CharacterController.Character = nil
 CharacterController.PrimaryPart = nil
@@ -170,111 +149,6 @@ function CharacterController:OnLocalCharacterReady(character)
 	self.PrimaryPart = character.PrimaryPart or CharacterLocations:GetRoot(character)
 	if not self.PrimaryPart then
 		return
-	end
-
-	-- #region agent log
-	sendDebug("H1", "MovementController.lua:OnLocalCharacterReady", "character_ready", {
-		hasRoot = CharacterLocations:GetRoot(character) ~= nil,
-		hasCollider = character:FindFirstChild("Collider") ~= nil,
-	})
-	-- #endregion
-
-	if self._debugConnections then
-		for _, conn in ipairs(self._debugConnections) do
-			conn:Disconnect()
-		end
-	end
-	self._debugConnections = {}
-
-	local function watchPart(part, label)
-		if not part then
-			warn(("[CHAR_PART] missing_at_ready %s"):format(label))
-			-- #region agent log
-			sendDebug("H9", "MovementController.lua:OnLocalCharacterReady", "missing_at_ready", {
-				part = label,
-			})
-			-- #endregion
-			return
-		end
-
-		table.insert(self._debugConnections, part.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
-				warn(("[CHAR_PART] unparented %s"):format(label))
-				-- #region agent log
-				sendDebug("H9", "MovementController.lua:OnLocalCharacterReady", "part_unparented", {
-					part = label,
-				})
-				-- #endregion
-			end
-		end))
-
-		if part.Destroying then
-			table.insert(self._debugConnections, part.Destroying:Connect(function()
-				warn(("[CHAR_PART] destroying %s"):format(label))
-				-- #region agent log
-				sendDebug("H9", "MovementController.lua:OnLocalCharacterReady", "part_destroying", {
-					part = label,
-				})
-				-- #endregion
-			end))
-		end
-	end
-
-	table.insert(self._debugConnections, character.ChildRemoved:Connect(function(child)
-		if child and (child.Name == "Root" or child.Name == "Collider") then
-			-- #region agent log
-			sendDebug("H2", "MovementController.lua:OnLocalCharacterReady", "child_removed", {
-				childName = child.Name,
-			})
-			-- #endregion
-		end
-	end))
-
-	local rootPart = CharacterLocations:GetRoot(character)
-	watchPart(rootPart, "Root")
-	if rootPart then
-		table.insert(self._debugConnections, rootPart.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
-				-- #region agent log
-				sendDebug("H2", "MovementController.lua:OnLocalCharacterReady", "root_unparented", {})
-				-- #endregion
-			end
-		end))
-	end
-
-	local colliderModel = character:FindFirstChild("Collider")
-	watchPart(colliderModel, "Collider")
-	if colliderModel then
-		table.insert(self._debugConnections, colliderModel.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
-				-- #region agent log
-				sendDebug("H2", "MovementController.lua:OnLocalCharacterReady", "collider_unparented", {})
-				-- #endregion
-			end
-		end))
-	end
-
-	watchPart(CharacterLocations:GetBody(character), "Body")
-	watchPart(CharacterLocations:GetFeet(character), "Feet")
-
-	table.insert(self._debugConnections, character.AncestryChanged:Connect(function(_, parent)
-		if parent == nil then
-			warn("[CHAR_MODEL] character unparented " .. character.Name)
-		end
-	end))
-
-	local player = Players.LocalPlayer
-	if player then
-		table.insert(self._debugConnections, player.CharacterRemoving:Connect(function(char)
-			warn("[CHAR_MODEL] CharacterRemoving " .. (char and char.Name or "nil"))
-		end))
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		table.insert(self._debugConnections, humanoid.Died:Connect(function()
-			warn(("[CHAR_MODEL] Humanoid.Died health=%s"):format(tostring(humanoid.Health)))
-		end))
 	end
 
 	self.FeetPart = CharacterLocations:GetFeet(character) or self.PrimaryPart
@@ -515,29 +389,15 @@ function CharacterController:UpdateMovement(deltaTime)
 	if self.Character then
 		if not self._missingRootLogged and not CharacterLocations:GetRoot(self.Character) then
 			self._missingRootLogged = true
-			-- #region agent log
-			sendDebug("H2", "MovementController.lua:UpdateMovement", "missing_root", {})
-			-- #endregion
 		end
 		if not self._missingColliderLogged and not self.Character:FindFirstChild("Collider") then
 			self._missingColliderLogged = true
-			-- #region agent log
-			sendDebug("H2", "MovementController.lua:UpdateMovement", "missing_collider", {})
-			-- #endregion
 		end
 	end
 
 	if not ValidationUtils:IsPrimaryPartValid(self.PrimaryPart) or not self.VectorForce then
 		if not self._missingPrimaryLogged then
 			self._missingPrimaryLogged = true
-			-- #region agent log
-			sendDebug("H6", "MovementController.lua:UpdateMovement", "missing_primary_or_force", {
-				hasPrimary = self.PrimaryPart ~= nil,
-				hasVectorForce = self.VectorForce ~= nil,
-				primaryAnchored = self.PrimaryPart and self.PrimaryPart.Anchored or false,
-				primaryParent = self.PrimaryPart and self.PrimaryPart.Parent and self.PrimaryPart.Parent.Name or "nil",
-			})
-			-- #endregion
 		end
 		return
 	end
@@ -558,9 +418,6 @@ function CharacterController:UpdateMovement(deltaTime)
 	if self.Character and self.Character:GetAttribute("RagdollActive") == true then
 		if not self._ragdollLogged then
 			self._ragdollLogged = true
-			-- #region agent log
-			sendDebug("H6", "MovementController.lua:UpdateMovement", "ragdoll_active", {})
-			-- #endregion
 		end
 		if SlidingSystem and SlidingSystem.IsSliding then
 			SlidingSystem:StopSlide(false, true, "Ragdoll")
@@ -576,12 +433,6 @@ function CharacterController:UpdateMovement(deltaTime)
 		local feet = CharacterLocations:GetFeet(self.Character)
 		if not body or not feet then
 			self._missingColliderPartLogged = true
-			-- #region agent log
-			sendDebug("H6", "MovementController.lua:UpdateMovement", "missing_collider_parts", {
-				hasBody = body ~= nil,
-				hasFeet = feet ~= nil,
-			})
-			-- #endregion
 		end
 	end
 
@@ -1124,14 +975,6 @@ function CharacterController:ApplyMovement()
 	if isHittingWall then
 		if not self._wallHitLogged then
 			self._wallHitLogged = true
-			-- #region agent log
-			sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_hit", {
-				isGrounded = self.IsGrounded,
-				wallNormal = toVec3(wallNormal),
-				moveVector = toVec3(moveVector),
-				currentVelocity = toVec3(currentVelocity),
-			})
-			-- #endregion
 		end
 		if self.IsGrounded then
 			-- Don't hard-stop (feels like an invisible force). Instead, remove the into-wall component
@@ -1214,14 +1057,6 @@ function CharacterController:ApplyMovement()
 
 			if not self._wallStuckLogged then
 				self._wallStuckLogged = true
-				-- #region agent log
-				sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_stuck", {
-					horizontalSpeed = horizontalSpeed,
-					isNearWallLook = isNearWallLook,
-					isNearWallVel = isNearWallVel,
-					stuckWallNormal = toVec3(stuckWallNormal),
-				})
-				-- #endregion
 			end
 
 			if stuckWallNormal then
@@ -1234,12 +1069,6 @@ function CharacterController:ApplyMovement()
 						escapeDir.Z * 30
 					)
 					currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
-					-- #region agent log
-					sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_escape", {
-						escapeDir = toVec3(escapeDir),
-						newVelocity = toVec3(currentVelocity),
-					})
-					-- #endregion
 				end
 			else
 				local backDir = -self.PrimaryPart.CFrame.LookVector
@@ -1249,12 +1078,6 @@ function CharacterController:ApplyMovement()
 					backDir.Z * 25
 				)
 				currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
-				-- #region agent log
-				sendDebug("H7", "MovementController.lua:ApplyMovement", "wall_escape_back", {
-					backDir = toVec3(backDir),
-					newVelocity = toVec3(currentVelocity),
-				})
-				-- #endregion
 			end
 			self.WallStuckStartTime = nil
 			self._wallStuckLogged = nil
@@ -1800,6 +1623,7 @@ function CharacterController:CheckDeath()
 			return
 		end
 
+		warn(("[CHAR_DEATH] below_threshold y=%.2f threshold=%.2f"):format(currentPosition.Y, deathThreshold))
 		self.RespawnRequested = true
 
 		-- Clear local movement forces/state immediately; server will handle respawn.

@@ -177,14 +177,6 @@ function CameraController:Init(registry, net)
 	end
 	
 	debugPrint("Initializing CameraController, DefaultMode:", self.CurrentMode)
-
-	--#region agent log H1
-	agentLog("H1", "CameraController:Init", "Init called", {
-		httpEnabled = HttpService.HttpEnabled,
-		defaultMode = self.CurrentMode,
-		cycleOrder = cameraConfig.CycleOrder,
-	}, "pre-fix")
-	--#endregion
 	
 	-- Set camera to scriptable
 	if camera then
@@ -192,13 +184,6 @@ function CameraController:Init(registry, net)
 		camera.FieldOfView = cameraConfig.FOV.Base
 		debugPrint("Camera set to Scriptable, FOV:", cameraConfig.FOV.Base)
 		self._LastSeenCameraType = camera.CameraType
-
-		--#region agent log H5
-		agentLog("H5", "CameraController:Init", "Camera configured", {
-			cameraType = tostring(camera.CameraType),
-			fov = camera.FieldOfView,
-		}, "pre-fix")
-		--#endregion
 	end
 	
 	-- Initialize FOVController
@@ -227,16 +212,7 @@ function CameraController:Init(registry, net)
 			for _, child in ipairs(playerScripts:GetChildren()) do
 				table.insert(childNames, child.Name .. ":" .. child.ClassName)
 			end
-			--#region agent log H5
-			agentLog("H5", "CameraController:Init", "PlayerScripts snapshot", {
-				playerScriptsChildren = childNames,
-				hasPlayerModule = playerScripts:FindFirstChild("PlayerModule") ~= nil,
-			}, "pre-fix")
-			--#endregion
 		else
-			--#region agent log H5
-			agentLog("H5", "CameraController:Init", "PlayerScripts missing on LocalPlayer", {}, "pre-fix")
-			--#endregion
 		end
 
 		localPlayer.CharacterAdded:Connect(function(character)
@@ -265,37 +241,11 @@ function CameraController:Init(registry, net)
 		local currentType = cam.CameraType
 		if self._LastSeenCameraType ~= currentType then
 			self._LastSeenCameraType = currentType
-			--#region agent log H5
-			local lp = Players.LocalPlayer
-			local ps = lp and lp:FindFirstChild("PlayerScripts") or nil
-			local psChildren = {}
-			if ps then
-				for _, c in ipairs(ps:GetChildren()) do
-					table.insert(psChildren, c.Name .. ":" .. c.ClassName)
-				end
-			end
-			agentLog("H5", "CameraController:RenderStepped", "CameraType changed", {
-				newCameraType = tostring(currentType),
-				mode = self.CurrentMode,
-				cameraSubject = cam.CameraSubject and (cam.CameraSubject.Name .. ":" .. cam.CameraSubject.ClassName) or "nil",
-				playerScriptsChildren = psChildren,
-				hasPlayerModule = ps and (ps:FindFirstChild("PlayerModule") ~= nil) or false,
-			}, "pre-fix")
-			--#endregion
 		end
 
 		local diffPos = (cam.CFrame.Position - self._LastAppliedCFrame.Position).Magnitude
 		if diffPos > 0.25 and (tick() - (self._LastRenderCompareLogT or 0)) > 0.75 then
 			self._LastRenderCompareLogT = tick()
-			--#region agent log H5
-			agentLog("H5", "CameraController:RenderStepped", "Camera differs from last applied (possible override)", {
-				mode = self.CurrentMode,
-				cameraType = tostring(cam.CameraType),
-				diffPos = diffPos,
-				appliedPos = { self._LastAppliedCFrame.Position.X, self._LastAppliedCFrame.Position.Y, self._LastAppliedCFrame.Position.Z },
-				currentPos = { cam.CFrame.Position.X, cam.CFrame.Position.Y, cam.CFrame.Position.Z },
-			}, "pre-fix")
-			--#endregion
 		end
 	end)
 end
@@ -566,14 +516,6 @@ function CameraController:CycleCameraMode()
 	self:ApplyRigVisibility()
 	self:HideColliderParts()
 	self:_startModeTransition()
-
-	--#region agent log H1
-	agentLog("H1", "CameraController:CycleCameraMode", "Mode cycled", {
-		newMode = self.CurrentMode,
-		index = self.CurrentModeIndex,
-		mouseBehavior = tostring(UserInputService.MouseBehavior),
-	}, "pre-fix")
-	--#endregion
 	
 	debugPrint("=== CAMERA MODE CHANGED ===")
 	debugPrint("New mode:", self.CurrentMode, "Index:", self.CurrentModeIndex)
@@ -589,12 +531,6 @@ function CameraController:ApplyCameraModeSettings()
 	local cameraConfig = Config.Camera
 	
 	debugPrint("Applying settings for mode:", self.CurrentMode)
-
-	--#region agent log H2
-	agentLog("H2", "CameraController:ApplyCameraModeSettings", "Applying mode settings", {
-		mode = self.CurrentMode,
-	}, "pre-fix")
-	--#endregion
 	
 	if self.CurrentMode == "Orbit" then
 		-- Orbit mode: Free cursor, right-click drag to rotate
@@ -782,12 +718,6 @@ function CameraController:HideColliderParts()
 			debugPrint("Hiding collider part:", descendant.Name)
 		end
 	end
-	
-	--#region agent log H6
-	agentLog("H6", "CameraController:HideColliderParts", "Collider parts hidden", {
-		count = hiddenCount,
-	}, "pre-fix")
-	--#endregion
 
 	debugPrint("Collider parts hidden")
 end
@@ -862,12 +792,6 @@ function CameraController:UpdateCamera()
 	if camera.CameraType ~= Enum.CameraType.Scriptable then
 		local prevType = camera.CameraType
 		camera.CameraType = Enum.CameraType.Scriptable
-		--#region agent log H5
-		agentLog("H5", "CameraController:UpdateCamera", "Re-enforced CameraType=Scriptable", {
-			previousCameraType = tostring(prevType),
-			mode = self.CurrentMode,
-		}, "pre-fix")
-		--#endregion
 	end
 	
 	-- Auto-initialize camera if character parts become available
@@ -981,16 +905,6 @@ function CameraController:UpdateCamera()
 
 	if (tick() - (self._LastAgentUpdateLogT or 0)) > 0.75 then
 		self._LastAgentUpdateLogT = tick()
-		--#region agent log H2
-		agentLog("H2", "CameraController:UpdateCamera", "UpdateCamera tick", {
-			mode = self.CurrentMode,
-			cameraType = tostring(camera.CameraType),
-			camPos = { camera.CFrame.Position.X, camera.CFrame.Position.Y, camera.CFrame.Position.Z },
-			focusPos = { camera.Focus.Position.X, camera.Focus.Position.Y, camera.Focus.Position.Z },
-			headOk = self.Head ~= nil,
-			primaryOk = self.PrimaryPart ~= nil,
-		}, "pre-fix")
-		--#endregion
 	end
 	
 	-- Update FOV based on velocity
@@ -1142,19 +1056,6 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 
 	-- Keep camera above ground (prevents crouch/slide dip under terrain)
 	finalCameraPosition = self:_clampPositionAboveGround(finalCameraPosition)
-
-	--#region agent log H3
-	agentLog("H3", "CameraController:UpdateShoulderCamera", "Shoulder camera computed", {
-		distance = distance,
-		shoulderX = shoulderX,
-		shoulderY = shoulderY,
-		height = height,
-		pivotPos = { rayOrigin.X, rayOrigin.Y, rayOrigin.Z },
-		desiredPos = { desiredCameraPosition.X, desiredCameraPosition.Y, desiredCameraPosition.Z },
-		finalPos = { finalCameraPosition.X, finalCameraPosition.Y, finalCameraPosition.Z },
-		hit = spherecastResult ~= nil,
-	}, "pre-fix")
-	--#endregion
 	
 	-- Look forward along aim direction (NOT at the head)
 	local lookDir = aimCF.LookVector
@@ -1237,20 +1138,6 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	-- This controls shadow distance, LOD, dynamic lighting, and other rendering optimizations
 	-- Without this, rendering is centered at world origin (0,0,0) instead of the player
 	local desiredFocus = CFrame.new(baseHeadPosition)
-
-	--#region agent log H4
-	agentLog("H4", "CameraController:UpdateFirstPersonCamera", "First person camera computed", {
-		followRigHead = followRigHead,
-		rigHeadOk = self.RigHead ~= nil,
-		rigHeadName = rigHeadName,
-		humanoidHeadName = humanoidHeadName,
-		rigHeadPos = self.RigHead and { self.RigHead.Position.X, self.RigHead.Position.Y, self.RigHead.Position.Z } or "nil",
-		headPos = { baseHeadPosition.X, baseHeadPosition.Y, baseHeadPosition.Z },
-		offset = { cameraOffset.X, cameraOffset.Y, cameraOffset.Z },
-		camPos = { camera.CFrame.Position.X, camera.CFrame.Position.Y, camera.CFrame.Position.Z },
-		showRigForTesting = Config.Gameplay.Character.ShowRigForTesting,
-	}, "pre-fix")
-	--#endregion
 	
 	-- Apply first person transparency (hide rig)
 	-- Skip transparency updates if character is ragdolled

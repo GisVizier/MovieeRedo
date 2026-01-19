@@ -54,18 +54,6 @@ function RigManager:_bindRigDescendantAdded(rig)
 	end)
 end
 
---#region agent log helper (lua-only; prints to output)
-local function agentLog(hypothesisId, location, message, data)
-	print(
-		"[RIG AGENT LOG]",
-		hypothesisId,
-		location,
-		message,
-		game:GetService("HttpService"):JSONEncode(data or {})
-	)
-end
---#endregion
-
 function RigManager:Init()
 	if self.RigContainer then
 		return
@@ -142,31 +130,6 @@ function RigManager:CreateRig(player, character)
 			end)
 		end
 	end
-
-	--#region agent log H7
-	do
-		local basePartCount = 0
-		local canQueryTrue = 0
-		for _, d in ipairs(rig:GetDescendants()) do
-			if d:IsA("BasePart") then
-				basePartCount += 1
-				if d.CanQuery then
-					canQueryTrue += 1
-				end
-			end
-		end
-		local hrp = rig:FindFirstChild("HumanoidRootPart")
-		local hum = rig:FindFirstChildOfClass("Humanoid")
-		agentLog("H7", "RigManager:CreateRig", "Rig created (post-configureRigDefault)", {
-			rigName = rig.Name,
-			hasHumanoid = hum ~= nil,
-			hasRigHRP = hrp ~= nil,
-			rigHRPAnchored = hrp and hrp.Anchored or false,
-			basePartCount = basePartCount,
-			canQueryTrueCount = canQueryTrue,
-		})
-	end
-	--#endregion
 
 	return rig
 end

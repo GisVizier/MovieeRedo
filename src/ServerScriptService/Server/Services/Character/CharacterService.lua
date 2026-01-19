@@ -48,7 +48,7 @@ function CharacterService:Start()
 			self._net:FireClient("ServerReady", player)
 		end)
 
-		self:_sendExistingCharacters(player)
+			self:_sendExistingCharacters(player)
 	end)
 end
 
@@ -252,16 +252,14 @@ function CharacterService:StartRagdoll(player, options)
 		return false
 	end
 
-	local root = character.PrimaryPart --:FindFirstChild("Root")
+	local root = character.PrimaryPart
 	if not root then
-		warn("[CharacterService] StartRagdoll: No Root part found")
 		return false
 	end
 
 	-- Create ragdoll clone
 	local ragdoll = self:_createRagdollClone(player, character)
 	if not ragdoll then
-		warn("[CharacterService] StartRagdoll: Failed to create ragdoll clone")
 		return false
 	end
 
@@ -324,7 +322,6 @@ function CharacterService:StartRagdoll(player, options)
 	-- Fire RagdollStarted to all clients
 	self._net:FireAllClients("RagdollStarted", player, ragdoll)
 
-	print("[CharacterService] Ragdoll started for", player.Name)
 	return true
 end
 
@@ -367,7 +364,6 @@ function CharacterService:EndRagdoll(player)
 	-- Fire RagdollEnded to all clients
 	self._net:FireAllClients("RagdollEnded", player)
 
-	print("[CharacterService] Ragdoll ended for", player.Name)
 	return true
 end
 
