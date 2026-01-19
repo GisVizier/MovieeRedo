@@ -64,6 +64,7 @@ ViewmodelController._attrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
+ViewmodelController._externalOffset = nil
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -329,6 +330,13 @@ function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
 	return track
 end
 
+function ViewmodelController:SetOffset(offset: CFrame)
+	self._externalOffset = offset
+	return function()
+		self._externalOffset = nil
+	end
+end
+
 function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 	-- Do not "make up" weapons: only switch if the selected loadout actually has a weapon ID for that slot.
 	if type(slot) ~= "string" then
@@ -493,12 +501,13 @@ function ViewmodelController:_render(dt: number)
 	end
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
 	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
+	local externalOffset = self._externalOffset or CFrame.new()
 
 	local rotationOffset = CFrame.Angles(springs.rotation.Position.X, 0, springs.rotation.Position.Z)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
 	local offset = springs.bob.Position + springs.tiltPos.Position
 
-	local target = cam.CFrame * align * baseOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
+	local target = cam.CFrame * align * baseOffset * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
 	rig.Model:PivotTo(target)
 end
 
