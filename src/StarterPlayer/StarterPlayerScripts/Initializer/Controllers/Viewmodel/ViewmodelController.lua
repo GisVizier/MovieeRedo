@@ -115,6 +115,8 @@ function ViewmodelController:Init(registry, net)
 		bob = Spring.new(Vector3.zero),
 		tiltRot = Spring.new(Vector3.zero),
 		tiltPos = Spring.new(Vector3.zero),
+		externalPos = Spring.new(Vector3.zero),
+		externalRot = Spring.new(Vector3.zero),
 	}
 	self._springs.rotation.Speed = ROTATION_SPRING_SPEED
 	self._springs.rotation.Damper = ROTATION_SPRING_DAMPER
@@ -124,6 +126,10 @@ function ViewmodelController:Init(registry, net)
 	self._springs.tiltRot.Damper = TILT_SPRING_DAMPER
 	self._springs.tiltPos.Speed = TILT_SPRING_SPEED
 	self._springs.tiltPos.Damper = TILT_SPRING_DAMPER
+	self._springs.externalPos.Speed = 12
+	self._springs.externalPos.Damper = 0.85
+	self._springs.externalRot.Speed = 12
+	self._springs.externalRot.Damper = 0.85
 	self._prevCamCF = nil
 	self._bobT = 0
 	self._wasSliding = false
@@ -331,9 +337,14 @@ function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
 end
 
 function ViewmodelController:SetOffset(offset: CFrame)
-	self._externalOffset = offset
+	local pos = offset.Position
+	local rx, ry, rz = offset:ToEulerAnglesXYZ()
+	self._springs.externalPos.Target = pos
+	self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
+	
 	return function()
-		self._externalOffset = nil
+		self._springs.externalPos.Target = Vector3.zero
+		self._springs.externalRot.Target = Vector3.zero
 	end
 end
 
