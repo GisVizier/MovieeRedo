@@ -65,6 +65,10 @@ LoadoutConfig.Weapons = {
 		clipSize = 5,
 		reloadTime = 2.5,
 		isAbility = false,
+		fireProfile = {
+			mode = "Semi",
+			autoReloadOnEmpty = true,
+		},
 
 		-- Weapon ballistics
 		damage = 80,
@@ -97,6 +101,12 @@ LoadoutConfig.Weapons = {
 		clipSize = 8,
 		reloadTime = 2.0,
 		isAbility = false,
+		fireProfile = {
+			mode = "Shotgun",
+			autoReloadOnEmpty = false,
+			pelletsPerShot = 8,
+			spread = 0.15,
+		},
 
 		-- Weapon ballistics
 		damage = 15, -- Per pellet
@@ -130,6 +140,11 @@ LoadoutConfig.Weapons = {
 		clipSize = 30,
 		reloadTime = 1.8,
 		isAbility = false,
+		fireProfile = {
+			mode = "Auto",
+			autoReloadOnEmpty = true,
+			spread = 0.02,
+		},
 
 		-- Weapon ballistics
 		damage = 25,
@@ -187,6 +202,10 @@ LoadoutConfig.Weapons = {
 		clipSize = 6,
 		reloadTime = 1.5,
 		isAbility = false,
+		fireProfile = {
+			mode = "Semi",
+			autoReloadOnEmpty = true,
+		},
 
 		-- Weapon ballistics
 		damage = 45,

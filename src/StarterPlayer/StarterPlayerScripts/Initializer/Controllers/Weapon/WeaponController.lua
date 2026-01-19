@@ -10,6 +10,15 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 
+local ShotgunActionsRoot = ReplicatedStorage:WaitForChild("Game")
+	:WaitForChild("Weapons")
+	:WaitForChild("Actions")
+	:WaitForChild("Gun")
+	:WaitForChild("Shotgun")
+local ShotgunAttack = require(ShotgunActionsRoot:WaitForChild("Attack"))
+local ShotgunReload = require(ShotgunActionsRoot:WaitForChild("Reload"))
+local ShotgunInspect = require(ShotgunActionsRoot:WaitForChild("Inspect"))
+
 local LocalPlayer = Players.LocalPlayer
 
 WeaponController._registry = nil
@@ -64,14 +73,14 @@ function WeaponController:Start()
 				self:_stopAutoFire()
 			end
 		end)
-		
+
 		-- Connect to Reload input
 		self._inputManager:ConnectToInput("Reload", function(isPressed)
 			if isPressed and not self._isReloading then
 				self:Reload()
 			end
 		end)
-		
+
 		-- Connect to Inspect input
 		self._inputManager:ConnectToInput("Inspect", function(isPressed)
 			if isPressed and not self._isReloading and not self._isFiring then
@@ -85,7 +94,7 @@ function WeaponController:Start()
 		LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(function()
 			self:_initializeAmmo()
 		end)
-		
+
 		-- Initialize on start if loadout already exists
 		task.defer(function()
 			self:_initializeAmmo()
@@ -99,38 +108,38 @@ function WeaponController:_initializeAmmo()
 	if not LocalPlayer then
 		return
 	end
-	
+
 	local loadoutJson = LocalPlayer:GetAttribute("SelectedLoadout")
 	if not loadoutJson or loadoutJson == "" then
 		return
 	end
-	
+
 	local success, loadoutData = pcall(function()
 		return HttpService:JSONDecode(loadoutJson)
 	end)
-	
+
 	if not success then
 		return
 	end
-	
+
 	local loadout = loadoutData.loadout or loadoutData
-	
+
 	-- Initialize ammo for each weapon slot
 	for _, slotType in ipairs({ "Primary", "Secondary", "Melee" }) do
 		local weaponId = loadout[slotType]
 		local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
-		
+
 		if weaponConfig then
 			self._ammoData[slotType] = {
 				currentAmmo = weaponConfig.clipSize or 0,
 				reserveAmmo = weaponConfig.maxAmmo or 0,
 			}
-			
+
 			-- Update HUD for this slot
 			self:_updateHUDAmmo(slotType, weaponConfig)
 		end
 	end
-	
+
 	print("[WEAPON] Ammo initialized for all slots")
 end
 
@@ -138,12 +147,12 @@ function WeaponController:_updateHUDAmmo(slotType, weaponConfig)
 	if not LocalPlayer then
 		return
 	end
-	
+
 	local ammo = self._ammoData[slotType]
 	if not ammo then
 		return
 	end
-	
+
 	-- Build weapon data for HUD
 	local weaponData = {
 		Gun = weaponConfig.name,
@@ -159,7 +168,7 @@ function WeaponController:_updateHUDAmmo(slotType, weaponConfig)
 		Rarity = weaponConfig.rarity,
 		UpdatedAt = os.clock(),
 	}
-	
+
 	-- Force attribute update even if JSON string is identical.
 	local attrName = slotType .. "Data"
 	LocalPlayer:SetAttribute(attrName, nil)
@@ -170,13 +179,65 @@ function WeaponController:_getCurrentSlot()
 	if not self._viewmodelController or not self._viewmodelController._activeSlot then
 		return "Primary"
 	end
-	
+
 	local slot = self._viewmodelController._activeSlot
 	if slot == "Fists" then
 		return "Primary"
 	end
-	
+
 	return slot
+end
+
+function WeaponController:_isShotgunWeapon(weaponId)
+	return weaponId == "Shotgun"
+end
+
+function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
+	local ammo = slot and self._ammoData[slot] or nil
+	return {
+		Player = LocalPlayer,
+		WeaponType = weaponConfig and weaponConfig.weaponType or "Gun",
+		WeaponName = weaponId,
+		Config = weaponConfig,
+		Animator = self._viewmodelController and self._viewmodelController._animator or nil,
+		State = {
+			CurrentAmmo = ammo and ammo.currentAmmo or 0,
+			ReserveAmmo = ammo and ammo.reserveAmmo or 0,
+			IsReloading = self._isReloading,
+			IsAttacking = self._isFiring,
+			LastFireTime = self._lastFireTime,
+			Equipped = true,
+		},
+	}
+end
+
+function WeaponController:_applyWeaponInstanceState(weaponInstance, slot, weaponConfig)
+	if not weaponInstance or not weaponInstance.State then
+		return
+	end
+
+	local state = weaponInstance.State
+	local ammo = slot and self._ammoData[slot] or nil
+
+	if ammo then
+		if type(state.CurrentAmmo) == "number" then
+			ammo.currentAmmo = state.CurrentAmmo
+		end
+		if type(state.ReserveAmmo) == "number" then
+			ammo.reserveAmmo = state.ReserveAmmo
+		end
+	end
+
+	if type(state.LastFireTime) == "number" then
+		self._lastFireTime = state.LastFireTime
+	end
+	if type(state.IsReloading) == "boolean" then
+		self._isReloading = state.IsReloading
+	end
+
+	if weaponConfig and ammo then
+		self:_updateHUDAmmo(slot, weaponConfig)
+	end
 end
 
 function WeaponController:_getCurrentAmmo()
@@ -188,21 +249,39 @@ end
 function WeaponController:_decrementAmmo()
 	local slot = self:_getCurrentSlot()
 	local ammo = self._ammoData[slot]
-	
+
 	if ammo and ammo.currentAmmo > 0 then
 		ammo.currentAmmo = ammo.currentAmmo - 1
-		
+
 		-- Update HUD
 		local weaponId = self:_getCurrentWeaponId()
 		local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
 		if weaponConfig then
 			self:_updateHUDAmmo(slot, weaponConfig)
 		end
-		
+
 		return true
 	end
-	
+
 	return false
+end
+
+function WeaponController:_getFireProfile(weaponConfig)
+	local profile = weaponConfig.fireProfile or {}
+	return {
+		mode = profile.mode or "Semi",
+		autoReloadOnEmpty = profile.autoReloadOnEmpty ~= false,
+		pelletsPerShot = profile.pelletsPerShot or weaponConfig.pelletsPerShot,
+		spread = profile.spread or weaponConfig.spread,
+	}
+end
+
+function WeaponController:_isAutoFire(profile)
+	return profile.mode == "Auto"
+end
+
+function WeaponController:_isShotgun(profile)
+	return profile.mode == "Shotgun" and profile.pelletsPerShot and profile.pelletsPerShot > 1
 end
 
 function WeaponController:_onFirePressed()
@@ -224,31 +303,52 @@ function WeaponController:_onFirePressed()
 		return
 	end
 
-	-- Check ammo
-	local currentAmmo = self:_getCurrentAmmo()
-	if currentAmmo <= 0 then
-		-- Auto-reload when clicking with empty magazine
-		if not self._isReloading then
-			self:Reload()
+	local fireProfile = self:_getFireProfile(weaponConfig)
+	local isShotgunWeapon = self:_isShotgunWeapon(weaponId)
+
+	if isShotgunWeapon then
+		local slot = self:_getCurrentSlot()
+		local weaponInstance = self:_buildWeaponInstance(weaponId, weaponConfig, slot)
+		local ok, reason = ShotgunAttack.Execute(weaponInstance, currentTime)
+
+		if not ok then
+			if reason == "NoAmmo" and fireProfile.autoReloadOnEmpty and not self._isReloading then
+				self:Reload()
+			end
+			return
 		end
-		return
-	end
 
-	-- Fire rate check
-	local fireInterval = 60 / (weaponConfig.fireRate or 600)
-	if currentTime - self._lastFireTime < fireInterval then
-		return
-	end
+		self:_applyWeaponInstanceState(weaponInstance, slot, weaponConfig)
+	else
+		-- Check ammo
+		local currentAmmo = self:_getCurrentAmmo()
+		if currentAmmo <= 0 then
+			-- Auto-reload when clicking with empty magazine
+			if fireProfile.autoReloadOnEmpty and not self._isReloading then
+				self:Reload()
+			end
+			return
+		end
 
-	self._lastFireTime = currentTime
-	
-	-- Decrement ammo
-	self:_decrementAmmo()
+		-- Fire rate check
+		local fireInterval = 60 / (weaponConfig.fireRate or 600)
+		if currentTime - self._lastFireTime < fireInterval then
+			return
+		end
+
+		self._lastFireTime = currentTime
+
+		-- Decrement ammo
+		self:_decrementAmmo()
+	end
 
 	-- Generate pellet directions for shotgun-style weapons
 	local pelletDirections = nil
-	if weaponConfig.pelletsPerShot and weaponConfig.pelletsPerShot > 1 then
-		pelletDirections = self:_generatePelletDirections(weaponConfig)
+	if self:_isShotgun(fireProfile) then
+		pelletDirections = self:_generatePelletDirections({
+			pelletsPerShot = fireProfile.pelletsPerShot,
+			spread = fireProfile.spread or 0.15,
+		})
 	end
 
 	-- Perform client-side raycast for tracer/feedback
@@ -257,7 +357,7 @@ function WeaponController:_onFirePressed()
 	if hitData then
 		-- Send to server for validation
 		print(string.format("[WeaponController] Firing %s at %s", weaponId, tostring(hitData.hitPosition)))
-		
+
 		self._net:FireServer("WeaponFired", {
 			weaponId = weaponId,
 			timestamp = currentTime,
@@ -291,8 +391,10 @@ function WeaponController:_startAutoFire()
 		return
 	end
 
+	local fireProfile = self:_getFireProfile(weaponConfig)
+
 	-- Only enable auto-fire for high fire rate weapons (assault rifles)
-	if weaponConfig.fireRate and weaponConfig.fireRate > 300 then
+	if self:_isAutoFire(fireProfile) then
 		self._isAutomatic = true
 		local fireInterval = 60 / weaponConfig.fireRate
 
@@ -350,7 +452,7 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	local character = LocalPlayer.Character
-	local filterList = {camera}
+	local filterList = { camera }
 	if character then
 		table.insert(filterList, character)
 	end
@@ -361,7 +463,7 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 	if result then
 		local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent)
 		local isHeadshot = result.Instance.Name == "Head"
-		
+
 		-- Check if we hit a character/rig (has Humanoid)
 		local hitCharacter = nil
 		if result.Instance.Parent:FindFirstChildOfClass("Humanoid") then
@@ -376,8 +478,8 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 			hitPlayer = hitPlayer,
 			hitCharacter = hitCharacter, -- NEW: Send the character model
 			isHeadshot = isHeadshot,
-			travelTime = weaponConfig.projectileSpeed and
-				(result.Position - origin).Magnitude / weaponConfig.projectileSpeed,
+			travelTime = weaponConfig.projectileSpeed
+				and (result.Position - origin).Magnitude / weaponConfig.projectileSpeed,
 		}
 	end
 
@@ -440,13 +542,13 @@ end
 function WeaponController:_playFireEffects(weaponId, hitData)
 	print("[WEAPON] _playFireEffects called for:", weaponId)
 	print("[WEAPON] viewmodelController exists:", self._viewmodelController ~= nil)
-	
+
 	-- Play Fire animation on viewmodel
-	if self._viewmodelController and self._viewmodelController._animator then
+	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController and self._viewmodelController._animator then
 		print("[WEAPON] Animator found")
 		local animator = self._viewmodelController._animator
 		local track = animator:GetTrack("Fire")
-		
+
 		if track then
 			print("[WEAPON] Fire track exists, playing now")
 			track:Play(0.05)
@@ -465,11 +567,11 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 			warn("[WEAPON] animator:", self._viewmodelController._animator)
 		end
 	end
-	
+
 	-- TODO: Play muzzle flash VFX
 	-- TODO: Add recoil camera shake
 	-- TODO: Add fire sound effect
-	
+
 	LogService:Debug("WEAPON", "Fire effects", { weaponId = weaponId })
 end
 
@@ -537,38 +639,48 @@ function WeaponController:Reload()
 	if not weaponId or weaponId == "Fists" then
 		return
 	end
-	
+
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig or not weaponConfig.reloadTime then
 		return
 	end
-	
+
 	local slot = self:_getCurrentSlot()
 	local ammo = self._ammoData[slot]
-	
+
 	if not ammo then
 		return
 	end
-	
-	-- Don't reload if already full
-	if ammo.currentAmmo >= weaponConfig.clipSize then
-		print("[WEAPON] Already full, no reload needed")
-		return
+
+	local isShotgunWeapon = self:_isShotgunWeapon(weaponId)
+	if isShotgunWeapon then
+		local weaponInstance = self:_buildWeaponInstance(weaponId, weaponConfig, slot)
+		local ok = ShotgunReload.Execute(weaponInstance)
+		if not ok then
+			return
+		end
+		self:_applyWeaponInstanceState(weaponInstance, slot, weaponConfig)
+	else
+		-- Don't reload if already full
+		if ammo.currentAmmo >= weaponConfig.clipSize then
+			print("[WEAPON] Already full, no reload needed")
+			return
+		end
+
+		-- Don't reload if no reserve ammo
+		if ammo.reserveAmmo <= 0 then
+			print("[WEAPON] No reserve ammo to reload")
+			return
+		end
 	end
-	
-	-- Don't reload if no reserve ammo
-	if ammo.reserveAmmo <= 0 then
-		print("[WEAPON] No reserve ammo to reload")
-		return
-	end
-	
+
 	print("[WEAPON] Reload started for:", weaponId)
-	
+
 	-- Play reload animation
-	if self._viewmodelController and self._viewmodelController._animator then
+	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController and self._viewmodelController._animator then
 		local animator = self._viewmodelController._animator
 		local track = animator:GetTrack("Reload")
-		
+
 		if track then
 			print("[WEAPON] Reload track exists, playing")
 			track:Play(0.1)
@@ -576,39 +688,39 @@ function WeaponController:Reload()
 			warn("[WEAPON] Reload track NOT FOUND (animation may not exist)")
 		end
 	end
-	
+
 	-- Set reloading state
 	self._isReloading = true
-	
+
 	-- Update HUD to show reloading
 	self:_updateHUDAmmo(slot, weaponConfig)
-	
-	LogService:Info("WEAPON", "Reloading", { 
-		weaponId = weaponId, 
+
+	LogService:Info("WEAPON", "Reloading", {
+		weaponId = weaponId,
 		duration = weaponConfig.reloadTime,
 		currentAmmo = ammo.currentAmmo,
-		reserveAmmo = ammo.reserveAmmo
+		reserveAmmo = ammo.reserveAmmo,
 	})
-	
+
 	-- Wait for reload animation to complete
 	task.delay(weaponConfig.reloadTime, function()
 		-- Calculate ammo to reload
 		local neededAmmo = weaponConfig.clipSize - ammo.currentAmmo
 		local ammoToReload = math.min(neededAmmo, ammo.reserveAmmo)
-		
+
 		-- Refill current ammo
 		ammo.currentAmmo = ammo.currentAmmo + ammoToReload
 		ammo.reserveAmmo = ammo.reserveAmmo - ammoToReload
-		
+
 		self._isReloading = false
-		
+
 		-- Update HUD
 		self:_updateHUDAmmo(slot, weaponConfig)
-		
-		LogService:Info("WEAPON", "Reload complete", { 
+
+		LogService:Info("WEAPON", "Reload complete", {
 			weaponId = weaponId,
 			currentAmmo = ammo.currentAmmo,
-			reserveAmmo = ammo.reserveAmmo
+			reserveAmmo = ammo.reserveAmmo,
 		})
 	end)
 end
@@ -618,14 +730,24 @@ function WeaponController:Inspect()
 	if not weaponId or weaponId == "Fists" then
 		return
 	end
-	
+
+	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+	if weaponConfig and self:_isShotgunWeapon(weaponId) then
+		local slot = self:_getCurrentSlot()
+		local weaponInstance = self:_buildWeaponInstance(weaponId, weaponConfig, slot)
+		local ok = ShotgunInspect.Execute(weaponInstance)
+		if not ok then
+			return
+		end
+	end
+
 	print("[WEAPON] Inspect called for:", weaponId)
-	
+
 	-- Play inspect animation
-	if self._viewmodelController and self._viewmodelController._animator then
+	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController and self._viewmodelController._animator then
 		local animator = self._viewmodelController._animator
 		local track = animator:GetTrack("Inspect")
-		
+
 		if track then
 			print("[WEAPON] Inspect track exists, playing")
 			track:Play(0.1)
@@ -633,7 +755,7 @@ function WeaponController:Inspect()
 			warn("[WEAPON] Inspect track NOT FOUND")
 		end
 	end
-	
+
 	LogService:Debug("WEAPON", "Inspecting", { weaponId = weaponId })
 end
 

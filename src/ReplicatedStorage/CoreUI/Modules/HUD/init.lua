@@ -144,6 +144,7 @@ function module:_cacheWeaponUI()
 	self._ammoCounter = self._ui:FindFirstChild("Counter", true)
 	self._ammoCounterAmmo = self._ammoCounter and self._ammoCounter:FindFirstChild("Ammo", true)
 	self._ammoCounterMax = self._ammoCounter and self._ammoCounter:FindFirstChild("Max", true)
+	self._ammoCounterReloading = self._ammoCounter and self._ammoCounter:FindFirstChild("Reloading", true)
 
 	local actionsFrame = self._itemHolderSpace:FindFirstChild("Actions") or self._itemHolderSpace
 	self._itemListFrame = actionsFrame:FindFirstChild("ItemHolder")
@@ -741,6 +742,18 @@ function module:_updateItemDesc(weaponData)
 
 	if self._ammoCounterMax then
 		self._ammoCounterMax.Text = tostring(weaponData.MaxAmmo or 0)
+	end
+
+	if self._ammoCounterReloading then
+		local isReloading = weaponData.Reloading == true
+		if self._ammoCounterReloading:IsA("TextLabel") then
+			self._ammoCounterReloading.Text = "RELOADING"
+		end
+		if self._ammoCounterReloading:IsA("GuiObject") then
+			self._ammoCounterReloading.Visible = isReloading
+		elseif self._ammoCounterReloading:IsA("CanvasGroup") then
+			self._ammoCounterReloading.GroupTransparency = isReloading and 0 or 1
+		end
 	end
 
 	if self._itemDescName then
