@@ -145,6 +145,8 @@ function module:_cacheWeaponUI()
 	self._ammoCounterAmmo = self._ammoCounter and self._ammoCounter:FindFirstChild("Ammo", true)
 	self._ammoCounterMax = self._ammoCounter and self._ammoCounter:FindFirstChild("Max", true)
 	self._ammoCounterReloading = self._ammoCounter and self._ammoCounter:FindFirstChild("Reloading", true)
+	self._ammoCounterAmmoColor = self._ammoCounterAmmo and self._ammoCounterAmmo.TextColor3
+	self._ammoCounterMaxColor = self._ammoCounterMax and self._ammoCounterMax.TextColor3
 
 	local actionsFrame = self._itemHolderSpace:FindFirstChild("Actions") or self._itemHolderSpace
 	self._itemListFrame = actionsFrame:FindFirstChild("ItemHolder")
@@ -188,6 +190,8 @@ function module:_cacheWeaponUI()
 		self._itemDescAmmoFrame = ammoFrame
 		self._itemDescAmmo = ammoFrame and ammoFrame:FindFirstChild("Ammo")
 		self._itemDescMax = ammoFrame and ammoFrame:FindFirstChild("Max")
+		self._itemDescAmmoColor = self._itemDescAmmo and self._itemDescAmmo.TextColor3
+		self._itemDescMaxColor = self._itemDescMax and self._itemDescMax.TextColor3
 		self._itemDescName = infoFrame and infoFrame:FindFirstChild("name")
 		self._itemDescRarityText = rarityFrame and rarityFrame:FindFirstChild("RarityText")
 		self._itemDescRarityLabels = {}
@@ -724,24 +728,42 @@ function module:_updateItemDesc(weaponData)
 	end
 
 	if self._itemDescAmmoFrame then
-		local maxAmmo = weaponData.MaxAmmo or 0
-		self._itemDescAmmoFrame.Visible = maxAmmo > 0
+		self._itemDescAmmoFrame.Visible = true
 	end
 
+	local maxAmmo = weaponData.MaxAmmo or 0
+	local ammo = weaponData.Ammo or 0
+
 	if self._itemDescAmmo then
-		self._itemDescAmmo.Text = tostring(weaponData.Ammo or 0)
+		self._itemDescAmmo.Text = tostring(ammo)
 	end
 
 	if self._itemDescMax then
-		self._itemDescMax.Text = tostring(weaponData.MaxAmmo or 0)
+		self._itemDescMax.Text = tostring(maxAmmo)
 	end
 
 	if self._ammoCounterAmmo then
-		self._ammoCounterAmmo.Text = tostring(weaponData.Ammo or 0)
+		self._ammoCounterAmmo.Text = tostring(ammo)
 	end
 
 	if self._ammoCounterMax then
-		self._ammoCounterMax.Text = tostring(weaponData.MaxAmmo or 0)
+		self._ammoCounterMax.Text = tostring(maxAmmo)
+	end
+
+	local outOfAmmo = ammo <= 0 and maxAmmo <= 0
+	local emptyColor = Color3.fromRGB(250, 70, 70)
+
+	if self._itemDescAmmo then
+		self._itemDescAmmo.TextColor3 = outOfAmmo and emptyColor or self._itemDescAmmoColor
+	end
+	if self._itemDescMax then
+		self._itemDescMax.TextColor3 = outOfAmmo and emptyColor or self._itemDescMaxColor
+	end
+	if self._ammoCounterAmmo then
+		self._ammoCounterAmmo.TextColor3 = outOfAmmo and emptyColor or self._ammoCounterAmmoColor
+	end
+	if self._ammoCounterMax then
+		self._ammoCounterMax.TextColor3 = outOfAmmo and emptyColor or self._ammoCounterMaxColor
 	end
 
 	if self._ammoCounterReloading then
