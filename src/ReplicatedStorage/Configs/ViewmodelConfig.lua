@@ -164,6 +164,7 @@ ViewmodelConfig.Weapons = {
 			Idle = "Idle",
 			Walk = "Walk",
 			Run = "Run",
+			Inspect = "Inspect",
 		},
 	},
 }

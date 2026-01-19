@@ -7,6 +7,37 @@
 
 local Reload = {}
 
+local function getReloading(weaponInstance, state)
+	if weaponInstance.GetIsReloading then
+		return weaponInstance.GetIsReloading()
+	end
+	return state.IsReloading
+end
+
+local function setReloading(weaponInstance, state, value)
+	if weaponInstance.SetIsReloading then
+		weaponInstance.SetIsReloading(value)
+	end
+	state.IsReloading = value
+end
+
+local function getToken(weaponInstance, state)
+	if weaponInstance.GetReloadToken then
+		return weaponInstance.GetReloadToken()
+	end
+	return state.ReloadToken
+end
+
+local function bumpToken(weaponInstance, state)
+	if weaponInstance.GetReloadToken and weaponInstance.SetReloadToken then
+		local token = (weaponInstance.GetReloadToken() or 0) + 1
+		weaponInstance.SetReloadToken(token)
+		return token
+	end
+	state.ReloadToken = (state.ReloadToken or 0) + 1
+	return state.ReloadToken
+end
+
 function Reload.Execute(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
@@ -15,7 +46,7 @@ function Reload.Execute(weaponInstance)
 	local state = weaponInstance.State
 	local config = weaponInstance.Config
 
-	if state.IsReloading then
+	if getReloading(weaponInstance, state) then
 		return false, "Reloading"
 	end
 
@@ -28,8 +59,9 @@ function Reload.Execute(weaponInstance)
 		return false, "NoReserve"
 	end
 
-	state.IsReloading = true
+	setReloading(weaponInstance, state, true)
 	state.ReloadStartTime = os.clock()
+	local reloadToken = bumpToken(weaponInstance, state)
 	local playAnim = weaponInstance.PlayAnimation
 	if playAnim then
 		playAnim("Start", 0.1, true)
@@ -45,6 +77,9 @@ function Reload.Execute(weaponInstance)
 	local perShell = shellsToLoad > 0 and (totalReloadTime / shellsToLoad) or totalReloadTime
 
 	local function loadOneShell()
+		if not getReloading(weaponInstance, state) or getToken(weaponInstance, state) ~= reloadToken then
+			return
+		end
 		if state.ReserveAmmo <= 0 or state.CurrentAmmo >= clipSize then
 			return
 		end
@@ -66,7 +101,10 @@ function Reload.Execute(weaponInstance)
 	end
 
 	task.delay(totalReloadTime, function()
-		state.IsReloading = false
+		if not getReloading(weaponInstance, state) or getToken(weaponInstance, state) ~= reloadToken then
+			return
+		end
+		setReloading(weaponInstance, state, false)
 		if playAnim then
 			playAnim("End", 0.1, true)
 		end
@@ -74,6 +112,31 @@ function Reload.Execute(weaponInstance)
 			weaponInstance.ApplyState(state)
 		end
 	end)
+
+	return true
+end
+
+function Reload.Interrupt(weaponInstance)
+	if not weaponInstance or not weaponInstance.State then
+		return false, "InvalidInstance"
+	end
+
+	local state = weaponInstance.State
+	if not getReloading(weaponInstance, state) then
+		return false, "NotReloading"
+	end
+
+	setReloading(weaponInstance, state, false)
+	bumpToken(weaponInstance, state)
+
+	local playAnim = weaponInstance.PlayAnimation
+	if playAnim then
+		playAnim("End", 0.1, true)
+	end
+
+	if weaponInstance.ApplyState then
+		weaponInstance.ApplyState(state)
+	end
 
 	return true
 end

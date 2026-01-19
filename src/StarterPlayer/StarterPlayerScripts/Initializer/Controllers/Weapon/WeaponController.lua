@@ -37,6 +37,7 @@ WeaponController._camera = nil
 WeaponController._ammo = nil
 WeaponController._fx = nil
 WeaponController._reloadToken = 0
+WeaponController._shotgunReloadToken = 0
 
 WeaponController._isFiring = false
 WeaponController._lastFireTime = 0
@@ -188,13 +189,25 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		ApplyState = function(state)
 			self:_applyWeaponInstanceState({ State = state }, slot, weaponConfig)
 		end,
+		GetReloadToken = function()
+			return self._shotgunReloadToken or 0
+		end,
+		SetReloadToken = function(value)
+			self._shotgunReloadToken = value
+		end,
+		GetIsReloading = function()
+			return self._isReloading
+		end,
+		SetIsReloading = function(value)
+			self._isReloading = value == true
+		end,
 		State = {
 			CurrentAmmo = ammo and ammo.currentAmmo or 0,
 			ReserveAmmo = ammo and ammo.reserveAmmo or 0,
 			IsReloading = self._isReloading,
 			IsAttacking = self._isFiring,
 			LastFireTime = self._lastFireTime,
-			Equipped = true,
+			Equipped = self:_isActiveWeaponEquipped(),
 		},
 	}
 end
@@ -226,6 +239,24 @@ end
 function WeaponController:_getCurrentAmmo()
 	local slot = self:_getCurrentSlot()
 	return self._ammo and self._ammo:GetCurrentAmmo(slot) or 0
+end
+
+function WeaponController:_isActiveWeaponEquipped()
+	if not self._viewmodelController then
+		return false
+	end
+
+	local slot = self._viewmodelController._activeSlot
+	if not slot or slot == "Fists" then
+		return false
+	end
+
+	local loadoutVm = self._viewmodelController._loadoutVm
+	local rigs = loadoutVm and loadoutVm.Rigs
+	local rig = rigs and rigs[slot]
+	local cam = workspace.CurrentCamera
+
+	return rig and rig.Model and rig.Model.Parent == cam
 end
 
 function WeaponController:_decrementAmmo()
@@ -262,6 +293,10 @@ end
 function WeaponController:_onFirePressed()
 	local currentTime = os.clock()
 
+	if not self:_isActiveWeaponEquipped() then
+		return
+	end
+
 	-- Get current weapon
 	local weaponId = self:_getCurrentWeaponId()
 	if not weaponId or weaponId == "Fists" then
@@ -275,8 +310,14 @@ function WeaponController:_onFirePressed()
 
 	-- Allow manual reload interruption if there's still ammo in mag
 	if self._isReloading then
-		if self:_getCurrentAmmo() > 0 and not self:_isShotgunWeapon(weaponId) then
-			self:_cancelReload(weaponConfig)
+		if self:_getCurrentAmmo() > 0 then
+			if self:_isShotgunWeapon(weaponId) then
+				local slot = self:_getCurrentSlot()
+				local weaponInstance = self:_buildWeaponInstance(weaponId, weaponConfig, slot)
+				ShotgunReload.Interrupt(weaponInstance)
+			else
+				self:_cancelReload(weaponConfig)
+			end
 		else
 			return
 		end
@@ -358,6 +399,10 @@ end
 
 function WeaponController:_startAutoFire()
 	if self._autoFireConn then
+		return
+	end
+
+	if not self:_isActiveWeaponEquipped() then
 		return
 	end
 
