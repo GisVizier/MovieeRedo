@@ -64,7 +64,6 @@ ViewmodelController._attrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
-ViewmodelController._externalOffset = nil
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -512,7 +511,9 @@ function ViewmodelController:_render(dt: number)
 	end
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
 	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
-	local externalOffset = self._externalOffset or CFrame.new()
+	local extPos = springs.externalPos.Position
+	local extRot = springs.externalRot.Position
+	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X, extRot.Y, extRot.Z)
 
 	local rotationOffset = CFrame.Angles(springs.rotation.Position.X, 0, springs.rotation.Position.Z)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
