@@ -101,8 +101,12 @@ ViewmodelConfig.Weapons = {
 			Run = "Run",
 			ADS = "Aim", -- Maps to your "Aim" animation
 			Fire = "Fire",
+			Reload = "Reload",
+			Equip = "Equip",
+			Start = "Start",
+			Action = "Action",
+			End = "End",
 			Inspect = "Inspect",
-			-- Reload & Equip not created yet (system handles gracefully)
 		},
 	},
 
@@ -155,14 +159,11 @@ ViewmodelConfig.Weapons = {
 
 	Knife = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Knife,
-		Offset = CFrame.new(0.2, -0.1, 0.3),
+		Offset = CFrame.new(0, 0, 0),
 		Animations = {
-			Idle = "rbxassetid://0",
-			Walk = "rbxassetid://0",
-			Run = "rbxassetid://0",
-			Equip = "rbxassetid://0",
-			Inspect = "rbxassetid://0",
-			Attack = "rbxassetid://0",
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
 		},
 	},
 }

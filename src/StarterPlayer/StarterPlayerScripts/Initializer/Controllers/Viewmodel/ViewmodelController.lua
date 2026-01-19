@@ -184,7 +184,12 @@ function ViewmodelController:Init(registry, net)
 
 			-- Gate with InputManager state (matches rest of gameplay input).
 			if manager then
-				if manager.IsMenuOpen or manager.IsChatFocused or manager.IsSettingsOpen or not manager.GameplayEnabled then
+				if
+					manager.IsMenuOpen
+					or manager.IsChatFocused
+					or manager.IsSettingsOpen
+					or not manager.GameplayEnabled
+				then
 					return
 				end
 			end
@@ -205,7 +210,7 @@ end
 
 function ViewmodelController:Start() end
 
-function ViewmodelController:CreateLoadout(loadout: {[string]: any})
+function ViewmodelController:CreateLoadout(loadout: { [string]: any })
 	self._loadout = loadout
 
 	if self._loadoutVm then
@@ -214,6 +219,24 @@ function ViewmodelController:CreateLoadout(loadout: {[string]: any})
 	end
 
 	self._loadoutVm = CreateLoadout.create(loadout, LocalPlayer)
+
+	-- Preload viewmodel animations before the rig is ever shown.
+	if self._animator and self._loadoutVm and self._loadoutVm.Rigs then
+		for slot, rig in pairs(self._loadoutVm.Rigs) do
+			local weaponId = nil
+			if slot == "Fists" then
+				weaponId = "Fists"
+			else
+				local id = self._loadout and self._loadout[slot]
+				if type(id) == "string" then
+					weaponId = id
+				end
+			end
+			if weaponId then
+				self._animator:PreloadRig(rig, weaponId)
+			end
+		end
+	end
 
 	-- Default equip should be Primary (fallback is handled by SetActiveSlot).
 	self:SetActiveSlot("Primary")
@@ -280,7 +303,30 @@ function ViewmodelController:SetActiveSlot(slot: string)
 		self._animator:BindRig(rig, weaponId)
 	end
 
+	-- Play equip animation when switching weapons.
+	if self._animator then
+		self._animator:Play("Equip", 0.1, true)
+	end
+
 	self:_ensureRenderLoop()
+end
+
+function ViewmodelController:PlayViewmodelAnimation(name: string, fade: number?, restart: boolean?)
+	if self._animator and type(self._animator.Play) == "function" then
+		self._animator:Play(name, fade, restart)
+	end
+end
+
+function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
+	if not self._animator or type(self._animator.GetTrack) ~= "function" then
+		return nil
+	end
+
+	local track = self._animator:GetTrack(name)
+	if track then
+		track:Play(fade or 0.1)
+	end
+	return track
 end
 
 function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
@@ -352,7 +398,8 @@ function ViewmodelController:_render(dt: number)
 		return
 	end
 
-	local yawCF do
+	local yawCF
+	do
 		local look = cam.CFrame.LookVector
 		local yaw = math.atan2(look.X, look.Z)
 		yawCF = CFrame.Angles(0, yaw, 0)
@@ -393,11 +440,8 @@ function ViewmodelController:_render(dt: number)
 		if isMoving then
 			local speedScale = math.clamp(speed / 12, 0.7, 1.7)
 			self._bobT += dt * BOB_FREQ * speedScale
-			bobTarget = Vector3.new(
-				math.sin(self._bobT) * BOB_AMP_X,
-				math.sin(self._bobT * 2) * BOB_AMP_Y + verticalOffset,
-				0
-			)
+			bobTarget =
+				Vector3.new(math.sin(self._bobT) * BOB_AMP_X, math.sin(self._bobT * 2) * BOB_AMP_Y + verticalOffset, 0)
 		else
 			self._bobT = 0
 			bobTarget = Vector3.new(0, verticalOffset, 0)
@@ -584,4 +628,3 @@ function ViewmodelController:Destroy()
 end
 
 return ViewmodelController
-

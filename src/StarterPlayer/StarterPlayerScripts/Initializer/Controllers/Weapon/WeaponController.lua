@@ -10,6 +10,9 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 
+local DEBUG_WEAPON = false
+local SHOW_TRACERS = true
+
 local ShotgunActionsRoot = ReplicatedStorage:WaitForChild("Game")
 	:WaitForChild("Weapons")
 	:WaitForChild("Actions")
@@ -19,6 +22,11 @@ local ShotgunAttack = require(ShotgunActionsRoot:WaitForChild("Attack"))
 local ShotgunReload = require(ShotgunActionsRoot:WaitForChild("Reload"))
 local ShotgunInspect = require(ShotgunActionsRoot:WaitForChild("Inspect"))
 
+local WeaponServices = script.Parent:WaitForChild("Services")
+local WeaponAmmo = require(WeaponServices:WaitForChild("WeaponAmmo"))
+local WeaponRaycast = require(WeaponServices:WaitForChild("WeaponRaycast"))
+local WeaponFX = require(WeaponServices:WaitForChild("WeaponFX"))
+
 local LocalPlayer = Players.LocalPlayer
 
 WeaponController._registry = nil
@@ -26,6 +34,9 @@ WeaponController._net = nil
 WeaponController._inputManager = nil
 WeaponController._viewmodelController = nil
 WeaponController._camera = nil
+WeaponController._ammo = nil
+WeaponController._fx = nil
+WeaponController._reloadToken = 0
 
 WeaponController._isFiring = false
 WeaponController._lastFireTime = 0
@@ -34,17 +45,12 @@ WeaponController._isAutomatic = false
 WeaponController._autoFireConn = nil
 WeaponController._isReloading = false
 
--- Ammo tracking per slot
-WeaponController._ammoData = {
-	Primary = { currentAmmo = 0, reserveAmmo = 0 },
-	Secondary = { currentAmmo = 0, reserveAmmo = 0 },
-	Melee = { currentAmmo = 0, reserveAmmo = 0 },
-}
-
 function WeaponController:Init(registry, net)
 	self._registry = registry
 	self._net = net
 	self._camera = workspace.CurrentCamera
+	self._ammo = WeaponAmmo.new(LoadoutConfig, HttpService)
+	self._fx = WeaponFX.new(LoadoutConfig, LogService)
 
 	-- Listen for hit confirmations from server
 	if self._net then
@@ -105,74 +111,15 @@ function WeaponController:Start()
 end
 
 function WeaponController:_initializeAmmo()
-	if not LocalPlayer then
+	if not LocalPlayer or not self._ammo then
 		return
 	end
 
-	local loadoutJson = LocalPlayer:GetAttribute("SelectedLoadout")
-	if not loadoutJson or loadoutJson == "" then
-		return
-	end
-
-	local success, loadoutData = pcall(function()
-		return HttpService:JSONDecode(loadoutJson)
+	self._ammo:InitializeFromLoadout(LocalPlayer, self._isReloading, function()
+		return self:_getCurrentSlot()
 	end)
 
-	if not success then
-		return
-	end
-
-	local loadout = loadoutData.loadout or loadoutData
-
-	-- Initialize ammo for each weapon slot
-	for _, slotType in ipairs({ "Primary", "Secondary", "Melee" }) do
-		local weaponId = loadout[slotType]
-		local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
-
-		if weaponConfig then
-			self._ammoData[slotType] = {
-				currentAmmo = weaponConfig.clipSize or 0,
-				reserveAmmo = weaponConfig.maxAmmo or 0,
-			}
-
-			-- Update HUD for this slot
-			self:_updateHUDAmmo(slotType, weaponConfig)
-		end
-	end
-
 	print("[WEAPON] Ammo initialized for all slots")
-end
-
-function WeaponController:_updateHUDAmmo(slotType, weaponConfig)
-	if not LocalPlayer then
-		return
-	end
-
-	local ammo = self._ammoData[slotType]
-	if not ammo then
-		return
-	end
-
-	-- Build weapon data for HUD
-	local weaponData = {
-		Gun = weaponConfig.name,
-		GunId = weaponConfig.id,
-		GunType = weaponConfig.weaponType,
-		Ammo = ammo.currentAmmo,
-		MaxAmmo = ammo.reserveAmmo,
-		ClipSize = weaponConfig.clipSize,
-		Reloading = self._isReloading and self:_getCurrentSlot() == slotType,
-		OnCooldown = false,
-		Cooldown = weaponConfig.cooldown or 0,
-		ReloadTime = weaponConfig.reloadTime or 0,
-		Rarity = weaponConfig.rarity,
-		UpdatedAt = os.clock(),
-	}
-
-	-- Force attribute update even if JSON string is identical.
-	local attrName = slotType .. "Data"
-	LocalPlayer:SetAttribute(attrName, nil)
-	LocalPlayer:SetAttribute(attrName, HttpService:JSONEncode(weaponData))
 end
 
 function WeaponController:_getCurrentSlot()
@@ -192,14 +139,55 @@ function WeaponController:_isShotgunWeapon(weaponId)
 	return weaponId == "Shotgun"
 end
 
+function WeaponController:_cancelReload(weaponConfig)
+	if not self._isReloading then
+		return
+	end
+
+	self._isReloading = false
+	self._reloadToken = self._reloadToken + 1
+
+	if self._ammo and weaponConfig then
+		self._ammo:UpdateHUDAmmo(self:_getCurrentSlot(), weaponConfig, LocalPlayer, self._isReloading, function()
+			return self:_getCurrentSlot()
+		end)
+	end
+end
+
+function WeaponController:_playViewmodelAnimation(name, fade, restart)
+	if self._viewmodelController and type(self._viewmodelController.PlayViewmodelAnimation) == "function" then
+		self._viewmodelController:PlayViewmodelAnimation(name, fade, restart)
+	end
+end
+
 function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
-	local ammo = slot and self._ammoData[slot] or nil
+	local ammo = self._ammo and slot and self._ammo:GetAmmo(slot) or nil
 	return {
 		Player = LocalPlayer,
 		WeaponType = weaponConfig and weaponConfig.weaponType or "Gun",
 		WeaponName = weaponId,
 		Config = weaponConfig,
 		Animator = self._viewmodelController and self._viewmodelController._animator or nil,
+		FireProfile = weaponConfig and self:_getFireProfile(weaponConfig) or nil,
+		Net = self._net,
+		PerformRaycast = function(ignoreSpread)
+			return self:_performRaycast(weaponConfig, ignoreSpread)
+		end,
+		GeneratePelletDirections = function(profile)
+			return self:_generatePelletDirections(profile)
+		end,
+		PlayFireEffects = function(hitData)
+			self:_playFireEffects(weaponId, hitData)
+		end,
+		RenderTracer = function(hitData)
+			self:_renderBulletTracer(hitData)
+		end,
+		PlayAnimation = function(name, fade, restart)
+			self:_playViewmodelAnimation(name, fade, restart)
+		end,
+		ApplyState = function(state)
+			self:_applyWeaponInstanceState({ State = state }, slot, weaponConfig)
+		end,
 		State = {
 			CurrentAmmo = ammo and ammo.currentAmmo or 0,
 			ReserveAmmo = ammo and ammo.reserveAmmo or 0,
@@ -217,53 +205,40 @@ function WeaponController:_applyWeaponInstanceState(weaponInstance, slot, weapon
 	end
 
 	local state = weaponInstance.State
-	local ammo = slot and self._ammoData[slot] or nil
-
-	if ammo then
-		if type(state.CurrentAmmo) == "number" then
-			ammo.currentAmmo = state.CurrentAmmo
-		end
-		if type(state.ReserveAmmo) == "number" then
-			ammo.reserveAmmo = state.ReserveAmmo
-		end
-	end
 
 	if type(state.LastFireTime) == "number" then
 		self._lastFireTime = state.LastFireTime
 	end
+
+	local nextReloading = self._isReloading
 	if type(state.IsReloading) == "boolean" then
+		nextReloading = state.IsReloading
 		self._isReloading = state.IsReloading
 	end
 
-	if weaponConfig and ammo then
-		self:_updateHUDAmmo(slot, weaponConfig)
+	if self._ammo then
+		self._ammo:ApplyState(state, slot, weaponConfig, LocalPlayer, nextReloading, function()
+			return self:_getCurrentSlot()
+		end)
 	end
 end
 
 function WeaponController:_getCurrentAmmo()
 	local slot = self:_getCurrentSlot()
-	local ammo = self._ammoData[slot]
-	return ammo and ammo.currentAmmo or 0
+	return self._ammo and self._ammo:GetCurrentAmmo(slot) or 0
 end
 
 function WeaponController:_decrementAmmo()
 	local slot = self:_getCurrentSlot()
-	local ammo = self._ammoData[slot]
-
-	if ammo and ammo.currentAmmo > 0 then
-		ammo.currentAmmo = ammo.currentAmmo - 1
-
-		-- Update HUD
-		local weaponId = self:_getCurrentWeaponId()
-		local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
-		if weaponConfig then
-			self:_updateHUDAmmo(slot, weaponConfig)
-		end
-
-		return true
+	if not self._ammo then
+		return false
 	end
 
-	return false
+	local weaponId = self:_getCurrentWeaponId()
+	local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
+	return self._ammo:DecrementAmmo(slot, weaponConfig, LocalPlayer, self._isReloading, function()
+		return self:_getCurrentSlot()
+	end)
 end
 
 function WeaponController:_getFireProfile(weaponConfig)
@@ -287,11 +262,6 @@ end
 function WeaponController:_onFirePressed()
 	local currentTime = os.clock()
 
-	-- Block firing while reloading
-	if self._isReloading then
-		return
-	end
-
 	-- Get current weapon
 	local weaponId = self:_getCurrentWeaponId()
 	if not weaponId or weaponId == "Fists" then
@@ -301,6 +271,15 @@ function WeaponController:_onFirePressed()
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
 		return
+	end
+
+	-- Allow manual reload interruption if there's still ammo in mag
+	if self._isReloading then
+		if self:_getCurrentAmmo() > 0 and not self:_isShotgunWeapon(weaponId) then
+			self:_cancelReload(weaponConfig)
+		else
+			return
+		end
 	end
 
 	local fireProfile = self:_getFireProfile(weaponConfig)
@@ -319,6 +298,7 @@ function WeaponController:_onFirePressed()
 		end
 
 		self:_applyWeaponInstanceState(weaponInstance, slot, weaponConfig)
+		return
 	else
 		-- Check ammo
 		local currentAmmo = self:_getCurrentAmmo()
@@ -415,113 +395,15 @@ function WeaponController:_stopAutoFire()
 end
 
 function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
-	local camera = self._camera
-	if not camera then
-		return nil
-	end
-
-	local origin = camera.CFrame.Position
-	local direction = camera.CFrame.LookVector.Unit
-	local range = weaponConfig.range or 500
-
-	-- Apply spread if weapon has it
-	if not ignoreSpread and weaponConfig.spread and weaponConfig.spread > 0 then
-		direction = self:_getSpreadDirection(direction, weaponConfig.spread)
-	end
-
-	-- Calculate bullet drop if projectile
-	local targetPosition = origin + direction * range
-
-	if weaponConfig.projectileSpeed and weaponConfig.bulletDrop then
-		-- Calculate travel time
-		local distance = range
-		local travelTime = distance / weaponConfig.projectileSpeed
-
-		-- Calculate drop: d = 0.5 * g * t²
-		local gravity = weaponConfig.gravity or workspace.Gravity
-		local dropAmount = 0.5 * gravity * (travelTime ^ 2)
-
-		-- Adjust target downward
-		targetPosition = targetPosition - Vector3.new(0, dropAmount, 0)
-
-		-- Recalculate direction to compensate
-		direction = (targetPosition - origin).Unit
-	end
-
-	-- Perform raycast
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	local character = LocalPlayer.Character
-	local filterList = { camera }
-	if character then
-		table.insert(filterList, character)
-	end
-	raycastParams.FilterDescendantsInstances = filterList
-
-	local result = workspace:Raycast(origin, direction * range, raycastParams)
-
-	if result then
-		local hitPlayer = Players:GetPlayerFromCharacter(result.Instance.Parent)
-		local isHeadshot = result.Instance.Name == "Head"
-
-		-- Check if we hit a character/rig (has Humanoid)
-		local hitCharacter = nil
-		if result.Instance.Parent:FindFirstChildOfClass("Humanoid") then
-			hitCharacter = result.Instance.Parent
-		end
-
-		return {
-			origin = origin,
-			direction = direction,
-			hitPart = result.Instance,
-			hitPosition = result.Position,
-			hitPlayer = hitPlayer,
-			hitCharacter = hitCharacter, -- NEW: Send the character model
-			isHeadshot = isHeadshot,
-			travelTime = weaponConfig.projectileSpeed
-				and (result.Position - origin).Magnitude / weaponConfig.projectileSpeed,
-		}
-	end
-
-	return {
-		origin = origin,
-		direction = direction,
-		hitPart = nil,
-		hitPosition = targetPosition,
-		hitPlayer = nil,
-		isHeadshot = false,
-	}
+	return WeaponRaycast.PerformRaycast(self._camera, LocalPlayer, weaponConfig, ignoreSpread)
 end
 
 function WeaponController:_getSpreadDirection(baseDirection, spread)
-	-- Generate a random direction within a cone around baseDirection
-	local angle = math.random() * math.pi * 2
-	local radius = math.random() * spread
-	local offset = Vector3.new(math.cos(angle) * radius, math.sin(angle) * radius, 0)
-
-	local basis = CFrame.lookAt(Vector3.zero, baseDirection)
-	local right = basis.RightVector
-	local up = basis.UpVector
-
-	return (baseDirection + right * offset.X + up * offset.Y).Unit
+	return WeaponRaycast.GetSpreadDirection(baseDirection, spread)
 end
 
 function WeaponController:_generatePelletDirections(weaponConfig)
-	local camera = self._camera
-	if not camera then
-		return nil
-	end
-
-	local baseDirection = camera.CFrame.LookVector.Unit
-	local spread = weaponConfig.spread or 0.05
-	local pellets = weaponConfig.pelletsPerShot or 1
-	local directions = {}
-
-	for _ = 1, pellets do
-		table.insert(directions, self:_getSpreadDirection(baseDirection, spread))
-	end
-
-	return directions
+	return WeaponRaycast.GeneratePelletDirections(self._camera, weaponConfig)
 end
 
 function WeaponController:_getCurrentWeaponId()
@@ -540,31 +422,48 @@ function WeaponController:_getCurrentWeaponId()
 end
 
 function WeaponController:_playFireEffects(weaponId, hitData)
-	print("[WEAPON] _playFireEffects called for:", weaponId)
-	print("[WEAPON] viewmodelController exists:", self._viewmodelController ~= nil)
+	if DEBUG_WEAPON then
+		print("[WEAPON] _playFireEffects called for:", weaponId)
+		print("[WEAPON] viewmodelController exists:", self._viewmodelController ~= nil)
+	end
 
 	-- Play Fire animation on viewmodel
-	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController and self._viewmodelController._animator then
-		print("[WEAPON] Animator found")
+	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController then
+		if DEBUG_WEAPON then
+			print("[WEAPON] Animator found")
+		end
 		local animator = self._viewmodelController._animator
-		local track = animator:GetTrack("Fire")
+		local track = nil
+		if type(self._viewmodelController.PlayWeaponTrack) == "function" then
+			track = self._viewmodelController:PlayWeaponTrack("Fire", 0.05)
+		elseif animator and type(animator.GetTrack) == "function" then
+			track = animator:GetTrack("Fire")
+			if track then
+				track:Play(0.05)
+			end
+		end
 
 		if track then
-			print("[WEAPON] Fire track exists, playing now")
-			track:Play(0.05)
+			if DEBUG_WEAPON then
+				print("[WEAPON] Fire track exists, playing now")
+			end
 		else
-			warn("[WEAPON] Fire track NOT FOUND in animator tracks!")
-			-- List all available tracks
-			local tracks = animator._tracks or {}
-			for name, _ in pairs(tracks) do
-				warn("[WEAPON] Available track:", name)
+			if DEBUG_WEAPON then
+				warn("[WEAPON] Fire track NOT FOUND in animator tracks!")
+				-- List all available tracks
+				local tracks = animator._tracks or {}
+				for name, _ in pairs(tracks) do
+					warn("[WEAPON] Available track:", name)
+				end
 			end
 		end
 	else
-		warn("[WEAPON] ViewmodelController or animator NOT FOUND!")
-		warn("[WEAPON] viewmodelController:", self._viewmodelController)
-		if self._viewmodelController then
-			warn("[WEAPON] animator:", self._viewmodelController._animator)
+		if DEBUG_WEAPON then
+			warn("[WEAPON] ViewmodelController or animator NOT FOUND!")
+			warn("[WEAPON] viewmodelController:", self._viewmodelController)
+			if self._viewmodelController then
+				warn("[WEAPON] animator:", self._viewmodelController._animator)
+			end
 		end
 	end
 
@@ -572,7 +471,9 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	-- TODO: Add recoil camera shake
 	-- TODO: Add fire sound effect
 
-	LogService:Debug("WEAPON", "Fire effects", { weaponId = weaponId })
+	if DEBUG_WEAPON then
+		LogService:Debug("WEAPON", "Fire effects", { weaponId = weaponId })
+	end
 end
 
 function WeaponController:_onHitConfirmed(hitData)
@@ -581,7 +482,9 @@ function WeaponController:_onHitConfirmed(hitData)
 	end
 
 	-- Render bullet tracer for observers or confirmation
-	self:_renderBulletTracer(hitData)
+	if SHOW_TRACERS then
+		self:_renderBulletTracer(hitData)
+	end
 
 	-- Show hitmarker if we're the shooter
 	if hitData.shooter == LocalPlayer.UserId then
@@ -595,43 +498,21 @@ function WeaponController:_onHitConfirmed(hitData)
 end
 
 function WeaponController:_renderBulletTracer(hitData)
-	local weaponConfig = LoadoutConfig.getWeapon(hitData.weaponId)
-	if not weaponConfig then
-		return
+	if self._fx then
+		self._fx:RenderBulletTracer(hitData)
 	end
-
-	-- Simple tracer for now
-	local part = Instance.new("Part")
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	local distance = (hitData.hitPosition - hitData.origin).Magnitude
-	part.Size = Vector3.new(0.1, 0.1, distance)
-	part.CFrame = CFrame.lookAt((hitData.origin + hitData.hitPosition) / 2, hitData.hitPosition)
-	part.Color = weaponConfig.tracerColor or Color3.fromRGB(255, 200, 100)
-	part.Material = Enum.Material.Neon
-	part.Transparency = 0.3
-	part.Parent = workspace
-
-	-- Fade out
-	task.spawn(function()
-		for i = 1, 10 do
-			part.Transparency = 0.3 + (i / 10) * 0.7
-			task.wait(0.01)
-		end
-		part:Destroy()
-	end)
 end
 
 function WeaponController:_showHitmarker(hitData)
-	-- TODO: Show crosshair hitmarker
-	LogService:Debug("WEAPON", "Hitmarker", { damage = hitData.damage, headshot = hitData.isHeadshot })
+	if self._fx then
+		self._fx:ShowHitmarker(hitData)
+	end
 end
 
 function WeaponController:_showDamageIndicator(hitData)
-	-- TODO: Show damage direction indicator
-	LogService:Debug("WEAPON", "Taking damage", { damage = hitData.damage })
+	if self._fx then
+		self._fx:ShowDamageIndicator(hitData)
+	end
 end
 
 function WeaponController:Reload()
@@ -646,7 +527,7 @@ function WeaponController:Reload()
 	end
 
 	local slot = self:_getCurrentSlot()
-	local ammo = self._ammoData[slot]
+	local ammo = self._ammo and self._ammo:GetAmmo(slot) or nil
 
 	if not ammo then
 		return
@@ -659,7 +540,10 @@ function WeaponController:Reload()
 		if not ok then
 			return
 		end
-		self:_applyWeaponInstanceState(weaponInstance, slot, weaponConfig)
+		if weaponInstance.ApplyState then
+			weaponInstance.ApplyState(weaponInstance.State)
+		end
+		return
 	else
 		-- Don't reload if already full
 		if ammo.currentAmmo >= weaponConfig.clipSize then
@@ -677,13 +561,13 @@ function WeaponController:Reload()
 	print("[WEAPON] Reload started for:", weaponId)
 
 	-- Play reload animation
-	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController and self._viewmodelController._animator then
-		local animator = self._viewmodelController._animator
-		local track = animator:GetTrack("Reload")
-
+	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController then
+		local track = nil
+		if type(self._viewmodelController.PlayWeaponTrack) == "function" then
+			track = self._viewmodelController:PlayWeaponTrack("Reload", 0.1)
+		end
 		if track then
 			print("[WEAPON] Reload track exists, playing")
-			track:Play(0.1)
 		else
 			warn("[WEAPON] Reload track NOT FOUND (animation may not exist)")
 		end
@@ -691,9 +575,15 @@ function WeaponController:Reload()
 
 	-- Set reloading state
 	self._isReloading = true
+	self._reloadToken = self._reloadToken + 1
+	local reloadToken = self._reloadToken
 
 	-- Update HUD to show reloading
-	self:_updateHUDAmmo(slot, weaponConfig)
+	if self._ammo then
+		self._ammo:UpdateHUDAmmo(slot, weaponConfig, LocalPlayer, self._isReloading, function()
+			return self:_getCurrentSlot()
+		end)
+	end
 
 	LogService:Info("WEAPON", "Reloading", {
 		weaponId = weaponId,
@@ -704,6 +594,10 @@ function WeaponController:Reload()
 
 	-- Wait for reload animation to complete
 	task.delay(weaponConfig.reloadTime, function()
+		if not self._isReloading or reloadToken ~= self._reloadToken then
+			return
+		end
+
 		-- Calculate ammo to reload
 		local neededAmmo = weaponConfig.clipSize - ammo.currentAmmo
 		local ammoToReload = math.min(neededAmmo, ammo.reserveAmmo)
@@ -715,7 +609,11 @@ function WeaponController:Reload()
 		self._isReloading = false
 
 		-- Update HUD
-		self:_updateHUDAmmo(slot, weaponConfig)
+		if self._ammo then
+			self._ammo:UpdateHUDAmmo(slot, weaponConfig, LocalPlayer, self._isReloading, function()
+				return self:_getCurrentSlot()
+			end)
+		end
 
 		LogService:Info("WEAPON", "Reload complete", {
 			weaponId = weaponId,
@@ -744,13 +642,13 @@ function WeaponController:Inspect()
 	print("[WEAPON] Inspect called for:", weaponId)
 
 	-- Play inspect animation
-	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController and self._viewmodelController._animator then
-		local animator = self._viewmodelController._animator
-		local track = animator:GetTrack("Inspect")
-
+	if not self:_isShotgunWeapon(weaponId) and self._viewmodelController then
+		local track = nil
+		if type(self._viewmodelController.PlayWeaponTrack) == "function" then
+			track = self._viewmodelController:PlayWeaponTrack("Inspect", 0.1)
+		end
 		if track then
 			print("[WEAPON] Inspect track exists, playing")
-			track:Play(0.1)
 		else
 			warn("[WEAPON] Inspect track NOT FOUND")
 		end

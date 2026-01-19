@@ -17,9 +17,8 @@ function Inspect.Execute(weaponInstance)
 		return false, "Busy"
 	end
 
-	local track = weaponInstance.Animator and weaponInstance.Animator:GetTrack("Inspect")
-	if track then
-		track:Play(0.1)
+	if weaponInstance.PlayAnimation then
+		weaponInstance.PlayAnimation("Inspect", 0.1, true)
 	end
 
 	return true

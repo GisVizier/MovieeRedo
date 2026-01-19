@@ -10,6 +10,8 @@ local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitFo
 local ViewmodelAnimator = {}
 ViewmodelAnimator.__index = ViewmodelAnimator
 
+local DEBUG_VIEWMODEL = false
+
 local AIRBORNE_SPRINT_SPEED = 0.2
 
 local LocalPlayer = Players.LocalPlayer
@@ -39,39 +41,110 @@ local function getAnimationInstance(weaponId: string, animName: string): Animati
 	if not assets then
 		return nil
 	end
-	
+
 	local animations = assets:FindFirstChild("Animations")
 	if not animations then
 		return nil
 	end
-	
+
 	local viewModel = animations:FindFirstChild("ViewModel")
 	if not viewModel then
 		return nil
 	end
-	
+
 	local weaponFolder = viewModel:FindFirstChild(weaponId)
 	if not weaponFolder then
 		return nil
 	end
-	
+
 	local viewmodelFolder = weaponFolder:FindFirstChild("Viewmodel")
 	if not viewmodelFolder then
 		return nil
 	end
-	
+
 	local animInstance = viewmodelFolder:FindFirstChild(animName)
 	if animInstance and animInstance:IsA("Animation") then
 		return animInstance
 	end
-	
+
 	return nil
+end
+
+local function resolveViewmodelAnimations(weaponId: string?)
+	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
+	return (cfg and cfg.Animations) or {}
+end
+
+local function buildTracks(animator: Animator, weaponId: string?)
+	local tracks = {}
+	local trackSettings = {}
+	local anims = resolveViewmodelAnimations(weaponId)
+
+	for name, animRef in pairs(anims) do
+		local animInstance = nil
+
+		-- Try to load as Animation instance first
+		if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
+			animInstance = getAnimationInstance(weaponId, animRef)
+			if animInstance then
+				print(string.format("[ViewmodelAnimator] Loaded Animation instance: %s/%s", weaponId, name))
+			end
+		end
+
+		-- Fall back to asset ID if no instance found
+		if not animInstance and isValidAnimId(animRef) then
+			animInstance = Instance.new("Animation")
+			animInstance.AnimationId = animRef
+		end
+
+		if animInstance then
+			local animId = animInstance.AnimationId
+			if
+				type(animId) ~= "string"
+				or animId == ""
+				or animId == "rbxassetid://0"
+				or not string.find(animId, "^rbxassetid://")
+			then
+				animInstance = nil
+			end
+		end
+
+		if animInstance then
+			local track = animator:LoadAnimation(animInstance)
+			local loopAttr = animInstance:GetAttribute("Loop")
+			if type(loopAttr) == "boolean" then
+				track.Looped = loopAttr
+			else
+				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
+			end
+
+			local priorityAttr = animInstance:GetAttribute("Priority")
+			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+				track.Priority = Enum.AnimationPriority[priorityAttr]
+			else
+				track.Priority = Enum.AnimationPriority.Action
+			end
+
+			local fadeInAttr = animInstance:GetAttribute("FadeInTime")
+			local fadeOutAttr = animInstance:GetAttribute("FadeOutTime")
+			local weightAttr = animInstance:GetAttribute("Weight")
+			trackSettings[name] = {
+				FadeInTime = type(fadeInAttr) == "number" and fadeInAttr or nil,
+				FadeOutTime = type(fadeOutAttr) == "number" and fadeOutAttr or nil,
+				Weight = type(weightAttr) == "number" and weightAttr or nil,
+			}
+			tracks[name] = track
+		end
+	end
+
+	return tracks, trackSettings
 end
 
 function ViewmodelAnimator.new()
 	local self = setmetatable({}, ViewmodelAnimator)
 	self._rig = nil
 	self._tracks = {}
+	self._trackSettings = {}
 	self._currentMove = nil
 	self._conn = nil
 	self._initialized = false
@@ -92,32 +165,11 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 		return
 	end
 
-	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
-	local anims = cfg and cfg.Animations or {}
-
-	for name, animRef in pairs(anims) do
-		local animInstance = nil
-		
-		-- Try to load as Animation instance first
-		if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
-			animInstance = getAnimationInstance(weaponId, animRef)
-			if animInstance then
-				print(string.format("[ViewmodelAnimator] Loaded Animation instance: %s/%s", weaponId, name))
-			end
-		end
-		
-		-- Fall back to asset ID if no instance found
-		if not animInstance and isValidAnimId(animRef) then
-			animInstance = Instance.new("Animation")
-			animInstance.AnimationId = animRef
-		end
-		
-		if animInstance then
-			local track = rig.Animator:LoadAnimation(animInstance)
-			track.Priority = Enum.AnimationPriority.Action
-			track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
-			self._tracks[name] = track
-		end
+	if rig._preloadedTracks and next(rig._preloadedTracks) ~= nil then
+		self._tracks = rig._preloadedTracks
+		self._trackSettings = rig._preloadedSettings or {}
+	else
+		self._tracks, self._trackSettings = buildTracks(rig.Animator, weaponId)
 	end
 
 	-- Pre-load all movement animations by playing and immediately stopping them
@@ -142,6 +194,22 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	task.delay(0.1, function()
 		self._initialized = true
 	end)
+end
+
+function ViewmodelAnimator:PreloadRig(rig, weaponId: string?)
+	if not rig or not rig.Animator then
+		return
+	end
+
+	local tracks, trackSettings = buildTracks(rig.Animator, weaponId)
+	rig._preloadedTracks = tracks
+	rig._preloadedSettings = trackSettings
+
+	-- Pre-load all tracks by briefly playing them.
+	for name, track in pairs(tracks) do
+		track:Play(0)
+		track:Stop(0)
+	end
 end
 
 function ViewmodelAnimator:Unbind()
@@ -175,14 +243,31 @@ function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolea
 	end
 
 	if not track.IsPlaying then
-		track:Play(fadeTime or 0.1)
+		local settings = self._trackSettings and self._trackSettings[name]
+		local fade = fadeTime
+		if fade == nil and settings and type(settings.FadeInTime) == "number" then
+			fade = settings.FadeInTime
+		end
+		if DEBUG_VIEWMODEL then
+			print(string.format("[ViewmodelAnimator] Play track: %s", tostring(name)))
+		end
+		track:Play(fade or 0.1)
+
+		if settings and type(settings.Weight) == "number" then
+			track:AdjustWeight(settings.Weight, 0)
+		end
 	end
 end
 
 function ViewmodelAnimator:Stop(name: string, fadeTime: number?)
 	local track = self._tracks[name]
 	if track and track.IsPlaying then
-		track:Stop(fadeTime or 0.1)
+		local settings = self._trackSettings and self._trackSettings[name]
+		local fade = fadeTime
+		if fade == nil and settings and type(settings.FadeOutTime) == "number" then
+			fade = settings.FadeOutTime
+		end
+		track:Stop(fade or 0.1)
 	end
 end
 

@@ -12,9 +12,8 @@ function Equip.Execute(weaponInstance)
 	end
 
 	weaponInstance.State.Equipped = true
-	local track = weaponInstance.Animator and weaponInstance.Animator:GetTrack("Equip")
-	if track then
-		track:Play(0.1)
+	if weaponInstance.PlayAnimation then
+		weaponInstance.PlayAnimation("Equip", 0.1, true)
 	end
 	return true
 end

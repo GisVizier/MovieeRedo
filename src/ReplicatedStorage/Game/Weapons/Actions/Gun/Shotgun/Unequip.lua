@@ -12,9 +12,8 @@ function Unequip.Execute(weaponInstance)
 	end
 
 	weaponInstance.State.Equipped = false
-	local track = weaponInstance.Animator and weaponInstance.Animator:GetTrack("Unequip")
-	if track then
-		track:Play(0.1)
+	if weaponInstance.PlayAnimation then
+		weaponInstance.PlayAnimation("Unequip", 0.1, true)
 	end
 	return true
 end
