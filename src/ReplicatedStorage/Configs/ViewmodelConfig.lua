@@ -25,6 +25,7 @@ ViewmodelConfig.Models = {
 
 		-- Melee (add when model exists)
 		Knife = "Melee/Knife_Default",
+		ExecutionerBlade = "Melee/ExecutionerBlade_Default",
 	},
 }
 
@@ -165,6 +166,24 @@ ViewmodelConfig.Weapons = {
 			Walk = "Walk",
 			Run = "Run",
 			Inspect = "Inspect",
+			Attack = "Attack",
+			Special = "Special",
+		},
+	},
+
+	ExecutionerBlade = {
+		ModelPath = ViewmodelConfig.Models.ByWeaponId.ExecutionerBlade,
+		Offset = CFrame.new(0, 0, 0),
+		Animations = {
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
+			Inspect = "Inspect",
+			Attack = "Attack",
+			Special = "Special",
+			SpecialCharge = "SpecialCharge",
+			SpecialRelease = "SpecialRelease",
+			Equip = "Equip",
 		},
 	},
 }

@@ -1,9 +1,9 @@
 local Movement = {}
 
 Movement.Cooldowns = {
-	Crouch = 0.1,
+	Crouch = 0.35,
 	Jump = 0.12,
-	Slide = 0.55,
+	Slide = 0.8,
 	WorldGravity = 196.2,
 }
 

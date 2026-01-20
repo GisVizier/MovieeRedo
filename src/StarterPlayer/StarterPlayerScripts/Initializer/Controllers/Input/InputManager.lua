@@ -46,6 +46,7 @@ InputManager.Callbacks = {
 	Fire = {},
 	Reload = {},
 	Inspect = {},
+	Special = {},
 	ToggleCameraMode = {},
 	ToggleRagdollTest = {},
 }
@@ -225,6 +226,8 @@ function InputManager:SetupKeyboardMouse()
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			self:FireCallbacks("Fire", true)
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+			self:FireCallbacks("Special", true)
 		elseif input.KeyCode == Enum.KeyCode.R then
 			self:FireCallbacks("Reload", true)
 		elseif input.KeyCode == Enum.KeyCode.F then
@@ -282,6 +285,8 @@ function InputManager:SetupKeyboardMouse()
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			self:FireCallbacks("Fire", false)
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+			self:FireCallbacks("Special", false)
 		elseif self:IsKeybind(input, "MoveForward") then
 			self.KeyStates.W = false
 			if self.VerticalPriority == "W" then
@@ -489,6 +494,10 @@ function InputManager:SetupGamepad()
 		elseif self:IsKeybind(input, "Crouch") then
 			self.IsCrouching = true
 			self:FireCallbacks("Crouch", true)
+		elseif input.KeyCode == Enum.KeyCode.ButtonR2 then
+			self:FireCallbacks("Fire", true)
+		elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
+			self:FireCallbacks("Special", true)
 		end
 	end)
 
@@ -518,6 +527,10 @@ function InputManager:SetupGamepad()
 		elseif self:IsKeybind(input, "Crouch") then
 			self.IsCrouching = false
 			self:FireCallbacks("Crouch", false)
+		elseif input.KeyCode == Enum.KeyCode.ButtonR2 then
+			self:FireCallbacks("Fire", false)
+		elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
+			self:FireCallbacks("Special", false)
 		end
 	end)
 end

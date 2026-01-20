@@ -1,8 +1,7 @@
 --[[
-	Inspect.lua
+	Inspect.lua (ExecutionerBlade)
 
-	Client-side inspect gating only.
-	No viewmodel, VFX, or networking here.
+	Client-side inspect with viewmodel offset.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,11 +17,10 @@ function Inspect.Execute(weaponInstance)
 	end
 
 	local state = weaponInstance.State
-	if state.IsReloading or state.IsAttacking then
+	if state.IsAttacking then
 		return false, "Busy"
 	end
 
-	-- Get viewmodel controller for offset and animation
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	if not viewmodelController then
 		return false, "NoViewmodel"
@@ -30,15 +28,13 @@ function Inspect.Execute(weaponInstance)
 
 	Inspect._isInspecting = true
 
-	-- Set inspect offset (smoothly transitions via spring)
+	-- Larger offset for the big blade
 	local resetOffset = viewmodelController:SetOffset(
-		CFrame.new(0.15, -0.05, -0.2) * CFrame.Angles(math.rad(15), math.rad(-20), 0)
+		CFrame.new(0.25, -0.15, -0.2) * CFrame.Angles(math.rad(25), math.rad(-35), math.rad(15))
 	)
 
-	-- Play inspect animation and get track back
 	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
 
-	-- Reset offset when animation ends
 	local function onComplete()
 		Inspect._isInspecting = false
 		if resetOffset then
@@ -49,8 +45,7 @@ function Inspect.Execute(weaponInstance)
 	if track then
 		track.Stopped:Once(onComplete)
 	else
-		-- No track found, reset after a delay
-		task.delay(2, onComplete)
+		task.delay(2.5, onComplete)
 	end
 
 	return true
@@ -68,10 +63,8 @@ function Inspect.Cancel()
 		return
 	end
 
-	-- Reset offset back to normal
 	viewmodelController:SetOffset(CFrame.new())
 
-	-- Stop inspect animation
 	local animator = viewmodelController._animator
 	if animator and type(animator.Stop) == "function" then
 		animator:Stop("Inspect", 0.1)

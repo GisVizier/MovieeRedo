@@ -141,4 +141,11 @@ function Reload.Interrupt(weaponInstance)
 	return true
 end
 
+-- Alias for Cancel (used by WeaponController)
+function Reload.Cancel()
+	-- Reload cancellation is handled via token system
+	-- This is called when we need to force-cancel without a weaponInstance
+	-- The token bump in Interrupt handles actual cancellation
+end
+
 return Reload

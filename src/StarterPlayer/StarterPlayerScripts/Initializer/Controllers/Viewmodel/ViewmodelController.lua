@@ -347,6 +347,24 @@ function ViewmodelController:SetOffset(offset: CFrame)
 	end
 end
 
+function ViewmodelController:GetActiveRig()
+	if not self._loadoutVm or not self._activeSlot then
+		return nil
+	end
+	return self._loadoutVm.Rigs[self._activeSlot]
+end
+
+function ViewmodelController:GetRigForSlot(slot: string)
+	if not self._loadoutVm or not self._loadoutVm.Rigs then
+		return nil
+	end
+	return self._loadoutVm.Rigs[slot]
+end
+
+function ViewmodelController:GetActiveSlot(): string?
+	return self._activeSlot
+end
+
 function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 	-- Do not "make up" weapons: only switch if the selected loadout actually has a weapon ID for that slot.
 	if type(slot) ~= "string" then

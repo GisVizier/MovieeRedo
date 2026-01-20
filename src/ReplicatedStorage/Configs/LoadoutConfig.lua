@@ -70,6 +70,10 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 		},
 
+		-- ADS settings
+		adsFOV = 35,
+		adsSpeedMultiplier = 0.5,
+
 		-- Weapon ballistics
 		damage = 80,
 		headshotMultiplier = 2.0,
@@ -108,6 +112,10 @@ LoadoutConfig.Weapons = {
 			spread = 0.15,
 		},
 
+		-- ADS settings
+		adsFOV = 55,
+		adsSpeedMultiplier = 0.7,
+
 		-- Weapon ballistics
 		damage = 15, -- Per pellet
 		pelletsPerShot = 8,
@@ -145,6 +153,10 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 			spread = 0.02,
 		},
+
+		-- ADS settings
+		adsFOV = 50,
+		adsSpeedMultiplier = 0.7,
 
 		-- Weapon ballistics
 		damage = 25,
@@ -207,6 +219,10 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 		},
 
+		-- ADS settings
+		adsFOV = 55,
+		adsSpeedMultiplier = 0.75,
+
 		-- Weapon ballistics
 		damage = 45,
 		headshotMultiplier = 2.0,
@@ -235,8 +251,35 @@ LoadoutConfig.Weapons = {
 		},
 		maxAmmo = 0,
 		clipSize = 0,
-		cooldown = 0.5,
+		attackCooldown = 0.5,
+		specialCooldown = 3.0,
 		isAbility = false,
+	},
+
+	ExecutionerBlade = {
+		id = "ExecutionerBlade",
+		name = "Executioner's Blade",
+		description = "A devastating blade forged for swift judgment.",
+		imageId = "rbxassetid://117216368976984", -- Using knife image temporarily
+		weaponType = "Melee",
+		rarity = "Rare",
+		instance = nil,
+		skins = {},
+		actions = {
+			canQuickUseMelee = false,
+			canQuickUseAblility = true,
+		},
+		maxAmmo = 0,
+		clipSize = 0,
+		attackCooldown = 0.6,
+		specialCooldown = 5.0,
+		isAbility = false,
+
+		-- Melee stats
+		damage = 50,
+		range = 8,
+		specialDamage = 100,
+		specialRange = 12,
 	},
 }
 

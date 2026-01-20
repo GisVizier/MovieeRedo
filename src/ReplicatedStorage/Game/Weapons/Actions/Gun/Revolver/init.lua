@@ -1,21 +1,20 @@
 --[[
-	Shotgun.lua (Client Actions)
+	Revolver.lua (Client Actions)
 
-	Main module for Shotgun client-side action helpers.
-	Defines lifecycle hooks and cancel behavior.
+	Main module for Revolver client-side action helpers.
+	Semi-automatic secondary weapon.
 ]]
 
-local Shotgun = {}
+local Revolver = {}
 
--- Cancel behavior configuration
-Shotgun.Cancels = {
-	FireCancelsSpecial = false,    -- Firing does NOT exit ADS
-	SpecialCancelsFire = false,    -- ADS does NOT block firing
-	ReloadCancelsSpecial = true,   -- Reload exits ADS
-	SpecialCancelsReload = true,   -- ADS cancels reload
+Revolver.Cancels = {
+	FireCancelsSpecial = false,
+	SpecialCancelsFire = false,
+	ReloadCancelsSpecial = true,
+	SpecialCancelsReload = true,
 }
 
-function Shotgun.Initialize(weaponInstance)
+function Revolver.Initialize(weaponInstance)
 	if not weaponInstance or not weaponInstance.State then
 		return
 	end
@@ -24,32 +23,28 @@ function Shotgun.Initialize(weaponInstance)
 	weaponInstance.State.Equipped = weaponInstance.State.Equipped ~= false
 end
 
-function Shotgun.OnEquip(weaponInstance)
-	-- Called when weapon becomes active
+function Revolver.OnEquip(weaponInstance)
 	if not weaponInstance then
 		return
 	end
 	
-	-- Play equip animation if available
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Equip", 0.1, true)
 	end
 end
 
-function Shotgun.OnUnequip(weaponInstance)
-	-- Called when switching away from this weapon
+function Revolver.OnUnequip(weaponInstance)
 	if not weaponInstance then
 		return
 	end
 	
-	-- Cancel any active special (ADS)
 	local Special = require(script:WaitForChild("Special"))
 	if Special.IsActive() then
 		Special.Cancel()
 	end
 end
 
-function Shotgun.CanFire(weaponInstance)
+function Revolver.CanFire(weaponInstance)
 	if not weaponInstance or not weaponInstance.State then
 		return false
 	end
@@ -62,7 +57,7 @@ function Shotgun.CanFire(weaponInstance)
 	return (state.CurrentAmmo or 0) > 0
 end
 
-function Shotgun.CanReload(weaponInstance)
+function Revolver.CanReload(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false
 	end
@@ -81,13 +76,12 @@ function Shotgun.CanReload(weaponInstance)
 	return (state.ReserveAmmo or 0) > 0
 end
 
-function Shotgun.CanSpecial(weaponInstance)
+function Revolver.CanSpecial(weaponInstance)
 	if not weaponInstance or not weaponInstance.State then
 		return false
 	end
 
-	-- Can always ADS unless reloading
 	return not weaponInstance.State.IsReloading
 end
 
-return Shotgun
+return Revolver

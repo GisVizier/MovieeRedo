@@ -1,8 +1,8 @@
 --[[
-	Attack.lua (Shotgun)
+	Attack.lua (Revolver)
 
 	Client-side attack checks + ammo consumption.
-	Handles client networking for Shotgun fire.
+	Semi-automatic fire mode.
 ]]
 
 local Inspect = require(script.Parent:WaitForChild("Inspect"))
@@ -14,7 +14,6 @@ function Attack.Execute(weaponInstance, currentTime)
 		return false, "InvalidInstance"
 	end
 
-	-- Cancel any active inspect
 	Inspect.Cancel()
 
 	local state = weaponInstance.State
@@ -33,7 +32,7 @@ function Attack.Execute(weaponInstance, currentTime)
 		return false, "NoAmmo"
 	end
 
-	local fireInterval = 60 / (config.fireRate or 600)
+	local fireInterval = 60 / (config.fireRate or 120)
 	if state.LastFireTime and now - state.LastFireTime < fireInterval then
 		return false, "Cooldown"
 	end
@@ -45,19 +44,7 @@ function Attack.Execute(weaponInstance, currentTime)
 		weaponInstance.PlayAnimation("Fire", 0.05, true)
 	end
 
-	local fireProfile = weaponInstance.FireProfile or {}
-	local pelletDirections = nil
-	local pelletsPerShot = fireProfile.pelletsPerShot or config.pelletsPerShot
-	if pelletsPerShot and pelletsPerShot > 1 then
-		if weaponInstance.GeneratePelletDirections then
-			pelletDirections = weaponInstance.GeneratePelletDirections({
-				pelletsPerShot = pelletsPerShot,
-				spread = fireProfile.spread or 0.15,
-			})
-		end
-	end
-
-	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(pelletDirections ~= nil)
+	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(false)
 	if hitData and weaponInstance.Net then
 		weaponInstance.Net:FireServer("WeaponFired", {
 			weaponId = weaponInstance.WeaponName,
@@ -69,7 +56,6 @@ function Attack.Execute(weaponInstance, currentTime)
 			hitPlayer = hitData.hitPlayer,
 			hitCharacter = hitData.hitCharacter,
 			isHeadshot = hitData.isHeadshot,
-			pelletDirections = pelletDirections,
 		})
 
 		if weaponInstance.PlayFireEffects then
@@ -77,18 +63,7 @@ function Attack.Execute(weaponInstance, currentTime)
 		end
 
 		if weaponInstance.RenderTracer then
-			if pelletDirections and hitData and hitData.origin then
-				local range = (weaponInstance.Config and weaponInstance.Config.range) or 50
-				for _, dir in ipairs(pelletDirections) do
-					weaponInstance.RenderTracer({
-						origin = hitData.origin,
-						hitPosition = hitData.origin + dir.Unit * range,
-						weaponId = weaponInstance.WeaponName,
-					})
-				end
-			else
-				weaponInstance.RenderTracer(hitData)
-			end
+			weaponInstance.RenderTracer(hitData)
 		end
 	end
 
