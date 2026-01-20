@@ -10,6 +10,7 @@ local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitFo
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
+local ArmIK = require(Locations.Shared.Util:WaitForChild("ArmIK"))
 
 ClientReplicator.Character = nil
 ClientReplicator.PrimaryPart = nil
@@ -24,6 +25,7 @@ ClientReplicator.LastSentState = nil
 ClientReplicator.SequenceNumber = 0
 ClientReplicator.UpdateConnection = nil
 ClientReplicator._net = nil
+ClientReplicator.ArmIK = nil
 
 function ClientReplicator:Init(net)
 	self._net = net
@@ -45,6 +47,11 @@ function ClientReplicator:Start(character)
 	self:CalculateOffsets()
 	self:_cacheRigOffsets()
 
+	-- Initialize arm IK for local player's rig (third-person view)
+	if self.Rig then
+		self.ArmIK = ArmIK.new(self.Rig)
+	end
+
 	local updateInterval = 1 / ReplicationConfig.UpdateRates.ClientToServer
 	self.UpdateConnection = RunService.Heartbeat:Connect(function()
 		local currentTime = tick()
@@ -61,6 +68,11 @@ function ClientReplicator:Stop()
 	if self.UpdateConnection then
 		self.UpdateConnection:Disconnect()
 		self.UpdateConnection = nil
+	end
+
+	if self.ArmIK then
+		self.ArmIK:Destroy()
+		self.ArmIK = nil
 	end
 
 	self.IsActive = false
@@ -176,6 +188,16 @@ function ClientReplicator:SyncParts()
 
 	if #parts > 0 then
 		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+
+	-- Apply arm IK after positioning (arms point toward aim direction)
+	if self.ArmIK and self.PrimaryPart then
+		local camera = workspace.CurrentCamera
+		if camera then
+			local aimDistance = 15
+			local aimPos = camera.CFrame.Position + camera.CFrame.LookVector * aimDistance
+			self.ArmIK:PointAt(aimPos, 0.6)
+		end
 	end
 end
 
