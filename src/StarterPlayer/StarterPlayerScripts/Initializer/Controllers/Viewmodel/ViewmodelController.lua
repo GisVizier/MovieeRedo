@@ -64,8 +64,8 @@ ViewmodelController._attrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
-ViewmodelController._externalOffsetFunc = nil -- Function for continuous offset updates (e.g. ADS)
-ViewmodelController._targetCFrameFunc = nil -- Direct CFrame override (e.g. ADS alignment)
+ViewmodelController._externalOffsetFunc = nil -- Function for continuous offset updates
+ViewmodelController._alignmentOverrideFunc = nil -- Function that returns alignment CFrame (e.g. ADS)
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -118,6 +118,7 @@ function ViewmodelController:Init(registry, net)
 		tiltPos = Spring.new(Vector3.zero),
 		externalPos = Spring.new(Vector3.zero),
 		externalRot = Spring.new(Vector3.zero),
+		adsBlend = Spring.new(Vector3.zero), -- X component used as 0-1 blend
 	}
 	self._springs.rotation.Speed = ROTATION_SPRING_SPEED
 	self._springs.rotation.Damper = ROTATION_SPRING_DAMPER
@@ -131,6 +132,8 @@ function ViewmodelController:Init(registry, net)
 	self._springs.externalPos.Damper = 0.85
 	self._springs.externalRot.Speed = 12
 	self._springs.externalRot.Damper = 0.85
+	self._springs.adsBlend.Speed = 14
+	self._springs.adsBlend.Damper = 0.9
 	self._prevCamCF = nil
 	self._bobT = 0
 	self._wasSliding = false
@@ -372,22 +375,30 @@ function ViewmodelController:SetOffset(offsetOrFunc: CFrame | () -> CFrame)
 end
 
 --[[
-	SetTargetCFrame: Direct CFrame override for the viewmodel.
+	SetAlignmentOverride: Override the viewmodel alignment (e.g. for ADS).
 	
-	When set, the render loop will use this function's returned CFrame directly
-	for PivotTo, completely bypassing normal alignment/offset calculations.
+	When set, the render loop will blend between normal alignment and the 
+	override alignment. All effects (bob, sway, tilt) are preserved.
 	
-	@param cframeFunc - A function that returns the final CFrame for the viewmodel.
-	                    Example for ADS:
-	                    function() return cam.CFrame * rig.Model:GetPivot():ToObjectSpace(attachment.WorldCFrame):Inverse() end
-	@return function - Call this to clear the override and return to normal rendering.
+	@param alignFunc - A function that returns the alignment CFrame.
+	                   For ADS: function() return pivot:ToObjectSpace(adsAttachment.WorldCFrame):Inverse() end
+	@return function - Call this to smoothly transition back to normal alignment.
 ]]
-function ViewmodelController:SetTargetCFrame(cframeFunc: () -> CFrame)
-	self._targetCFrameFunc = cframeFunc
+function ViewmodelController:SetAlignmentOverride(alignFunc: () -> CFrame)
+	self._alignmentOverrideFunc = alignFunc
+	-- Set blend target to 1 (fully ADS)
+	self._springs.adsBlend.Target = Vector3.new(1, 0, 0)
 	
 	return function()
-		self._targetCFrameFunc = nil
+		self._alignmentOverrideFunc = nil
+		-- Set blend target back to 0 (normal)
+		self._springs.adsBlend.Target = Vector3.zero
 	end
+end
+
+-- Keep SetTargetCFrame as alias for backwards compatibility
+function ViewmodelController:SetTargetCFrame(cframeFunc: () -> CFrame)
+	return self:SetAlignmentOverride(cframeFunc)
 end
 
 function ViewmodelController:GetActiveRig()
@@ -558,20 +569,23 @@ function ViewmodelController:_render(dt: number)
 		end
 	end
 
-	-- Direct CFrame override (e.g. ADS) - skip all normal calculations
-	if self._targetCFrameFunc then
-		local targetCFrame = self._targetCFrameFunc()
-		if targetCFrame then
-			rig.Model:PivotTo(targetCFrame)
-			return
-		end
-	end
-
 	-- Align rig so its Anchor part matches the camera.
 	-- Equivalent to Moviee: Camera.CFrame * (modelPivot:ToObjectSpace(anchorPivot))^-1 * offsets
 	local pivot = rig.Model:GetPivot()
 	local anchorPivot = rig.Anchor:GetPivot()
-	local align = pivot:ToObjectSpace(anchorPivot):Inverse()
+	local normalAlign = pivot:ToObjectSpace(anchorPivot):Inverse()
+	
+	-- Calculate alignment (blended between normal and ADS if override is set)
+	local align = normalAlign
+	local adsBlend = springs.adsBlend.Position.X
+	
+	if self._alignmentOverrideFunc and adsBlend > 0.001 then
+		local adsAlign = self._alignmentOverrideFunc()
+		if adsAlign then
+			-- Lerp between normal alignment and ADS alignment
+			align = normalAlign:Lerp(adsAlign, adsBlend)
+		end
+	end
 
 	local weaponId = nil
 	if self._activeSlot == "Fists" then
@@ -582,7 +596,7 @@ function ViewmodelController:_render(dt: number)
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
 	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
 	
-	-- If we have an offset function (e.g. ADS tracking), call it each frame to update targets
+	-- If we have an offset function, call it each frame to update targets
 	if self._externalOffsetFunc then
 		local offset = self._externalOffsetFunc()
 		if offset then
