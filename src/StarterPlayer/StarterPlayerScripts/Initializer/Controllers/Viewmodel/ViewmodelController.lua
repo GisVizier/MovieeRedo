@@ -64,6 +64,7 @@ ViewmodelController._attrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
+ViewmodelController._externalOffsetFunc = nil -- Function for continuous offset updates (e.g. ADS)
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -333,13 +334,37 @@ function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
 	return track
 end
 
-function ViewmodelController:SetOffset(offset: CFrame)
-	local pos = offset.Position
-	local rx, ry, rz = offset:ToEulerAnglesXYZ()
-	self._springs.externalPos.Target = pos
-	self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
+--[[
+	SetOffset: Set an external offset for the viewmodel.
+	
+	@param offsetOrFunc - Either a static CFrame OR a function that returns a CFrame.
+	                      If a function is passed, it will be called every frame to get the offset.
+	                      This is useful for ADS where the offset needs to track an attachment.
+	@return function - Call this to reset the offset back to zero.
+]]
+function ViewmodelController:SetOffset(offsetOrFunc: CFrame | () -> CFrame)
+	-- Check if it's a function (for continuous updates like ADS)
+	if type(offsetOrFunc) == "function" then
+		self._externalOffsetFunc = offsetOrFunc
+		-- Immediately apply the first frame
+		local offset = offsetOrFunc()
+		if offset then
+			local pos = offset.Position
+			local rx, ry, rz = offset:ToEulerAnglesXYZ()
+			self._springs.externalPos.Target = pos
+			self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
+		end
+	else
+		-- Static CFrame - clear any function and set directly
+		self._externalOffsetFunc = nil
+		local pos = offsetOrFunc.Position
+		local rx, ry, rz = offsetOrFunc:ToEulerAnglesXYZ()
+		self._springs.externalPos.Target = pos
+		self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
+	end
 
 	return function()
+		self._externalOffsetFunc = nil
 		self._springs.externalPos.Target = Vector3.zero
 		self._springs.externalRot.Target = Vector3.zero
 	end
@@ -527,6 +552,18 @@ function ViewmodelController:_render(dt: number)
 	end
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
 	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
+	
+	-- If we have an offset function (e.g. ADS tracking), call it each frame to update targets
+	if self._externalOffsetFunc then
+		local offset = self._externalOffsetFunc()
+		if offset then
+			local pos = offset.Position
+			local rx, ry, rz = offset:ToEulerAnglesXYZ()
+			springs.externalPos.Target = pos
+			springs.externalRot.Target = Vector3.new(rx, ry, rz)
+		end
+	end
+	
 	local extPos = springs.externalPos.Position
 	local extRot = springs.externalRot.Position
 	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X, extRot.Y, extRot.Z)

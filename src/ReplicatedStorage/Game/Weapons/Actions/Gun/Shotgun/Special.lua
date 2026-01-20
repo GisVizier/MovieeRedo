@@ -55,26 +55,28 @@ function Special:_enterADS(weaponInstance)
 	end
 
 	-- Find the aim attachment
-	-- Structure: rig.Model -> Primary (gun content) -> Aim (attachment)
-	local gunContent = rig.Model:FindFirstChild("Primary", true)
+	-- Structure: rig.Model -> Parts -> Primary -> Aim (attachment)
+	local partsFolder = rig.Model:FindFirstChild("Parts", true)
+	local gunContent = partsFolder and partsFolder:FindFirstChild("Primary")
 	local adsAttachment = gunContent and gunContent:FindFirstChild("Aim")
 
-	-- Compute targets now, apply next frame to avoid a visual snap
-	local adsOffset = adsAttachment and rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame):Inverse() or nil
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
-	task.defer(function()
-		if not Special._isADS then
-			return
-		end
-		if adsOffset then
-			Special._resetOffset = viewmodelController:SetOffset(adsOffset)
-		end
-		if adsFOV then
-			Special._originalFOV = FOVController.BaseFOV
-			FOVController:SetBaseFOV(adsFOV)
-		end
-	end)
+	
+	-- Pass a function that continuously computes the offset each frame
+	-- This keeps the viewmodel aligned even during animations
+	if adsAttachment then
+		Special._resetOffset = viewmodelController:SetOffset(function()
+			-- Compute offset each frame to track attachment position
+			return rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame)
+		end)
+	end
+	
+	-- Set ADS FOV
+	if adsFOV then
+		Special._originalFOV = FOVController.BaseFOV
+		FOVController:SetBaseFOV(adsFOV)
+	end
 
 	-- Apply ADS speed multiplier
 	local adsSpeedMult = config and config.adsSpeedMultiplier or 0.7
