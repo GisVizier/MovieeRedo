@@ -112,20 +112,22 @@ local function buildTracks(animator: Animator, weaponId: string?)
 		if animInstance then
 			local track = animator:LoadAnimation(animInstance)
 			
-			-- Loop attribute (default based on animation type)
+			-- Priority: check attribute (string or EnumItem), fall back to Action
+			local priorityAttr = animInstance:GetAttribute("Priority")
+			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+				track.Priority = Enum.AnimationPriority[priorityAttr]
+			elseif type(priorityAttr) == "userdata" then
+				track.Priority = priorityAttr
+			else
+				track.Priority = Enum.AnimationPriority.Action
+			end
+			
+			-- Loop: check attribute, fall back to based on animation type
 			local loopAttr = animInstance:GetAttribute("Loop")
 			if type(loopAttr) == "boolean" then
 				track.Looped = loopAttr
 			else
 				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
-			end
-
-			-- Priority attribute (default to Action)
-			local priorityAttr = animInstance:GetAttribute("Priority")
-			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
-				track.Priority = Enum.AnimationPriority[priorityAttr]
-			else
-				track.Priority = Enum.AnimationPriority.Action
 			end
 
 			-- Build settings from attributes (matching base animation structure)
