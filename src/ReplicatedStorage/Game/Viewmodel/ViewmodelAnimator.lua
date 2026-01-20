@@ -310,7 +310,8 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 
 	local root = getRootPart()
 	local vel = root and root.AssemblyLinearVelocity or Vector3.zero
-	local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+	local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
+	local speed = horizontalVel.Magnitude
 	dt = dt or (1 / 60)
 	local smoothCfg = ViewmodelConfig.Effects and ViewmodelConfig.Effects.MovementSmoothing or {}
 	local speedAlpha = math.clamp(expAlpha(dt, smoothCfg.SpeedSmoothness or 12), 0, 1)
@@ -334,6 +335,23 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 	end
 	if not self._tracks[target] then
 		target = "Idle"
+	end
+
+	-- Determine if player is moving backwards (velocity opposite to look direction)
+	local isMovingBackward = false
+	if speed > 0.5 then
+		local camera = workspace.CurrentCamera
+		if camera then
+			local lookDir = camera.CFrame.LookVector
+			local horizontalLook = Vector3.new(lookDir.X, 0, lookDir.Z)
+			if horizontalLook.Magnitude > 0.01 then
+				horizontalLook = horizontalLook.Unit
+				local velDir = horizontalVel.Unit
+				local dot = horizontalLook:Dot(velDir)
+				-- Moving backward if dot product is negative (velocity opposite to look)
+				isMovingBackward = dot < -0.3
+			end
+		end
 	end
 
 	-- Check if an action animation is playing (higher priority than movement)
@@ -362,11 +380,24 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 			track:AdjustWeight(weight, fade)
 		end
 	end
+	
+	-- Adjust walk animation speed/direction
+	local walkTrack = self._tracks.Walk
+	if walkTrack then
+		if target == "Walk" then
+			-- Reverse animation when walking backwards
+			local walkSpeed = isMovingBackward and -1 or 1
+			walkTrack:AdjustSpeed(walkSpeed)
+		else
+			walkTrack:AdjustSpeed(1)
+		end
+	end
+	
 	do
 		local runTrack = self._tracks.Run
 		if runTrack then
-			local speed = (target == "Run" and not grounded) and AIRBORNE_SPRINT_SPEED or 1
-			runTrack:AdjustSpeed(speed)
+			local runSpeed = (target == "Run" and not grounded) and AIRBORNE_SPRINT_SPEED or 1
+			runTrack:AdjustSpeed(runSpeed)
 		end
 	end
 	self._currentMove = target

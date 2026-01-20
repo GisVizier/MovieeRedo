@@ -72,6 +72,13 @@ function Special:_enterADS(weaponInstance)
 		end
 	end
 
+	-- Apply ADS speed multiplier
+	local adsSpeedMult = config and config.adsSpeedMultiplier or 0.5
+	local weaponController = ServiceRegistry:GetController("Weapon")
+	if weaponController and weaponController.SetADSSpeedMultiplier then
+		weaponController:SetADSSpeedMultiplier(adsSpeedMult)
+	end
+
 	if weaponInstance.PlayWeaponTrack then
 		weaponInstance.PlayWeaponTrack("ADS", 0.15)
 	end
@@ -91,6 +98,12 @@ function Special:_exitADS(weaponInstance)
 			workspace.CurrentCamera.FieldOfView = Special._originalFOV
 		end
 		Special._originalFOV = nil
+	end
+
+	-- Reset ADS speed multiplier
+	local weaponController = ServiceRegistry:GetController("Weapon")
+	if weaponController and weaponController.SetADSSpeedMultiplier then
+		weaponController:SetADSSpeedMultiplier(1.0)
 	end
 
 	if weaponInstance and weaponInstance.PlayWeaponTrack then

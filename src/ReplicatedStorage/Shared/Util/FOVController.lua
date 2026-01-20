@@ -175,6 +175,30 @@ end
 
 function FOVController:UpdateMomentum(currentSpeed)
 	self:UpdateVelocityFOV(currentSpeed)
+	self:UpdateSprintFOV(currentSpeed)
+end
+
+function FOVController:UpdateSprintFOV(currentSpeed)
+	if not self:IsEnabled() then
+		return
+	end
+	
+	-- Only apply sprint FOV when actually moving while sprinting
+	local MovementStateManager = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+	local isSprinting = MovementStateManager:IsSprinting()
+	
+	local fovConfig = Config.Camera and Config.Camera.FOV
+	local effectsConfig = fovConfig and fovConfig.Effects
+	local sprintDelta = effectsConfig and effectsConfig.Sprint or 3
+	
+	-- Minimum speed threshold to consider "actually moving"
+	local minMoveSpeed = 5
+	
+	if isSprinting and currentSpeed >= minMoveSpeed then
+		self:AddEffect("Sprint", sprintDelta)
+	else
+		self:RemoveEffect("Sprint")
+	end
 end
 
 function FOVController:CalculateTargetFOV()

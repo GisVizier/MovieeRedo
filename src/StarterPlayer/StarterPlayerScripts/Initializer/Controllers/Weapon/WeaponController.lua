@@ -246,6 +246,12 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	self._weaponInstance = self:_buildWeaponInstance(weaponId, weaponConfig, slot)
 
+	-- Set weapon speed multiplier attribute
+	if LocalPlayer and weaponConfig then
+		local speedMult = weaponConfig.speedMultiplier or 1.0
+		LocalPlayer:SetAttribute("WeaponSpeedMultiplier", speedMult)
+	end
+
 	-- Initialize and equip
 	if self._currentActions.Main then
 		if self._currentActions.Main.Initialize then
@@ -275,6 +281,12 @@ function WeaponController:_unequipCurrentWeapon()
 		if self._currentActions.Reload and self._currentActions.Reload.Cancel then
 			self._currentActions.Reload.Cancel()
 		end
+	end
+
+	-- Reset speed multipliers
+	if LocalPlayer then
+		LocalPlayer:SetAttribute("WeaponSpeedMultiplier", 1.0)
+		LocalPlayer:SetAttribute("ADSSpeedMultiplier", 1.0)
 	end
 
 	self._currentActions = nil
@@ -692,6 +704,19 @@ end
 
 function WeaponController:GetWeaponInstance()
 	return self._weaponInstance
+end
+
+function WeaponController:SetADSSpeedMultiplier(multiplier: number)
+	if LocalPlayer then
+		LocalPlayer:SetAttribute("ADSSpeedMultiplier", multiplier or 1.0)
+	end
+end
+
+function WeaponController:GetADSSpeedMultiplier(): number
+	if LocalPlayer then
+		return LocalPlayer:GetAttribute("ADSSpeedMultiplier") or 1.0
+	end
+	return 1.0
 end
 
 -- =============================================================================

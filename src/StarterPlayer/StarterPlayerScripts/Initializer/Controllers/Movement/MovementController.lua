@@ -953,12 +953,18 @@ function CharacterController:ApplyMovement()
 
 	MovementUtils:UpdateStandingFriction(self.Character, self.PrimaryPart, self.RaycastParams, isMoving)
 
-	local targetSpeed = nil
+	local targetSpeed = Config.Gameplay.Character.WalkSpeed
 	if MovementStateManager:IsSprinting() then
 		targetSpeed = Config.Gameplay.Character.SprintSpeed
 	elseif MovementStateManager:IsCrouching() then
 		targetSpeed = Config.Gameplay.Character.CrouchSpeed
 	end
+
+	-- Apply weapon speed multipliers
+	local weaponMult = self.Player:GetAttribute("WeaponSpeedMultiplier") or 1
+	local adsMult = self.Player:GetAttribute("ADSSpeedMultiplier") or 1
+	local weaponSpeedModifier = weaponMult * adsMult
+	targetSpeed = targetSpeed * weaponSpeedModifier
 
 	local weightMultiplier = 1.0
 

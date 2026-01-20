@@ -70,6 +70,9 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 		},
 
+		-- Speed settings
+		speedMultiplier = 0.85, -- 15% slower when holding
+
 		-- ADS settings
 		adsFOV = 35,
 		adsSpeedMultiplier = 0.5,
@@ -112,6 +115,9 @@ LoadoutConfig.Weapons = {
 			spread = 0.15,
 		},
 
+		-- Speed settings
+		speedMultiplier = 0.9, -- 10% slower when holding
+
 		-- ADS settings
 		adsFOV = 55,
 		adsSpeedMultiplier = 0.7,
@@ -153,6 +159,9 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 			spread = 0.02,
 		},
+
+		-- Speed settings
+		speedMultiplier = 0.95, -- 5% slower when holding
 
 		-- ADS settings
 		adsFOV = 50,
@@ -219,6 +228,9 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 		},
 
+		-- Speed settings
+		speedMultiplier = 1.0, -- No speed penalty (light secondary)
+
 		-- ADS settings
 		adsFOV = 55,
 		adsSpeedMultiplier = 0.75,
@@ -254,6 +266,9 @@ LoadoutConfig.Weapons = {
 		attackCooldown = 0.5,
 		specialCooldown = 3.0,
 		isAbility = false,
+
+		-- Speed settings
+		speedMultiplier = 1.1, -- 10% faster (light melee)
 	},
 
 	ExecutionerBlade = {
@@ -274,6 +289,9 @@ LoadoutConfig.Weapons = {
 		attackCooldown = 0.6,
 		specialCooldown = 5.0,
 		isAbility = false,
+
+		-- Speed settings
+		speedMultiplier = 0.9, -- 10% slower (heavy blade)
 
 		-- Melee stats
 		damage = 50,

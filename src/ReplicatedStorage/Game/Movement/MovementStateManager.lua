@@ -109,9 +109,9 @@ function MovementStateManager:TransitionTo(newState, data)
 
 	self:UpdateVisualCrouchForState(self.CurrentState)
 
-	if newState == self.States.Sprinting then
-		FOVController:AddEffect("Sprint")
-	elseif self.PreviousState == self.States.Sprinting then
+	-- Sprint FOV is now handled via velocity check, not state change
+	-- This allows FOV to only change when actually moving while sprinting
+	if self.PreviousState == self.States.Sprinting then
 		FOVController:RemoveEffect("Sprint")
 	end
 
