@@ -159,24 +159,47 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 		return false
 	end
 	
-	-- Position and weld the weapon to the arm
-	local offset = config.WeaponOffset or CFrame.new(0, -0.5, -0.3) * CFrame.Angles(math.rad(-90), 0, 0)
-	weaponRoot.CFrame = rigArm.CFrame * offset
+	-- Parent weapon first so attachments have world positions
+	weapon.Parent = self.Rig
+	
+	-- Find the RightGrip attachment to position the weapon properly
+	local rightGripAttachment = config.RightGripPath and WeaponIKConfig.GetAttachmentFromPath(weapon, config.RightGripPath)
+	local leftGripAttachment = config.LeftGripPath and WeaponIKConfig.GetAttachmentFromPath(weapon, config.LeftGripPath)
+	
+	-- Calculate offset so the RightGrip is at the hand position
+	-- The hand should be at the bottom/end of the arm
+	local handOffset = CFrame.new(0, -rigArm.Size.Y / 2, 0) -- Bottom of arm
+	
+	local weldOffset
+	if rightGripAttachment then
+		-- Get the grip position relative to weapon root (position only)
+		local gripLocalPos = weaponRoot.CFrame:PointToObjectSpace(rightGripAttachment.WorldPosition)
+		
+		-- The weld should position the weapon so the grip is at the hand
+		-- Weapon rotation from config (how the weapon should be oriented in hand)
+		local weaponRotation = config.WeaponRotation or CFrame.Angles(0, 0, 0)
+		
+		-- Offset: move to hand position, rotate, then offset by negative grip position
+		weldOffset = handOffset * weaponRotation * CFrame.new(-gripLocalPos)
+	else
+		-- Fallback to config offset if no grip attachment
+		weldOffset = config.WeaponOffset or CFrame.new(0, -0.5, -0.3) * CFrame.Angles(math.rad(-90), 0, 0)
+	end
+	
+	-- Position weapon
+	weaponRoot.CFrame = rigArm.CFrame * weldOffset
 	
 	-- Create weld
 	local weld = Instance.new("Weld")
 	weld.Part0 = rigArm
 	weld.Part1 = weaponRoot
-	weld.C0 = offset
+	weld.C0 = weldOffset
 	weld.C1 = CFrame.new()
 	weld.Parent = weaponRoot
 	
-	-- Parent weapon to rig
-	weapon.Parent = self.Rig
-	
-	-- Find grip attachments for IK
-	self.RightGrip = config.RightGripPath and WeaponIKConfig.GetAttachmentFromPath(weapon, config.RightGripPath)
-	self.LeftGrip = config.LeftGripPath and WeaponIKConfig.GetAttachmentFromPath(weapon, config.LeftGripPath)
+	-- Store grip attachments for IK
+	self.RightGrip = rightGripAttachment
+	self.LeftGrip = leftGripAttachment
 	
 	-- Store references
 	self.CurrentWeapon = weapon

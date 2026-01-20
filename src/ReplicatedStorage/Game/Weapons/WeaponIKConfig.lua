@@ -19,14 +19,19 @@ WeaponIKConfig.DefaultGrips = {
 }
 
 -- Per-weapon configuration
+-- WeaponRotation: How the weapon should be oriented in the hand
+--   - X rotation: pitch (tilt up/down)
+--   - Y rotation: yaw (rotate left/right)
+--   - Z rotation: roll
 WeaponIKConfig.Weapons = {
 	Shotgun = {
 		ModelPath = "Weapons/Shotgun/Shotgun",
 		RightGripPath = "Parts.Primary.RightGrip",
 		LeftGripPath = "Parts.Grip.Forestock", -- Foregrip/pump area
-		-- Alternative: "Parts.Primary.LeftGrip"
-		RigAttachment = "Right Arm", -- Which rig part to weld to
-		WeaponOffset = CFrame.new(0, -0.5, -0.3) * CFrame.Angles(math.rad(-90), 0, 0), -- Adjust as needed
+		RigAttachment = "Right Arm",
+		-- Rotate so barrel points forward (away from character)
+		-- Adjust these values to match your model's orientation
+		WeaponRotation = CFrame.Angles(math.rad(-90), math.rad(180), 0),
 	},
 	
 	AssaultRifle = {
@@ -34,7 +39,7 @@ WeaponIKConfig.Weapons = {
 		RightGripPath = "Parts.Primary.RightGrip",
 		LeftGripPath = "Parts.Primary.LeftGrip",
 		RigAttachment = "Right Arm",
-		WeaponOffset = CFrame.new(0, -0.5, -0.3) * CFrame.Angles(math.rad(-90), 0, 0),
+		WeaponRotation = CFrame.Angles(math.rad(-90), math.rad(180), 0),
 	},
 	
 	Revolver = {
@@ -42,7 +47,7 @@ WeaponIKConfig.Weapons = {
 		RightGripPath = "Parts.Primary.RightGrip",
 		LeftGripPath = nil, -- One-handed weapon
 		RigAttachment = "Right Arm",
-		WeaponOffset = CFrame.new(0, -0.3, -0.2) * CFrame.Angles(math.rad(-90), 0, 0),
+		WeaponRotation = CFrame.Angles(math.rad(-90), math.rad(180), 0),
 	},
 	
 	Sniper = {
@@ -50,7 +55,7 @@ WeaponIKConfig.Weapons = {
 		RightGripPath = "Parts.Primary.RightGrip",
 		LeftGripPath = "Parts.Primary.LeftGrip",
 		RigAttachment = "Right Arm",
-		WeaponOffset = CFrame.new(0, -0.5, -0.3) * CFrame.Angles(math.rad(-90), 0, 0),
+		WeaponRotation = CFrame.Angles(math.rad(-90), math.rad(180), 0),
 	},
 	
 	-- Melee weapons (typically one-handed, no IK needed)
@@ -59,7 +64,7 @@ WeaponIKConfig.Weapons = {
 		RightGripPath = "Handle.RightGrip",
 		LeftGripPath = nil,
 		RigAttachment = "Right Arm",
-		WeaponOffset = CFrame.new(0, -0.2, 0) * CFrame.Angles(math.rad(-90), 0, 0),
+		WeaponRotation = CFrame.Angles(math.rad(-90), 0, 0),
 		DisableIK = true, -- Melee typically uses animations only
 	},
 }
