@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ConnectionManager = require(ReplicatedStorage.CoreUI.ConnectionManager)
 local CrosshairSystem = ReplicatedStorage:WaitForChild("CrosshairSystem")
 local CrosshairsFolder = CrosshairSystem:WaitForChild("Crosshairs")
+local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
 local CrosshairController = {}
 CrosshairController.__index = CrosshairController
@@ -191,18 +192,23 @@ function CrosshairController:_startUpdateLoop()
 end
 
 function CrosshairController:_getVelocity()
-	if not self._rootPart then
+	local rootPart = nil
+	local characterController = ServiceRegistry:GetController("CharacterController")
+
+	if characterController and characterController.PrimaryPart then
+		rootPart = characterController.PrimaryPart
+	else
 		local character = self._player and self._player.Character
 		if character then
-			self._rootPart = character:FindFirstChild("HumanoidRootPart")
+			rootPart = character:FindFirstChild("HumanoidRootPart")
 		end
 	end
 
-	if not self._rootPart then
+	if not rootPart then
 		return Vector3.zero, 0
 	end
 
-	local velocity = self._rootPart.AssemblyLinearVelocity
+	local velocity = rootPart.AssemblyLinearVelocity
 	local speed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 	return velocity, speed
 end
