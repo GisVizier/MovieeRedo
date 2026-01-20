@@ -961,8 +961,9 @@ function CharacterController:ApplyMovement()
 	end
 
 	-- Apply weapon speed multipliers
-	local weaponMult = self.Player:GetAttribute("WeaponSpeedMultiplier") or 1
-	local adsMult = self.Player:GetAttribute("ADSSpeedMultiplier") or 1
+	local localPlayer = Players.LocalPlayer
+	local weaponMult = localPlayer and localPlayer:GetAttribute("WeaponSpeedMultiplier") or 1
+	local adsMult = localPlayer and localPlayer:GetAttribute("ADSSpeedMultiplier") or 1
 	local weaponSpeedModifier = weaponMult * adsMult
 	targetSpeed = targetSpeed * weaponSpeedModifier
 
