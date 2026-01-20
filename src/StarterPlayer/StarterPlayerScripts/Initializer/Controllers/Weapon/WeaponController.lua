@@ -17,6 +17,8 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local CrosshairController =
+	require(ReplicatedStorage:WaitForChild("CrosshairSystem"):WaitForChild("CrosshairController"))
 
 local WeaponServices = script.Parent:WaitForChild("Services")
 local WeaponAmmo = require(WeaponServices:WaitForChild("WeaponAmmo"))
@@ -37,6 +39,7 @@ WeaponController._net = nil
 WeaponController._inputManager = nil
 WeaponController._viewmodelController = nil
 WeaponController._camera = nil
+WeaponController._crosshair = nil
 
 -- Services
 WeaponController._ammo = nil
@@ -57,6 +60,7 @@ WeaponController._autoFireConn = nil
 WeaponController._isReloading = false
 WeaponController._reloadToken = 0
 WeaponController._slotChangedConn = nil
+WeaponController._lastCameraMode = nil
 
 -- =============================================================================
 -- INITIALIZATION
@@ -88,6 +92,12 @@ function WeaponController:Start()
 	local inputController = self._registry:TryGet("Input")
 	self._inputManager = inputController and inputController.Manager
 	self._viewmodelController = self._registry:TryGet("Viewmodel")
+	self._crosshair = CrosshairController.new(Players.LocalPlayer)
+
+	local crosshairConfig = LoadoutConfig.Crosshair
+	if crosshairConfig and crosshairConfig.DefaultCustomization then
+		self._crosshair:SetCustomization(crosshairConfig.DefaultCustomization)
+	end
 
 	self:_connectInputs()
 	self:_connectSlotChanges()
@@ -149,11 +159,20 @@ function WeaponController:_connectSlotChanges()
 
 	-- Poll for slot changes (ViewmodelController doesn't have a signal yet)
 	local lastSlot = nil
+	local lastCameraMode = nil
 	self._slotChangedConn = RunService.Heartbeat:Connect(function()
 		local currentSlot = self._viewmodelController:GetActiveSlot()
 		if currentSlot ~= lastSlot then
 			lastSlot = currentSlot
 			self:_onSlotChanged(currentSlot)
+		end
+
+		local cameraController = self._registry and self._registry:TryGet("Camera")
+		local currentMode = cameraController and cameraController.GetCurrentMode and cameraController:GetCurrentMode()
+			or nil
+		if currentMode ~= lastCameraMode then
+			lastCameraMode = currentMode
+			self:_onCameraModeChanged(currentMode)
 		end
 	end)
 end
@@ -166,7 +185,7 @@ function WeaponController:_onSlotChanged(slot)
 
 	local loadout = self._viewmodelController._loadout
 	local weaponId = loadout and loadout[slot]
-	
+
 	if not weaponId then
 		self:_unequipCurrentWeapon()
 		return
@@ -192,7 +211,7 @@ function WeaponController:_loadActionsForWeapon(weaponId)
 	-- Determine category: Gun or Melee
 	local category = weaponConfig.weaponType == "Melee" and "Melee" or "Gun"
 	local categoryFolder = ActionsRoot:FindFirstChild(category)
-	
+
 	if not categoryFolder then
 		error("[WeaponController] Actions category folder not found: " .. category)
 	end
@@ -219,6 +238,71 @@ function WeaponController:_getCancels()
 		return self._currentActions.Main.Cancels
 	end
 	return {}
+end
+
+function WeaponController:_isFirstPerson()
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if not cameraController or type(cameraController.GetCurrentMode) ~= "function" then
+		return false
+	end
+	return cameraController:GetCurrentMode() == "FirstPerson"
+end
+
+function WeaponController:_onCameraModeChanged(_mode)
+	if not self._crosshair then
+		return
+	end
+
+	if not self:_isFirstPerson() then
+		self._crosshair:RemoveCrosshair()
+		return
+	end
+
+	if self._equippedWeaponId then
+		self:_applyCrosshairForWeapon(self._equippedWeaponId)
+	end
+end
+
+function WeaponController:_applyCrosshairForWeapon(weaponId)
+	local crosshairConfig = LoadoutConfig.Crosshair
+	if not (self._crosshair and crosshairConfig) then
+		return
+	end
+	if not self:_isFirstPerson() then
+		return
+	end
+
+	local crosshairType = "Default"
+	if crosshairConfig.WeaponCrosshairs then
+		crosshairType = crosshairConfig.WeaponCrosshairs[weaponId] or "Default"
+	end
+
+	local weaponData = nil
+	if crosshairConfig.WeaponSpreadData then
+		weaponData = crosshairConfig.WeaponSpreadData[weaponId] or crosshairConfig.WeaponSpreadData.Default
+	end
+
+	self._crosshair:ApplyCrosshair(crosshairType, weaponData)
+end
+
+function WeaponController:_applyCrosshairRecoil()
+	local crosshairConfig = LoadoutConfig.Crosshair
+	if not (self._crosshair and crosshairConfig and self._equippedWeaponId) then
+		return
+	end
+	if not self:_isFirstPerson() then
+		return
+	end
+
+	local weaponData = nil
+	if crosshairConfig.WeaponSpreadData then
+		weaponData = crosshairConfig.WeaponSpreadData[self._equippedWeaponId]
+			or crosshairConfig.WeaponSpreadData.Default
+	end
+
+	if weaponData then
+		self._crosshair:OnRecoil({ amount = weaponData.recoilMultiplier or 1 })
+	end
 end
 
 -- =============================================================================
@@ -262,12 +346,18 @@ function WeaponController:_equipWeapon(weaponId, slot)
 		end
 	end
 
+	self:_applyCrosshairForWeapon(weaponId)
+
 	LogService:Info("WEAPON", "Equipped weapon", { weaponId = weaponId })
 end
 
 function WeaponController:_unequipCurrentWeapon()
 	if self._currentActions and self._currentActions.Main and self._currentActions.Main.OnUnequip then
 		self._currentActions.Main.OnUnequip(self._weaponInstance)
+	end
+
+	if self._crosshair then
+		self._crosshair:RemoveCrosshair()
 	end
 
 	-- Cancel any active actions
@@ -301,7 +391,7 @@ end
 
 function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 	local ammo = self._ammo and slot and self._ammo:GetAmmo(slot) or nil
-	
+
 	return {
 		-- Core references
 		Player = LocalPlayer,
@@ -311,12 +401,12 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		Config = weaponConfig,
 		Slot = slot,
 		Net = self._net,
-		
+
 		-- Services
 		Ammo = self._ammo,
 		Cooldown = self._cooldown,
 		FX = self._fx,
-		
+
 		-- Viewmodel access
 		GetViewmodelController = function()
 			return self._viewmodelController
@@ -324,7 +414,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		GetRig = function()
 			return self._viewmodelController and self._viewmodelController:GetActiveRig()
 		end,
-		
+
 		-- Animation helpers
 		PlayAnimation = function(name, fade, restart)
 			self:_playViewmodelAnimation(name, fade, restart)
@@ -335,7 +425,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			end
 			return nil
 		end,
-		
+
 		-- Raycast helpers
 		PerformRaycast = function(ignoreSpread)
 			return self:_performRaycast(weaponConfig, ignoreSpread)
@@ -343,7 +433,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		GeneratePelletDirections = function(profile)
 			return self:_generatePelletDirections(profile)
 		end,
-		
+
 		-- FX helpers
 		PlayFireEffects = function(hitData)
 			self:_playFireEffects(weaponId, hitData)
@@ -351,7 +441,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		RenderTracer = function(hitData)
 			self:_renderBulletTracer(hitData)
 		end,
-		
+
 		-- State management
 		GetIsReloading = function()
 			return self._isReloading
@@ -366,7 +456,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			self._reloadToken = self._reloadToken + 1
 			return self._reloadToken
 		end,
-		
+
 		-- State object (updated each call)
 		State = {
 			CurrentAmmo = ammo and ammo.currentAmmo or 0,
@@ -419,7 +509,11 @@ function WeaponController:_onFirePressed()
 	local cancels = self:_getCancels()
 
 	-- Cancel inspect on fire
-	if self._currentActions.Inspect and self._currentActions.Inspect.IsInspecting and self._currentActions.Inspect.IsInspecting() then
+	if
+		self._currentActions.Inspect
+		and self._currentActions.Inspect.IsInspecting
+		and self._currentActions.Inspect.IsInspecting()
+	then
 		if self._currentActions.Inspect.Cancel then
 			self._currentActions.Inspect.Cancel()
 		end
@@ -427,14 +521,22 @@ function WeaponController:_onFirePressed()
 
 	-- Check if special blocks firing
 	if cancels.SpecialCancelsFire then
-		if self._currentActions.Special and self._currentActions.Special.IsActive and self._currentActions.Special.IsActive() then
+		if
+			self._currentActions.Special
+			and self._currentActions.Special.IsActive
+			and self._currentActions.Special.IsActive()
+		then
 			return
 		end
 	end
 
 	-- Check if firing should cancel special
 	if cancels.FireCancelsSpecial then
-		if self._currentActions.Special and self._currentActions.Special.IsActive and self._currentActions.Special.IsActive() then
+		if
+			self._currentActions.Special
+			and self._currentActions.Special.IsActive
+			and self._currentActions.Special.IsActive()
+		then
 			if self._currentActions.Special.Cancel then
 				self._currentActions.Special.Cancel()
 			end
@@ -454,6 +556,8 @@ function WeaponController:_onFirePressed()
 		end
 		return
 	end
+
+	self:_applyCrosshairRecoil()
 
 	-- Update state after attack
 	self._lastFireTime = currentTime
@@ -477,7 +581,11 @@ function WeaponController:Reload()
 
 	-- Cancel special on reload
 	if cancels.ReloadCancelsSpecial then
-		if self._currentActions.Special and self._currentActions.Special.IsActive and self._currentActions.Special.IsActive() then
+		if
+			self._currentActions.Special
+			and self._currentActions.Special.IsActive
+			and self._currentActions.Special.IsActive()
+		then
 			if self._currentActions.Special.Cancel then
 				self._currentActions.Special.Cancel()
 			end

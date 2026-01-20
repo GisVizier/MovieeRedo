@@ -301,6 +301,75 @@ LoadoutConfig.Weapons = {
 	},
 }
 
+LoadoutConfig.Crosshair = {
+	DefaultCustomization = {
+		showDot = true,
+		showTopLine = true,
+		showBottomLine = true,
+		showLeftLine = true,
+		showRightLine = true,
+		lineThickness = 2,
+		lineLength = 10,
+		gapFromCenter = 5,
+		dotSize = 4,
+		rotation = 0,
+		cornerRadius = 0,
+		mainColor = Color3.fromRGB(255, 255, 255),
+		outlineColor = Color3.fromRGB(0, 0, 0),
+		outlineThickness = 1,
+		opacity = 1,
+		scale = 1,
+		dynamicSpreadEnabled = true,
+	},
+
+	WeaponCrosshairs = {
+		Revolver = "Default",
+		AssaultRifle = "Default",
+		Shotgun = "Shotgun",
+		Sniper = "Default",
+		Knife = "Default",
+		ExecutionerBlade = "Default",
+	},
+
+	WeaponSpreadData = {
+		Default = {
+			spreadX = 1,
+			spreadY = 1,
+			recoilMultiplier = 1,
+		},
+		Revolver = {
+			spreadX = 1.5,
+			spreadY = 1.5,
+			recoilMultiplier = 1.8,
+		},
+		AssaultRifle = {
+			spreadX = 1.2,
+			spreadY = 1.2,
+			recoilMultiplier = 1.2,
+		},
+		Shotgun = {
+			spreadX = 2.5,
+			spreadY = 2.5,
+			recoilMultiplier = 2.0,
+		},
+		Sniper = {
+			spreadX = 0.5,
+			spreadY = 0.5,
+			recoilMultiplier = 2.5,
+		},
+		Knife = {
+			spreadX = 0.5,
+			spreadY = 0.5,
+			recoilMultiplier = 0.3,
+		},
+		ExecutionerBlade = {
+			spreadX = 0.5,
+			spreadY = 0.5,
+			recoilMultiplier = 0.3,
+		},
+	},
+}
+
 function LoadoutConfig.getWeapon(weaponId)
 	return LoadoutConfig.Weapons[weaponId]
 end
