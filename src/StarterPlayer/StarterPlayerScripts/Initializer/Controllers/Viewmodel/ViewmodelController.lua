@@ -64,8 +64,7 @@ ViewmodelController._attrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
-ViewmodelController._externalOffsetFunc = nil -- Function for continuous offset updates
-ViewmodelController._alignmentOverrideFunc = nil -- Function that returns alignment CFrame (e.g. ADS)
+ViewmodelController._targetCFOverride = nil -- Function to override/modify the final target CFrame
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -118,7 +117,6 @@ function ViewmodelController:Init(registry, net)
 		tiltPos = Spring.new(Vector3.zero),
 		externalPos = Spring.new(Vector3.zero),
 		externalRot = Spring.new(Vector3.zero),
-		adsBlend = Spring.new(Vector3.zero), -- X component used as 0-1 blend
 	}
 	self._springs.rotation.Speed = ROTATION_SPRING_SPEED
 	self._springs.rotation.Damper = ROTATION_SPRING_DAMPER
@@ -132,8 +130,6 @@ function ViewmodelController:Init(registry, net)
 	self._springs.externalPos.Damper = 0.85
 	self._springs.externalRot.Speed = 12
 	self._springs.externalRot.Damper = 0.85
-	self._springs.adsBlend.Speed = 14
-	self._springs.adsBlend.Damper = 0.9
 	self._prevCamCF = nil
 	self._bobT = 0
 	self._wasSliding = false
@@ -339,66 +335,39 @@ function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
 end
 
 --[[
-	SetOffset: Set an external offset for the viewmodel.
+	SetOffset: Set an external offset for the viewmodel (smooth spring transition).
+	Used for inspect animations, etc.
 	
-	@param offsetOrFunc - Either a static CFrame OR a function that returns a CFrame.
-	                      If a function is passed, it will be called every frame to get the offset.
-	                      This is useful for ADS where the offset needs to track an attachment.
+	@param offset - The CFrame offset to apply.
 	@return function - Call this to reset the offset back to zero.
 ]]
-function ViewmodelController:SetOffset(offsetOrFunc: CFrame | () -> CFrame)
-	-- Check if it's a function (for continuous updates like ADS)
-	if type(offsetOrFunc) == "function" then
-		self._externalOffsetFunc = offsetOrFunc
-		-- Immediately apply the first frame
-		local offset = offsetOrFunc()
-		if offset then
-			local pos = offset.Position
-			local rx, ry, rz = offset:ToEulerAnglesXYZ()
-			self._springs.externalPos.Target = pos
-			self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
-		end
-	else
-		-- Static CFrame - clear any function and set directly
-		self._externalOffsetFunc = nil
-		local pos = offsetOrFunc.Position
-		local rx, ry, rz = offsetOrFunc:ToEulerAnglesXYZ()
-		self._springs.externalPos.Target = pos
-		self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
-	end
+function ViewmodelController:SetOffset(offset: CFrame)
+	local pos = offset.Position
+	local rx, ry, rz = offset:ToEulerAnglesXYZ()
+	self._springs.externalPos.Target = pos
+	self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
 
 	return function()
-		self._externalOffsetFunc = nil
 		self._springs.externalPos.Target = Vector3.zero
 		self._springs.externalRot.Target = Vector3.zero
 	end
 end
 
 --[[
-	SetAlignmentOverride: Override the viewmodel alignment (e.g. for ADS).
+	updateTargetCF: Override/modify the final target CFrame.
 	
-	When set, the render loop will blend between normal alignment and the 
-	override alignment. All effects (bob, sway, tilt) are preserved.
+	The function receives the normal computed targetCF and can modify/lerp it.
+	On reset, it clears and goes back to normal camera-based target.
 	
-	@param alignFunc - A function that returns the alignment CFrame.
-	                   For ADS: function() return pivot:ToObjectSpace(adsAttachment.WorldCFrame):Inverse() end
-	@return function - Call this to smoothly transition back to normal alignment.
+	@param func - Function that receives normalTargetCF and returns the new target CFrame.
+	@return function - Call this to reset back to normal.
 ]]
-function ViewmodelController:SetAlignmentOverride(alignFunc: () -> CFrame)
-	self._alignmentOverrideFunc = alignFunc
-	-- Set blend target to 1 (fully ADS)
-	self._springs.adsBlend.Target = Vector3.new(1, 0, 0)
+function ViewmodelController:updateTargetCF(func: (CFrame) -> CFrame)
+	self._targetCFOverride = func
 	
 	return function()
-		self._alignmentOverrideFunc = nil
-		-- Set blend target back to 0 (normal)
-		self._springs.adsBlend.Target = Vector3.zero
+		self._targetCFOverride = nil
 	end
-end
-
--- Keep SetTargetCFrame as alias for backwards compatibility
-function ViewmodelController:SetTargetCFrame(cframeFunc: () -> CFrame)
-	return self:SetAlignmentOverride(cframeFunc)
 end
 
 function ViewmodelController:GetActiveRig()
@@ -570,21 +539,14 @@ function ViewmodelController:_render(dt: number)
 	end
 
 	-- Align rig so its Anchor part matches the camera.
-	-- Equivalent to Moviee: Camera.CFrame * (modelPivot:ToObjectSpace(anchorPivot))^-1 * offsets
 	local pivot = rig.Model:GetPivot()
 	local anchorPivot = rig.Anchor:GetPivot()
-	local normalAlign = pivot:ToObjectSpace(anchorPivot):Inverse()
-	
-	-- Calculate alignment (blended between normal and ADS if override is set)
-	local align = normalAlign
-	local adsBlend = springs.adsBlend.Position.X
-	
-	if self._alignmentOverrideFunc and adsBlend > 0.001 then
-		local adsAlign = self._alignmentOverrideFunc()
-		if adsAlign then
-			-- Lerp between normal alignment and ADS alignment
-			align = normalAlign:Lerp(adsAlign, adsBlend)
-		end
+	local align = pivot:ToObjectSpace(anchorPivot):Inverse()
+
+	-- If alignment override is set (e.g. ADS), let it modify the alignment
+	local hasOverride = self._targetCFOverride ~= nil
+	if hasOverride then
+		align = self._targetCFOverride(align)
 	end
 
 	local weaponId = nil
@@ -594,19 +556,11 @@ function ViewmodelController:_render(dt: number)
 		weaponId = self._loadout[self._activeSlot]
 	end
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
-	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
 	
-	-- If we have an offset function, call it each frame to update targets
-	if self._externalOffsetFunc then
-		local offset = self._externalOffsetFunc()
-		if offset then
-			local pos = offset.Position
-			local rx, ry, rz = offset:ToEulerAnglesXYZ()
-			springs.externalPos.Target = pos
-			springs.externalRot.Target = Vector3.new(rx, ry, rz)
-		end
-	end
-	
+	-- Skip baseOffset when override is active (e.g. ADS needs precise alignment)
+	local baseOffset = hasOverride and CFrame.new() or ((cfg and cfg.Offset) or CFrame.new())
+
+	-- External offset (used by SetOffset for inspect, etc.)
 	local extPos = springs.externalPos.Position
 	local extRot = springs.externalRot.Position
 	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X, extRot.Y, extRot.Z)
@@ -615,6 +569,7 @@ function ViewmodelController:_render(dt: number)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
 	local offset = springs.bob.Position + springs.tiltPos.Position
 
+	-- Compute target with all effects
 	local target = cam.CFrame
 		* align
 		* baseOffset
@@ -622,6 +577,7 @@ function ViewmodelController:_render(dt: number)
 		* rotationOffset
 		* tiltRotOffset
 		* CFrame.new(offset)
+	
 	rig.Model:PivotTo(target)
 end
 

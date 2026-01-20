@@ -59,10 +59,12 @@ function Special:_enterADS(weaponInstance)
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
 	
-	-- ADS alignment - aligns attachment to camera center with smooth transition
+	-- ADS: lerp toward attachment-aligned CFrame
 	if adsAttachment then
-		Special._resetOffset = viewmodelController:SetAlignmentOverride(function()
-			return rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame):Inverse()
+		Special._resetOffset = viewmodelController:updateTargetCF(function(targetCF)
+			local cam = workspace.CurrentCamera
+			local adsCF = cam.CFrame * rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame):Inverse()
+			return targetCF:Lerp(adsCF, 0.15)
 		end)
 	end
 	
