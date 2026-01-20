@@ -3,6 +3,9 @@ local ClientReplicator = {}
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CompressionUtils = require(Locations.Shared.Util:WaitForChild("CompressionUtils"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
@@ -10,7 +13,7 @@ local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitFo
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
-local ArmIK = require(Locations.Shared.Util:WaitForChild("ArmIK"))
+local ThirdPersonWeaponManager = require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
 
 ClientReplicator.Character = nil
 ClientReplicator.PrimaryPart = nil
@@ -25,7 +28,11 @@ ClientReplicator.LastSentState = nil
 ClientReplicator.SequenceNumber = 0
 ClientReplicator.UpdateConnection = nil
 ClientReplicator._net = nil
-ClientReplicator.ArmIK = nil
+ClientReplicator.WeaponManager = nil
+ClientReplicator.CurrentLoadout = nil
+ClientReplicator.CurrentEquippedSlot = nil
+ClientReplicator._loadoutConn = nil
+ClientReplicator._slotConn = nil
 
 function ClientReplicator:Init(net)
 	self._net = net
@@ -47,9 +54,29 @@ function ClientReplicator:Start(character)
 	self:CalculateOffsets()
 	self:_cacheRigOffsets()
 
-	-- Initialize arm IK for local player's rig (third-person view)
+	-- Initialize third-person weapon manager for IK
 	if self.Rig then
-		self.ArmIK = ArmIK.new(self.Rig)
+		self.WeaponManager = ThirdPersonWeaponManager.new(self.Rig)
+	end
+
+	-- Listen for loadout and equipped slot changes
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		-- Parse initial loadout if available
+		self:_parseLoadout(localPlayer:GetAttribute("SelectedLoadout"))
+		self:_equipSlotWeapon(localPlayer:GetAttribute("EquippedSlot"))
+
+		-- Listen for loadout changes
+		self._loadoutConn = localPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(function()
+			self:_parseLoadout(localPlayer:GetAttribute("SelectedLoadout"))
+			-- Re-equip current slot with new loadout
+			self:_equipSlotWeapon(self.CurrentEquippedSlot)
+		end)
+
+		-- Listen for equipped slot changes
+		self._slotConn = localPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(function()
+			self:_equipSlotWeapon(localPlayer:GetAttribute("EquippedSlot"))
+		end)
 	end
 
 	local updateInterval = 1 / ReplicationConfig.UpdateRates.ClientToServer
@@ -70,9 +97,19 @@ function ClientReplicator:Stop()
 		self.UpdateConnection = nil
 	end
 
-	if self.ArmIK then
-		self.ArmIK:Destroy()
-		self.ArmIK = nil
+	if self._loadoutConn then
+		self._loadoutConn:Disconnect()
+		self._loadoutConn = nil
+	end
+
+	if self._slotConn then
+		self._slotConn:Disconnect()
+		self._slotConn = nil
+	end
+
+	if self.WeaponManager then
+		self.WeaponManager:Destroy()
+		self.WeaponManager = nil
 	end
 
 	self.IsActive = false
@@ -84,6 +121,58 @@ function ClientReplicator:Stop()
 	self.HeadOffset = CFrame.new()
 	self.RigPartOffsets = nil
 	self.SequenceNumber = 0
+	self.CurrentLoadout = nil
+	self.CurrentEquippedSlot = nil
+end
+
+-- Parse the JSON loadout from player attribute
+function ClientReplicator:_parseLoadout(raw)
+	if type(raw) ~= "string" or raw == "" then
+		self.CurrentLoadout = nil
+		return
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+
+	if not ok or type(decoded) ~= "table" then
+		self.CurrentLoadout = nil
+		return
+	end
+
+	-- Handle both {loadout: {...}} and direct loadout format
+	local loadout = decoded.loadout or decoded
+	self.CurrentLoadout = loadout
+end
+
+-- Equip the weapon for a slot on the third-person rig
+function ClientReplicator:_equipSlotWeapon(slot)
+	self.CurrentEquippedSlot = slot
+
+	if not self.WeaponManager then
+		return
+	end
+
+	if not slot or slot == "" then
+		self.WeaponManager:UnequipWeapon()
+		return
+	end
+
+	-- Get weapon ID from loadout
+	local weaponId = nil
+	if self.CurrentLoadout and type(self.CurrentLoadout) == "table" then
+		weaponId = self.CurrentLoadout[slot]
+	end
+
+	-- Fists = no weapon
+	if not weaponId or weaponId == "" or slot == "Fists" then
+		self.WeaponManager:UnequipWeapon()
+		return
+	end
+
+	-- Equip the weapon
+	self.WeaponManager:EquipWeapon(weaponId)
 end
 
 function ClientReplicator:CalculateOffsets()
@@ -190,14 +279,9 @@ function ClientReplicator:SyncParts()
 		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 
-	-- Apply arm IK after positioning (arms point toward aim direction)
-	if self.ArmIK and self.PrimaryPart then
-		local camera = workspace.CurrentCamera
-		if camera then
-			local aimDistance = 15
-			local aimPos = camera.CFrame.Position + camera.CFrame.LookVector * aimDistance
-			self.ArmIK:PointAt(aimPos, 0.6)
-		end
+	-- Update weapon IK (arms reach to weapon grips)
+	if self.WeaponManager and not isRagdolled then
+		self.WeaponManager:UpdateIK()
 	end
 end
 

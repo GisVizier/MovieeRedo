@@ -4,6 +4,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local HttpService = game:GetService("HttpService")
+
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CompressionUtils = require(Locations.Shared.Util:WaitForChild("CompressionUtils"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
@@ -12,7 +14,8 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
-local ArmIK = require(Locations.Shared.Util:WaitForChild("ArmIK"))
+local ThirdPersonWeaponManager =
+	require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
 
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
@@ -72,6 +75,9 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			local headOffset, rigBaseOffset = self:CalculateOffsets()
 
+			-- Initialize weapon manager for third-person weapon IK
+			local weaponManager = rig and ThirdPersonWeaponManager.new(rig) or nil
+
 			remoteData = {
 				Player = player,
 				Character = player.Character,
@@ -88,8 +94,14 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				LastAnimationId = state.AnimationId or 1,
 				Head = player.Character:FindFirstChild("Head"),
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
-				ArmIK = rig and ArmIK.new(rig) or nil,
+				WeaponManager = weaponManager,
+				CurrentLoadout = nil,
+				CurrentEquippedSlot = nil,
 			}
+
+			-- Parse initial loadout and equipped slot from player attributes
+			self:_updateRemoteLoadout(remoteData, player)
+			self:_updateRemoteEquippedSlot(remoteData, player)
 			self.RemotePlayers[userId] = remoteData
 
 			local primaryPart = remoteData.PrimaryPart
@@ -287,12 +299,14 @@ function RemoteReplicator:ReplicatePlayers(dt)
 
 		if remoteData.Rig then
 			self:ApplyReplicatedRigRotation(remoteData, targetRigTilt)
-			
-			-- Apply arm IK to point arms toward aim direction
-			if remoteData.ArmIK then
-				local aimDistance = 15
-				local aimPos = remoteData.PrimaryPart.Position + smoothedDirection * aimDistance
-				remoteData.ArmIK:PointAt(aimPos, 0.6)
+
+			-- Check for loadout/slot changes on the remote player
+			self:_updateRemoteLoadout(remoteData, remoteData.Player)
+			self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
+
+			-- Update weapon IK (arms reach to weapon grips)
+			if remoteData.WeaponManager then
+				remoteData.WeaponManager:UpdateIK(smoothedDirection)
 			end
 		end
 
@@ -461,6 +475,85 @@ function RemoteReplicator:GetTrackedPlayerCount()
 		end
 	end
 	return count
+end
+
+-- Update remote player's loadout from their attributes
+function RemoteReplicator:_updateRemoteLoadout(remoteData, player)
+	if not player then
+		return
+	end
+
+	local raw = player:GetAttribute("SelectedLoadout")
+	if type(raw) ~= "string" or raw == "" then
+		return
+	end
+
+	-- Check if loadout changed
+	if remoteData._lastLoadoutRaw == raw then
+		return
+	end
+	remoteData._lastLoadoutRaw = raw
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+
+	if not ok or type(decoded) ~= "table" then
+		return
+	end
+
+	-- Handle both {loadout: {...}} and direct loadout format
+	local loadout = decoded.loadout or decoded
+	remoteData.CurrentLoadout = loadout
+
+	-- Re-equip current slot with new loadout
+	if remoteData.CurrentEquippedSlot then
+		self:_equipRemoteWeapon(remoteData)
+	end
+end
+
+-- Update remote player's equipped slot from their attributes
+function RemoteReplicator:_updateRemoteEquippedSlot(remoteData, player)
+	if not player then
+		return
+	end
+
+	local slot = player:GetAttribute("EquippedSlot")
+
+	-- Check if slot changed
+	if remoteData.CurrentEquippedSlot == slot then
+		return
+	end
+
+	remoteData.CurrentEquippedSlot = slot
+	self:_equipRemoteWeapon(remoteData)
+end
+
+-- Equip the appropriate weapon on the remote player's rig
+function RemoteReplicator:_equipRemoteWeapon(remoteData)
+	if not remoteData.WeaponManager then
+		return
+	end
+
+	local slot = remoteData.CurrentEquippedSlot
+	if not slot or slot == "" or slot == "Fists" then
+		remoteData.WeaponManager:UnequipWeapon()
+		return
+	end
+
+	-- Get weapon ID from loadout
+	local weaponId = nil
+	if remoteData.CurrentLoadout and type(remoteData.CurrentLoadout) == "table" then
+		weaponId = remoteData.CurrentLoadout[slot]
+	end
+
+	if not weaponId or weaponId == "" then
+		remoteData.WeaponManager:UnequipWeapon()
+		return
+	end
+
+	-- Equip the weapon
+	remoteData.WeaponManager:EquipWeapon(weaponId)
 end
 
 return RemoteReplicator
