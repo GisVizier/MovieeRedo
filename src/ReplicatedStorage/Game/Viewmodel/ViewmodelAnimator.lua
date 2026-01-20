@@ -354,29 +354,16 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 		end
 	end
 
-	-- Check if an action animation is playing (higher priority than movement)
-	-- Equip is excluded - it plays on top of Idle via priority for smoother transitions
-	local actionPlaying = false
-	local actionTracks = { "Inspect", "Fire", "Reload", "Attack", "Special", "SpecialCharge", "SpecialRelease", "Slash1", "Slash2", "Start", "Action", "End" }
-	for _, actionName in ipairs(actionTracks) do
-		local actionTrack = self._tracks[actionName]
-		if actionTrack and actionTrack.IsPlaying then
-			actionPlaying = true
-			break
-		end
-	end
-
 	-- Smooth crossfade between idle/walk/run.
-	-- Reduce weight when action animations are playing
+	-- Let priority handle layering with action animations - don't suppress movement weights
 	local fade = 0.18
-	local movementWeight = actionPlaying and 0 or 1
 	for _, name in ipairs({ "Idle", "Walk", "Run" }) do
 		local track = self._tracks[name]
 		if track then
 			if not track.IsPlaying then
 				track:Play(0)
 			end
-			local weight = (name == target) and movementWeight or 0
+			local weight = (name == target) and 1 or 0
 			track:AdjustWeight(weight, fade)
 		end
 	end
