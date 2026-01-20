@@ -1,8 +1,9 @@
 --[[
-    ArmIK.lua - Universal arm IK for R6 rigs and viewmodels
+    ArmIK.lua - Arm IK for third-person character rigs
     
     Auto-detects Motor6D arm joints and provides simple IK solving.
-    Works with both first-person viewmodels and third-person character rigs.
+    Used for third-person character rigs to point arms toward aim direction.
+    NOTE: Viewmodel arms do NOT use IK - they rely on animations instead.
 ]]
 
 local function SolveArmIK(originCF, targetPos, l1, l2)
