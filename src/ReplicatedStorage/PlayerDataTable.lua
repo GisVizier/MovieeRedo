@@ -39,14 +39,14 @@ function PlayerDataTable.init()
 			OWNED_KITS = {"WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne"},
 			OWNED_PRIMARY = {"Shotgun", "Sniper"},
 			OWNED_SECONDARY = {"Revolver"},
-			OWNED_MELEE = {"Knife"},
+			OWNED_MELEE = {"Knife", "ExecutionerBlade"},
 		},
 
 		EQUIPPED = {
 			Kit = nil,
-			Primary = nil,
-			Secondary = nil,
-			Melee = nil,
+			Primary = "Shotgun",
+			Secondary = "Revolver",
+			Melee = "Knife",
 		},
 
 		EQUIPPED_SKINS = {

@@ -1,7 +1,7 @@
 --[[
 	Inspect.lua (Knife)
 
-	Client-side inspect with viewmodel offset.
+	Client-side inspect - animation only, no viewmodel offset.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -28,17 +28,11 @@ function Inspect.Execute(weaponInstance)
 
 	Inspect._isInspecting = true
 
-	local resetOffset = viewmodelController:SetOffset(
-		CFrame.new(0.2, -0.1, -0.15) * CFrame.Angles(math.rad(20), math.rad(-30), math.rad(10))
-	)
-
+	-- Play inspect animation (no offset for melee)
 	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
 
 	local function onComplete()
 		Inspect._isInspecting = false
-		if resetOffset then
-			resetOffset()
-		end
 	end
 
 	if track then
@@ -62,8 +56,7 @@ function Inspect.Cancel()
 		return
 	end
 
-	viewmodelController:SetOffset(CFrame.new())
-
+	-- Stop inspect animation
 	local animator = viewmodelController._animator
 	if animator and type(animator.Stop) == "function" then
 		animator:Stop("Inspect", 0.1)

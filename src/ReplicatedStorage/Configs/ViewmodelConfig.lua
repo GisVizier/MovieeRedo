@@ -168,6 +168,7 @@ ViewmodelConfig.Weapons = {
 			Inspect = "Inspect",
 			Attack = "Attack",
 			Special = "Special",
+			Equip = "Equip",
 		},
 	},
 
@@ -179,11 +180,9 @@ ViewmodelConfig.Weapons = {
 			Walk = "Walk",
 			Run = "Run",
 			Inspect = "Inspect",
-			Attack = "Attack",
-			Special = "Special",
-			SpecialCharge = "SpecialCharge",
-			SpecialRelease = "SpecialRelease",
 			Equip = "Equip",
+			Slash1 = "Slash1",
+			Slash2 = "Slash2",
 		},
 	},
 }

@@ -3,11 +3,16 @@
 
 	Client-side melee attack.
 	Heavy swing with longer cooldown.
+	Alternates between Slash1 and Slash2 for combo attacks.
 ]]
 
 local Inspect = require(script.Parent:WaitForChild("Inspect"))
 
 local Attack = {}
+
+-- Track current slash for combo
+Attack._currentSlash = 1
+Attack._comboResetTime = 1.0 -- Reset combo after 1 second of no attacks
 
 function Attack.Execute(weaponInstance, currentTime)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
@@ -32,12 +37,22 @@ function Attack.Execute(weaponInstance, currentTime)
 		return false, "Cooldown"
 	end
 
+	-- Reset combo if too much time passed
+	if timeSinceLastAttack > Attack._comboResetTime then
+		Attack._currentSlash = 1
+	end
+
 	state.LastAttackTime = now
 
-	-- Play heavy attack animation
+	-- Alternate between Slash1 and Slash2
+	local slashAnim = Attack._currentSlash == 1 and "Slash1" or "Slash2"
+	
 	if weaponInstance.PlayAnimation then
-		weaponInstance.PlayAnimation("Attack", 0.08, true)
+		weaponInstance.PlayAnimation(slashAnim, 0.08, true)
 	end
+
+	-- Cycle to next slash for combo
+	Attack._currentSlash = Attack._currentSlash == 1 and 2 or 1
 
 	-- Perform melee raycast
 	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(true)

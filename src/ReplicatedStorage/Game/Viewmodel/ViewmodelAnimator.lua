@@ -111,6 +111,8 @@ local function buildTracks(animator: Animator, weaponId: string?)
 
 		if animInstance then
 			local track = animator:LoadAnimation(animInstance)
+			
+			-- Loop attribute (default based on animation type)
 			local loopAttr = animInstance:GetAttribute("Loop")
 			if type(loopAttr) == "boolean" then
 				track.Looped = loopAttr
@@ -118,6 +120,7 @@ local function buildTracks(animator: Animator, weaponId: string?)
 				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
 			end
 
+			-- Priority attribute (default to Action)
 			local priorityAttr = animInstance:GetAttribute("Priority")
 			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
 				track.Priority = Enum.AnimationPriority[priorityAttr]
@@ -125,14 +128,30 @@ local function buildTracks(animator: Animator, weaponId: string?)
 				track.Priority = Enum.AnimationPriority.Action
 			end
 
+			-- Build settings from attributes (matching base animation structure)
+			local settings = {}
+			
 			local fadeInAttr = animInstance:GetAttribute("FadeInTime")
+			if type(fadeInAttr) == "number" then
+				settings.FadeInTime = fadeInAttr
+			end
+			
 			local fadeOutAttr = animInstance:GetAttribute("FadeOutTime")
+			if type(fadeOutAttr) == "number" then
+				settings.FadeOutTime = fadeOutAttr
+			end
+			
 			local weightAttr = animInstance:GetAttribute("Weight")
-			trackSettings[name] = {
-				FadeInTime = type(fadeInAttr) == "number" and fadeInAttr or nil,
-				FadeOutTime = type(fadeOutAttr) == "number" and fadeOutAttr or nil,
-				Weight = type(weightAttr) == "number" and weightAttr or nil,
-			}
+			if type(weightAttr) == "number" then
+				settings.Weight = weightAttr
+			end
+			
+			local speedAttr = animInstance:GetAttribute("Speed")
+			if type(speedAttr) == "number" then
+				settings.Speed = speedAttr
+			end
+			
+			trackSettings[name] = settings
 			tracks[name] = track
 		end
 	end
@@ -243,36 +262,45 @@ function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolea
 	end
 
 	if not track.IsPlaying then
-		local settings = self._trackSettings and self._trackSettings[name]
-		local fade = fadeTime
-		if fade == nil and settings and type(settings.FadeInTime) == "number" then
-			fade = settings.FadeInTime
-		end
+		local settings = self._trackSettings and self._trackSettings[name] or {}
+		
+		-- Use provided fadeTime or fall back to attribute, then default
+		local fade = fadeTime or settings.FadeInTime or 0.1
+		local weight = settings.Weight or 1
+		local speed = settings.Speed or 1
+		
 		if DEBUG_VIEWMODEL then
-			print(string.format("[ViewmodelAnimator] Play track: %s", tostring(name)))
+			print(string.format("[ViewmodelAnimator] Play track: %s (fade=%.2f, weight=%.2f, speed=%.2f)", 
+				tostring(name), fade, weight, speed))
 		end
-		track:Play(fade or 0.1)
-
-		if settings and type(settings.Weight) == "number" then
-			track:AdjustWeight(settings.Weight, 0)
-		end
+		
+		-- Play with all parameters at once (matching base animation structure)
+		track:Play(fade, weight, speed)
 	end
 end
 
 function ViewmodelAnimator:Stop(name: string, fadeTime: number?)
 	local track = self._tracks[name]
 	if track and track.IsPlaying then
-		local settings = self._trackSettings and self._trackSettings[name]
-		local fade = fadeTime
-		if fade == nil and settings and type(settings.FadeOutTime) == "number" then
-			fade = settings.FadeOutTime
+		local settings = self._trackSettings and self._trackSettings[name] or {}
+		
+		-- Use provided fadeTime or fall back to attribute, then default
+		local fade = fadeTime or settings.FadeOutTime or 0.1
+		
+		if DEBUG_VIEWMODEL then
+			print(string.format("[ViewmodelAnimator] Stop track: %s (fade=%.2f)", tostring(name), fade))
 		end
-		track:Stop(fade or 0.1)
+		
+		track:Stop(fade)
 	end
 end
 
 function ViewmodelAnimator:GetTrack(name: string)
 	return self._tracks[name]
+end
+
+function ViewmodelAnimator:GetTrackSettings(name: string)
+	return self._trackSettings and self._trackSettings[name] or {}
 end
 
 function ViewmodelAnimator:_updateMovement(dt: number)
@@ -308,15 +336,29 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 		target = "Idle"
 	end
 
+	-- Check if an action animation is playing (higher priority than movement)
+	-- Equip is excluded - it plays on top of Idle via priority for smoother transitions
+	local actionPlaying = false
+	local actionTracks = { "Inspect", "Fire", "Reload", "Attack", "Special", "SpecialCharge", "SpecialRelease", "Slash1", "Slash2", "Start", "Action", "End" }
+	for _, actionName in ipairs(actionTracks) do
+		local actionTrack = self._tracks[actionName]
+		if actionTrack and actionTrack.IsPlaying then
+			actionPlaying = true
+			break
+		end
+	end
+
 	-- Smooth crossfade between idle/walk/run.
+	-- Reduce weight when action animations are playing
 	local fade = 0.18
+	local movementWeight = actionPlaying and 0 or 1
 	for _, name in ipairs({ "Idle", "Walk", "Run" }) do
 		local track = self._tracks[name]
 		if track then
 			if not track.IsPlaying then
 				track:Play(0)
 			end
-			local weight = (name == target) and 1 or 0
+			local weight = (name == target) and movementWeight or 0
 			track:AdjustWeight(weight, fade)
 		end
 	end

@@ -177,7 +177,7 @@ function ViewmodelController:Init(registry, net)
 		task.defer(onSelectedLoadoutChanged)
 	end
 
-	-- Temporary equip hotkeys (PC): 1=Primary, 2=Secondary, 3=Fists, 4=Melee.
+	-- Equip hotkeys (PC): 1=Primary, 2=Secondary, 3=Melee.
 	-- IMPORTANT: uses InputController gating flags so it won't fire in menus/chat.
 	do
 		local inputController = self._registry and self._registry:TryGet("Input")
@@ -206,8 +206,6 @@ function ViewmodelController:Init(registry, net)
 			elseif key == Enum.KeyCode.Two then
 				self:_tryEquipSlotFromLoadout("Secondary")
 			elseif key == Enum.KeyCode.Three then
-				self:SetActiveSlot("Fists")
-			elseif key == Enum.KeyCode.Four then
 				self:_tryEquipSlotFromLoadout("Melee")
 			end
 		end)

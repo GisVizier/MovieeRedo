@@ -31,9 +31,7 @@ function Inspect.Execute(weaponInstance)
 	Inspect._isInspecting = true
 
 	-- Set inspect offset (smoothly transitions via spring)
-	local resetOffset = viewmodelController:SetOffset(
-		CFrame.new(0.15, -0.05, -0.2) * CFrame.Angles(math.rad(15), math.rad(-20), 0)
-	)
+	local resetOffset = viewmodelController:SetOffset(CFrame.new(0.2, 0.15, -0.25))
 
 	-- Play inspect animation and get track back
 	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
