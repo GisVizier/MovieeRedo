@@ -12,6 +12,7 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local ArmIK = require(Locations.Shared.Util:WaitForChild("ArmIK"))
 
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
@@ -87,6 +88,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				LastAnimationId = state.AnimationId or 1,
 				Head = player.Character:FindFirstChild("Head"),
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
+				ArmIK = rig and ArmIK.new(rig) or nil,
 			}
 			self.RemotePlayers[userId] = remoteData
 
@@ -285,6 +287,13 @@ function RemoteReplicator:ReplicatePlayers(dt)
 
 		if remoteData.Rig then
 			self:ApplyReplicatedRigRotation(remoteData, targetRigTilt)
+			
+			-- Apply arm IK to point arms toward aim direction
+			if remoteData.ArmIK then
+				local aimDistance = 15
+				local aimPos = remoteData.PrimaryPart.Position + smoothedDirection * aimDistance
+				remoteData.ArmIK:PointAt(aimPos, 0.6)
+			end
 		end
 
 		if remoteData.Head and remoteData.Head.Anchored and remoteData.HeadOffset then

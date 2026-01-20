@@ -111,7 +111,7 @@ local function buildTracks(animator: Animator, weaponId: string?)
 
 		if animInstance then
 			local track = animator:LoadAnimation(animInstance)
-
+			
 			-- Loop attribute (default based on animation type)
 			local loopAttr = animInstance:GetAttribute("Loop")
 			if type(loopAttr) == "boolean" then
@@ -124,35 +124,33 @@ local function buildTracks(animator: Animator, weaponId: string?)
 			local priorityAttr = animInstance:GetAttribute("Priority")
 			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
 				track.Priority = Enum.AnimationPriority[priorityAttr]
-			elseif type(priorityAttr) == "userdata" then
-				track.Priority = priorityAttr
 			else
 				track.Priority = Enum.AnimationPriority.Action
 			end
 
 			-- Build settings from attributes (matching base animation structure)
 			local settings = {}
-
+			
 			local fadeInAttr = animInstance:GetAttribute("FadeInTime")
 			if type(fadeInAttr) == "number" then
 				settings.FadeInTime = fadeInAttr
 			end
-
+			
 			local fadeOutAttr = animInstance:GetAttribute("FadeOutTime")
 			if type(fadeOutAttr) == "number" then
 				settings.FadeOutTime = fadeOutAttr
 			end
-
+			
 			local weightAttr = animInstance:GetAttribute("Weight")
 			if type(weightAttr) == "number" then
 				settings.Weight = weightAttr
 			end
-
+			
 			local speedAttr = animInstance:GetAttribute("Speed")
 			if type(speedAttr) == "number" then
 				settings.Speed = speedAttr
 			end
-
+			
 			trackSettings[name] = settings
 			tracks[name] = track
 		end

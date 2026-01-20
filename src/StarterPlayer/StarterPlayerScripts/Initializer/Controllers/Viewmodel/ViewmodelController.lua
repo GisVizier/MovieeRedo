@@ -13,6 +13,7 @@ local ViewmodelAnimator = require(Locations.Game:WaitForChild("Viewmodel"):WaitF
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local Spring = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("Spring"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
+local ArmIK = require(Locations.Shared.Util:WaitForChild("ArmIK"))
 
 local ViewmodelController = {}
 
@@ -134,6 +135,7 @@ function ViewmodelController:Init(registry, net)
 	self._bobT = 0
 	self._wasSliding = false
 	self._slideTiltTarget = Vector3.zero
+	self._armIK = nil
 
 	-- Listen for match start (Option A: equip Primary).
 	if self._net and self._net.ConnectClient then
@@ -306,6 +308,12 @@ function ViewmodelController:SetActiveSlot(slot: string)
 			weaponId = self._loadout[slot]
 		end
 		self._animator:BindRig(rig, weaponId)
+		
+		-- Initialize arm IK for this rig
+		if self._armIK then
+			self._armIK:Destroy()
+		end
+		self._armIK = rig and rig.Model and ArmIK.new(rig.Model) or nil
 	end
 
 	-- Play equip animation when switching weapons.
@@ -579,6 +587,14 @@ function ViewmodelController:_render(dt: number)
 		* CFrame.new(offset)
 	
 	rig.Model:PivotTo(target)
+	
+	-- Apply arm IK after positioning (arms reach toward aim point)
+	if self._armIK then
+		self._armIK:Update(dt)
+		local aimDistance = 12
+		local aimPos = cam.CFrame.Position + cam.CFrame.LookVector * aimDistance
+		self._armIK:PointAt(aimPos, 0.5)
+	end
 end
 
 function ViewmodelController:_onKitMessage(message)
@@ -703,6 +719,11 @@ function ViewmodelController:Destroy()
 
 	if self._animator then
 		self._animator:Unbind()
+	end
+	
+	if self._armIK then
+		self._armIK:Destroy()
+		self._armIK = nil
 	end
 end
 
