@@ -727,47 +727,57 @@ function module:_updateItemDesc(weaponData)
 		return
 	end
 
-	if self._itemDescAmmoFrame then
-		self._itemDescAmmoFrame.Visible = true
-	end
-
 	local maxAmmo = weaponData.MaxAmmo or 0
 	local ammo = weaponData.Ammo or 0
+	local clipSize = weaponData.ClipSize or 0
+	
+	-- Hide ammo display for weapons that don't use ammo (melee weapons)
+	local usesAmmo = clipSize > 0 or maxAmmo > 0
 
-	if self._itemDescAmmo then
-		self._itemDescAmmo.Text = tostring(ammo)
+	if self._itemDescAmmoFrame then
+		self._itemDescAmmoFrame.Visible = usesAmmo
 	end
-
-	if self._itemDescMax then
-		self._itemDescMax.Text = tostring(maxAmmo)
-	end
-
-	if self._ammoCounterAmmo then
-		self._ammoCounterAmmo.Text = tostring(ammo)
-	end
-
-	if self._ammoCounterMax then
-		self._ammoCounterMax.Text = tostring(maxAmmo)
+	
+	if self._ammoCounter then
+		self._ammoCounter.Visible = usesAmmo
 	end
 
-	local outOfAmmo = ammo <= 0 and maxAmmo <= 0
-	local emptyColor = Color3.fromRGB(250, 70, 70)
+	if usesAmmo then
+		if self._itemDescAmmo then
+			self._itemDescAmmo.Text = tostring(ammo)
+		end
 
-	if self._itemDescAmmo then
-		self._itemDescAmmo.TextColor3 = outOfAmmo and emptyColor or self._itemDescAmmoColor
-	end
-	if self._itemDescMax then
-		self._itemDescMax.TextColor3 = outOfAmmo and emptyColor or self._itemDescMaxColor
-	end
-	if self._ammoCounterAmmo then
-		self._ammoCounterAmmo.TextColor3 = outOfAmmo and emptyColor or self._ammoCounterAmmoColor
-	end
-	if self._ammoCounterMax then
-		self._ammoCounterMax.TextColor3 = outOfAmmo and emptyColor or self._ammoCounterMaxColor
+		if self._itemDescMax then
+			self._itemDescMax.Text = tostring(maxAmmo)
+		end
+
+		if self._ammoCounterAmmo then
+			self._ammoCounterAmmo.Text = tostring(ammo)
+		end
+
+		if self._ammoCounterMax then
+			self._ammoCounterMax.Text = tostring(maxAmmo)
+		end
+
+		local outOfAmmo = ammo <= 0 and maxAmmo <= 0
+		local emptyColor = Color3.fromRGB(250, 70, 70)
+
+		if self._itemDescAmmo then
+			self._itemDescAmmo.TextColor3 = outOfAmmo and emptyColor or self._itemDescAmmoColor
+		end
+		if self._itemDescMax then
+			self._itemDescMax.TextColor3 = outOfAmmo and emptyColor or self._itemDescMaxColor
+		end
+		if self._ammoCounterAmmo then
+			self._ammoCounterAmmo.TextColor3 = outOfAmmo and emptyColor or self._ammoCounterAmmoColor
+		end
+		if self._ammoCounterMax then
+			self._ammoCounterMax.TextColor3 = outOfAmmo and emptyColor or self._ammoCounterMaxColor
+		end
 	end
 
 	if self._ammoCounterReloading then
-		local isReloading = weaponData.Reloading == true
+		local isReloading = weaponData.Reloading == true and usesAmmo
 		if self._ammoCounterReloading:IsA("TextLabel") then
 			self._ammoCounterReloading.Text = "RELOADING"
 		end
