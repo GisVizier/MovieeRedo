@@ -580,67 +580,17 @@ function ViewmodelController:_render(dt: number)
 		if type(result) == "table" and result.align and result.blend then
 			local effectsMult = result.effectsMultiplier or 0.25
 			
-			-- Scaled position effects for ADS
+			-- Scaled position effects for ADS (bob only, no rotation)
 			local adsBobOffset = offset * effectsMult
 			
-			-- Clamped tilt values
-			local maxTilt = math.rad(5)  -- Max 5 degrees of tilt
-			local tiltX = springs.tiltRot.Position.X * effectsMult
-			local tiltZ = springs.tiltRot.Position.Z * effectsMult
-			local rotX = springs.rotation.Position.X * effectsMult
-			
-			local clampedTiltX = math.clamp(tiltX, -maxTilt, maxTilt)
-			local clampedTiltZ = math.clamp(tiltZ, -maxTilt, maxTilt)
-			local clampedRotX = math.clamp(rotX, -maxTilt, maxTilt)
-			
-			-- Only X rotation on viewmodel (up/down tilt) - Z handled by motor
-			local adsTilt = CFrame.Angles(clampedTiltX + clampedRotX, 0, 0)
-			
-			-- Compute ADS target: lookAt alignment + X tilt + position offset
+			-- Compute ADS target: lookAt alignment + position offset (no tilt)
 			local adsTarget = cam.CFrame 
 				* result.align 
 				* externalOffset 
-				* adsTilt
 				* CFrame.new(adsBobOffset)
 			
-			-- Lerp between hip (full effects) and ADS (lookAt + tilt)
+			-- Lerp between hip (full effects) and ADS (clean alignment)
 			target = hipTarget:Lerp(adsTarget, result.blend)
-			
-			-- Apply Z tilt (left/right roll) to the gun's Root Motor6D
-			-- This visually tilts the gun without affecting camera alignment
-			local partsFolder = rig.Model:FindFirstChild("Parts", true)
-			local gunPart = partsFolder and partsFolder:FindFirstChild("Primary")
-			local rootMotor = gunPart and gunPart:FindFirstChild("Root")
-			
-			-- Debug logging
-			if not self._motorDebugLogged then
-				print("[ADS Motor Debug] rig.Model:", rig.Model)
-				print("[ADS Motor Debug] partsFolder:", partsFolder)
-				print("[ADS Motor Debug] gunPart (Primary):", gunPart)
-				print("[ADS Motor Debug] rootMotor (Root):", rootMotor)
-				if rootMotor then
-					print("[ADS Motor Debug] rootMotor class:", rootMotor.ClassName)
-				end
-				-- List all children of gunPart to see what's there
-				if gunPart then
-					print("[ADS Motor Debug] gunPart children:")
-					for _, child in ipairs(gunPart:GetChildren()) do
-						print("  -", child.Name, "(" .. child.ClassName .. ")")
-					end
-				end
-				self._motorDebugLogged = true
-			end
-			
-			if rootMotor and rootMotor:IsA("Motor6D") then
-				-- Blend the motor tilt based on ADS blend
-				local motorTilt = CFrame.Angles(0, 0, clampedTiltZ * result.blend)
-				rootMotor.Transform = motorTilt
-			else
-				if not self._motorWarningLogged then
-					warn("[ADS] Could not find Root Motor6D for tilt")
-					self._motorWarningLogged = true
-				end
-			end
 		else
 			-- Fallback: old behavior (result is the alignWithOffset directly)
 			target = cam.CFrame * result * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
