@@ -128,6 +128,7 @@ LoadoutConfig.Weapons = {
 		-- ADS settings
 		adsFOV = 55,
 		adsSpeedMultiplier = 0.7,
+		adsEffectsMultiplier = 0.25, -- 25% of normal sway/tilt/bob when ADS
 
 		-- Weapon ballistics
 		damage = 15, -- Per pellet

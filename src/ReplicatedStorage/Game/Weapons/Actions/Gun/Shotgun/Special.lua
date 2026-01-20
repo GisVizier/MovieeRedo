@@ -15,8 +15,9 @@ Special._isADS = false
 Special._resetOffset = nil
 Special._originalFOV = nil
 Special._adsBlend = 0  -- Blend factor: 0 = hip, 1 = fully ADS
-Special._adsAttachment = nil
 Special._rig = nil
+Special._aimPosition = nil  -- Eye position attachment (where camera should be)
+Special._aimLookAt = nil    -- Look target attachment (what to look at)
 
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance then
@@ -56,32 +57,43 @@ function Special:_enterADS(weaponInstance)
 		return
 	end
 
-	-- Find the aim attachment
+	-- Find the two ADS attachments (inside Parts/Primary)
+	-- AimPosition = where the eye/camera should be
+	-- AimLookAt = what to look at (front sight, target point)
 	local partsFolder = rig.Model:FindFirstChild("Parts", true)
-	local gunContent = partsFolder and partsFolder:FindFirstChild("Primary")
-	local adsAttachment = gunContent and gunContent:FindFirstChild("Aim")
+	local gunPart = partsFolder and partsFolder:FindFirstChild("Primary")
+	local aimPosition = gunPart and gunPart:FindFirstChild("AimPosition")
+	local aimLookAt = gunPart and gunPart:FindFirstChild("AimLookAt")
 
-	if not adsAttachment then
+	if not aimPosition or not aimLookAt then
+		warn("[ADS] Missing AimPosition or AimLookAt attachments")
 		return
 	end
 
-	-- Store references for the blend function
+	-- Store references to attachments (live tracking, not frozen)
 	Special._rig = rig
-	Special._adsAttachment = adsAttachment
+	Special._aimPosition = aimPosition
+	Special._aimLookAt = aimLookAt
 	Special._adsBlend = 0  -- Start at 0, will blend toward 1
 
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
+	local adsEffectsMultiplier = config and config.adsEffectsMultiplier or 0.25
 
 	-- Set up the alignment override with smooth blending
-	-- Receives normalAlign AND baseOffset so we can lerp both properly
+	-- Computes ADS alignment LIVE every frame - follows gun animations
+	-- Tilt is applied as local roll by ViewmodelController (not here)
 	Special._resetOffset = viewmodelController:updateTargetCF(function(normalAlign, baseOffset)
-		if not Special._adsAttachment or not Special._rig then
-			return normalAlign * baseOffset
+		if not Special._rig or not Special._aimPosition or not Special._aimLookAt then
+			return { align = normalAlign * baseOffset, blend = 0, effectsMultiplier = 1 }
 		end
 
-		-- Compute ADS alignment (no baseOffset, directly to attachment)
-		local adsAlign = Special._rig.Model:GetPivot():ToObjectSpace(Special._adsAttachment.WorldCFrame):Inverse()
+		-- Compute ADS alignment using simple lookAt
+		-- Eye at AimPosition, looking toward AimLookAt
+		local eyePos = Special._aimPosition.WorldPosition
+		local lookAtPos = Special._aimLookAt.WorldPosition
+		local adsLookCFrame = CFrame.lookAt(eyePos, lookAtPos)
+		local adsAlign = Special._rig.Model:GetPivot():ToObjectSpace(adsLookCFrame):Inverse()
 
 		-- Smoothly adjust blend factor
 		if Special._isADS then
@@ -92,10 +104,13 @@ function Special:_enterADS(weaponInstance)
 			Special._adsBlend = Special._adsBlend * 0.88
 		end
 
-		-- Hip position = normalAlign * baseOffset (includes weapon offset)
-		-- ADS position = adsAlign (directly aligned to sight, no extra offset)
-		local hipAlign = normalAlign * baseOffset
-		return hipAlign:Lerp(adsAlign, Special._adsBlend)
+		-- Return ADS alignment, blend factor, and effects multiplier
+		-- ViewmodelController applies local roll for tilt
+		return { 
+			align = adsAlign, 
+			blend = Special._adsBlend,
+			effectsMultiplier = adsEffectsMultiplier
+		}
 	end)
 
 	-- Set ADS FOV
@@ -144,7 +159,8 @@ function Special:_exitADS(weaponInstance)
 			Special._resetOffset()
 			Special._resetOffset = nil
 			Special._rig = nil
-			Special._adsAttachment = nil
+			Special._aimPosition = nil
+			Special._aimLookAt = nil
 			Special._adsBlend = 0
 		end
 	end)

@@ -552,15 +552,6 @@ function ViewmodelController:_render(dt: number)
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
 	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
 
-	-- Combined alignment (align * baseOffset for normal, override handles lerp for ADS)
-	local alignWithOffset = normalAlign * baseOffset
-
-	-- If override is set (e.g. ADS), pass both normal alignment AND baseOffset
-	-- so it can lerp smoothly including the offset transition
-	if self._targetCFOverride then
-		alignWithOffset = self._targetCFOverride(normalAlign, baseOffset)
-	end
-
 	-- External offset (used by SetOffset for inspect, etc.)
 	local extPos = springs.externalPos.Position
 	local extRot = springs.externalRot.Position
@@ -570,13 +561,91 @@ function ViewmodelController:_render(dt: number)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
 	local offset = springs.bob.Position + springs.tiltPos.Position
 
-	-- Compute target with all effects (alignWithOffset already includes baseOffset)
-	local target = cam.CFrame
-		* alignWithOffset
+	-- Compute FULL hip target with all effects (sway, tilt, bob)
+	local hipTarget = cam.CFrame
+		* normalAlign
+		* baseOffset
 		* externalOffset
 		* rotationOffset
 		* tiltRotOffset
 		* CFrame.new(offset)
+
+	-- Final target - either hip or blended with ADS
+	local target = hipTarget
+
+	-- If override is set (e.g. ADS), blend between hip and ADS targets
+	if self._targetCFOverride then
+		-- Override returns {align = CFrame, blend = number, effectsMultiplier = number}
+		local result = self._targetCFOverride(normalAlign, baseOffset)
+		if type(result) == "table" and result.align and result.blend then
+			local effectsMult = result.effectsMultiplier or 0.25
+			
+			-- Scaled position effects for ADS
+			local adsBobOffset = offset * effectsMult
+			
+			-- Clamped tilt values
+			local maxTilt = math.rad(5)  -- Max 5 degrees of tilt
+			local tiltX = springs.tiltRot.Position.X * effectsMult
+			local tiltZ = springs.tiltRot.Position.Z * effectsMult
+			local rotX = springs.rotation.Position.X * effectsMult
+			
+			local clampedTiltX = math.clamp(tiltX, -maxTilt, maxTilt)
+			local clampedTiltZ = math.clamp(tiltZ, -maxTilt, maxTilt)
+			local clampedRotX = math.clamp(rotX, -maxTilt, maxTilt)
+			
+			-- Only X rotation on viewmodel (up/down tilt) - Z handled by motor
+			local adsTilt = CFrame.Angles(clampedTiltX + clampedRotX, 0, 0)
+			
+			-- Compute ADS target: lookAt alignment + X tilt + position offset
+			local adsTarget = cam.CFrame 
+				* result.align 
+				* externalOffset 
+				* adsTilt
+				* CFrame.new(adsBobOffset)
+			
+			-- Lerp between hip (full effects) and ADS (lookAt + tilt)
+			target = hipTarget:Lerp(adsTarget, result.blend)
+			
+			-- Apply Z tilt (left/right roll) to the gun's Root Motor6D
+			-- This visually tilts the gun without affecting camera alignment
+			local partsFolder = rig.Model:FindFirstChild("Parts", true)
+			local gunPart = partsFolder and partsFolder:FindFirstChild("Primary")
+			local rootMotor = gunPart and gunPart:FindFirstChild("Root")
+			
+			-- Debug logging
+			if not self._motorDebugLogged then
+				print("[ADS Motor Debug] rig.Model:", rig.Model)
+				print("[ADS Motor Debug] partsFolder:", partsFolder)
+				print("[ADS Motor Debug] gunPart (Primary):", gunPart)
+				print("[ADS Motor Debug] rootMotor (Root):", rootMotor)
+				if rootMotor then
+					print("[ADS Motor Debug] rootMotor class:", rootMotor.ClassName)
+				end
+				-- List all children of gunPart to see what's there
+				if gunPart then
+					print("[ADS Motor Debug] gunPart children:")
+					for _, child in ipairs(gunPart:GetChildren()) do
+						print("  -", child.Name, "(" .. child.ClassName .. ")")
+					end
+				end
+				self._motorDebugLogged = true
+			end
+			
+			if rootMotor and rootMotor:IsA("Motor6D") then
+				-- Blend the motor tilt based on ADS blend
+				local motorTilt = CFrame.Angles(0, 0, clampedTiltZ * result.blend)
+				rootMotor.Transform = motorTilt
+			else
+				if not self._motorWarningLogged then
+					warn("[ADS] Could not find Root Motor6D for tilt")
+					self._motorWarningLogged = true
+				end
+			end
+		else
+			-- Fallback: old behavior (result is the alignWithOffset directly)
+			target = cam.CFrame * result * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
+		end
+	end
 
 	rig.Model:PivotTo(target)
 end
