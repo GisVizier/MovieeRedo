@@ -393,11 +393,16 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 		end
 	end
 	
-	do
-		local runTrack = self._tracks.Run
-		if runTrack then
-			local runSpeed = (target == "Run" and not grounded) and AIRBORNE_SPRINT_SPEED or 1
+	-- Adjust run animation speed/direction
+	local runTrack = self._tracks.Run
+	if runTrack then
+		if target == "Run" then
+			local baseSpeed = (not grounded) and AIRBORNE_SPRINT_SPEED or 1
+			-- Reverse animation when running backwards
+			local runSpeed = isMovingBackward and -baseSpeed or baseSpeed
 			runTrack:AdjustSpeed(runSpeed)
+		else
+			runTrack:AdjustSpeed(1)
 		end
 	end
 	self._currentMove = target

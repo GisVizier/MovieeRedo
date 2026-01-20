@@ -30,13 +30,13 @@ function WeaponCooldown:StartCooldown(name: string, duration: number)
 		startTime = os.clock(),
 	}
 	
-	self._onCooldownChanged:Fire(name, duration, 0)
+	self._onCooldownChanged:fire(name, duration, 0)
 	
 	-- Schedule completion callback
 	task.delay(duration, function()
 		local cd = self._cooldowns[name]
 		if cd and os.clock() >= cd.endTime then
-			self._onCooldownComplete:Fire(name)
+			self._onCooldownComplete:fire(name)
 		end
 	end)
 end
@@ -70,7 +70,7 @@ end
 function WeaponCooldown:ClearCooldown(name: string)
 	if self._cooldowns[name] then
 		self._cooldowns[name] = nil
-		self._onCooldownComplete:Fire(name)
+		self._onCooldownComplete:fire(name)
 	end
 end
 
@@ -89,8 +89,8 @@ function WeaponCooldown:OnCooldownComplete()
 end
 
 function WeaponCooldown:Destroy()
-	self._onCooldownChanged:Destroy()
-	self._onCooldownComplete:Destroy()
+	self._onCooldownChanged:destroy()
+	self._onCooldownComplete:destroy()
 	self._cooldowns = {}
 end
 

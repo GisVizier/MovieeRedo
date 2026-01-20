@@ -735,11 +735,19 @@ function module:_updateItemDesc(weaponData)
 	local usesAmmo = clipSize > 0 or maxAmmo > 0
 
 	if self._itemDescAmmoFrame then
-		self._itemDescAmmoFrame.Visible = usesAmmo
+		if self._itemDescAmmoFrame:IsA("CanvasGroup") then
+			self._itemDescAmmoFrame.GroupTransparency = usesAmmo and 0 or 1
+		else
+			self._itemDescAmmoFrame.Visible = usesAmmo
+		end
 	end
 	
 	if self._ammoCounter then
-		self._ammoCounter.Visible = usesAmmo
+		if self._ammoCounter:IsA("CanvasGroup") then
+			self._ammoCounter.GroupTransparency = usesAmmo and 0 or 1
+		else
+			self._ammoCounter.Visible = usesAmmo
+		end
 	end
 
 	if usesAmmo then
