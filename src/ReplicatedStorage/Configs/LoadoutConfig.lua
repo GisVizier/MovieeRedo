@@ -89,6 +89,13 @@ LoadoutConfig.Weapons = {
 		maxRange = 500,
 		minDamage = 35, -- Damage at max range
 		tracerColor = Color3.fromRGB(255, 200, 100),
+
+		crosshair = {
+			type = "Default",
+			spreadX = 0.5,
+			spreadY = 0.5,
+			recoilMultiplier = 2.5,
+		},
 	},
 
 	Shotgun = {
@@ -135,6 +142,13 @@ LoadoutConfig.Weapons = {
 		maxRange = 50,
 		minDamage = 5, -- Per pellet at max range
 		tracerColor = Color3.fromRGB(255, 150, 50),
+
+		crosshair = {
+			type = "Shotgun",
+			spreadX = 2.5,
+			spreadY = 2.5,
+			recoilMultiplier = 2.0,
+		},
 	},
 
 	AssaultRifle = {
@@ -179,6 +193,13 @@ LoadoutConfig.Weapons = {
 		maxRange = 300,
 		minDamage = 12,
 		tracerColor = Color3.fromRGB(255, 230, 150),
+
+		crosshair = {
+			type = "Default",
+			spreadX = 1.2,
+			spreadY = 1.2,
+			recoilMultiplier = 1.2,
+		},
 	},
 
 	Revolver = {
@@ -246,6 +267,13 @@ LoadoutConfig.Weapons = {
 		maxRange = 200,
 		minDamage = 20,
 		tracerColor = Color3.fromRGB(255, 100, 50),
+
+		crosshair = {
+			type = "Default",
+			spreadX = 1.5,
+			spreadY = 1.5,
+			recoilMultiplier = 1.8,
+		},
 	},
 
 	Knife = {
@@ -269,6 +297,13 @@ LoadoutConfig.Weapons = {
 
 		-- Speed settings
 		speedMultiplier = 1.1, -- 10% faster (light melee)
+
+		crosshair = {
+			type = "Default",
+			spreadX = 0.5,
+			spreadY = 0.5,
+			recoilMultiplier = 0.3,
+		},
 	},
 
 	ExecutionerBlade = {
@@ -298,6 +333,13 @@ LoadoutConfig.Weapons = {
 		range = 8,
 		specialDamage = 100,
 		specialRange = 12,
+
+		crosshair = {
+			type = "Default",
+			spreadX = 0.5,
+			spreadY = 0.5,
+			recoilMultiplier = 0.3,
+		},
 	},
 }
 
@@ -320,53 +362,6 @@ LoadoutConfig.Crosshair = {
 		opacity = 1,
 		scale = 1,
 		dynamicSpreadEnabled = true,
-	},
-
-	WeaponCrosshairs = {
-		Revolver = "Default",
-		AssaultRifle = "Default",
-		Shotgun = "Shotgun",
-		Sniper = "Default",
-		Knife = "Default",
-		ExecutionerBlade = "Default",
-	},
-
-	WeaponSpreadData = {
-		Default = {
-			spreadX = 1,
-			spreadY = 1,
-			recoilMultiplier = 1,
-		},
-		Revolver = {
-			spreadX = 1.5,
-			spreadY = 1.5,
-			recoilMultiplier = 1.8,
-		},
-		AssaultRifle = {
-			spreadX = 1.2,
-			spreadY = 1.2,
-			recoilMultiplier = 1.2,
-		},
-		Shotgun = {
-			spreadX = 2.5,
-			spreadY = 2.5,
-			recoilMultiplier = 2.0,
-		},
-		Sniper = {
-			spreadX = 0.5,
-			spreadY = 0.5,
-			recoilMultiplier = 2.5,
-		},
-		Knife = {
-			spreadX = 0.5,
-			spreadY = 0.5,
-			recoilMultiplier = 0.3,
-		},
-		ExecutionerBlade = {
-			spreadX = 0.5,
-			spreadY = 0.5,
-			recoilMultiplier = 0.3,
-		},
 	},
 }
 

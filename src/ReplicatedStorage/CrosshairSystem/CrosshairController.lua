@@ -163,6 +163,16 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 		moduleInstance:ApplyCustomization(self._customization)
 	end
 
+	-- Seed spread using current movement so it doesn't start at default size
+	local velocity, speed = self:_getVelocity()
+	self._module:Update(1, {
+		velocity = velocity,
+		speed = speed,
+		weaponData = self._weaponData,
+		customization = self._customization,
+		dt = 1,
+	})
+
 	self:_startUpdateLoop()
 end
 

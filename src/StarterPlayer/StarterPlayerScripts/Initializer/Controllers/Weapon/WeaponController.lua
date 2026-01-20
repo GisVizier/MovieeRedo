@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
@@ -255,9 +256,11 @@ function WeaponController:_onCameraModeChanged(_mode)
 
 	if not self:_isFirstPerson() then
 		self._crosshair:RemoveCrosshair()
+		UserInputService.MouseIconEnabled = true
 		return
 	end
 
+	UserInputService.MouseIconEnabled = false
 	if self._equippedWeaponId then
 		self:_applyCrosshairForWeapon(self._equippedWeaponId)
 	end
@@ -272,16 +275,10 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 		return
 	end
 
-	local crosshairType = "Default"
-	if crosshairConfig.WeaponCrosshairs then
-		crosshairType = crosshairConfig.WeaponCrosshairs[weaponId] or "Default"
-	end
-
-	local weaponData = nil
-	if crosshairConfig.WeaponSpreadData then
-		weaponData = crosshairConfig.WeaponSpreadData[weaponId] or crosshairConfig.WeaponSpreadData.Default
-	end
-
+	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+	local weaponData = weaponConfig and weaponConfig.crosshair or nil
+	local crosshairType = (weaponData and weaponData.type) or "Default"
+	UserInputService.MouseIconEnabled = false
 	self._crosshair:ApplyCrosshair(crosshairType, weaponData)
 end
 
@@ -294,11 +291,8 @@ function WeaponController:_applyCrosshairRecoil()
 		return
 	end
 
-	local weaponData = nil
-	if crosshairConfig.WeaponSpreadData then
-		weaponData = crosshairConfig.WeaponSpreadData[self._equippedWeaponId]
-			or crosshairConfig.WeaponSpreadData.Default
-	end
+	local weaponConfig = LoadoutConfig.getWeapon(self._equippedWeaponId)
+	local weaponData = weaponConfig and weaponConfig.crosshair or nil
 
 	if weaponData then
 		self._crosshair:OnRecoil({ amount = weaponData.recoilMultiplier or 1 })
@@ -359,6 +353,7 @@ function WeaponController:_unequipCurrentWeapon()
 	if self._crosshair then
 		self._crosshair:RemoveCrosshair()
 	end
+	UserInputService.MouseIconEnabled = true
 
 	-- Cancel any active actions
 	if self._currentActions then
