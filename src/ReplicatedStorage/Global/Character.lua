@@ -1,5 +1,5 @@
 local Character = {
-	SprintSpeed = 24,
+	SprintSpeed = 32,
 	WalkSpeed = 17,
 	JumpPower = 35,
 	AutoSprint = false,

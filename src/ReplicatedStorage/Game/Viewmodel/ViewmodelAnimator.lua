@@ -112,43 +112,45 @@ local function buildTracks(animator: Animator, weaponId: string?)
 		if animInstance then
 			local track = animator:LoadAnimation(animInstance)
 			
-			-- Loop attribute (default based on animation type)
-			local loopAttr = animInstance:GetAttribute("Loop")
-			if type(loopAttr) == "boolean" then
-				track.Looped = loopAttr
-			else
-				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
+			-- Read directly from Animation instance PROPERTIES (not attributes)
+			-- These are set in Roblox Studio on the Animation instance itself
+			
+			-- Priority is a property on Animation, copy it to the track
+			if animInstance.Priority then
+				track.Priority = animInstance.Priority
 			end
-
-			-- Priority attribute (default to Action)
-			local priorityAttr = animInstance:GetAttribute("Priority")
-			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
-				track.Priority = Enum.AnimationPriority[priorityAttr]
-			else
-				track.Priority = Enum.AnimationPriority.Action
-			end
-
-			-- Build settings from attributes (matching base animation structure)
+			
+			-- Build settings from Animation ATTRIBUTES (custom ones we add)
 			local settings = {}
 			
+			-- FadeInTime attribute
 			local fadeInAttr = animInstance:GetAttribute("FadeInTime")
 			if type(fadeInAttr) == "number" then
 				settings.FadeInTime = fadeInAttr
 			end
 			
+			-- FadeOutTime attribute
 			local fadeOutAttr = animInstance:GetAttribute("FadeOutTime")
 			if type(fadeOutAttr) == "number" then
 				settings.FadeOutTime = fadeOutAttr
 			end
 			
+			-- Weight attribute
 			local weightAttr = animInstance:GetAttribute("Weight")
 			if type(weightAttr) == "number" then
 				settings.Weight = weightAttr
 			end
 			
+			-- Speed attribute
 			local speedAttr = animInstance:GetAttribute("Speed")
 			if type(speedAttr) == "number" then
 				settings.Speed = speedAttr
+			end
+			
+			-- Loop attribute (can override the animation's built-in looping)
+			local loopAttr = animInstance:GetAttribute("Loop")
+			if type(loopAttr) == "boolean" then
+				track.Looped = loopAttr
 			end
 			
 			trackSettings[name] = settings
