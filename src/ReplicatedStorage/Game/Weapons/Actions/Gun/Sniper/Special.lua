@@ -60,10 +60,11 @@ function Special:_enterADS(weaponInstance)
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
 	
-	-- Pass a function that continuously computes the offset each frame
+	-- Direct CFrame override - aligns attachment to camera center
 	if adsAttachment then
-		Special._resetOffset = viewmodelController:SetOffset(function()
-			return rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame)
+		Special._resetOffset = viewmodelController:SetTargetCFrame(function()
+			local cam = workspace.CurrentCamera
+			return cam.CFrame * rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame):Inverse()
 		end)
 	end
 	

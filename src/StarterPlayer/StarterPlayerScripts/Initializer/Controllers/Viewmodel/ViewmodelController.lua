@@ -65,6 +65,7 @@ ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
 ViewmodelController._externalOffsetFunc = nil -- Function for continuous offset updates (e.g. ADS)
+ViewmodelController._targetCFrameFunc = nil -- Direct CFrame override (e.g. ADS alignment)
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -370,6 +371,25 @@ function ViewmodelController:SetOffset(offsetOrFunc: CFrame | () -> CFrame)
 	end
 end
 
+--[[
+	SetTargetCFrame: Direct CFrame override for the viewmodel.
+	
+	When set, the render loop will use this function's returned CFrame directly
+	for PivotTo, completely bypassing normal alignment/offset calculations.
+	
+	@param cframeFunc - A function that returns the final CFrame for the viewmodel.
+	                    Example for ADS:
+	                    function() return cam.CFrame * rig.Model:GetPivot():ToObjectSpace(attachment.WorldCFrame):Inverse() end
+	@return function - Call this to clear the override and return to normal rendering.
+]]
+function ViewmodelController:SetTargetCFrame(cframeFunc: () -> CFrame)
+	self._targetCFrameFunc = cframeFunc
+	
+	return function()
+		self._targetCFrameFunc = nil
+	end
+end
+
 function ViewmodelController:GetActiveRig()
 	if not self._loadoutVm or not self._activeSlot then
 		return nil
@@ -535,6 +555,15 @@ function ViewmodelController:_render(dt: number)
 			self._slideTiltTarget = Vector3.zero
 			springs.tiltRot.Target = Vector3.zero
 			springs.tiltPos.Target = Vector3.zero
+		end
+	end
+
+	-- Direct CFrame override (e.g. ADS) - skip all normal calculations
+	if self._targetCFrameFunc then
+		local targetCFrame = self._targetCFrameFunc()
+		if targetCFrame then
+			rig.Model:PivotTo(targetCFrame)
+			return
 		end
 	end
 
