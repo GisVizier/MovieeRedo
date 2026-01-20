@@ -731,42 +731,27 @@ function module:_updateItemDesc(weaponData)
 	local ammo = weaponData.Ammo or 0
 	local clipSize = weaponData.ClipSize or 0
 	
-	-- Hide ammo display for weapons that don't use ammo (melee weapons)
+	-- Check if weapon uses ammo (melee weapons don't)
 	local usesAmmo = clipSize > 0 or maxAmmo > 0
 
-	if self._itemDescAmmoFrame then
-		if self._itemDescAmmoFrame:IsA("CanvasGroup") then
-			self._itemDescAmmoFrame.GroupTransparency = usesAmmo and 0 or 1
-		else
-			self._itemDescAmmoFrame.Visible = usesAmmo
-		end
+	-- Only update ammo text elements - don't touch frame visibility
+	if self._itemDescAmmo then
+		self._itemDescAmmo.Text = usesAmmo and tostring(ammo) or ""
 	end
-	
-	if self._ammoCounter then
-		if self._ammoCounter:IsA("CanvasGroup") then
-			self._ammoCounter.GroupTransparency = usesAmmo and 0 or 1
-		else
-			self._ammoCounter.Visible = usesAmmo
-		end
+
+	if self._itemDescMax then
+		self._itemDescMax.Text = usesAmmo and tostring(maxAmmo) or ""
+	end
+
+	if self._ammoCounterAmmo then
+		self._ammoCounterAmmo.Text = usesAmmo and tostring(ammo) or ""
+	end
+
+	if self._ammoCounterMax then
+		self._ammoCounterMax.Text = usesAmmo and tostring(maxAmmo) or ""
 	end
 
 	if usesAmmo then
-		if self._itemDescAmmo then
-			self._itemDescAmmo.Text = tostring(ammo)
-		end
-
-		if self._itemDescMax then
-			self._itemDescMax.Text = tostring(maxAmmo)
-		end
-
-		if self._ammoCounterAmmo then
-			self._ammoCounterAmmo.Text = tostring(ammo)
-		end
-
-		if self._ammoCounterMax then
-			self._ammoCounterMax.Text = tostring(maxAmmo)
-		end
-
 		local outOfAmmo = ammo <= 0 and maxAmmo <= 0
 		local emptyColor = Color3.fromRGB(250, 70, 70)
 
