@@ -111,48 +111,48 @@ local function buildTracks(animator: Animator, weaponId: string?)
 
 		if animInstance then
 			local track = animator:LoadAnimation(animInstance)
-			
-			-- Read directly from Animation instance PROPERTIES (not attributes)
-			-- These are set in Roblox Studio on the Animation instance itself
-			
-			-- Priority is a property on Animation, copy it to the track
-			if animInstance.Priority then
-				track.Priority = animInstance.Priority
+
+			-- Loop attribute (default based on animation type)
+			local loopAttr = animInstance:GetAttribute("Loop")
+			if type(loopAttr) == "boolean" then
+				track.Looped = loopAttr
+			else
+				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
 			end
-			
-			-- Build settings from Animation ATTRIBUTES (custom ones we add)
+
+			-- Priority attribute (default to Action)
+			local priorityAttr = animInstance:GetAttribute("Priority")
+			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+				track.Priority = Enum.AnimationPriority[priorityAttr]
+			elseif type(priorityAttr) == "userdata" then
+				track.Priority = priorityAttr
+			else
+				track.Priority = Enum.AnimationPriority.Action
+			end
+
+			-- Build settings from attributes (matching base animation structure)
 			local settings = {}
-			
-			-- FadeInTime attribute
+
 			local fadeInAttr = animInstance:GetAttribute("FadeInTime")
 			if type(fadeInAttr) == "number" then
 				settings.FadeInTime = fadeInAttr
 			end
-			
-			-- FadeOutTime attribute
+
 			local fadeOutAttr = animInstance:GetAttribute("FadeOutTime")
 			if type(fadeOutAttr) == "number" then
 				settings.FadeOutTime = fadeOutAttr
 			end
-			
-			-- Weight attribute
+
 			local weightAttr = animInstance:GetAttribute("Weight")
 			if type(weightAttr) == "number" then
 				settings.Weight = weightAttr
 			end
-			
-			-- Speed attribute
+
 			local speedAttr = animInstance:GetAttribute("Speed")
 			if type(speedAttr) == "number" then
 				settings.Speed = speedAttr
 			end
-			
-			-- Loop attribute (can override the animation's built-in looping)
-			local loopAttr = animInstance:GetAttribute("Loop")
-			if type(loopAttr) == "boolean" then
-				track.Looped = loopAttr
-			end
-			
+
 			trackSettings[name] = settings
 			tracks[name] = track
 		end
@@ -265,17 +265,24 @@ function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolea
 
 	if not track.IsPlaying then
 		local settings = self._trackSettings and self._trackSettings[name] or {}
-		
+
 		-- Use provided fadeTime or fall back to attribute, then default
 		local fade = fadeTime or settings.FadeInTime or 0.1
 		local weight = settings.Weight or 1
 		local speed = settings.Speed or 1
-		
+
 		if DEBUG_VIEWMODEL then
-			print(string.format("[ViewmodelAnimator] Play track: %s (fade=%.2f, weight=%.2f, speed=%.2f)", 
-				tostring(name), fade, weight, speed))
+			print(
+				string.format(
+					"[ViewmodelAnimator] Play track: %s (fade=%.2f, weight=%.2f, speed=%.2f)",
+					tostring(name),
+					fade,
+					weight,
+					speed
+				)
+			)
 		end
-		
+
 		-- Play with all parameters at once (matching base animation structure)
 		track:Play(fade, weight, speed)
 	end
@@ -285,14 +292,14 @@ function ViewmodelAnimator:Stop(name: string, fadeTime: number?)
 	local track = self._tracks[name]
 	if track and track.IsPlaying then
 		local settings = self._trackSettings and self._trackSettings[name] or {}
-		
+
 		-- Use provided fadeTime or fall back to attribute, then default
 		local fade = fadeTime or settings.FadeOutTime or 0.1
-		
+
 		if DEBUG_VIEWMODEL then
 			print(string.format("[ViewmodelAnimator] Stop track: %s (fade=%.2f)", tostring(name), fade))
 		end
-		
+
 		track:Stop(fade)
 	end
 end
@@ -369,7 +376,7 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 			track:AdjustWeight(weight, fade)
 		end
 	end
-	
+
 	-- Adjust walk animation speed/direction
 	local walkTrack = self._tracks.Walk
 	if walkTrack then
@@ -381,7 +388,7 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 			walkTrack:AdjustSpeed(1)
 		end
 	end
-	
+
 	-- Adjust run animation speed/direction
 	local runTrack = self._tracks.Run
 	if runTrack then

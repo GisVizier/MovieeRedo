@@ -8,6 +8,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 
 local Special = {}
 Special._isADS = false
@@ -54,23 +55,21 @@ function Special:_enterADS(weaponInstance)
 	local gunContent = rig.Model:FindFirstChild("Primary", true)
 	local adsAttachment = gunContent and gunContent:FindFirstChild("Aim")
 
-	if adsAttachment then
-		local adsOffset = rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame):Inverse()
-		Special._resetOffset = viewmodelController:SetOffset(adsOffset)
-	end
-
+	local adsOffset = adsAttachment and rig.Model:GetPivot():ToObjectSpace(adsAttachment.WorldCFrame):Inverse() or nil
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
-	if adsFOV then
-		local cameraController = ServiceRegistry:GetController("Camera")
-		if cameraController and cameraController.SetFOV then
-			Special._originalFOV = workspace.CurrentCamera.FieldOfView
-			cameraController:SetFOV(adsFOV)
-		else
-			Special._originalFOV = workspace.CurrentCamera.FieldOfView
-			workspace.CurrentCamera.FieldOfView = adsFOV
+	task.defer(function()
+		if not Special._isADS then
+			return
 		end
-	end
+		if adsOffset then
+			Special._resetOffset = viewmodelController:SetOffset(adsOffset)
+		end
+		if adsFOV then
+			Special._originalFOV = FOVController.BaseFOV
+			FOVController:SetBaseFOV(adsFOV)
+		end
+	end)
 
 	-- Apply ADS speed multiplier
 	local adsSpeedMult = config and config.adsSpeedMultiplier or 0.5
@@ -91,12 +90,7 @@ function Special:_exitADS(weaponInstance)
 	end
 
 	if Special._originalFOV then
-		local cameraController = ServiceRegistry:GetController("Camera")
-		if cameraController and cameraController.ResetFOV then
-			cameraController:ResetFOV()
-		else
-			workspace.CurrentCamera.FieldOfView = Special._originalFOV
-		end
+		FOVController:SetBaseFOV(Special._originalFOV)
 		Special._originalFOV = nil
 	end
 

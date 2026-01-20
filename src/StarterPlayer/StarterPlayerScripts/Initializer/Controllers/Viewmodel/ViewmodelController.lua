@@ -338,7 +338,7 @@ function ViewmodelController:SetOffset(offset: CFrame)
 	local rx, ry, rz = offset:ToEulerAnglesXYZ()
 	self._springs.externalPos.Target = pos
 	self._springs.externalRot.Target = Vector3.new(rx, ry, rz)
-	
+
 	return function()
 		self._springs.externalPos.Target = Vector3.zero
 		self._springs.externalRot.Target = Vector3.zero
@@ -535,7 +535,13 @@ function ViewmodelController:_render(dt: number)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
 	local offset = springs.bob.Position + springs.tiltPos.Position
 
-	local target = cam.CFrame * align * baseOffset * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
+	local target = cam.CFrame
+		* align
+		* baseOffset
+		* externalOffset
+		* rotationOffset
+		* tiltRotOffset
+		* CFrame.new(offset)
 	rig.Model:PivotTo(target)
 end
 
