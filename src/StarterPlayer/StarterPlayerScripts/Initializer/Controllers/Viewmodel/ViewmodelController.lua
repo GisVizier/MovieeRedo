@@ -541,13 +541,7 @@ function ViewmodelController:_render(dt: number)
 	-- Align rig so its Anchor part matches the camera.
 	local pivot = rig.Model:GetPivot()
 	local anchorPivot = rig.Anchor:GetPivot()
-	local align = pivot:ToObjectSpace(anchorPivot):Inverse()
-
-	-- If alignment override is set (e.g. ADS), let it modify the alignment
-	local hasOverride = self._targetCFOverride ~= nil
-	if hasOverride then
-		align = self._targetCFOverride(align)
-	end
+	local normalAlign = pivot:ToObjectSpace(anchorPivot):Inverse()
 
 	local weaponId = nil
 	if self._activeSlot == "Fists" then
@@ -556,9 +550,16 @@ function ViewmodelController:_render(dt: number)
 		weaponId = self._loadout[self._activeSlot]
 	end
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
-	
-	-- Skip baseOffset when override is active (e.g. ADS needs precise alignment)
-	local baseOffset = hasOverride and CFrame.new() or ((cfg and cfg.Offset) or CFrame.new())
+	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
+
+	-- Combined alignment (align * baseOffset for normal, override handles lerp for ADS)
+	local alignWithOffset = normalAlign * baseOffset
+
+	-- If override is set (e.g. ADS), pass both normal alignment AND baseOffset
+	-- so it can lerp smoothly including the offset transition
+	if self._targetCFOverride then
+		alignWithOffset = self._targetCFOverride(normalAlign, baseOffset)
+	end
 
 	-- External offset (used by SetOffset for inspect, etc.)
 	local extPos = springs.externalPos.Position
@@ -569,15 +570,14 @@ function ViewmodelController:_render(dt: number)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
 	local offset = springs.bob.Position + springs.tiltPos.Position
 
-	-- Compute target with all effects
+	-- Compute target with all effects (alignWithOffset already includes baseOffset)
 	local target = cam.CFrame
-		* align
-		* baseOffset
+		* alignWithOffset
 		* externalOffset
 		* rotationOffset
 		* tiltRotOffset
 		* CFrame.new(offset)
-	
+
 	rig.Model:PivotTo(target)
 end
 

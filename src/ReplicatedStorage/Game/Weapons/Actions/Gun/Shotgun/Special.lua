@@ -74,24 +74,28 @@ function Special:_enterADS(weaponInstance)
 	local adsFOV = config and config.adsFOV
 
 	-- Set up the alignment override with smooth blending
-	Special._resetOffset = viewmodelController:updateTargetCF(function(normalAlign)
+	-- Receives normalAlign AND baseOffset so we can lerp both properly
+	Special._resetOffset = viewmodelController:updateTargetCF(function(normalAlign, baseOffset)
 		if not Special._adsAttachment or not Special._rig then
-			return normalAlign
+			return normalAlign * baseOffset
 		end
 
-		-- Compute ADS alignment
+		-- Compute ADS alignment (no baseOffset, directly to attachment)
 		local adsAlign = Special._rig.Model:GetPivot():ToObjectSpace(Special._adsAttachment.WorldCFrame):Inverse()
 
-		-- Smoothly increase blend toward 1 when ADS is active
+		-- Smoothly adjust blend factor
 		if Special._isADS then
+			-- Blend toward 1 when ADS active
 			Special._adsBlend = Special._adsBlend + (1 - Special._adsBlend) * 0.12
 		else
-			-- Smoothly decrease blend toward 0 when exiting ADS
+			-- Blend toward 0 when exiting ADS
 			Special._adsBlend = Special._adsBlend * 0.88
 		end
 
-		-- Lerp between normal and ADS alignment
-		return normalAlign:Lerp(adsAlign, Special._adsBlend)
+		-- Hip position = normalAlign * baseOffset (includes weapon offset)
+		-- ADS position = adsAlign (directly aligned to sight, no extra offset)
+		local hipAlign = normalAlign * baseOffset
+		return hipAlign:Lerp(adsAlign, Special._adsBlend)
 	end)
 
 	-- Set ADS FOV
