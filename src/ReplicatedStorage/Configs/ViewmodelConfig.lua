@@ -147,14 +147,15 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Sniper,
 		Offset = CFrame.new(0, 0, 0.6),
 		Animations = {
-			Idle = "rbxassetid://0",
-			Walk = "rbxassetid://0",
-			Run = "rbxassetid://0",
-			Equip = "rbxassetid://0",
-			Inspect = "rbxassetid://0",
-			Fire = "rbxassetid://0",
-			Reload = "rbxassetid://0",
-			ADS = "rbxassetid://0",
+			-- Using Animation instances from Assets/Animations/ViewModel/Sniper/Viewmodel/
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
+			Equip = "Equip",
+			Inspect = "Inspect",
+			Fire = "Fire",
+			Reload = "Reload",
+			ADS = "Idle",  -- Uses Idle pose for ADS (add dedicated ADS animation if available)
 		},
 	},
 

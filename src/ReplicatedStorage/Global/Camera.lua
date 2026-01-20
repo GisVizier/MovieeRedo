@@ -75,19 +75,20 @@ Camera.Shoulder = {
 -- MODE C: FIRST PERSON (Ported from v1)
 -- =============================================================================
 Camera.FirstPerson = {
-	-- EXACT v1 offset: Vector3.new(0, 0.25, -1)
 	-- X = left/right (0 = centered)
-	-- Y = up/down (0.25 = slightly above head center)
-	-- Z = forward/back (-1 = 1 stud forward from head)
-	Offset = Vector3.new(0, -0.15, 0),
+	-- Y = up/down (negative = lower, closer to eye level)
+	-- Z = forward/back
+	Offset = Vector3.new(0, -1.5, 0),  -- Lowered significantly for realistic eye level
 
-	-- v2 option: pivot off the visual rig's Head (not the humanoid head),
-	-- and apply an offset "in front of" that head-space.
-	FollowHead = true,
-	HeadOffset = Vector3.new(0, -0.15, 0),
+	-- Use humanoid Head position (not the visual Rig's head)
+	FollowHead = false,
+	HeadOffset = Vector3.new(0, -1.5, 0),
 	HeadRotationOffset = Vector3.new(0, 0, 0), -- degrees (X,Y,Z)
 	
 	RotateCharacter = true,     -- Auto-rotate character to camera yaw
+	
+	-- Disable ground clamping in first person (prevents camera being forced above ceilings)
+	DisableGroundClamp = true,
 }
 
 -- =============================================================================
@@ -113,7 +114,7 @@ Camera.FOV = {
 	},
 	
 	-- Smoothing
-		LerpAlpha = 0.04,           -- Lower = smoother transitions
+		LerpAlpha = 0.08,           -- Higher = faster transitions, Lower = smoother
 }
 
 -- =============================================================================

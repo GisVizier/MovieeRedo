@@ -1105,6 +1105,12 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	local cameraOffset = followRigHead and (fpConfig.HeadOffset or fpConfig.Offset) or fpConfig.Offset
 	local rotOffset = fpConfig.HeadRotationOffset or Vector3.zero
 	
+	-- Debug: Print offset being used (remove after testing)
+	if not self._fpOffsetPrinted then
+		print("[CameraController] FirstPerson offset:", cameraOffset, "FollowHead:", followRigHead)
+		self._fpOffsetPrinted = true
+	end
+	
 	-- Apply offset in character's local space (so it moves with character facing)
 	local offsetPosition = characterRotation * CFrame.new(cameraOffset)
 	if followRigHead and rotOffset.Magnitude > 0.0001 then
@@ -1130,8 +1136,12 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	local desiredCF = offsetPosition * CFrame.Angles(math.rad(self.AngleX), 0, 0)
 
 	-- Keep camera above ground (prevents slide/crouch putting camera under terrain)
+	-- Skip clamping if DisableGroundClamp is set (fixes camera being forced above low ceilings)
 	local desiredPos = desiredCF.Position
-	local clampedPos = self:_clampPositionAboveGround(desiredPos)
+	local clampedPos = desiredPos
+	if not fpConfig.DisableGroundClamp then
+		clampedPos = self:_clampPositionAboveGround(desiredPos)
+	end
 	local desiredCFrame = CFrame.new(clampedPos) * desiredCF.Rotation
 	
 	-- CRITICAL: Update Camera.Focus to tell Roblox where to prioritize rendering

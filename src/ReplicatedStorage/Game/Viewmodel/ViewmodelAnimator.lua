@@ -87,7 +87,9 @@ local function buildTracks(animator: Animator, weaponId: string?)
 		if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
 			animInstance = getAnimationInstance(weaponId, animRef)
 			if animInstance then
-				print(string.format("[ViewmodelAnimator] Loaded Animation instance: %s/%s", weaponId, name))
+				print(string.format("[ViewmodelAnimator] Found Animation instance: %s/%s", weaponId, name))
+			else
+				warn(string.format("[ViewmodelAnimator] Animation NOT FOUND: Assets/Animations/ViewModel/%s/Viewmodel/%s", weaponId or "?", animRef))
 			end
 		end
 
@@ -105,6 +107,7 @@ local function buildTracks(animator: Animator, weaponId: string?)
 				or animId == "rbxassetid://0"
 				or not string.find(animId, "^rbxassetid://")
 			then
+				warn(string.format("[ViewmodelAnimator] Animation %s/%s has invalid AnimationId: %s", weaponId or "?", name, tostring(animId)))
 				animInstance = nil
 			end
 		end

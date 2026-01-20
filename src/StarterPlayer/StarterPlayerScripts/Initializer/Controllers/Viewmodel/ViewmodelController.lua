@@ -1,3 +1,4 @@
+local ContentProvider = game:GetService("ContentProvider")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10,6 +11,8 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 
 local CreateLoadout = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("CreateLoadout"))
 local ViewmodelAnimator = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("ViewmodelAnimator"))
+local ViewmodelRig = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("ViewmodelRig"))
+local ViewmodelAppearance = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("ViewmodelAppearance"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local Spring = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("Spring"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
@@ -24,7 +27,7 @@ local ROTATION_SPRING_DAMPER = 0.85
 
 local MOVE_SPEED_REFERENCE = 16
 local MOVE_ROLL_MAX = math.rad(16)
-local MOVE_PITCH_MAX = math.rad(8)
+local MOVE_PITCH_MAX = math.rad(2)  -- Reduced from 8 to 2 (0.25x)
 local MOVE_ROTATION_FORCE = 0.85
 
 local BOB_SPRING_SPEED = 14
@@ -65,6 +68,14 @@ ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
 ViewmodelController._targetCFOverride = nil -- Function to override/modify the final target CFrame
+
+-- Rig preloading/caching state
+ViewmodelController._rigStorage = nil      -- Folder for storing rigs off-screen
+ViewmodelController._storedRigs = nil      -- { [slot] = rig }
+ViewmodelController._cachedKitTracks = nil -- { [kitId] = { Ability = {}, Ultimate = {} } }
+
+-- Storage position for preloading rigs off-screen
+local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
 
 local function getCameraController(self)
 	return self._registry and self._registry:TryGet("Camera") or nil
@@ -215,33 +226,292 @@ end
 
 function ViewmodelController:Start() end
 
-function ViewmodelController:CreateLoadout(loadout: { [string]: any })
-	self._loadout = loadout
-
-	if self._loadoutVm then
-		self._loadoutVm:Destroy()
-		self._loadoutVm = nil
+--[[
+	Creates the storage folder for preloading rigs off-screen.
+	Rigs are stored at (0, 10000, 0) so they can be preloaded without being visible.
+]]
+function ViewmodelController:_ensureRigStorage(): Folder
+	if self._rigStorage and self._rigStorage.Parent then
+		return self._rigStorage
 	end
 
-	self._loadoutVm = CreateLoadout.create(loadout, LocalPlayer)
+	local folder = Instance.new("Folder")
+	folder.Name = "ViewmodelRigStorage"
+	folder.Parent = ReplicatedStorage
+	self._rigStorage = folder
 
-	-- Preload viewmodel animations before the rig is ever shown.
-	if self._animator and self._loadoutVm and self._loadoutVm.Rigs then
-		for slot, rig in pairs(self._loadoutVm.Rigs) do
-			local weaponId = nil
-			if slot == "Fists" then
-				weaponId = "Fists"
-			else
-				local id = self._loadout and self._loadout[slot]
-				if type(id) == "string" then
-					weaponId = id
-				end
+	return folder
+end
+
+--[[
+	Destroys all stored rigs and clears the kit animation cache.
+	Called before creating a new loadout or when the controller is destroyed.
+]]
+function ViewmodelController:_destroyAllRigs()
+	if self._storedRigs then
+		for _, rig in pairs(self._storedRigs) do
+			if rig and rig.Destroy then
+				rig:Destroy()
 			end
-			if weaponId then
-				self._animator:PreloadRig(rig, weaponId)
+		end
+		self._storedRigs = nil
+	end
+
+	-- Clear kit animation cache (tracks are destroyed with Fists rig)
+	self._cachedKitTracks = nil
+end
+
+--[[
+	Creates all rigs for a loadout (Fists, Primary, Secondary, Melee).
+	Rigs are stored off-screen for preloading, then moved to camera when equipped.
+	
+	@param loadout - The loadout table with Primary, Secondary, Melee weapon IDs
+	@return { [slot] = rig } - Table of created rigs by slot name
+]]
+function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any })
+	local storage = self:_ensureRigStorage()
+	self._storedRigs = {}
+
+	local toPreload = {}
+
+	-- Helper to resolve model path from config
+	local function getModelPath(weaponId: string): string?
+		if weaponId == "Fists" then
+			local fistsCfg = ViewmodelConfig.Weapons.Fists
+			return fistsCfg and fistsCfg.ModelPath or ViewmodelConfig.Models.Fists
+		else
+			local weaponCfg = ViewmodelConfig.Weapons[weaponId]
+			return weaponCfg and weaponCfg.ModelPath
+				or (ViewmodelConfig.Models.ByWeaponId and ViewmodelConfig.Models.ByWeaponId[weaponId])
+		end
+	end
+
+	-- Helper to resolve model template from path
+	local function resolveModelTemplate(modelPath: string): Model?
+		local assets = ReplicatedStorage:FindFirstChild("Assets")
+		local viewModelsRoot = assets and assets:FindFirstChild("ViewModels")
+		if not viewModelsRoot then
+			return nil
+		end
+
+		local current: Instance = viewModelsRoot
+		for _, part in ipairs(string.split(modelPath, "/")) do
+			current = current:FindFirstChild(part)
+			if not current then
+				return nil
+			end
+		end
+
+		if current:IsA("Model") then
+			return current
+		end
+		return nil
+	end
+
+	-- Helper to create a single rig
+	local function createRig(weaponId: string, slotName: string)
+		local modelPath = getModelPath(weaponId)
+		if type(modelPath) ~= "string" or modelPath == "" then
+			return nil
+		end
+
+		local template = resolveModelTemplate(modelPath)
+		if not template then
+			LogService:Warn("VIEWMODEL", "Missing viewmodel template", { WeaponId = weaponId, Path = modelPath })
+			return nil
+		end
+
+		-- Clone and position off-screen for preloading
+		local clone = template:Clone()
+		clone.Name = slotName
+		clone:PivotTo(RIG_STORAGE_POSITION)
+		clone.Parent = storage
+
+		-- Create rig wrapper
+		local rig = ViewmodelRig.new(clone, slotName)
+		if LocalPlayer then
+			rig:AddCleanup(ViewmodelAppearance.BindShirtToLocalRig(LocalPlayer, clone))
+		end
+
+		-- Collect assets for ContentProvider preload
+		table.insert(toPreload, clone)
+		for _, desc in ipairs(clone:GetDescendants()) do
+			if desc:IsA("MeshPart") or desc:IsA("Decal") or desc:IsA("Texture") then
+				table.insert(toPreload, desc)
+			end
+		end
+
+		return rig
+	end
+
+	-- Create Fists (always available as fallback)
+	local fistsRig = createRig("Fists", "Fists")
+	if fistsRig then
+		self._storedRigs.Fists = fistsRig
+
+		-- Preload Fists weapon animations
+		if self._animator then
+			self._animator:PreloadRig(fistsRig, "Fists")
+		end
+
+		-- Preload ALL kit animations on Fists rig
+		self:_preloadKitAnimations(fistsRig)
+	end
+
+	-- Create Primary weapon rig
+	local primaryId = loadout and loadout.Primary
+	if type(primaryId) == "string" and primaryId ~= "" then
+		local rig = createRig(primaryId, "Primary")
+		if rig then
+			self._storedRigs.Primary = rig
+			if self._animator then
+				self._animator:PreloadRig(rig, primaryId)
 			end
 		end
 	end
+
+	-- Create Secondary weapon rig
+	local secondaryId = loadout and loadout.Secondary
+	if type(secondaryId) == "string" and secondaryId ~= "" then
+		local rig = createRig(secondaryId, "Secondary")
+		if rig then
+			self._storedRigs.Secondary = rig
+			if self._animator then
+				self._animator:PreloadRig(rig, secondaryId)
+			end
+		end
+	end
+
+	-- Create Melee weapon rig
+	local meleeId = loadout and loadout.Melee
+	if type(meleeId) == "string" and meleeId ~= "" then
+		local rig = createRig(meleeId, "Melee")
+		if rig then
+			self._storedRigs.Melee = rig
+			if self._animator then
+				self._animator:PreloadRig(rig, meleeId)
+			end
+		end
+	end
+
+	-- Preload all model assets via ContentProvider (async)
+	if #toPreload > 0 then
+		task.spawn(function()
+			ContentProvider:PreloadAsync(toPreload)
+			LogService:Info("VIEWMODEL", "Model assets preloaded", { Count = #toPreload })
+		end)
+	end
+
+	LogService:Info("VIEWMODEL", "All rigs created and preloaded", {
+		Fists = self._storedRigs.Fists ~= nil,
+		Primary = self._storedRigs.Primary ~= nil,
+		Secondary = self._storedRigs.Secondary ~= nil,
+		Melee = self._storedRigs.Melee ~= nil,
+	})
+
+	return self._storedRigs
+end
+
+--[[
+	Preloads all kit animations (Ability/Ultimate) on the Fists rig.
+	Kit abilities reuse the Fists viewmodel, so we preload all kit animations there.
+	
+	@param fistsRig - The Fists ViewmodelRig to preload animations on
+]]
+function ViewmodelController:_preloadKitAnimations(fistsRig)
+	if not fistsRig or not fistsRig.Animator then
+		return
+	end
+
+	self._cachedKitTracks = {}
+
+	local kitsConfig = ViewmodelConfig.Kits
+	if type(kitsConfig) ~= "table" then
+		return
+	end
+
+	local toPreload = {}
+
+	for kitId, kitData in pairs(kitsConfig) do
+		self._cachedKitTracks[kitId] = {
+			Ability = {},
+			Ultimate = {},
+		}
+
+		-- Preload Ability animations (Charge, Release, etc.)
+		if type(kitData.Ability) == "table" then
+			for animName, animId in pairs(kitData.Ability) do
+				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
+					local animation = Instance.new("Animation")
+					animation.AnimationId = animId
+
+					local track = fistsRig.Animator:LoadAnimation(animation)
+					track.Priority = Enum.AnimationPriority.Action2
+					track.Looped = false
+
+					-- Prime the track by playing/stopping immediately
+					track:Play(0)
+					track:Stop(0)
+
+					self._cachedKitTracks[kitId].Ability[animName] = track
+					table.insert(toPreload, animation)
+				end
+			end
+		end
+
+		-- Preload Ultimate animations (Activate, etc.)
+		if type(kitData.Ultimate) == "table" then
+			for animName, animId in pairs(kitData.Ultimate) do
+				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
+					local animation = Instance.new("Animation")
+					animation.AnimationId = animId
+
+					local track = fistsRig.Animator:LoadAnimation(animation)
+					track.Priority = Enum.AnimationPriority.Action2
+					track.Looped = false
+
+					-- Prime the track by playing/stopping immediately
+					track:Play(0)
+					track:Stop(0)
+
+					self._cachedKitTracks[kitId].Ultimate[animName] = track
+					table.insert(toPreload, animation)
+				end
+			end
+		end
+	end
+
+	-- Preload animation assets via ContentProvider
+	if #toPreload > 0 then
+		task.spawn(function()
+			ContentProvider:PreloadAsync(toPreload)
+			LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = #toPreload })
+		end)
+	end
+end
+
+function ViewmodelController:CreateLoadout(loadout: { [string]: any })
+	self._loadout = loadout
+
+	-- Destroy old rigs before creating new ones
+	self:_destroyAllRigs()
+
+	-- Clear old loadout object reference
+	if self._loadoutVm then
+		self._loadoutVm = nil
+	end
+
+	-- Create all rigs for this loadout (stored off-screen, preloaded)
+	local rigs = self:_createAllRigsForLoadout(loadout)
+
+	-- Wrap in loadout object for compatibility with existing code
+	self._loadoutVm = {
+		Rigs = rigs,
+		Destroy = function(obj)
+			-- Actual cleanup is handled by _destroyAllRigs
+			obj.Rigs = nil
+		end,
+	}
 
 	-- Default equip should be Primary (fallback is handled by SetActiveSlot).
 	self:SetActiveSlot("Primary")
@@ -625,6 +895,23 @@ function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, na
 		return nil
 	end
 
+	-- Try to use cached track first (preloaded during CreateLoadout)
+	if self._cachedKitTracks then
+		local kitTracks = self._cachedKitTracks[kitId]
+		if kitTracks then
+			local section = (abilityType == "Ultimate") and kitTracks.Ultimate or kitTracks.Ability
+			if section then
+				local track = section[name]
+				if track then
+					-- Use cached track - instant playback!
+					track:Play(0.05)
+					return track
+				end
+			end
+		end
+	end
+
+	-- Fallback: create on demand if not cached (original behavior)
 	local kitCfg = ViewmodelConfig.Kits and ViewmodelConfig.Kits[kitId]
 	if type(kitCfg) ~= "table" then
 		return nil
@@ -715,9 +1002,18 @@ function ViewmodelController:Destroy()
 		self._equipKeysConn = nil
 	end
 
+	-- Clean up cached rigs and kit tracks
+	self:_destroyAllRigs()
+
+	-- Clear loadout reference
 	if self._loadoutVm then
-		self._loadoutVm:Destroy()
 		self._loadoutVm = nil
+	end
+
+	-- Destroy storage folder
+	if self._rigStorage then
+		self._rigStorage:Destroy()
+		self._rigStorage = nil
 	end
 
 	if self._animator then
