@@ -375,64 +375,44 @@ function EmoteService.playOnRig(emoteId: string, rig: Model): boolean
 		return false
 	end
 	
-	if not EmoteService._initialized then
-		EmoteService.init()
-	end
-	
 	local emoteClass = EmoteService.getEmoteClass(emoteId)
-	if not emoteClass then
+	if not emoteClass or not emoteClass.Animations or not emoteClass.Animations.Main then
 		return false
 	end
 	
 	-- Stop existing emote on this rig
 	EmoteService.stopOnRig(emoteId, rig)
 	
-	-- Create emote instance
-	local emoteData = {
-		Id = emoteClass.Id or emoteClass.id,
-		DisplayName = emoteClass.DisplayName or emoteClass.displayName or emoteClass.Id,
-		Rarity = emoteClass.Rarity or emoteClass.rarity or "Common",
-		Loopable = emoteClass.Loopable,
-		AllowMove = true, -- Previews don't need movement restrictions
-		Speed = emoteClass.Speed,
-		FadeInTime = emoteClass.FadeInTime,
-		FadeOutTime = emoteClass.FadeOutTime,
-	}
-	
-	local emote = nil
-	if emoteClass.new then
-		local ok, result = pcall(function()
-			return emoteClass.new(emoteId, emoteData, rig)
-		end)
-		if ok then
-			emote = result
-		end
-	end
-	
-	if not emote then
-		emote = EmoteBase.new(emoteId, emoteData, rig)
-	end
-	
-	-- Start emote (plays animation on the preview rig)
-	local started = emote:start()
-	if not started then
-		emote:destroy()
+	-- Get animator from rig
+	local humanoid = rig:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
 		return false
 	end
 	
-	-- Track per-rig
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	
+	-- Create and play animation
+	local animId = emoteClass.Animations.Main
+	if not animId:match("^rbxassetid://") then
+		animId = "rbxassetid://" .. animId
+	end
+	
+	local animation = Instance.new("Animation")
+	animation.AnimationId = animId
+	
+	local track = animator:LoadAnimation(animation)
+	track.Looped = emoteClass.Loopable or false
+	track:Play(0.2)
+	
+	-- Track it
 	if not EmoteService._activeByRig[rig] then
 		EmoteService._activeByRig[rig] = {}
 	end
-	EmoteService._activeByRig[rig][emoteId] = emote
-	
-	-- Setup finished callback
-	emote:onFinished(function()
-		local bucket = EmoteService._activeByRig[rig]
-		if bucket and bucket[emoteId] == emote then
-			bucket[emoteId] = nil
-		end
-	end)
+	EmoteService._activeByRig[rig][emoteId] = track
 	
 	return true
 end
@@ -449,18 +429,16 @@ function EmoteService.stopOnRig(emoteId: string, rig: Model): boolean
 	end
 	
 	if emoteId then
-		-- Stop specific emote
-		local emote = bucket[emoteId]
-		if emote then
-			emote:stop()
-			emote:destroy()
-			bucket[emoteId] = nil
+		local track = bucket[emoteId]
+		if track and typeof(track) == "Instance" and track:IsA("AnimationTrack") and track.IsPlaying then
+			track:Stop(0.2)
 		end
+		bucket[emoteId] = nil
 	else
-		-- Stop all emotes on this rig
-		for id, emote in bucket do
-			emote:stop()
-			emote:destroy()
+		for _, track in bucket do
+			if track and typeof(track) == "Instance" and track:IsA("AnimationTrack") and track.IsPlaying then
+				track:Stop(0.2)
+			end
 		end
 		EmoteService._activeByRig[rig] = nil
 	end

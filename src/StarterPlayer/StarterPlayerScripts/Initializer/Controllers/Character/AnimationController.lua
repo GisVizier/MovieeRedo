@@ -1343,17 +1343,14 @@ function AnimationController:_loadEmoteAnimation(emoteId: string): Animation?
 		return self.EmoteAnimationCache[emoteId]
 	end
 
-	-- First, try to get animation ID from the EmoteService's registered emote class
-	local EmoteService = ServiceRegistry:GetService("EmoteService")
-	if not EmoteService then
-		-- Try getting it as a module from Game/Emotes
+	-- Get animation ID from the EmoteService's registered emote class
+	local EmoteService = nil
+	local ok, service = pcall(function()
 		local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
-		local ok, service = pcall(function()
-			return require(Locations.Game:WaitForChild("Emotes"))
-		end)
-		if ok then
-			EmoteService = service
-		end
+		return require(Locations.Game:WaitForChild("Emotes"))
+	end)
+	if ok then
+		EmoteService = service
 	end
 	
 	if EmoteService and EmoteService.getEmoteClass then

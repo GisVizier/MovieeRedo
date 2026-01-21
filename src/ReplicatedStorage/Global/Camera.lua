@@ -78,15 +78,15 @@ Camera.FirstPerson = {
 	-- X = left/right (0 = centered)
 	-- Y = up/down (negative = lower, closer to eye level)
 	-- Z = forward/back
-	Offset = Vector3.new(0, -1.5, 0),  -- Lowered significantly for realistic eye level
+	Offset = Vector3.new(0, .4, 0),  -- Lowered significantly for realistic eye level
 
 	-- Use humanoid Head position (not the visual Rig's head)
 	FollowHead = false,
-	HeadOffset = Vector3.new(0, -1.5, 0),
+	HeadOffset = Vector3.new(0, -.15, 0),
 	HeadRotationOffset = Vector3.new(0, 0, 0), -- degrees (X,Y,Z)
-	
+
 	RotateCharacter = true,     -- Auto-rotate character to camera yaw
-	
+
 	-- Disable ground clamping in first person (prevents camera being forced above ceilings)
 	DisableGroundClamp = true,
 }

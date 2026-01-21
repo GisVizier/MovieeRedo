@@ -181,8 +181,9 @@ function UIController:_setupEmoteWheelInput(ui)
 				if emotesModule and emotesModule._activateHovered then
 					emotesModule:_activateHovered()
 				end
+				-- Always hide on release in Hold mode (even if nothing was hovered)
+				ui:hide("Emotes")
 				emoteWheelOpen = false
-				-- Note: _activateHovered already calls hide, but we set state here
 			end
 		end
 	end)
