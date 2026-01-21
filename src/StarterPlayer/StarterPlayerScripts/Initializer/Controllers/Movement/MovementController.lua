@@ -968,6 +968,10 @@ function CharacterController:ApplyMovement()
 		local weaponSpeedModifier = weaponMult * adsMult
 		targetSpeed = targetSpeed * weaponSpeedModifier
 	end
+	
+	-- Apply emote speed multiplier (always applies, even when sprinting)
+	local emoteMult = localPlayer and localPlayer:GetAttribute("EmoteSpeedMultiplier") or 1
+	targetSpeed = targetSpeed * emoteMult
 
 	local weightMultiplier = 1.0
 

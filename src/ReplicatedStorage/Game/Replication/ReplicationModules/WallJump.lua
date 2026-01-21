@@ -28,7 +28,7 @@ function WallJump:Execute(_originUserId, data)
 		fx.Parent = workspace.Effects
 
 		local pivot = data.pivot or CFrame.new(data.position)
-		fx:PivotTo(pivot)
+		fx:PivotTo(pivot * CFrame.Angles(0, math.pi, 0))
 
 		Utils.PlayAttachment(fx, 5)
 	end

@@ -37,6 +37,7 @@ EmoteConfig.Defaults = {
 	FadeInTime = 0.2,
 	FadeOutTime = 0.2,
 	Priority = Enum.AnimationPriority.Action,
+	MoveSpeedMultiplier = 1, -- Player movement speed while emoting (1 = normal)
 }
 
 -- Cooldown settings

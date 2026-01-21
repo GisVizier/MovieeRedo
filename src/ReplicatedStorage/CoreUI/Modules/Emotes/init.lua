@@ -603,6 +603,10 @@ function module:show()
 	self:_init()
 	self:_populateSlots()
 	warn("[Emotes] Slots populated, total slots:", #self._slots)
+	
+	-- Unlock mouse for selection
+	self._savedMouseBehavior = UserInputService.MouseBehavior
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 
 	self:_cancelAllTweens()
 	self:_setHover(nil)
@@ -632,6 +636,12 @@ function module:show()
 end
 
 function module:hide()
+	-- Restore mouse behavior
+	if self._savedMouseBehavior then
+		UserInputService.MouseBehavior = self._savedMouseBehavior
+		self._savedMouseBehavior = nil
+	end
+	
 	self:_cancelAllTweens()
 	for _, slot in self._slotsByIndex do
 		self:_stopPreviewLoop(slot)

@@ -56,3 +56,7 @@ local entries = {
 }
 
 Loader:Load(entries, registry, Net)
+
+-- Initialize EmoteService early so replication listener is active
+local EmoteService = require(Locations.Game:WaitForChild("Emotes"))
+EmoteService.init()

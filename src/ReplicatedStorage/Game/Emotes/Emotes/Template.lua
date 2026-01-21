@@ -57,10 +57,14 @@ Template.Loopable = false
 
 -- If true, player can move while emoting
 -- If false, movement cancels the emote
-Template.AllowMove = true
+Template.AllowMove = false
 
 -- Animation playback speed multiplier (1 = normal)
 Template.Speed = 1
+
+-- Player movement speed multiplier while emoting (1 = normal speed, 0.5 = half speed)
+-- Only applies if AllowMove = true
+Template.MoveSpeedMultiplier = 1
 
 --[[ OPTIONAL: Animation timing overrides ]]--
 -- Template.FadeInTime = 0.2   -- Seconds to fade in animation

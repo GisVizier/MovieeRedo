@@ -11,6 +11,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ContentProvider = game:GetService("ContentProvider")
+local RunService = game:GetService("RunService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Net = require(Locations.Shared.Net.Net)
@@ -32,6 +33,13 @@ EmoteService._activeEmote = nil         -- Current emote instance for local play
 EmoteService._activeByRig = {}          -- { [rig] = { [emoteId] = emoteInstance } } for preview rigs
 EmoteService._lastPlayTime = 0          -- For cooldown
 EmoteService._replicateConnection = nil
+
+-- Emote control state
+EmoteService._movementConnection = nil  -- RenderStepped connection for movement detection
+EmoteService._jumpConnection = nil      -- Jump input callback connection
+EmoteService._slideConnection = nil     -- Slide input callback connection
+EmoteService._savedCameraMode = nil     -- Previous camera mode before emote
+EmoteService._savedSpeedMultiplier = 1  -- Previous speed multiplier
 
 -- Get emote modules folder
 local function getEmotesFolder()
@@ -57,6 +65,7 @@ local function getEmoteData(emoteClass: { [string]: any }): { [string]: any }
 		Speed = emoteClass.Speed,
 		FadeInTime = emoteClass.FadeInTime,
 		FadeOutTime = emoteClass.FadeOutTime,
+		MoveSpeedMultiplier = emoteClass.MoveSpeedMultiplier or 1,
 	}
 end
 
@@ -324,12 +333,74 @@ function EmoteService.play(emoteId: string): boolean
 	-- Setup finished callback
 	emote:onFinished(function()
 		if EmoteService._activeEmote == emote then
-			EmoteService._activeEmote = nil
+			EmoteService.stop()
 		end
 	end)
 	
 	EmoteService._activeEmote = emote
 	EmoteService._lastPlayTime = tick()
+	
+	-- =========================================================================
+	-- CAMERA MODE SWITCH - Force to Orbit mode while emoting
+	-- =========================================================================
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController then
+		EmoteService._savedCameraMode = cameraController:GetCurrentMode()
+		cameraController:SetMode("Orbit")
+	end
+	
+	-- =========================================================================
+	-- SPEED MULTIPLIER - Apply emote speed to player movement
+	-- =========================================================================
+	local speedMult = emoteData.MoveSpeedMultiplier or 1
+	EmoteService._savedSpeedMultiplier = LocalPlayer:GetAttribute("EmoteSpeedMultiplier") or 1
+	LocalPlayer:SetAttribute("EmoteSpeedMultiplier", speedMult)
+	
+	-- =========================================================================
+	-- MOVEMENT CANCELLATION - Cancel emote if AllowMove=false and player moves/jumps
+	-- =========================================================================
+	local allowMove = emoteData.AllowMove
+	if allowMove == nil then
+		allowMove = EmoteConfig.Defaults.AllowMove
+	end
+	
+	if not allowMove then
+		local MOVEMENT_THRESHOLD = 0.1
+		
+		-- Get InputController for movement detection
+		local inputController = ServiceRegistry:GetController("Input")
+		
+		-- Connect to RenderStepped to check movement input
+		EmoteService._movementConnection = RunService.RenderStepped:Connect(function()
+			if not inputController then return end
+			
+			local moveVector = inputController:GetMovementVector()
+			if moveVector then
+				local horizontalMag = math.sqrt(moveVector.X * moveVector.X + moveVector.Y * moveVector.Y)
+				if horizontalMag > MOVEMENT_THRESHOLD then
+					EmoteService.stop()
+				end
+			end
+		end)
+		
+		-- Connect to Jump callback
+		if inputController and inputController.ConnectToInput then
+			EmoteService._jumpConnection = inputController:ConnectToInput("Jump", function(isPressed)
+				if isPressed and EmoteService._activeEmote then
+					EmoteService.stop()
+				end
+			end)
+		end
+		
+		-- Connect to Slide callback
+		if inputController and inputController.ConnectToInput then
+			EmoteService._slideConnection = inputController:ConnectToInput("Slide", function(isPressed)
+				if isPressed and EmoteService._activeEmote then
+					EmoteService.stop()
+				end
+			end)
+		end
+	end
 	
 	-- Fire to server
 	Net:FireServer("EmotePlay", emoteId)
@@ -343,16 +414,63 @@ function EmoteService.stop(): boolean
 		return true
 	end
 	
+	-- =========================================================================
+	-- CLEANUP MOVEMENT DETECTION
+	-- =========================================================================
+	if EmoteService._movementConnection then
+		EmoteService._movementConnection:Disconnect()
+		EmoteService._movementConnection = nil
+	end
+	
+	if EmoteService._jumpConnection then
+		EmoteService._jumpConnection:Disconnect()
+		EmoteService._jumpConnection = nil
+	end
+	
+	if EmoteService._slideConnection then
+		EmoteService._slideConnection:Disconnect()
+		EmoteService._slideConnection = nil
+	end
+	
+	-- =========================================================================
+	-- RESTORE CAMERA MODE - Back to FirstPerson (with isLobby placeholder)
+	-- =========================================================================
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController then
+		-- isLobby placeholder - will be important later for lobby logic
+		local isLobby = false
+		
+		if isLobby then
+			-- In lobby, restore to saved mode
+			if EmoteService._savedCameraMode then
+				cameraController:SetMode(EmoteService._savedCameraMode)
+			end
+		else
+			-- Not in lobby, force FirstPerson
+			cameraController:SetMode("FirstPerson")
+		end
+		EmoteService._savedCameraMode = nil
+	end
+	
+	-- =========================================================================
+	-- RESTORE SPEED MULTIPLIER
+	-- =========================================================================
+	LocalPlayer:SetAttribute("EmoteSpeedMultiplier", 1)
+	EmoteService._savedSpeedMultiplier = 1
+	
 	-- Stop animation
 	local animController = ServiceRegistry:GetController("AnimationController")
 	if animController and animController.StopEmote then
 		animController:StopEmote()
 	end
 	
-	-- Stop emote instance
-	EmoteService._activeEmote:stop()
-	EmoteService._activeEmote:destroy()
+	-- Stop emote instance (clear reference first to prevent re-entry)
+	local emote = EmoteService._activeEmote
 	EmoteService._activeEmote = nil
+	if emote then
+		emote:stop()
+		emote:destroy()
+	end
 	
 	-- Fire to server
 	Net:FireServer("EmoteStop")

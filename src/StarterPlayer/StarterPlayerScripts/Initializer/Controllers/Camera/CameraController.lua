@@ -19,6 +19,7 @@ local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):Wai
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local ScreenShakeController = require(script.Parent:WaitForChild("ScreenShakeController"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local function debugPrint(...) end
 local function agentLog(...) end
@@ -227,6 +228,9 @@ function CameraController:Init(registry, net)
 			self:OnCharacterSpawned(localPlayer.Character)
 		end
 	end
+	
+	-- Register with ServiceRegistry so other modules can access CameraController
+	ServiceRegistry:RegisterController("CameraController", self)
 	
 	debugPrint("CameraController initialized successfully")
 

@@ -625,6 +625,12 @@ function WeaponController:Special(isPressed)
 	if not self._weaponInstance then
 		return
 	end
+	
+	-- Only allow special in FirstPerson camera mode
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController and cameraController:GetCurrentMode() ~= "FirstPerson" then
+		return
+	end
 
 	-- Update state
 	self:_updateWeaponInstanceState()
