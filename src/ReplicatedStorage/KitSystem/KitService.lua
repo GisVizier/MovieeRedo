@@ -300,21 +300,11 @@ end
 function KitService:_activateAbility(player: Player, info, abilityType: string, inputState, extraData)
 	local kitId = info.equippedKitId
 	if not kitId then
-		self:_fireState(player, info, { lastError = "NoKitEquipped" })
 		return
 	end
 
-	print("[KitService] ActivateAbility", {
-		player = player.Name,
-		userId = player.UserId,
-		kitId = kitId,
-		abilityType = abilityType,
-		inputState = tostring(inputState),
-	})
-
 	local character = player.Character
 	if not character or not character.Parent then
-		self:_fireState(player, info, { lastError = "NoCharacter" })
 		return
 	end
 
@@ -330,85 +320,58 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 	local isAbility = abilityType == "Ability"
 	local isUltimate = abilityType == "Ultimate"
 	if not isAbility and not isUltimate then
-		self:_fireState(player, info, { lastError = "BadAbilityType" })
 		return
 	end
 
-	local payload = {
-		playerId = player.UserId,
-		kitId = kitId,
-		effect = abilityType,
-		abilityType = abilityType,
-		inputState = inputState,
-		position = position,
-	}
-
-	local function rejectInterrupt()
-		print("[KitService] AbilityInterrupted", {
-			player = player.Name,
-			kitId = kitId,
-			abilityType = abilityType,
-		})
-		payload.extraData = makeExtraData(position)
-		self:_fireEvent(player, "AbilityInterrupted", payload)
+	-- Check cooldown (only for Begin, ability only)
+	if inputState == Enum.UserInputState.Begin then
+		if isAbility and now < (info.abilityCooldownEndsAt or 0) then
+			return -- On cooldown, silently reject
+		end
+		
+		-- Check ultimate cost
+		if isUltimate then
+			local cost = KitConfig.getUltimateCost(kitId)
+			if (info.ultimate or 0) < cost then
+				return -- Not enough energy, silently reject
+			end
+			-- Deduct ultimate cost
+			info.ultimate = (info.ultimate or 0) - cost
+			self:_applyAttributes(player, info)
+		end
 	end
 
-	local function callKit()
+	-- Call the kit function
+	local callKit = function()
 		if isAbility then
 			return kit:OnAbility(inputState, extraData)
 		end
 		return kit:OnUltimate(inputState, extraData)
 	end
 
-	if inputState ~= Enum.UserInputState.Begin then
-		pcall(callKit)
-		print("[KitService] AbilityEnded", {
-			player = player.Name,
+	local okCall, result = pcall(callKit)
+	if not okCall then
+		warn("[KitService] Kit error:", result)
+		return
+	end
+
+	-- If kit returns true: skill ended, broadcast end event and re-equip weapon
+	if result == true then
+		self:_fireEventAll("AbilityEnded", {
+			playerId = player.UserId,
 			kitId = kitId,
+			effect = abilityType,
 			abilityType = abilityType,
+			position = position,
+			extraData = makeExtraData(position),
 		})
-		payload.extraData = makeExtraData(position)
-		self:_fireEventAll("AbilityEnded", payload)
-		return
-	end
-
-	if isAbility and now < (info.abilityCooldownEndsAt or 0) then
-		rejectInterrupt()
-		return
-	end
-
-	if isUltimate then
-		local cost = KitConfig.getUltimateCost(kitId)
-		if (info.ultimate or 0) < cost then
-			rejectInterrupt()
-			return
+		
+		-- Re-equip last weapon
+		local lastSlot = player:GetAttribute("LastEquippedSlot")
+		if lastSlot and lastSlot ~= "" then
+			player:SetAttribute("EquippedSlot", lastSlot)
 		end
 	end
-
-	local okCall, did = pcall(callKit)
-	if not okCall or did ~= true then
-		rejectInterrupt()
-		return
-	end
-
-	if isAbility then
-		info.abilityCooldownEndsAt = now + KitConfig.getAbilityCooldown(kitId)
-		self:_applyAttributes(player, info)
-		self:_fireState(player, info, { lastAction = "AbilityBegan" })
-	else
-		info.ultimate = (info.ultimate or 0) - KitConfig.getUltimateCost(kitId)
-		self:_applyAttributes(player, info)
-		self:_fireState(player, info, { lastAction = "UltimateBegan" })
-	end
-
-	payload.extraData = makeExtraData(position)
-	print("[KitService] AbilityActivated", {
-		player = player.Name,
-		kitId = kitId,
-		abilityType = abilityType,
-		position = position,
-	})
-	self:_fireEventAll("AbilityActivated", payload)
 end
 
 function KitService:addUltimate(player: Player, amount: number)
@@ -416,6 +379,82 @@ function KitService:addUltimate(player: Player, amount: number)
 	info.ultimate = (info.ultimate or 0) + amount
 	self:_applyAttributes(player, info)
 	self:_fireState(player, info, { lastAction = "UltChanged" })
+end
+
+-- Manual cooldown control for kit modules
+function KitService:StartCooldown(player: Player, duration: number?)
+	local info = self._data[player]
+	if not info then return end
+	
+	local kitId = info.equippedKitId
+	local cd = duration or (kitId and KitConfig.getAbilityCooldown(kitId)) or 0
+	
+	info.abilityCooldownEndsAt = os.clock() + cd
+	self:_applyAttributes(player, info)
+	
+	-- Send updated state to client so it knows about the cooldown
+	self:_fireState(player, info, { lastAction = "CooldownStarted" })
+end
+
+-- Check if ability is on cooldown
+function KitService:IsOnCooldown(player: Player): boolean
+	local info = self._data[player]
+	if not info then return false end
+	return os.clock() < (info.abilityCooldownEndsAt or 0)
+end
+
+-- Get remaining cooldown time
+function KitService:GetCooldownRemaining(player: Player): number
+	local info = self._data[player]
+	if not info then return 0 end
+	return math.max(0, (info.abilityCooldownEndsAt or 0) - os.clock())
+end
+
+--[[
+	Broadcasts VFX to clients using the VFXRep system.
+	This allows server kits to trigger VFX on other players' screens.
+	
+	@param player: Player - The player who triggered the VFX (used as origin)
+	@param targetSpec: string - Who should see the VFX:
+		- "Me" = only the caster
+		- "Others" = everyone except the caster (use when client already plays their own)
+		- "All" = everyone including the caster
+	@param moduleName: string - The VFXRep module name (e.g. "Cloudskip", "Hurricane")
+	@param data: table - Data to pass to the VFX module's Execute function
+	@param functionName: string? - Optional function name (defaults to "Execute")
+	
+	Example:
+		service:BroadcastVFX(player, "Others", "Cloudskip", {
+			position = hrp.Position,
+			direction = direction,
+		})
+]]
+function KitService:BroadcastVFX(player: Player, targetSpec: string, moduleName: string, data: any, functionName: string?)
+	if not self._net then return end
+	
+	local func = functionName or "Execute"
+	local targets = {}
+	
+	if targetSpec == "Others" then
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player then
+				table.insert(targets, p)
+			end
+		end
+	elseif targetSpec == "All" then
+		targets = Players:GetPlayers()
+	elseif targetSpec == "Me" then
+		targets = { player }
+	else
+		-- Unknown targetSpec, default to all
+		targets = Players:GetPlayers()
+	end
+	
+	-- Fire to each target client
+	-- Format matches what VFXRep client expects: (originUserId, moduleName, functionName, data)
+	for _, target in ipairs(targets) do
+		self._net:FireClient("VFXRep", target, player.UserId, moduleName, func, data)
+	end
 end
 
 function KitService:start()

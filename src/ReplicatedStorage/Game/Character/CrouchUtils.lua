@@ -25,6 +25,7 @@ function CrouchUtils:SetupRigOnlyWelds(character)
 		return false
 	end
 
+	-- Apply collision settings to all rig parts
 	CharacterLocations:ForEachRigPart(character, function(rigPart)
 		rigPart.Massless = true
 		rigPart.CanCollide = false
@@ -35,6 +36,20 @@ function CrouchUtils:SetupRigOnlyWelds(character)
 	-- Keep the rig HRP anchored (v1 behavior + matches RigManager enforcement).
 	-- Welds still work with anchored parts.
 	rigHumanoidRootPart.Anchored = true
+	
+	-- BULLETPROOF: Use CollisionUtils to ensure rig NEVER has collision enabled.
+	-- This catches any changes from ApplyDescription or replication.
+	local rig = CharacterLocations:GetRig(character)
+	if rig and not CollisionUtils:IsEnsuringNonCollideable(rig) then
+		CollisionUtils:EnsureNonCollideable(rig, {
+			CanCollide = false,
+			CanQuery = false,
+			CanTouch = false,
+			Massless = true,
+			UseHeartbeat = true,
+			HeartbeatInterval = 0.25,
+		})
+	end
 
 	local offsetCFrame = CFrame.new()
 	local characterTemplate = ReplicatedStorage:FindFirstChild("CharacterTemplate")

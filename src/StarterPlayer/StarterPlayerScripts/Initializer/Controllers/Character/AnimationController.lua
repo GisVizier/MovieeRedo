@@ -99,6 +99,10 @@ AnimationController.CurrentEmoteTrack = nil
 AnimationController.EmoteAnimationCache = {}
 AnimationController.OtherCharacterEmoteTracks = {}
 
+-- Custom/Kit animation system
+AnimationController.CustomAnimationTracks = {}
+AnimationController.PreloadedAnimations = {}  -- { [animationId or name] = Animation instance }
+
 local STATE_ANIMATIONS = {
 	Walking = "WalkingForward",
 	Sprinting = "WalkingForward",
@@ -250,7 +254,8 @@ function AnimationController:Init(registry, net)
 end
 
 function AnimationController:Start()
-	-- No-op
+	-- Preload all character animations from Assets.Animations.Character
+	self:PreloadCharacterAnimations()
 end
 
 function AnimationController:_loadAnimationInstances()
@@ -292,6 +297,150 @@ function AnimationController:_loadAnimationInstances()
 	end
 
 	return true
+end
+
+--[[
+	Preloads all animations from Assets.Animations.Character
+	Supports subfolders: Base, Kits, etc.
+	Animations are stored by both name and animationId for flexible lookup.
+]]
+function AnimationController:PreloadCharacterAnimations()
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then return end
+	
+	local animations = assets:FindFirstChild("Animations")
+	if not animations then return end
+	
+	local characterFolder = animations:FindFirstChild("Character")
+	if not characterFolder then return end
+	
+	-- Recursively load all animations from Character folder
+	local function loadFromFolder(folder)
+		for _, child in ipairs(folder:GetChildren()) do
+			if child:IsA("Animation") then
+				local animId = child.AnimationId
+				if animId and animId ~= "" then
+					self.PreloadedAnimations[animId] = child
+					self.PreloadedAnimations[child.Name] = child
+				end
+			elseif child:IsA("Folder") then
+				loadFromFolder(child)
+			end
+		end
+	end
+	
+	loadFromFolder(characterFolder)
+	
+	if TestMode.Logging.LogAnimationSystem then
+		local count = 0
+		for _ in pairs(self.PreloadedAnimations) do count = count + 1 end
+		LogService:Info("ANIMATION", "Preloaded character animations", { Count = count / 2 })
+	end
+end
+
+--[[
+	Play any animation by ID with optional settings.
+	
+	@param animationId: string - rbxassetid:// URL, numeric ID, or animation name from preloaded
+	@param settings: table? - Optional settings:
+		- FadeInTime: number (default 0.1)
+		- FadeOutTime: number (default 0.1)
+		- Weight: number (default 1)
+		- Speed: number (default 1)
+		- Priority: Enum.AnimationPriority (default Action)
+		- Looped: boolean (default false)
+		- StopOthers: boolean (default true) - Stop other custom animations
+	
+	@return AnimationTrack? - The playing track, or nil if failed
+]]
+function AnimationController:PlayAnimation(animationId: string, settings: {[string]: any}?)
+	if not self.LocalAnimator then
+		return nil
+	end
+	
+	settings = settings or {}
+	
+	-- Resolve animation instance
+	local animation = nil
+	
+	-- Check preloaded first (by name or ID)
+	if self.PreloadedAnimations[animationId] then
+		animation = self.PreloadedAnimations[animationId]
+	else
+		-- Create new animation instance for rbxassetid
+		animation = Instance.new("Animation")
+		if animationId:match("^rbxassetid://") then
+			animation.AnimationId = animationId
+		else
+			-- Assume it's a numeric ID
+			animation.AnimationId = "rbxassetid://" .. animationId
+		end
+	end
+	
+	if not animation or not animation.AnimationId or animation.AnimationId == "" then
+		return nil
+	end
+	
+	-- Stop other custom animations if requested
+	if settings.StopOthers ~= false then
+		for _, track in pairs(self.CustomAnimationTracks) do
+			if track and track.IsPlaying then
+				track:Stop(settings.FadeOutTime or 0.1)
+			end
+		end
+	end
+	
+	-- Load track
+	local track = self.LocalAnimator:LoadAnimation(animation)
+	if not track then
+		return nil
+	end
+	
+	-- Apply settings
+	track.Priority = settings.Priority or Enum.AnimationPriority.Action
+	track.Looped = settings.Looped or false
+	
+	-- Play
+	track:Play(
+		settings.FadeInTime or 0.1,
+		settings.Weight or 1,
+		settings.Speed or 1
+	)
+	
+	-- Store reference
+	self.CustomAnimationTracks[animationId] = track
+	
+	-- Cleanup when stopped
+	track.Stopped:Once(function()
+		if self.CustomAnimationTracks[animationId] == track then
+			self.CustomAnimationTracks[animationId] = nil
+		end
+	end)
+	
+	return track
+end
+
+--[[
+	Stop a custom animation by ID.
+]]
+function AnimationController:StopAnimation(animationId: string, fadeOutTime: number?)
+	local track = self.CustomAnimationTracks[animationId]
+	if track and track.IsPlaying then
+		track:Stop(fadeOutTime or 0.1)
+	end
+	self.CustomAnimationTracks[animationId] = nil
+end
+
+--[[
+	Stop all custom animations.
+]]
+function AnimationController:StopAllCustomAnimations(fadeOutTime: number?)
+	for _, track in pairs(self.CustomAnimationTracks) do
+		if track and track.IsPlaying then
+			track:Stop(fadeOutTime or 0.1)
+		end
+	end
+	self.CustomAnimationTracks = {}
 end
 
 function AnimationController:_loadTrack(animator, animation, name)

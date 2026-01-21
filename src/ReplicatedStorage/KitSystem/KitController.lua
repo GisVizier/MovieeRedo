@@ -4,6 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ConnectionManager = require(ReplicatedStorage.CoreUI.ConnectionManager)
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+
 local KitController = {}
 KitController.__index = KitController
 
@@ -20,6 +23,10 @@ function KitController.new(player: Player?, coreUi: any?, net: any?, inputContro
 	self._state = nil
 	self._clientKit = nil
 	self._clientKitId = nil
+	
+	-- Viewmodel state for ability usage
+	self._holsteredSlot = nil -- Weapon slot to restore after ability ends
+	self._abilityActive = false
 
 	return self
 end
@@ -117,6 +124,9 @@ function KitController:_interruptClientKit(reason: string)
 	if not kit or type(kitId) ~= "string" then
 		return
 	end
+	
+	-- Restore weapon on client-side interrupt
+	self:_unholsterWeapon()
 
 	local function callInterrupt(handlerTable, abilityType)
 		if type(handlerTable) ~= "table" then
@@ -126,6 +136,8 @@ function KitController:_interruptClientKit(reason: string)
 		if type(fn) ~= "function" then
 			return
 		end
+		local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+		local viewmodelAnimator = viewmodelController and viewmodelController._animator or nil
 		local abilityRequest = {
 			kitId = kitId,
 			abilityType = abilityType,
@@ -133,6 +145,8 @@ function KitController:_interruptClientKit(reason: string)
 			character = self._player and self._player.Character or nil,
 			humanoidRootPart = self._player and self._player.Character and self._player.Character.PrimaryPart or nil,
 			timestamp = os.clock(),
+			viewmodelController = viewmodelController,
+			viewmodelAnimator = viewmodelAnimator,
 			-- No Send() on interrupts triggered by system state; ability should just cancel local work.
 		}
 		pcall(fn, handlerTable, abilityRequest, reason)
@@ -151,6 +165,10 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 
 	local character = self._player and self._player.Character or nil
 	local hrp = character and character.PrimaryPart or nil
+	
+	-- Get viewmodel controller and animator for kit abilities
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	local viewmodelAnimator = viewmodelController and viewmodelController._animator or nil
 
 	local sent = false
 	local function send(extraData)
@@ -160,6 +178,51 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 		sent = true
 		self:requestActivateAbility(abilityType, inputState, extraData)
 		return true
+	end
+	
+	-- Cooldown helpers
+	-- Server sends: abilityCooldownEndsAt (server os.clock()), serverNow (server os.clock() when sent)
+	-- We convert to client time by calculating the offset
+	local state = self._state
+	local cooldownEndsAt = state and state.abilityCooldownEndsAt or 0
+	local serverNow = state and state.serverNow or 0
+	local receivedAt = state and state.receivedAt or 0
+	
+	-- Calculate when cooldown ends in client time
+	-- cooldownEndsAt - serverNow = seconds remaining when state was sent
+	-- receivedAt + (cooldownEndsAt - serverNow) = when it ends in client time
+	local function getClientCooldownEndTime()
+		if cooldownEndsAt == 0 then return 0 end
+		local secondsRemaining = cooldownEndsAt - serverNow
+		return receivedAt + secondsRemaining
+	end
+	
+	local function isOnCooldown()
+		local endTime = getClientCooldownEndTime()
+		return os.clock() < endTime
+	end
+	
+	local function getCooldownRemaining()
+		local endTime = getClientCooldownEndTime()
+		return math.max(0, endTime - os.clock())
+	end
+	
+	-- StartAbility: Called by client kit to commit to using the ability
+	-- Holsters weapon, switches to fists, returns context with viewmodelAnimator
+	local abilityStarted = false
+	local function startAbility()
+		if abilityStarted then
+			-- Already started, just return the context
+			return { viewmodelAnimator = viewmodelAnimator }
+		end
+		abilityStarted = true
+		
+		-- Holster weapon and switch to fists
+		self:_holsterWeapon()
+		
+		return {
+			viewmodelAnimator = viewmodelAnimator,
+		}
 	end
 
 	local abilityRequest = {
@@ -171,6 +234,17 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 		humanoidRootPart = hrp,
 		timestamp = os.clock(),
 		Send = send,
+		
+		-- Cooldown checking
+		IsOnCooldown = isOnCooldown,
+		GetCooldownRemaining = getCooldownRemaining,
+		
+		-- Start the ability (holsters weapon, returns viewmodel context)
+		StartAbility = startAbility,
+		
+		-- Direct viewmodel access (for OnEnded/OnInterrupt when ability already started)
+		viewmodelController = viewmodelController,
+		viewmodelAnimator = viewmodelAnimator,
 	}
 
 	local handlerTable = clientKit and clientKit[abilityType] or nil
@@ -182,14 +256,64 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 	end
 
 	if type(fn) == "function" then
-		-- Note: handler is responsible for calling abilityRequest.Send(...) if it wants server replication.
-		pcall(fn, handlerTable, abilityRequest)
+		local ok, err = pcall(fn, handlerTable, abilityRequest)
+		if not ok then
+			warn("[KitController] Client kit error:", err)
+		end
 		return
 	end
 
 	-- Fallback behavior if a client kit doesn't exist / doesn't handle this input edge.
 	-- (Preserves current gameplay while you migrate kits to client modules.)
 	self:requestActivateAbility(abilityType, inputState)
+end
+
+--[[
+	Holsters the current weapon and switches to Fists viewmodel.
+	Called when an ability starts.
+]]
+function KitController:_holsterWeapon()
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	if not viewmodelController then
+		return
+	end
+	
+	-- Store current slot to restore later
+	local currentSlot = viewmodelController:GetActiveSlot()
+	if currentSlot and currentSlot ~= "Fists" then
+		self._holsteredSlot = currentSlot
+	elseif not self._holsteredSlot then
+		-- Default to Primary if we don't have a stored slot
+		self._holsteredSlot = "Primary"
+	end
+	
+	self._abilityActive = true
+	
+	-- Switch to Fists viewmodel
+	viewmodelController:SetActiveSlot("Fists")
+end
+
+--[[
+	Restores the previously holstered weapon.
+	Called when an ability ends.
+]]
+function KitController:_unholsterWeapon()
+	if not self._abilityActive then
+		return
+	end
+	
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	if not viewmodelController then
+		return
+	end
+	
+	self._abilityActive = false
+	
+	-- Restore previous weapon slot
+	local slotToRestore = self._holsteredSlot or "Primary"
+	self._holsteredSlot = nil
+	
+	viewmodelController:SetActiveSlot(slotToRestore)
 end
 
 function KitController:_emit(eventName: string, ...)
@@ -216,10 +340,6 @@ end
 
 function KitController:requestActivateAbility(abilityType: string, inputState, extraData)
 	if self._net then
-		print("[KitController] ActivateAbility request", {
-			abilityType = abilityType,
-			inputState = tostring(inputState),
-		})
 		self._net:FireServer("KitRequest", {
 			action = "ActivateAbility",
 			abilityType = abilityType,
@@ -243,6 +363,7 @@ function KitController:_onKitMessage(message)
 end
 
 function KitController:_onKitState(state)
+	state.receivedAt = os.clock() -- Track when we received this state
 	self._state = state
 
 	local kitId = state.equippedKitId
@@ -277,18 +398,25 @@ function KitController:_onKitEvent(event)
 		self:_emit("KitAbilityActivated", event.kitId, event.playerId, event.abilityType)
 	elseif event.event == "AbilityEnded" then
 		if isLocal then
+			-- Restore weapon when ability ends (server confirmed)
+			self:_unholsterWeapon()
 			self:_emit("KitLocalAbilityEnded", event.kitId, event.abilityType)
 		end
 		self:_emit("KitAbilityEnded", event.kitId, event.playerId, event.abilityType)
 	elseif event.event == "AbilityInterrupted" then
 		-- Server rejected / cancelled. Cancel any local prediction.
 		if isLocal then
+			-- Restore weapon on interrupt as well
+			self:_unholsterWeapon()
+			
 			local clientKit = self:_loadClientKit(event.kitId)
 			local handlerTable = clientKit and clientKit[event.abilityType] or nil
 			local fn = handlerTable and handlerTable.OnInterrupt or nil
 			if type(fn) == "function" then
 				local character = self._player and self._player.Character or nil
 				local hrp = character and character.PrimaryPart or nil
+				local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+				local viewmodelAnimator = viewmodelController and viewmodelController._animator or nil
 				local abilityRequest = {
 					kitId = event.kitId,
 					abilityType = event.abilityType,
@@ -297,6 +425,8 @@ function KitController:_onKitEvent(event)
 					character = character,
 					humanoidRootPart = hrp,
 					timestamp = os.clock(),
+					viewmodelController = viewmodelController,
+					viewmodelAnimator = viewmodelAnimator,
 				}
 				pcall(fn, handlerTable, abilityRequest, "ServerInterrupted")
 			end

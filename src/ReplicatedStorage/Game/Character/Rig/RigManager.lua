@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local CollisionUtils = require(Locations.Shared.Util:WaitForChild("CollisionUtils"))
 
 RigManager.ActiveRigs = {}
 RigManager.RigContainer = nil
@@ -51,6 +52,8 @@ function RigManager:_bindRigDescendantAdded(rig)
 			conn:Disconnect()
 			self._descendantConnections[rig] = nil
 		end
+		-- Stop the ensure loop
+		CollisionUtils:StopEnsuringNonCollideable(rig)
 	end)
 end
 
@@ -105,6 +108,18 @@ function RigManager:CreateRig(player, character)
 	configureRigDefault(rig)
 	self:_bindRigDescendantAdded(rig)
 	self.ActiveRigs[player] = rig
+	
+	-- BULLETPROOF: Use CollisionUtils to ensure rig NEVER has collision enabled.
+	-- This runs a heartbeat loop that re-applies every 0.25s, catching any changes
+	-- from ApplyDescription or other sources that might reset collision properties.
+	CollisionUtils:EnsureNonCollideable(rig, {
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		Massless = true,
+		UseHeartbeat = true,
+		HeartbeatInterval = 0.25, -- Check 4 times per second
+	})
 
 	-- Apply player appearance to the rig (v1 behavior via HumanoidDescription).
 	-- This is done async because GetHumanoidDescriptionFromUserId can yield.
@@ -126,6 +141,8 @@ function RigManager:CreateRig(player, character)
 					pcall(function()
 						rigHumanoid:ApplyDescription(desc)
 					end)
+					-- Re-apply collision rules immediately after ApplyDescription
+					configureRigDefault(rig)
 				end
 			end)
 		end

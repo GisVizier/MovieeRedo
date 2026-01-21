@@ -109,7 +109,7 @@ end
 -- Get emote settings merged with defaults
 function EmoteBase:_getSettings(): { [string]: any }
 	local defaults = EmoteConfig.Defaults
-	local data = self._data
+	local data = self._data or {}
 	
 	return {
 		Loopable = data.Loopable ~= nil and data.Loopable or defaults.Loopable,

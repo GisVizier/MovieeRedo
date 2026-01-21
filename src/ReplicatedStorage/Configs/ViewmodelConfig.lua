@@ -83,12 +83,9 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.Fists,
 		Offset = CFrame.new(0, 0, 0),
 		Animations = {
-			-- Fists animations (currently using placeholders)
-			Idle = "rbxassetid://0",
-			Walk = "rbxassetid://0",
-			Run = "rbxassetid://0",
-			Equip = "rbxassetid://0",
-			Inspect = "rbxassetid://0",
+			Idle = "rbxassetid://133153180074922",
+			Walk = "rbxassetid://133153180074922",  -- Reuse Idle
+			Run = "rbxassetid://133153180074922",   -- Reuse Idle
 		},
 	},
 
@@ -145,7 +142,7 @@ ViewmodelConfig.Weapons = {
 
 	Sniper = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Sniper,
-		Offset = CFrame.new(0, 0, 0.6),
+		Offset = CFrame.new(0, -0.3, .7) * CFrame.Angles(math.rad(5), math.rad(0), math.rad(-9)),
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Sniper/Viewmodel/
 			Idle = "Idle",

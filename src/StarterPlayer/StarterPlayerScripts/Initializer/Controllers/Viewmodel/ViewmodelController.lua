@@ -256,9 +256,6 @@ function ViewmodelController:_destroyAllRigs()
 		end
 		self._storedRigs = nil
 	end
-
-	-- Clear kit animation cache (tracks are destroyed with Fists rig)
-	self._cachedKitTracks = nil
 end
 
 --[[
@@ -422,70 +419,55 @@ function ViewmodelController:_preloadKitAnimations(fistsRig)
 	if not fistsRig or not fistsRig.Animator then
 		return
 	end
-
-	self._cachedKitTracks = {}
-
-	local kitsConfig = ViewmodelConfig.Kits
-	if type(kitsConfig) ~= "table" then
-		return
-	end
-
+	
+	-- First, preload all Animation instances into ViewmodelAnimator's cache
+	local preloadedAnims = ViewmodelAnimator.PreloadKitAnimations()
+	
+	-- Now load all tracks on the Fists rig to prime them
 	local toPreload = {}
-
-	for kitId, kitData in pairs(kitsConfig) do
-		self._cachedKitTracks[kitId] = {
-			Ability = {},
-			Ultimate = {},
-		}
-
-		-- Preload Ability animations (Charge, Release, etc.)
-		if type(kitData.Ability) == "table" then
-			for animName, animId in pairs(kitData.Ability) do
-				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
-					local animation = Instance.new("Animation")
-					animation.AnimationId = animId
-
-					local track = fistsRig.Animator:LoadAnimation(animation)
-					track.Priority = Enum.AnimationPriority.Action2
-					track.Looped = false
-
-					-- Prime the track by playing/stopping immediately
+	local trackCount = 0
+	
+	for animName, animInstance in pairs(preloadedAnims) do
+		-- Only process direct name entries (skip path duplicates like "Airborne/CloudskipDash")
+		-- to avoid loading the same animation twice
+		if not string.find(animName, "/") then
+			local animId = animInstance.AnimationId
+			if animId and animId ~= "" and animId ~= "rbxassetid://0" then
+				local success, track = pcall(function()
+					return fistsRig.Animator:LoadAnimation(animInstance)
+				end)
+				
+				if success and track then
+					-- Read priority from attribute or default
+					local priorityAttr = animInstance:GetAttribute("Priority")
+					if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+						track.Priority = Enum.AnimationPriority[priorityAttr]
+					elseif typeof(priorityAttr) == "EnumItem" then
+						track.Priority = priorityAttr
+					else
+						track.Priority = Enum.AnimationPriority.Action4
+					end
+					
+					-- Read looped from attribute or default
+					local loopAttr = animInstance:GetAttribute("Loop") or animInstance:GetAttribute("Looped")
+					track.Looped = (type(loopAttr) == "boolean") and loopAttr or false
+					
+					-- Prime the track
 					track:Play(0)
 					track:Stop(0)
-
-					self._cachedKitTracks[kitId].Ability[animName] = track
-					table.insert(toPreload, animation)
-				end
-			end
-		end
-
-		-- Preload Ultimate animations (Activate, etc.)
-		if type(kitData.Ultimate) == "table" then
-			for animName, animId in pairs(kitData.Ultimate) do
-				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
-					local animation = Instance.new("Animation")
-					animation.AnimationId = animId
-
-					local track = fistsRig.Animator:LoadAnimation(animation)
-					track.Priority = Enum.AnimationPriority.Action2
-					track.Looped = false
-
-					-- Prime the track by playing/stopping immediately
-					track:Play(0)
-					track:Stop(0)
-
-					self._cachedKitTracks[kitId].Ultimate[animName] = track
-					table.insert(toPreload, animation)
+					
+					table.insert(toPreload, animInstance)
+					trackCount += 1
 				end
 			end
 		end
 	end
-
+	
 	-- Preload animation assets via ContentProvider
 	if #toPreload > 0 then
 		task.spawn(function()
 			ContentProvider:PreloadAsync(toPreload)
-			LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = #toPreload })
+			LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = trackCount })
 		end)
 	end
 end
@@ -871,6 +853,11 @@ function ViewmodelController:_render(dt: number)
 end
 
 function ViewmodelController:_onKitMessage(message)
+	-- NOTE: Viewmodel switching for abilities is now handled by KitController directly.
+	-- KitController holsters weapon on ability start and unholsters on AbilityEnded.
+	-- This function is kept for potential future use (e.g., playing kit-specific animations
+	-- that aren't handled by the client kit itself).
+	
 	if type(message) ~= "table" then
 		return
 	end
@@ -883,11 +870,14 @@ function ViewmodelController:_onKitMessage(message)
 		return
 	end
 
-	if message.event == "AbilityActivated" then
-		self:_onLocalAbilityBegin(message.kitId, message.abilityType)
-	elseif message.event == "AbilityEnded" then
-		self:_onLocalAbilityEnd(message.kitId, message.abilityType)
-	end
+	-- Viewmodel switching is now handled by KitController._holsterWeapon / _unholsterWeapon
+	-- Kit animations are now played directly by ClientKits using viewmodelAnimator:PlayKitAnimation()
+	-- 
+	-- if message.event == "AbilityActivated" then
+	-- 	self:_onLocalAbilityBegin(message.kitId, message.abilityType)
+	-- elseif message.event == "AbilityEnded" then
+	-- 	self:_onLocalAbilityEnd(message.kitId, message.abilityType)
+	-- end
 end
 
 function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, name: string)

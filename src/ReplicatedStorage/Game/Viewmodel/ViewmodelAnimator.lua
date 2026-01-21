@@ -12,6 +12,10 @@ ViewmodelAnimator.__index = ViewmodelAnimator
 
 local DEBUG_VIEWMODEL = false
 
+-- Kit animation storage (shared across all instances)
+local PreloadedKitAnimations = {} -- { [animName] = Animation }
+local KitAnimationsPreloaded = false
+
 local AIRBORNE_SPRINT_SPEED = 0.2
 
 local LocalPlayer = Players.LocalPlayer
@@ -173,7 +177,104 @@ function ViewmodelAnimator.new()
 	self._conn = nil
 	self._initialized = false
 	self._smoothedSpeed = 0
+	
+	-- Kit animation tracks (loaded per-instance since they need an animator)
+	self._kitTracks = {} -- { [animName] = AnimationTrack }
+	
 	return self
+end
+
+--[[
+	Preloads all kit animations from Assets.Animations.ViewModel.Kits
+	Structure: Assets/Animations/ViewModel/Kits/{KitName}/{AnimName}
+	
+	Uses GetDescendants() to find all Animation instances in subfolders.
+	Stores by both full path and just animation name for flexible lookup.
+	
+	Call this once at startup - animations are shared across all instances.
+]]
+function ViewmodelAnimator.PreloadKitAnimations()
+	if KitAnimationsPreloaded then
+		return PreloadedKitAnimations
+	end
+	
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		warn("[ViewmodelAnimator] Assets folder not found")
+		return PreloadedKitAnimations
+	end
+	
+	local animations = assets:FindFirstChild("Animations")
+	if not animations then
+		warn("[ViewmodelAnimator] Animations folder not found")
+		return PreloadedKitAnimations
+	end
+	
+	local viewModel = animations:FindFirstChild("ViewModel")
+	if not viewModel then
+		warn("[ViewmodelAnimator] ViewModel folder not found in Animations")
+		return PreloadedKitAnimations
+	end
+	
+	local kitsFolder = viewModel:FindFirstChild("Kits")
+	if not kitsFolder then
+		warn("[ViewmodelAnimator] Kits folder not found in ViewModel")
+		return PreloadedKitAnimations
+	end
+	
+	-- Use GetDescendants to find all Animation instances
+	local count = 0
+	for _, descendant in ipairs(kitsFolder:GetDescendants()) do
+		if descendant:IsA("Animation") then
+			-- Build path relative to Kits folder (e.g., "Airborne/CloudskipDash")
+			local pathParts = {}
+			local current = descendant
+			while current and current ~= kitsFolder do
+				table.insert(pathParts, 1, current.Name)
+				current = current.Parent
+			end
+			local fullPath = table.concat(pathParts, "/")
+			
+			-- Store by full path (e.g., "Airborne/CloudskipDash")
+			PreloadedKitAnimations[fullPath] = descendant
+			
+			-- Also store by just the animation name (e.g., "CloudskipDash")
+			-- This allows simpler lookups but may overwrite if names aren't unique
+			PreloadedKitAnimations[descendant.Name] = descendant
+			
+			count += 1
+			
+			if DEBUG_VIEWMODEL then
+				print(string.format("[ViewmodelAnimator] Preloaded kit animation: %s (ID: %s)", fullPath, descendant.AnimationId))
+			end
+		end
+	end
+	
+	KitAnimationsPreloaded = true
+	print(string.format("[ViewmodelAnimator] Preloaded %d kit animations", count))
+	
+	return PreloadedKitAnimations
+end
+
+--[[
+	Gets a preloaded kit animation by name or rbxassetid
+	@param animIdOrName: Animation name (e.g. "Updraft", "Airborne/Updraft") or rbxassetid
+	@return Animation? The Animation instance if found
+]]
+function ViewmodelAnimator.GetKitAnimation(animIdOrName: string): Animation?
+	if not animIdOrName or animIdOrName == "" then
+		return nil
+	end
+	
+	-- If it's an asset ID, create a new Animation instance
+	if string.find(animIdOrName, "rbxassetid://") then
+		local anim = Instance.new("Animation")
+		anim.AnimationId = animIdOrName
+		return anim
+	end
+	
+	-- Look up in preloaded animations
+	return PreloadedKitAnimations[animIdOrName]
 end
 
 function ViewmodelAnimator:BindRig(rig, weaponId: string?)
@@ -184,6 +285,20 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	self._currentMove = nil
 	self._initialized = false
 	self._smoothedSpeed = 0
+	
+	-- Store original Motor6D transforms (bind pose) for reset
+	self._bindPose = {}
+	local model = rig and rig.Model
+	if model then
+		for _, desc in ipairs(model:GetDescendants()) do
+			if desc:IsA("Motor6D") then
+				self._bindPose[desc] = {
+					C0 = desc.C0,
+					C1 = desc.C1,
+				}
+			end
+		end
+	end
 
 	if not rig or not rig.Animator then
 		return
@@ -249,6 +364,17 @@ function ViewmodelAnimator:Unbind()
 			end
 		end)
 	end
+	
+	-- Stop and clear kit animation tracks
+	for _, track in pairs(self._kitTracks) do
+		pcall(function()
+			if track.IsPlaying then
+				track:Stop(0)
+			end
+		end)
+	end
+	self._kitTracks = {}
+	self._bindPose = nil
 
 	self._rig = nil
 	self._tracks = {}
@@ -313,6 +439,225 @@ end
 
 function ViewmodelAnimator:GetTrackSettings(name: string)
 	return self._trackSettings and self._trackSettings[name] or {}
+end
+
+--[[
+	Plays a kit animation on the viewmodel.
+	
+	@param animIdOrName: Animation name (e.g. "Updraft", "Airborne/Updraft") or rbxassetid
+	@param settings: Optional settings table:
+		- fadeTime: number (default 0.1)
+		- speed: number (default 1)
+		- priority: Enum.AnimationPriority (default Action4)
+		- looped: boolean (default false)
+		- weight: number (default 1)
+		- stopOthers: boolean - if true, stops other kit animations first (default false)
+	@return AnimationTrack? The playing track, or nil if failed
+]]
+function ViewmodelAnimator:PlayKitAnimation(animIdOrName: string, settings: {[string]: any}?): AnimationTrack?
+	if not self._rig or not self._rig.Animator then
+		warn("[ViewmodelAnimator] Cannot play kit animation - no rig bound")
+		return nil
+	end
+	
+	settings = settings or {}
+	
+	-- Stop other kit animations if requested
+	if settings.stopOthers then
+		self:StopAllKitAnimations(settings.fadeTime or 0.1)
+	end
+	
+	-- Check if we already have this track loaded
+	local track = self._kitTracks[animIdOrName]
+	local animInstance = nil
+	
+	if not track then
+		-- Get the animation instance
+		animInstance = ViewmodelAnimator.GetKitAnimation(animIdOrName)
+		if not animInstance then
+			warn(string.format("[ViewmodelAnimator] Kit animation not found: %s", animIdOrName))
+			return nil
+		end
+		
+		-- Validate animation ID
+		local animId = animInstance.AnimationId
+		if not animId or animId == "" or animId == "rbxassetid://0" then
+			warn(string.format("[ViewmodelAnimator] Kit animation has invalid ID: %s", animIdOrName))
+			return nil
+		end
+		
+		-- Load the track
+		local success, result = pcall(function()
+			return self._rig.Animator:LoadAnimation(animInstance)
+		end)
+		
+		if not success or not result then
+			warn(string.format("[ViewmodelAnimator] Failed to load kit animation: %s - %s", animIdOrName, tostring(result)))
+			return nil
+		end
+		
+		track = result
+		self._kitTracks[animIdOrName] = track
+	else
+		-- Track exists, get the animation instance for attribute reading
+		animInstance = ViewmodelAnimator.GetKitAnimation(animIdOrName)
+	end
+	
+	-- Read settings from attributes (fallback to provided settings, then defaults)
+	local fadeTime = settings.fadeTime
+	local speed = settings.speed
+	local priority = settings.priority
+	local looped = settings.looped
+	local weight = settings.weight
+	
+	-- Read from Animation instance attributes if not provided in settings
+	if animInstance then
+		if fadeTime == nil then
+			local fadeAttr = animInstance:GetAttribute("FadeInTime") or animInstance:GetAttribute("FadeTime")
+			if type(fadeAttr) == "number" then
+				fadeTime = fadeAttr
+			end
+		end
+		
+		if speed == nil then
+			local speedAttr = animInstance:GetAttribute("Speed")
+			if type(speedAttr) == "number" then
+				speed = speedAttr
+			end
+		end
+		
+		if priority == nil then
+			local priorityAttr = animInstance:GetAttribute("Priority")
+			if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+				priority = Enum.AnimationPriority[priorityAttr]
+			elseif typeof(priorityAttr) == "EnumItem" then
+				priority = priorityAttr
+			end
+		end
+		
+		if looped == nil then
+			local loopAttr = animInstance:GetAttribute("Loop") or animInstance:GetAttribute("Looped")
+			if type(loopAttr) == "boolean" then
+				looped = loopAttr
+			end
+		end
+		
+		if weight == nil then
+			local weightAttr = animInstance:GetAttribute("Weight")
+			if type(weightAttr) == "number" then
+				weight = weightAttr
+			end
+		end
+	end
+	
+	-- Apply final defaults
+	fadeTime = fadeTime or 0.1
+	speed = speed or 1
+	priority = priority or Enum.AnimationPriority.Action4
+	looped = looped or false
+	weight = weight or 1
+	
+	track.Priority = priority
+	track.Looped = looped
+	
+	-- Stop if playing and we want to restart
+	if track.IsPlaying then
+		track:Stop(0)
+	end
+	
+	-- Play the track
+	track:Play(fadeTime, weight, speed)
+	
+	if DEBUG_VIEWMODEL then
+		print(string.format(
+			"[ViewmodelAnimator] Playing kit animation: %s (fade=%.2f, speed=%.2f, looped=%s)",
+			animIdOrName, fadeTime, speed, tostring(looped)
+		))
+	end
+	
+	return track
+end
+
+--[[
+	Stops a specific kit animation.
+	
+	@param animIdOrName: The animation name or ID that was used to play it
+	@param fadeTime: Optional fade out time (default 0.1)
+]]
+function ViewmodelAnimator:StopKitAnimation(animIdOrName: string, fadeTime: number?)
+	local track = self._kitTracks[animIdOrName]
+	if track and track.IsPlaying then
+		track:Stop(fadeTime or 0.1)
+		
+		if DEBUG_VIEWMODEL then
+			print(string.format("[ViewmodelAnimator] Stopped kit animation: %s", animIdOrName))
+		end
+	end
+end
+
+--[[
+	Stops all currently playing kit animations.
+	
+	@param fadeTime: Optional fade out time (default 0.1)
+]]
+function ViewmodelAnimator:StopAllKitAnimations(fadeTime: number?)
+	local fade = fadeTime or 0.1
+	for name, track in pairs(self._kitTracks) do
+		if track and track.IsPlaying then
+			track:Stop(fade)
+			
+			if DEBUG_VIEWMODEL then
+				print(string.format("[ViewmodelAnimator] Stopped kit animation: %s", name))
+			end
+		end
+	end
+end
+
+--[[
+	Gets a kit animation track if it's been loaded.
+	
+	@param animIdOrName: The animation name or ID
+	@return AnimationTrack? The track if loaded
+]]
+function ViewmodelAnimator:GetKitTrack(animIdOrName: string): AnimationTrack?
+	return self._kitTracks[animIdOrName]
+end
+
+--[[
+	Checks if a kit animation is currently playing.
+	
+	@param animIdOrName: The animation name or ID
+	@return boolean
+]]
+function ViewmodelAnimator:IsKitAnimationPlaying(animIdOrName: string): boolean
+	local track = self._kitTracks[animIdOrName]
+	return track ~= nil and track.IsPlaying
+end
+
+--[[
+	Resets the viewmodel rig to its original bind pose.
+	Call this after kit animations end to clear any residual pose.
+	Useful for Fists viewmodel which has no Idle animation to blend back to.
+]]
+function ViewmodelAnimator:ResetToBindPose()
+	if not self._rig or not self._bindPose then
+		return
+	end
+	
+	-- Stop all kit animations first
+	self:StopAllKitAnimations(0)
+	
+	-- Reset all Motor6Ds to original transforms
+	for motor, transforms in pairs(self._bindPose) do
+		if motor and motor.Parent then
+			motor.C0 = transforms.C0
+			motor.C1 = transforms.C1
+		end
+	end
+	
+	if DEBUG_VIEWMODEL then
+		print("[ViewmodelAnimator] Reset to bind pose")
+	end
 end
 
 function ViewmodelAnimator:_updateMovement(dt: number)

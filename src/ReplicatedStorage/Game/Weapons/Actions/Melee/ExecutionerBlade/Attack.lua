@@ -12,7 +12,7 @@ local Attack = {}
 
 -- Track current slash for combo
 Attack._currentSlash = 1
-Attack._comboResetTime = 1.0 -- Reset combo after 1 second of no attacks
+Attack._comboResetTime = 2.0 -- Reset combo after 2 seconds of no attacks
 
 function Attack.Execute(weaponInstance, currentTime)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then

@@ -322,7 +322,7 @@ LoadoutConfig.Weapons = {
 		},
 		maxAmmo = 0,
 		clipSize = 0,
-		attackCooldown = 0.6,
+		attackCooldown = 1.0,
 		specialCooldown = 5.0,
 		isAbility = false,
 

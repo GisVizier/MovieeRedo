@@ -4,6 +4,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
 -- Load EmoteService from Game/Emotes
 local EmotesService = nil
@@ -607,6 +608,12 @@ function module:show()
 	-- Unlock mouse for selection
 	self._savedMouseBehavior = UserInputService.MouseBehavior
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	
+	-- Hide crosshair while emote wheel is open
+	local weaponController = ServiceRegistry:GetController("Weapon")
+	if weaponController and weaponController.HideCrosshair then
+		weaponController:HideCrosshair()
+	end
 
 	self:_cancelAllTweens()
 	self:_setHover(nil)
@@ -640,6 +647,12 @@ function module:hide()
 	if self._savedMouseBehavior then
 		UserInputService.MouseBehavior = self._savedMouseBehavior
 		self._savedMouseBehavior = nil
+	end
+	
+	-- Restore crosshair visibility
+	local weaponController = ServiceRegistry:GetController("Weapon")
+	if weaponController and weaponController.RestoreCrosshair then
+		weaponController:RestoreCrosshair()
 	end
 	
 	self:_cancelAllTweens()

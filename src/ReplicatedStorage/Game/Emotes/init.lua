@@ -38,6 +38,7 @@ EmoteService._replicateConnection = nil
 EmoteService._movementConnection = nil  -- RenderStepped connection for movement detection
 EmoteService._jumpConnection = nil      -- Jump input callback connection
 EmoteService._slideConnection = nil     -- Slide input callback connection
+EmoteService._sprintConnection = nil    -- Sprint input callback connection
 EmoteService._savedCameraMode = nil     -- Previous camera mode before emote
 EmoteService._savedSpeedMultiplier = 1  -- Previous speed multiplier
 
@@ -357,7 +358,35 @@ function EmoteService.play(emoteId: string): boolean
 	LocalPlayer:SetAttribute("EmoteSpeedMultiplier", speedMult)
 	
 	-- =========================================================================
-	-- MOVEMENT CANCELLATION - Cancel emote if AllowMove=false and player moves/jumps
+	-- ALWAYS CANCEL ON: Jump, Slide, Sprint (even if AllowMove = true)
+	-- =========================================================================
+	local inputController = ServiceRegistry:GetController("Input")
+	
+	if inputController and inputController.ConnectToInput then
+		-- Jump cancels emote
+		EmoteService._jumpConnection = inputController:ConnectToInput("Jump", function(isPressed)
+			if isPressed and EmoteService._activeEmote then
+				EmoteService.stop()
+			end
+		end)
+		
+		-- Slide cancels emote
+		EmoteService._slideConnection = inputController:ConnectToInput("Slide", function(isPressed)
+			if isPressed and EmoteService._activeEmote then
+				EmoteService.stop()
+			end
+		end)
+		
+		-- Sprint cancels emote
+		EmoteService._sprintConnection = inputController:ConnectToInput("Sprint", function(isPressed)
+			if isPressed and EmoteService._activeEmote then
+				EmoteService.stop()
+			end
+		end)
+	end
+	
+	-- =========================================================================
+	-- MOVEMENT CANCELLATION - Only cancel on WASD if AllowMove = false
 	-- =========================================================================
 	local allowMove = emoteData.AllowMove
 	if allowMove == nil then
@@ -366,9 +395,6 @@ function EmoteService.play(emoteId: string): boolean
 	
 	if not allowMove then
 		local MOVEMENT_THRESHOLD = 0.1
-		
-		-- Get InputController for movement detection
-		local inputController = ServiceRegistry:GetController("Input")
 		
 		-- Connect to RenderStepped to check movement input
 		EmoteService._movementConnection = RunService.RenderStepped:Connect(function()
@@ -382,24 +408,6 @@ function EmoteService.play(emoteId: string): boolean
 				end
 			end
 		end)
-		
-		-- Connect to Jump callback
-		if inputController and inputController.ConnectToInput then
-			EmoteService._jumpConnection = inputController:ConnectToInput("Jump", function(isPressed)
-				if isPressed and EmoteService._activeEmote then
-					EmoteService.stop()
-				end
-			end)
-		end
-		
-		-- Connect to Slide callback
-		if inputController and inputController.ConnectToInput then
-			EmoteService._slideConnection = inputController:ConnectToInput("Slide", function(isPressed)
-				if isPressed and EmoteService._activeEmote then
-					EmoteService.stop()
-				end
-			end)
-		end
 	end
 	
 	-- Fire to server
@@ -430,6 +438,11 @@ function EmoteService.stop(): boolean
 	if EmoteService._slideConnection then
 		EmoteService._slideConnection:Disconnect()
 		EmoteService._slideConnection = nil
+	end
+	
+	if EmoteService._sprintConnection then
+		EmoteService._sprintConnection:Disconnect()
+		EmoteService._sprintConnection = nil
 	end
 	
 	-- =========================================================================
@@ -488,49 +501,67 @@ end
 -- ============================================================================
 
 -- Play emote on a specific rig (for preview viewports)
+-- Creates a full emote instance and calls start() so custom logic (props, etc.) runs
 function EmoteService.playOnRig(emoteId: string, rig: Model): boolean
 	if not emoteId or not rig then
 		return false
 	end
 	
 	local emoteClass = EmoteService.getEmoteClass(emoteId)
-	if not emoteClass or not emoteClass.Animations or not emoteClass.Animations.Main then
+	if not emoteClass then
 		return false
 	end
 	
 	-- Stop existing emote on this rig
 	EmoteService.stopOnRig(emoteId, rig)
 	
-	-- Get animator from rig
-	local humanoid = rig:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
-		return false
+	-- Create emote instance with the preview rig
+	local emoteData = getEmoteData(emoteClass)
+	local emote = nil
+	
+	if emoteClass.new then
+		local ok, result = pcall(function()
+			return emoteClass.new(emoteId, emoteData, rig)
+		end)
+		if ok then
+			emote = result
+		end
 	end
 	
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if not animator then
-		animator = Instance.new("Animator")
-		animator.Parent = humanoid
+	if not emote then
+		emote = EmoteBase.new(emoteId, emoteData, rig)
 	end
 	
-	-- Create and play animation
-	local animId = emoteClass.Animations.Main
-	if not animId:match("^rbxassetid://") then
-		animId = "rbxassetid://" .. animId
+	-- Mark as preview
+	emote._isPreview = true
+	
+	-- Wrap stop() to auto-restart for preview dummies
+	local originalStop = emote.stop
+	emote.stop = function(self)
+		local result = originalStop(self)
+		-- After stop returns, restart the emote (if not destroyed)
+		task.defer(function()
+			-- Check if emote was destroyed (stopOnRig sets _data to nil)
+			if self._data and self._rig then
+				self:start()
+			end
+		end)
+		return result
 	end
 	
-	local animation = Instance.new("Animation")
-	animation.AnimationId = animId
+	-- Start the emote (runs custom start logic like prop spawning)
+	emote:start()
 	
-	local track = animator:LoadAnimation(animation)
-	track.Looped = emoteClass.Loopable or false
-	track:Play(0.2)
+	-- Play animation if available
+	if emoteClass.Animations and emoteClass.Animations.Main then
+		emote:PlayAnimation("Main")
+	end
 	
-	-- Track it
+	-- Store emote instance (not just track)
 	if not EmoteService._activeByRig[rig] then
 		EmoteService._activeByRig[rig] = {}
 	end
-	EmoteService._activeByRig[rig][emoteId] = track
+	EmoteService._activeByRig[rig][emoteId] = emote
 	
 	return true
 end
@@ -547,15 +578,26 @@ function EmoteService.stopOnRig(emoteId: string, rig: Model): boolean
 	end
 	
 	if emoteId then
-		local track = bucket[emoteId]
-		if track and typeof(track) == "Instance" and track:IsA("AnimationTrack") and track.IsPlaying then
-			track:Stop(0.2)
+		local emote = bucket[emoteId]
+		if emote then
+			-- Call stop and destroy on the emote instance
+			if type(emote.stop) == "function" then
+				pcall(function() emote:stop() end)
+			end
+			if type(emote.destroy) == "function" then
+				pcall(function() emote:destroy() end)
+			end
 		end
 		bucket[emoteId] = nil
 	else
-		for _, track in bucket do
-			if track and typeof(track) == "Instance" and track:IsA("AnimationTrack") and track.IsPlaying then
-				track:Stop(0.2)
+		for _, emote in bucket do
+			if emote then
+				if type(emote.stop) == "function" then
+					pcall(function() emote:stop() end)
+				end
+				if type(emote.destroy) == "function" then
+					pcall(function() emote:destroy() end)
+				end
 			end
 		end
 		EmoteService._activeByRig[rig] = nil

@@ -24,6 +24,12 @@ AnimationIds.Enum = {
 	WallBoostForward = 22,
 	WallBoostLeft = 23,
 	WallBoostRight = 24,
+	
+	-- Kit Animations: Airborne
+	CloudskipDash = 25,
+	HurricaneStart = 26,
+	HurricaneLoop = 27,
+	HurricaneEnd = 28,
 }
 
 AnimationIds.Names = {}

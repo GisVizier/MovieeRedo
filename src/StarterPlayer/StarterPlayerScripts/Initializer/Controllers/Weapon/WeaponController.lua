@@ -260,7 +260,10 @@ function WeaponController:_onCameraModeChanged(_mode)
 		return
 	end
 
+	-- Entering FirstPerson mode - clear force hidden state and apply crosshair
+	self._crosshairForcedHidden = false
 	UserInputService.MouseIconEnabled = false
+	
 	if self._equippedWeaponId then
 		self:_applyCrosshairForWeapon(self._equippedWeaponId)
 	end
@@ -826,6 +829,50 @@ function WeaponController:GetADSSpeedMultiplier(): number
 		return LocalPlayer:GetAttribute("ADSSpeedMultiplier") or 1.0
 	end
 	return 1.0
+end
+
+-- =============================================================================
+-- CROSSHAIR VISIBILITY
+-- =============================================================================
+
+-- Force hide the crosshair (for emote wheel, menus, etc.)
+function WeaponController:HideCrosshair()
+	self._crosshairForcedHidden = true
+	
+	if self._crosshair then
+		self._crosshair:RemoveCrosshair()
+	end
+end
+
+-- Restore crosshair visibility after force hide
+function WeaponController:RestoreCrosshair()
+	self._crosshairForcedHidden = false
+	
+	-- Only restore if we're in first person with a weapon equipped
+	if not self:_isFirstPerson() then
+		return
+	end
+	
+	-- Re-apply crosshair for equipped weapon
+	if self._equippedWeaponId then
+		self:_applyCrosshairForWeapon(self._equippedWeaponId)
+	end
+end
+
+-- Check if crosshair is force hidden
+function WeaponController:IsCrosshairHidden()
+	return self._crosshairForcedHidden == true
+end
+
+-- Force re-apply crosshair (useful when state gets out of sync)
+function WeaponController:RefreshCrosshair()
+	-- Clear force hidden state
+	self._crosshairForcedHidden = false
+	
+	-- Re-apply based on current state
+	if self:_isFirstPerson() and self._equippedWeaponId then
+		self:_applyCrosshairForWeapon(self._equippedWeaponId)
+	end
 end
 
 -- =============================================================================

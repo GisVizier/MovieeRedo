@@ -112,6 +112,7 @@ end
 
 function VFXRep:Fire(targetSpec, moduleInfo, data)
 	if not self._net then
+		warn("[VFXRep] Fire called but VFXRep not initialized! Call VFXRep:Init(net, false) first.")
 		return
 	end
 	self._net:FireServer("VFXRep", targetSpec, moduleInfo, data)
