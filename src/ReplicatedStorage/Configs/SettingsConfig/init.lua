@@ -652,6 +652,36 @@ SettingsConfig.Categories = {
 				},
 			},
 
+			Emotes = {
+				Name = "Emote Wheel",
+				Description = "Open the emote selection wheel.",
+				Order = 17,
+				SettingType = "keybind",
+				Action = "Emotes",
+				Bind = {
+					PC = Enum.KeyCode.B,
+					PC2 = nil,
+					Console = Enum.KeyCode.DPadDown,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.B,
+					PC2 = nil,
+					Console = Enum.KeyCode.DPadDown,
+				},
+			},
+
+			EmoteWheelMode = {
+				Name = "Emote Wheel Mode",
+				Description = "Hold: Release to select. Toggle: Press again to close.",
+				Order = 18,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Hold", Value = "Hold" },
+					{ Display = "Toggle", Value = "Toggle" },
+				},
+				Default = 1,
+			},
+
 			Divider2 = {
 				Name = "AIM ASSIST",
 				Description = "",
@@ -919,6 +949,12 @@ SettingsConfig.DefaultSettings = {
 			PC2 = nil,
 			Console = Enum.KeyCode.ButtonX,
 		},
+		Emotes = {
+			PC = Enum.KeyCode.B,
+			PC2 = nil,
+			Console = Enum.KeyCode.DPadDown,
+		},
+		EmoteWheelMode = 1, -- 1 = Hold, 2 = Toggle
 	},
 
 	Crosshair = {

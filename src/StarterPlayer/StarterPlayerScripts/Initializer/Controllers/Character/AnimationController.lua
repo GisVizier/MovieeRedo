@@ -94,6 +94,11 @@ AnimationController.OtherCharacterAnimators = {}
 AnimationController.OtherCharacterTracks = {}
 AnimationController.OtherCharacterCurrentAnimations = {}
 
+-- Emote system properties
+AnimationController.CurrentEmoteTrack = nil
+AnimationController.EmoteAnimationCache = {}
+AnimationController.OtherCharacterEmoteTracks = {}
+
 local STATE_ANIMATIONS = {
 	Walking = "WalkingForward",
 	Sprinting = "WalkingForward",
@@ -1312,6 +1317,209 @@ function AnimationController:UpdateAnimationSpeed()
 	if self.CurrentIdleAnimation and self.CurrentIdleAnimation.IsPlaying then
 		self.CurrentIdleAnimation:AdjustSpeed(speedMultiplier)
 	end
+end
+
+-- ============================================================================
+-- EMOTE SYSTEM METHODS
+-- ============================================================================
+
+function AnimationController:_getEmoteAnimationFolder()
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+
+	local animations = assets:FindFirstChild("Animations")
+	if not animations then
+		return nil
+	end
+
+	return animations:FindFirstChild("Emotes")
+end
+
+function AnimationController:_loadEmoteAnimation(emoteId: string): Animation?
+	-- Check cache first
+	if self.EmoteAnimationCache[emoteId] then
+		return self.EmoteAnimationCache[emoteId]
+	end
+
+	-- First, try to get animation ID from the EmoteService's registered emote class
+	local EmoteService = ServiceRegistry:GetService("EmoteService")
+	if not EmoteService then
+		-- Try getting it as a module from Game/Emotes
+		local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+		local ok, service = pcall(function()
+			return require(Locations.Game:WaitForChild("Emotes"))
+		end)
+		if ok then
+			EmoteService = service
+		end
+	end
+	
+	if EmoteService and EmoteService.getEmoteClass then
+		local emoteClass = EmoteService.getEmoteClass(emoteId)
+		if emoteClass and emoteClass.Animations and emoteClass.Animations.Main then
+			-- Create Animation instance from the ID
+			local animId = emoteClass.Animations.Main
+			if not animId:match("^rbxassetid://") then
+				animId = "rbxassetid://" .. animId
+			end
+			
+			local animation = Instance.new("Animation")
+			animation.AnimationId = animId
+			animation.Name = emoteId .. "_Main"
+			
+			self.EmoteAnimationCache[emoteId] = animation
+			return animation
+		end
+	end
+
+	-- Fallback: try loading from Assets folder structure
+	local emotesFolder = self:_getEmoteAnimationFolder()
+	if not emotesFolder then
+		return nil
+	end
+
+	local emoteFolder = emotesFolder:FindFirstChild(emoteId)
+	if not emoteFolder then
+		return nil
+	end
+
+	local animFolder = emoteFolder:FindFirstChild("Animation")
+	if not animFolder then
+		return nil
+	end
+
+	-- Find first Animation instance
+	for _, child in animFolder:GetChildren() do
+		if child:IsA("Animation") then
+			self.EmoteAnimationCache[emoteId] = child
+			return child
+		end
+	end
+
+	return nil
+end
+
+function AnimationController:PlayEmote(emoteId: string): boolean
+	if not self.LocalAnimator then
+		return false
+	end
+
+	-- Stop current emote if playing
+	self:StopEmote()
+
+	-- Load animation
+	local animation = self:_loadEmoteAnimation(emoteId)
+	if not animation then
+		if TestMode.Logging.LogAnimationSystem then
+			LogService:Warn("ANIMATION", "Emote animation not found", { EmoteId = emoteId })
+		end
+		return false
+	end
+
+	-- Stop other animations that would conflict
+	if self.CurrentStateAnimation and self.CurrentStateAnimation.IsPlaying then
+		self.CurrentStateAnimation:Stop(0.2)
+	end
+	if self.CurrentIdleAnimation and self.CurrentIdleAnimation.IsPlaying then
+		self.CurrentIdleAnimation:Stop(0.2)
+	end
+
+	-- Load and play emote track
+	local track = self.LocalAnimator:LoadAnimation(animation)
+	track.Priority = Enum.AnimationPriority.Action2
+	track.Looped = false -- Will be set by emote config if needed
+
+	track:Play(0.2)
+	self.CurrentEmoteTrack = track
+
+	-- Connect to track stopped to clear reference
+	track.Stopped:Once(function()
+		if self.CurrentEmoteTrack == track then
+			self.CurrentEmoteTrack = nil
+		end
+	end)
+
+	return true
+end
+
+function AnimationController:StopEmote(): boolean
+	if not self.CurrentEmoteTrack then
+		return true
+	end
+
+	if self.CurrentEmoteTrack.IsPlaying then
+		self.CurrentEmoteTrack:Stop(0.2)
+	end
+
+	self.CurrentEmoteTrack = nil
+	return true
+end
+
+function AnimationController:IsEmotePlaying(): boolean
+	return self.CurrentEmoteTrack ~= nil and self.CurrentEmoteTrack.IsPlaying
+end
+
+function AnimationController:PlayEmoteForOtherPlayer(player: Player, emoteId: string): boolean
+	if not player or not emoteId then
+		return false
+	end
+
+	local character = player.Character
+	if not character or not character.Parent then
+		return false
+	end
+
+	local animator = self.OtherCharacterAnimators[character]
+	if not animator then
+		return false
+	end
+
+	-- Stop current emote for this player
+	self:StopEmoteForOtherPlayer(player)
+
+	-- Load animation
+	local animation = self:_loadEmoteAnimation(emoteId)
+	if not animation then
+		return false
+	end
+
+	-- Load and play track
+	local track = animator:LoadAnimation(animation)
+	track.Priority = Enum.AnimationPriority.Action2
+	track.Looped = false
+
+	track:Play(0.2)
+	self.OtherCharacterEmoteTracks[character] = track
+
+	-- Cleanup on stopped
+	track.Stopped:Once(function()
+		if self.OtherCharacterEmoteTracks[character] == track then
+			self.OtherCharacterEmoteTracks[character] = nil
+		end
+	end)
+
+	return true
+end
+
+function AnimationController:StopEmoteForOtherPlayer(player: Player): boolean
+	if not player then
+		return false
+	end
+
+	local character = player.Character
+	if not character then
+		return true
+	end
+
+	local track = self.OtherCharacterEmoteTracks[character]
+	if track and track.IsPlaying then
+		track:Stop(0.2)
+	end
+
+	self.OtherCharacterEmoteTracks[character] = nil
+	return true
 end
 
 return AnimationController

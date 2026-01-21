@@ -423,7 +423,7 @@ function CoreUI:setModuleState(moduleName, state)
 	end
 end
 
-function CoreUI:show(moduleName, force)	
+function CoreUI:show(moduleName, force)
 	local moduleData = self._modules[moduleName]
 	if not moduleData then
 		warn("[CoreUI] Module not found:", moduleName)

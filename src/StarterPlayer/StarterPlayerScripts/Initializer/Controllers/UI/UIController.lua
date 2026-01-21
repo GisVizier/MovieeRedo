@@ -70,7 +70,7 @@ function UIController:_bootstrapUi()
 	self._coreUi = ui
 
 	-- Force-hide any UI that might be Visible by default in Studio.
-	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Map", "Loadout", "Black", "TallFade", "HUD" }) do
+	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Map", "Loadout", "Black", "TallFade", "HUD", "Emotes" }) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then
 			inst.Visible = false
@@ -97,6 +97,9 @@ function UIController:_bootstrapUi()
 	ui:on("LoadoutComplete", function(data)
 		self:_onLoadoutComplete(data)
 	end)
+
+	-- Emote wheel input wiring
+	self:_setupEmoteWheelInput(ui)
 
 	-- Initial UI: Loadout only (RojoUiReference testing flow).
 	do
@@ -138,6 +141,56 @@ function UIController:_onLoadoutComplete(data)
 	}
 
 	self._net:FireServer("SubmitLoadout", payload)
+end
+
+function UIController:_setupEmoteWheelInput(ui)
+	local inputController = self._registry and self._registry:TryGet("Input")
+	if not inputController then
+		warn("[UIController] InputController not found, emote wheel input disabled")
+		return
+	end
+
+	local emoteWheelOpen = false
+	
+	-- Helper to get current mode setting
+	local function isHoldMode()
+		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+		local modeIndex = PlayerDataTable.get("Controls", "EmoteWheelMode")
+		-- 1 = Hold, 2 = Toggle (default to Hold if not set)
+		return modeIndex == nil or modeIndex == 1
+	end
+
+	inputController:ConnectToInput("Emotes", function(isPressed)
+		local holdMode = isHoldMode()
+		
+		if isPressed then
+			if not emoteWheelOpen then
+				-- Open the wheel
+				emoteWheelOpen = true
+				ui:show("Emotes")
+			elseif not holdMode then
+				-- Toggle mode: pressing again closes without selecting
+				emoteWheelOpen = false
+				ui:hide("Emotes")
+			end
+		else
+			-- Key released
+			if emoteWheelOpen and holdMode then
+				-- Hold mode: release selects the hovered emote
+				local emotesModule = ui:getModule("Emotes")
+				if emotesModule and emotesModule._activateHovered then
+					emotesModule:_activateHovered()
+				end
+				emoteWheelOpen = false
+				-- Note: _activateHovered already calls hide, but we set state here
+			end
+		end
+	end)
+	
+	-- Listen for when emote is selected (closes wheel in both modes)
+	ui:on("EmoteSelected", function()
+		emoteWheelOpen = false
+	end)
 end
 
 function UIController:_onStartMatch(matchData)

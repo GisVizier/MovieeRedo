@@ -49,6 +49,7 @@ InputManager.Callbacks = {
 	Special = {},
 	ToggleCameraMode = {},
 	ToggleRagdollTest = {},
+	Emotes = {},
 }
 
 function InputManager:SetGameplayEnabled(enabled: boolean)
@@ -214,6 +215,14 @@ end
 
 function InputManager:SetupKeyboardMouse()
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		-- Emote wheel works regardless of gameplay state (but not during chat)
+		if not gameProcessed and not self.IsChatFocused then
+			if input.KeyCode == Enum.KeyCode.B then
+				self:FireCallbacks("Emotes", true)
+				return
+			end
+		end
+
 		if
 			gameProcessed
 			or self.IsMenuOpen
@@ -273,6 +282,12 @@ function InputManager:SetupKeyboardMouse()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, gameProcessed)
+		-- Emote wheel release
+		if input.KeyCode == Enum.KeyCode.B then
+			self:FireCallbacks("Emotes", false)
+			return
+		end
+
 		if
 			gameProcessed
 			or self.IsMenuOpen
@@ -477,6 +492,12 @@ function InputManager:SetupGamepad()
 			return
 		end
 
+		-- Emote wheel works regardless of menu state (but not during chat)
+		if not self.IsChatFocused and input.KeyCode == Enum.KeyCode.DPadDown then
+			self:FireCallbacks("Emotes", true)
+			return
+		end
+
 		if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
 			return
 		end
@@ -507,6 +528,12 @@ function InputManager:SetupGamepad()
 		end
 
 		if input.UserInputType ~= Enum.UserInputType.Gamepad1 then
+			return
+		end
+
+		-- Emote wheel release
+		if input.KeyCode == Enum.KeyCode.DPadDown then
+			self:FireCallbacks("Emotes", false)
 			return
 		end
 

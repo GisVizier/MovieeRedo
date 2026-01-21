@@ -35,7 +35,7 @@ function PlayerDataTable.init()
 		EMOTES = {},
 
 		OWNED = {
-			OWNED_EMOTES = {},
+			OWNED_EMOTES = {"Template"},
 			OWNED_KITS = {"WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne"},
 			OWNED_PRIMARY = {"Shotgun", "Sniper"},
 			OWNED_SECONDARY = {"Revolver"},
@@ -51,6 +51,17 @@ function PlayerDataTable.init()
 
 		EQUIPPED_SKINS = {
 			Revolver = "Energy",
+		},
+
+		EQUIPPED_EMOTES = {
+			Slot1 = "Template",
+			Slot2 = nil,
+			Slot3 = nil,
+			Slot4 = nil,
+			Slot5 = nil,
+			Slot6 = nil,
+			Slot7 = nil,
+			Slot8 = nil,
 		},
 
 		OWNED_SKINS = {
@@ -357,6 +368,45 @@ end
 
 function PlayerDataTable._saveCategoryToServer(category: string)
 	warn("[PlayerDataTable] MOCK: Would save category to server:", category)
+end
+
+-- Emote System Methods
+
+function PlayerDataTable.getEquippedEmotes(): {[string]: string?}
+	if not mockData then
+		PlayerDataTable.init()
+	end
+
+	return deepClone(mockData.EQUIPPED_EMOTES or {})
+end
+
+function PlayerDataTable.setEquippedEmote(slot: string, emoteId: string?): boolean
+	if not mockData then
+		PlayerDataTable.init()
+	end
+
+	if not mockData.EQUIPPED_EMOTES then
+		mockData.EQUIPPED_EMOTES = {}
+	end
+
+	local oldValue = mockData.EQUIPPED_EMOTES[slot]
+	mockData.EQUIPPED_EMOTES[slot] = emoteId
+
+	PlayerDataTable._fireCallbacks("EquippedEmote", slot, emoteId, oldValue)
+
+	return true
+end
+
+function PlayerDataTable.isEmoteOwned(emoteId: string): boolean
+	return PlayerDataTable.isOwned("OWNED_EMOTES", emoteId)
+end
+
+function PlayerDataTable.getOwnedEmotes(): {string}
+	return PlayerDataTable.getOwned("OWNED_EMOTES")
+end
+
+function PlayerDataTable.addOwnedEmote(emoteId: string): boolean
+	return PlayerDataTable.addOwned("OWNED_EMOTES", emoteId)
 end
 
 return PlayerDataTable

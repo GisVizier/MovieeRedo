@@ -39,6 +39,11 @@ local Remotes = {
 
 	-- Debug logging
 	{ name = "DebugLog", description = "Client debug log forwarding" },
+
+	-- Emote system
+	{ name = "EmotePlay", description = "Client requests emote playback" },
+	{ name = "EmoteStop", description = "Client requests emote stop" },
+	{ name = "EmoteReplicate", description = "Server broadcasts emote to clients" },
 }
 
 return Remotes
