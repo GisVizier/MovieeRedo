@@ -1389,4 +1389,21 @@ function module:_cleanup()
 	self._viewedCharacter = nil
 end
 
+-- Force trigger cooldown animation for a slot (for melee specials, etc.)
+-- slotType: "Primary", "Secondary", "Melee", or "Kit"
+-- duration: cooldown duration in seconds
+function module:ForceCooldown(slotType: string, duration: number)
+	if not slotType or not duration then
+		return
+	end
+	
+	local templateData = self._weaponTemplates[slotType]
+	if not templateData then
+		warn("[HUD] ForceCooldown: No template for slot", slotType)
+		return
+	end
+	
+	self:_setupTemplateReloadState(templateData, true, duration)
+end
+
 return module

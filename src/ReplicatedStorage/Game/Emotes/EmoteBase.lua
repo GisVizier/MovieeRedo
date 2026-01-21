@@ -37,6 +37,7 @@ function EmoteBase.new(emoteId: string, emoteData: { [string]: any }, rig: Insta
 	self._moveConnection = nil
 	self._stoppedConnection = nil
 	self._onFinished = nil
+	self._tracks = {}  -- { [animKey] = AnimationTrack }
 	
 	return self
 end
@@ -118,6 +119,105 @@ function EmoteBase:_getSettings(): { [string]: any }
 		FadeOutTime = data.FadeOutTime or defaults.FadeOutTime,
 		Priority = data.Priority or defaults.Priority,
 	}
+end
+
+-- Get the Animator from the rig
+function EmoteBase:_getAnimator(): Animator?
+	if not self._rig then
+		return nil
+	end
+	
+	local humanoid = self._rig:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return nil
+	end
+	
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	
+	return animator
+end
+
+-- Play an animation by key from the Animations table
+-- Returns the AnimationTrack or nil if failed
+function EmoteBase:PlayAnimation(animKey: string, fadeTime: number?, priority: Enum.AnimationPriority?): AnimationTrack?
+	-- Get animation ID from class's Animations table
+	local emoteClass = getmetatable(self)
+	local animations = emoteClass and emoteClass.Animations
+	if not animations then
+		warn("[EmoteBase] No Animations table found for", self._id)
+		return nil
+	end
+	
+	local animId = animations[animKey]
+	if not animId then
+		warn("[EmoteBase] Animation key not found:", animKey, "for", self._id)
+		return nil
+	end
+	
+	-- Normalize animation ID
+	if not animId:match("^rbxassetid://") then
+		animId = "rbxassetid://" .. animId
+	end
+	
+	-- Get animator
+	local animator = self:_getAnimator()
+	if not animator then
+		warn("[EmoteBase] No animator found for", self._id)
+		return nil
+	end
+	
+	-- Stop existing track for this key
+	if self._tracks[animKey] then
+		self._tracks[animKey]:Stop(fadeTime or 0.2)
+	end
+	
+	-- Create and load animation
+	local animation = Instance.new("Animation")
+	animation.AnimationId = animId
+	
+	local track = animator:LoadAnimation(animation)
+	track.Priority = priority or Enum.AnimationPriority.Action
+	track.Looped = self._data.Loopable or false
+	track:Play(fadeTime or 0.2)
+	
+	-- Adjust speed if set
+	local speed = self._data.Speed or 1
+	if speed ~= 1 then
+		track:AdjustSpeed(speed)
+	end
+	
+	-- Store track
+	self._tracks[animKey] = track
+	
+	return track
+end
+
+-- Stop a specific animation by key
+function EmoteBase:StopAnimation(animKey: string, fadeTime: number?)
+	local track = self._tracks[animKey]
+	if track and track.IsPlaying then
+		track:Stop(fadeTime or 0.2)
+	end
+	self._tracks[animKey] = nil
+end
+
+-- Stop all playing animations
+function EmoteBase:StopAllAnimations(fadeTime: number?)
+	for animKey, track in self._tracks do
+		if track and track.IsPlaying then
+			track:Stop(fadeTime or 0.2)
+		end
+	end
+	self._tracks = {}
+end
+
+-- Get a playing animation track by key
+function EmoteBase:GetTrack(animKey: string): AnimationTrack?
+	return self._tracks[animKey]
 end
 
 -- Watch for movement to cancel emote
@@ -214,12 +314,14 @@ end
 -- Destroy the emote instance
 function EmoteBase:destroy()
 	self:stop()
+	self:StopAllAnimations(0.1)
 	
 	self._rig = nil
 	self._data = nil
 	self._animation = nil
 	self._sound = nil
 	self._animationTrack = nil
+	self._tracks = {}
 	self._onFinished = nil
 end
 
