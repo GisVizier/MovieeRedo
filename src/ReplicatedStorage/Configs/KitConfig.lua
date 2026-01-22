@@ -287,7 +287,7 @@ KitConfig.Kits = {
 			Name = "CLOUDSKIP",
 			Description = "Use wind that boosts you, letting you cut angles fast and land in the perfect position.",
 			Video = "",
-			Cooldown = 7,
+			Cooldown = .5,
 		},
 
 		Passive = {

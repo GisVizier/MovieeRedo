@@ -31,6 +31,7 @@ EmoteService._initialized = false
 EmoteService._registered = {}           -- { [emoteId] = emoteClass }
 EmoteService._activeEmote = nil         -- Current emote instance for local player
 EmoteService._activeByRig = {}          -- { [rig] = { [emoteId] = emoteInstance } } for preview rigs
+EmoteService._activeByPlayer = {}       -- { [playerId] = emoteInstance } for other players' emotes
 EmoteService._lastPlayTime = 0          -- For cooldown
 EmoteService._replicateConnection = nil
 
@@ -153,7 +154,16 @@ function EmoteService._setupReplication()
 	end)
 end
 
--- Play emote for another player
+-- Get cosmetic rig for another player
+function EmoteService._getRigForPlayer(player: Player): Model?
+	if not player or not player.Character then
+		return nil
+	end
+	
+	return CharacterLocations:GetRig(player.Character)
+end
+
+-- Play emote for another player (creates full emote instance with props)
 function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 	local player = Players:GetPlayerByUserId(playerId)
 	if not player then
@@ -162,26 +172,82 @@ function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 	
 	local emoteClass = EmoteService.getEmoteClass(emoteId)
 	if not emoteClass then
+		warn("[EmoteService] Emote not found for other player:", emoteId)
 		return
 	end
 	
-	-- Get animation controller and play
-	local animController = ServiceRegistry:GetController("AnimationController")
-	if animController and animController.PlayEmoteForOtherPlayer then
-		animController:PlayEmoteForOtherPlayer(player, emoteId)
+	-- Stop any existing emote for this player
+	EmoteService._stopForOtherPlayer(playerId)
+	
+	-- Get the player's cosmetic rig
+	local rig = EmoteService._getRigForPlayer(player)
+	if not rig then
+		warn("[EmoteService] No rig found for player:", player.Name)
+		return
 	end
+	
+	-- Create emote instance for this player's rig
+	local emoteData = getEmoteData(emoteClass)
+	local emote = nil
+	
+	if emoteClass.new then
+		local ok, result = pcall(function()
+			return emoteClass.new(emoteId, emoteData, rig)
+		end)
+		if ok then
+			emote = result
+		else
+			warn("[EmoteService] Failed to create emote for other player:", result)
+		end
+	end
+	
+	if not emote then
+		emote = EmoteBase.new(emoteId, emoteData, rig)
+	end
+	
+	-- Start the emote (spawns props, etc.)
+	local started = emote:start()
+	if not started then
+		warn("[EmoteService] Failed to start emote for other player")
+		emote:destroy()
+		return
+	end
+	
+	-- Play animation with proper looping
+	local loopable = emoteData.Loopable
+	if loopable == nil then
+		loopable = EmoteConfig.Defaults.Loopable
+	end
+	
+	-- Play animation using the emote's helper (respects looping)
+	if emoteClass.Animations and emoteClass.Animations.Main then
+		local track = emote:PlayAnimation("Main")
+		if track then
+			track.Looped = loopable
+		end
+	end
+	
+	-- Store emote for cleanup
+	EmoteService._activeByPlayer[playerId] = emote
 end
 
 -- Stop emote for another player
 function EmoteService._stopForOtherPlayer(playerId: number)
-	local player = Players:GetPlayerByUserId(playerId)
-	if not player then
-		return
+	local emote = EmoteService._activeByPlayer[playerId]
+	if emote then
+		-- Stop and destroy emote instance (cleans up props, animations, etc.)
+		pcall(function() emote:stop() end)
+		pcall(function() emote:destroy() end)
+		EmoteService._activeByPlayer[playerId] = nil
 	end
 	
-	local animController = ServiceRegistry:GetController("AnimationController")
-	if animController and animController.StopEmoteForOtherPlayer then
-		animController:StopEmoteForOtherPlayer(player)
+	-- Also stop animation via AnimationController as backup
+	local player = Players:GetPlayerByUserId(playerId)
+	if player then
+		local animController = ServiceRegistry:GetController("AnimationController")
+		if animController and animController.StopEmoteForOtherPlayer then
+			animController:StopEmoteForOtherPlayer(player)
+		end
 	end
 end
 
@@ -314,21 +380,30 @@ function EmoteService.play(emoteId: string): boolean
 		emote = EmoteBase.new(emoteId, emoteData, rig)
 	end
 	
-	-- Play via AnimationController
-	local animController = ServiceRegistry:GetController("AnimationController")
-	if animController and animController.PlayEmote then
-		local success = animController:PlayEmote(emoteId)
-		if not success then
-			emote:destroy()
-			return false
-		end
-	end
-	
-	-- Start emote
+	-- Start emote (runs custom start logic like prop spawning)
 	local started = emote:start()
 	if not started then
 		emote:destroy()
 		return false
+	end
+	
+	-- Play animation with proper looping
+	-- (Some emotes play their own animation in start(), others don't)
+	local loopable = emoteData.Loopable
+	if loopable == nil then
+		loopable = EmoteConfig.Defaults.Loopable
+	end
+	
+	-- Check if animation was already played by start(), if not play it now
+	local existingTrack = emote:GetTrack("Main")
+	if not existingTrack and emoteClass.Animations and emoteClass.Animations.Main then
+		local track = emote:PlayAnimation("Main")
+		if track then
+			track.Looped = loopable
+		end
+	elseif existingTrack then
+		-- Ensure looping is set correctly even if start() played it
+		existingTrack.Looped = loopable
 	end
 	
 	-- Setup finished callback
@@ -471,13 +546,8 @@ function EmoteService.stop(): boolean
 	LocalPlayer:SetAttribute("EmoteSpeedMultiplier", 1)
 	EmoteService._savedSpeedMultiplier = 1
 	
-	-- Stop animation
-	local animController = ServiceRegistry:GetController("AnimationController")
-	if animController and animController.StopEmote then
-		animController:StopEmote()
-	end
-	
 	-- Stop emote instance (clear reference first to prevent re-entry)
+	-- The emote's stop() method handles stopping animations via StopAllAnimations()
 	local emote = EmoteService._activeEmote
 	EmoteService._activeEmote = nil
 	if emote then

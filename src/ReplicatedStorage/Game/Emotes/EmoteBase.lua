@@ -31,11 +31,13 @@ function EmoteBase.new(emoteId: string, emoteData: { [string]: any }, rig: Insta
 	self._data = emoteData or {}
 	self._rig = rig
 	self._active = false
+	self._started = false  -- True after animation starts playing
 	self._animation = nil
 	self._sound = nil
 	self._animationTrack = nil
 	self._moveConnection = nil
 	self._stoppedConnection = nil
+	self._endedConnection = nil
 	self._onFinished = nil
 	self._tracks = {}  -- { [animKey] = AnimationTrack }
 	
@@ -170,9 +172,13 @@ function EmoteBase:PlayAnimation(animKey: string, fadeTime: number?, priority: E
 		return nil
 	end
 	
-	-- Stop existing track for this key
+	-- Stop existing track for this key (disconnect any ended listener first)
 	if self._tracks[animKey] then
 		self._tracks[animKey]:Stop(fadeTime or 0.2)
+	end
+	if self._endedConnection then
+		self._endedConnection:Disconnect()
+		self._endedConnection = nil
 	end
 	
 	-- Create and load animation
@@ -193,7 +199,52 @@ function EmoteBase:PlayAnimation(animKey: string, fadeTime: number?, priority: E
 	-- Store track
 	self._tracks[animKey] = track
 	
+	-- Mark as started once animation begins playing
+	self._started = true
+	
 	return track
+end
+
+-- Setup auto-stop for non-loopable emotes when animation ends
+-- Call this AFTER PlayAnimation if you want the emote to auto-stop
+function EmoteBase:SetupAutoStop(animKey: string)
+	local track = self._tracks[animKey]
+	if not track then
+		warn("[EmoteBase] SetupAutoStop: No track found for", animKey)
+		return
+	end
+	
+	-- Don't setup auto-stop for loopable emotes
+	if self._data.Loopable then
+		warn("[EmoteBase] SetupAutoStop: Skipping - emote is loopable")
+		return
+	end
+	
+	-- Disconnect any existing ended connection
+	if self._endedConnection then
+		self._endedConnection:Disconnect()
+		self._endedConnection = nil
+	end
+	
+	-- FORCE track to not loop (in case it was set wrong somewhere)
+	track.Looped = false
+	
+	warn("[EmoteBase] SetupAutoStop: Track.Looped =", track.Looped, ", Length =", track.Length)
+	
+	-- Check animation length
+	if track.Length <= 0 then
+		warn("[EmoteBase] Animation has no length, skipping auto-stop for", self._id)
+		return
+	end
+	
+	warn("[EmoteBase] SetupAutoStop: Connecting Ended event for", self._id, "duration:", track.Length)
+	
+	self._endedConnection = track.Ended:Once(function()
+		warn("[EmoteBase] >>> ENDED EVENT FIRED for", self._id)
+		if self._active then
+			self:stop()
+		end
+	end)
 end
 
 -- Stop a specific animation by key
@@ -250,12 +301,18 @@ function EmoteBase:start(): boolean
 	end
 	
 	self._active = true
+	self._started = false  -- Will be set to true when animation plays
 	
 	local settings = self:_getSettings()
 	
 	-- Setup movement cancellation if not allowed to move
+	-- Add a small grace period to prevent accidental cancellation
 	if not settings.AllowMove then
-		self:_watchMovement()
+		task.delay(0.2, function()
+			if self._active then
+				self:_watchMovement()
+			end
+		end)
 	end
 	
 	return true
@@ -268,6 +325,10 @@ function EmoteBase:stop(): boolean
 	end
 	
 	self._active = false
+	self._started = false
+	
+	-- Stop all playing animations
+	self:StopAllAnimations()
 	
 	-- Disconnect movement watcher
 	if self._moveConnection then
@@ -279,6 +340,12 @@ function EmoteBase:stop(): boolean
 	if self._stoppedConnection then
 		self._stoppedConnection:Disconnect()
 		self._stoppedConnection = nil
+	end
+	
+	-- Disconnect ended listener
+	if self._endedConnection then
+		self._endedConnection:Disconnect()
+		self._endedConnection = nil
 	end
 	
 	-- Fire finished callback
@@ -316,6 +383,11 @@ function EmoteBase:destroy()
 	self:stop()
 	self:StopAllAnimations(0.1)
 	
+	if self._endedConnection then
+		self._endedConnection:Disconnect()
+		self._endedConnection = nil
+	end
+	
 	self._rig = nil
 	self._data = nil
 	self._animation = nil
@@ -323,6 +395,7 @@ function EmoteBase:destroy()
 	self._animationTrack = nil
 	self._tracks = {}
 	self._onFinished = nil
+	self._started = false
 end
 
 return EmoteBase

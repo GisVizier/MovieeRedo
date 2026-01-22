@@ -116,6 +116,18 @@ function KitController:_loadClientKit(kitId: string?)
 	self._clientKit = kitInstance
 	self._clientKitId = kitId
 
+	-- Call OnEquip if the kit has it
+	if kitInstance.OnEquip then
+		local equipCtx = {
+			player = self._player,
+			character = self._player and self._player.Character,
+			kitId = kitId,
+		}
+		pcall(function()
+			kitInstance:OnEquip(equipCtx)
+		end)
+	end
+
 	return kitInstance
 end
 
@@ -124,6 +136,13 @@ function KitController:_interruptClientKit(reason: string)
 	local kitId = self._clientKitId
 	if not kit or type(kitId) ~= "string" then
 		return
+	end
+	
+	-- Call OnUnequip if the kit has it
+	if kit.OnUnequip then
+		pcall(function()
+			kit:OnUnequip(reason)
+		end)
 	end
 	
 	-- Restore weapon on client-side interrupt
@@ -409,6 +428,8 @@ function KitController:_onKitState(state)
 		self:_interruptClientKit("KitChanged")
 		self._activeKitId = kitId
 		if type(kitId) == "string" then
+			-- Load the client kit immediately so OnEquip is called
+			self:_loadClientKit(kitId)
 			self:_emit("KitEquipped", kitId)
 		else
 			self:_emit("KitUnequipped")
