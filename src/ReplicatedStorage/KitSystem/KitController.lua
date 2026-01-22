@@ -27,6 +27,7 @@ function KitController.new(player: Player?, coreUi: any?, net: any?, inputContro
 	-- Viewmodel state for ability usage
 	self._holsteredSlot = nil -- Weapon slot to restore after ability ends
 	self._abilityActive = false
+	self._weaponSwitchLocked = false -- Manual weapon switch lock
 
 	return self
 end
@@ -324,11 +325,32 @@ function KitController:IsAbilityActive(): boolean
 end
 
 --[[
+	Manually lock weapon switching.
+	Call this to prevent player from switching weapons.
+	@return function - Call to unlock
+]]
+function KitController:LockWeaponSwitch()
+	self._weaponSwitchLocked = true
+	
+	-- Return unlock function for convenience
+	return function()
+		self:UnlockWeaponSwitch()
+	end
+end
+
+--[[
+	Manually unlock weapon switching.
+]]
+function KitController:UnlockWeaponSwitch()
+	self._weaponSwitchLocked = false
+end
+
+--[[
 	Returns true if weapon switching should be blocked.
 	ViewmodelController checks this before allowing slot changes.
 ]]
 function KitController:IsWeaponSwitchLocked(): boolean
-	return self._abilityActive == true
+	return self._weaponSwitchLocked == true
 end
 
 function KitController:_emit(eventName: string, ...)
