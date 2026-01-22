@@ -11,10 +11,10 @@ local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 -- =============================================================================
 -- STATE
 -- =============================================================================
-FOVController.BaseFOV = 80
-FOVController.CurrentFOV = 80
-FOVController.TargetFOV = 80
-FOVController.SmoothedFOV = 80
+FOVController.BaseFOV = 70
+FOVController.CurrentFOV = 70
+FOVController.TargetFOV = 70
+FOVController.SmoothedFOV = 70
 
 FOVController.ActiveEffects = {}
 FOVController.IsInitialized = false

@@ -95,7 +95,7 @@ Camera.FirstPerson = {
 -- FOV SYSTEM
 -- =============================================================================
 Camera.FOV = {
-	Base = 80,                  -- Base field of view
+	Base = 70,                  -- Base field of view
 	
 	-- Velocity-based FOV
 	Velocity = {
