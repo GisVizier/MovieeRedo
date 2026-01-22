@@ -83,9 +83,9 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.Fists,
 		Offset = CFrame.new(0, 0, 0),
 		Animations = {
-			Idle = "rbxassetid://133153180074922",
-			Walk = "rbxassetid://133153180074922",  -- Reuse Idle
-			Run = "rbxassetid://133153180074922",   -- Reuse Idle
+			Idle = "rbxassetid://116832822109675",
+			Walk = "rbxassetid://116832822109675",  -- Reuse Idle
+			Run = "rbxassetid://116832822109675",   -- Reuse Idle
 		},
 	},
 

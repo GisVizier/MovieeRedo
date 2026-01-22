@@ -398,6 +398,18 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 			LogService:Info("VIEWMODEL", "Model assets preloaded", { Count = #toPreload })
 		end)
 	end
+	
+	-- Parent all rigs to camera immediately (at far-away position)
+	-- This preserves animation state when switching between slots
+	local cam = getCamera()
+	if cam then
+		for _, rig in pairs(self._storedRigs) do
+			if rig and rig.Model then
+				rig.Model:PivotTo(RIG_STORAGE_POSITION)
+				rig.Model.Parent = cam
+			end
+		end
+	end
 
 	LogService:Info("VIEWMODEL", "All rigs created and preloaded", {
 		Fists = self._storedRigs.Fists ~= nil,
@@ -540,11 +552,21 @@ function ViewmodelController:SetActiveSlot(slot: string)
 		end
 	end
 
-	-- Re-parent: only active rig is parented to camera.
+	-- Re-parent: all rigs stay in camera (preserves animation state), inactive ones moved far away
 	local cam = getCamera()
+	local INACTIVE_POSITION = CFrame.new(0, 10000, 0)
+	
 	for name, rig in pairs(self._loadoutVm.Rigs) do
 		if rig and rig.Model then
-			rig.Model.Parent = (name == slot and cam and isFirstPerson(self)) and cam or nil
+			if cam and isFirstPerson(self) then
+				rig.Model.Parent = cam
+				if name ~= slot then
+					-- Move inactive rigs far away but keep them parented to camera
+					rig.Model:PivotTo(INACTIVE_POSITION)
+				end
+			else
+				rig.Model.Parent = nil
+			end
 		end
 	end
 

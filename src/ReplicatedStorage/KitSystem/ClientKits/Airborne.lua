@@ -24,6 +24,29 @@
 	6. Server broadcasts AbilityEnded → KitController auto-restores weapon
 ]]
 
+export type AbilityRequest = {
+	-- Identity
+	kitId: string?,
+	abilityType: string, -- "Ability" or "Ultimate"
+	inputState: Enum.UserInputState,
+	timestamp: number,
+
+	-- Player/Character
+	player: Player,
+	character: Model?,
+	humanoidRootPart: BasePart?,
+
+	-- Functions
+	Send: (extraData: {[string]: any}?) -> boolean,
+	IsOnCooldown: () -> boolean,
+	GetCooldownRemaining: () -> number,
+	StartAbility: () -> { viewmodelAnimator: any },
+
+	-- Viewmodel (direct access for OnEnded/OnInterrupt)
+	viewmodelController: any,
+	viewmodelAnimator: any,
+}
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -59,29 +82,115 @@ local CHAR_ANIMS = {
 -- =============================================================================
 Airborne.Ability = {}
 
-function Airborne.Ability:OnStart(abilityRequest)
+function Airborne.Ability:OnStart(abilityRequest: AbilityRequest)
 	local hrp = abilityRequest.humanoidRootPart
 	if not hrp then return end
-	
+
+	local isUsingSkill = ServiceRegistry:GetController("Viewmodel"):GetActiveSlot() == "Fists"
+	if isUsingSkill then
+		return
+	end
+
 	-- Check cooldown BEFORE doing anything
 	if abilityRequest.IsOnCooldown() then
 		return -- Don't start ability, don't switch viewmodel
 	end
-	
+
 	-- Start the ability (holsters weapon, switches to fists, returns viewmodel context)
 	local ctx = abilityRequest.StartAbility()
+
+	local isHoldingJump = ServiceRegistry:GetController("Input").Manager.IsJumping
+	local hasFinished = false
+
+	local animation: AnimationTrack, characterAnimation: AnimationTrack; 
+	local data = {};
+
+	local viewmodelAnimator = ctx.viewmodelAnimator;
+	local Viewmodelrig: Model = abilityRequest.viewmodelController:GetActiveRig()
+	--viewmodelAnimator:ResetToBindPose(true)
+	--task.wait(0.8)
 	
-	-- Get direction from camera
-	local camera = workspace.CurrentCamera
-	local direction = Vector3.new(0, 0, -1)
-	if camera then
-		local lookVector = camera.CFrame.LookVector
-		direction = Vector3.new(lookVector.X, 0, lookVector.Z)
-		if direction.Magnitude > 0.1 then
-			direction = direction.Unit
-		end
+	if isHoldingJump then
+		--animation = viewmodelAnimator:PlayKitAnimation(VM_ANIMS.Updraft, {
+		--	priority = Enum.AnimationPriority.Action3,
+		--	stopOthers = true,
+		--})
+
+	else
+		--animation = viewmodelAnimator:PlayKitAnimation(VM_ANIMS.CloudskipDash, {
+		--	priority = Enum.AnimationPriority.Action2,
+		--	stopOthers = true,
+		--})
+
 	end
-	
+
+	local Events = {
+		[`_finish`] = function()
+			--if not abilityRequest.player then
+			--	return
+			--end;
+
+			--if hrp and hrp.Parent and Viewmodelrig then
+			--	abilityRequest.Send({
+			--		Data = data,
+			--	})
+			--end
+		end,
+
+		[`Burst`] = function()
+			warn(`burst up`)
+		end,
+		
+		[`Dash`] = function()
+			warn(`Dash`)
+		end,
+	}
+
+	local animationConnection; animationConnection = animation:GetMarkerReachedSignal(`Event`):Connect(function(event)
+		if Events[event] then
+			Events[event]()
+		end
+
+	end)
+
+	local stopconnections = {
+		animation.Stopped,
+		animation.Ended,
+		Viewmodelrig.AncestryChanged,
+		Viewmodelrig.Destroying,
+
+		hrp.Destroying,
+		abilityRequest.player.AncestryChanged	
+	};
+
+	--local connections = {}
+	--local function cleanup()
+	--	if hasFinished then return end
+	--	hasFinished = true
+
+	--	-- Stop the animation immediately
+	--	if animation and animation.IsPlaying then
+	--		animation:Stop(0)
+	--	end
+
+	--	if viewmodelAnimator then
+	--		viewmodelAnimator:ResetToBindPose(true)
+	--	end
+
+	--	Events["_finish"]()	
+	--	for _, connection in connections do
+	--		connection:Disconnect()
+	--	end
+	--end
+
+	--for _, connection in stopconnections do
+	--	table.insert(connections, connection:Once(function()
+	--		cleanup()
+
+	--	end))
+	--end
+
+
 	-- TODO: Add viewmodel animation when ready
 	-- local viewmodelAnimator = ctx.viewmodelAnimator
 	-- if viewmodelAnimator and viewmodelAnimator.PlayKitAnimation then
@@ -100,18 +209,18 @@ function Airborne.Ability:OnStart(abilityRequest)
 	-- end
 	
 	-- Apply velocity on CLIENT (instant, responsive)
-	hrp.AssemblyLinearVelocity = direction * CLOUDSKIP_SPEED + Vector3.new(0, CLOUDSKIP_LIFT, 0)
+	--hrp.AssemblyLinearVelocity = direction * CLOUDSKIP_SPEED + Vector3.new(0, CLOUDSKIP_LIFT, 0)
 	
 	-- Fire VFX for MYSELF only (instant, no latency)
-	VFXRep:Fire("Me", { Module = "Cloudskip", Function = "User" }, {
-		position = hrp.Position,
-		direction = direction,
-	})
-	
-	-- Tell server to start cooldown, broadcast VFX to others, and end ability
-	abilityRequest.Send({
-		direction = direction,
-	})
+	--VFXRep:Fire("Me", { Module = "Cloudskip", Function = "User" }, {
+	--	position = hrp.Position,
+	--	--direction = direction,
+	--})
+
+	---- Tell server to start cooldown, broadcast VFX to others, and end ability
+	--abilityRequest.Send({
+	--	--direction = direction,
+	--})
 end
 
 function Airborne.Ability:OnEnded(_abilityRequest)
