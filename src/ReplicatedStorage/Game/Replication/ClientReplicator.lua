@@ -14,6 +14,7 @@ local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):Wai
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local ThirdPersonWeaponManager = require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
+local IKSystem = require(Locations.Game:WaitForChild("IK"):WaitForChild("IKSystem"))
 
 ClientReplicator.Character = nil
 ClientReplicator.PrimaryPart = nil
@@ -29,6 +30,7 @@ ClientReplicator.SequenceNumber = 0
 ClientReplicator.UpdateConnection = nil
 ClientReplicator._net = nil
 ClientReplicator.WeaponManager = nil
+ClientReplicator.IK = nil
 ClientReplicator.CurrentLoadout = nil
 ClientReplicator.CurrentEquippedSlot = nil
 ClientReplicator._loadoutConn = nil
@@ -54,10 +56,17 @@ function ClientReplicator:Start(character)
 	self:CalculateOffsets()
 	self:_cacheRigOffsets()
 
-	-- Initialize third-person weapon manager for IK
+	-- Initialize third-person weapon manager and IK system
 	if self.Rig then
 		self.WeaponManager = ThirdPersonWeaponManager.new(self.Rig)
+		self.IK = IKSystem.new(self.Rig)
+		if self.IK then
+			self.IK:SetEnabled(true)
+		end
 	end
+	
+	-- Start IK network replication
+	IKSystem.StartReplication(self._net)
 
 	-- Listen for loadout and equipped slot changes
 	local localPlayer = Players.LocalPlayer
@@ -111,6 +120,13 @@ function ClientReplicator:Stop()
 		self.WeaponManager:Destroy()
 		self.WeaponManager = nil
 	end
+	
+	if self.IK then
+		self.IK:Destroy()
+		self.IK = nil
+	end
+	
+	IKSystem.StopReplication()
 
 	self.IsActive = false
 	self.Character = nil
@@ -156,6 +172,9 @@ function ClientReplicator:_equipSlotWeapon(slot)
 
 	if not slot or slot == "" then
 		self.WeaponManager:UnequipWeapon()
+		if self.IK then
+			self.IK:ClearWeapon()
+		end
 		return
 	end
 
@@ -168,11 +187,23 @@ function ClientReplicator:_equipSlotWeapon(slot)
 	-- Fists = no weapon
 	if not weaponId or weaponId == "" or slot == "Fists" then
 		self.WeaponManager:UnequipWeapon()
+		if self.IK then
+			self.IK:ClearWeapon()
+		end
 		return
 	end
 
 	-- Equip the weapon
-	self.WeaponManager:EquipWeapon(weaponId)
+	local success = self.WeaponManager:EquipWeapon(weaponId)
+	
+	-- Update IK system with weapon
+	if self.IK then
+		if success then
+			self.IK:SetWeapon(self.WeaponManager:GetWeaponModel(), weaponId)
+		else
+			self.IK:ClearWeapon()
+		end
+	end
 end
 
 function ClientReplicator:CalculateOffsets()
@@ -279,9 +310,17 @@ function ClientReplicator:SyncParts()
 		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 
-	-- Update weapon IK (arms reach to weapon grips)
-	if self.WeaponManager and not isRagdolled then
-		self.WeaponManager:UpdateIK()
+	-- Update IK (torso, head, arms)
+	if self.IK and not isRagdolled then
+		local camera = workspace.CurrentCamera
+		if camera then
+			local lookVector = camera.CFrame.LookVector
+			local pitch = math.asin(-lookVector.Y)
+			-- Yaw relative to character facing (not absolute)
+			local charForward = rootCFrame.LookVector
+			local yaw = math.atan2(lookVector.X, lookVector.Z) - math.atan2(charForward.X, charForward.Z)
+			self.IK:Update(0.016, pitch, yaw) -- ~60fps dt
+		end
 	end
 end
 

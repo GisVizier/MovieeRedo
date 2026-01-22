@@ -2,30 +2,36 @@
 	ThirdPersonWeaponManager.lua
 	
 	Manages third-person weapon models attached to character rigs.
-	- Clones world weapon models from Assets/Models/Weapons/
-	- Welds them to the rig's arm
-	- Applies arm IK to grip attachments
+	Handles weapon cloning, welding to arm, and cleanup.
 	
-	Used by ClientReplicator (local player) and RemoteReplicator (other players).
+	IK is handled separately by IKSystem - this just welds weapons.
+	
+	Usage:
+		local manager = ThirdPersonWeaponManager.new(rig)
+		manager:EquipWeapon(weaponId)
+		manager:UnequipWeapon()
+		manager:GetWeaponModel() -- For IKSystem to read grip attachments
+		manager:Destroy()
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
-local WeaponIKConfig = require(script.Parent:WaitForChild("WeaponIKConfig"))
-local ArmIK = require(Locations.Shared.Util:WaitForChild("ArmIK"))
+local IKSolver = require(Locations.Shared.Util:WaitForChild("IKSolver"))
 
 local ThirdPersonWeaponManager = {}
 ThirdPersonWeaponManager.__index = ThirdPersonWeaponManager
 
--- Get the root folder for world weapon models
+--------------------------------------------------------------------------------
+-- HELPERS
+--------------------------------------------------------------------------------
+
 local function getWeaponModelsRoot(): Folder?
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	local models = assets and assets:FindFirstChild("Models")
 	return models
 end
 
--- Resolve a weapon model from path like "Weapons/Shotgun/Shotgun"
 local function resolveWeaponModel(modelPath: string): Model?
 	local root = getWeaponModelsRoot()
 	if not root then
@@ -47,15 +53,12 @@ local function resolveWeaponModel(modelPath: string): Model?
 	return nil
 end
 
--- Find an arm part in the rig
 local function findRigArm(rig: Model, armName: string): BasePart?
-	-- Direct child
 	local arm = rig:FindFirstChild(armName)
 	if arm and arm:IsA("BasePart") then
 		return arm
 	end
 	
-	-- Search descendants
 	for _, desc in ipairs(rig:GetDescendants()) do
 		if desc.Name == armName and desc:IsA("BasePart") then
 			return desc
@@ -65,64 +68,63 @@ local function findRigArm(rig: Model, armName: string): BasePart?
 	return nil
 end
 
---[[
-	Create a new weapon manager for a specific rig.
-	
-	@param rig - The character rig (Model with arms)
-	@return ThirdPersonWeaponManager instance
-]]
+--------------------------------------------------------------------------------
+-- CONSTRUCTOR
+--------------------------------------------------------------------------------
+
 function ThirdPersonWeaponManager.new(rig: Model)
 	if not rig then
 		return nil
 	end
 	
 	local self = setmetatable({}, ThirdPersonWeaponManager)
-	self.Rig = rig
-	self.CurrentWeapon = nil -- The cloned weapon model
-	self.CurrentWeaponId = nil
-	self.ArmIK = nil
-	self.RightGrip = nil -- Attachment for right hand
-	self.LeftGrip = nil -- Attachment for left hand
-	self.Weld = nil
 	
-	-- Initialize ArmIK for the rig
-	self.ArmIK = ArmIK.new(rig)
+	self.Rig = rig
+	self.WeaponModel = nil
+	self.WeaponId = nil
+	self.Weld = nil
 	
 	return self
 end
 
+--------------------------------------------------------------------------------
+-- WEAPON MANAGEMENT
+--------------------------------------------------------------------------------
+
 --[[
-	Equip a weapon to the rig.
+	Equip a weapon by ID.
 	
-	@param weaponId - The weapon identifier (e.g., "Shotgun")
+	@param weaponId - Weapon identifier (e.g., "Shotgun")
 	@return boolean - Success
 ]]
 function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
-	-- Unequip current weapon first
 	self:UnequipWeapon()
 	
 	if not weaponId or weaponId == "" or weaponId == "Fists" then
-		return true -- No weapon to equip
+		return true
 	end
 	
-	local config = WeaponIKConfig.GetConfig(weaponId)
+	-- Get weapon config from IKSolver
+	local config = IKSolver.GetWeaponConfig(weaponId)
 	if not config then
-		warn("[ThirdPersonWeaponManager] No config for weapon:", weaponId)
+		warn("[ThirdPersonWeaponManager] No config for:", weaponId)
 		return false
 	end
 	
-	-- Get the weapon model template
-	local template = resolveWeaponModel(config.ModelPath)
+	-- Build model path: Weapons/{WeaponId}/{WeaponId}
+	local modelPath = "Weapons/" .. weaponId .. "/" .. weaponId
+	
+	local template = resolveWeaponModel(modelPath)
 	if not template then
-		warn("[ThirdPersonWeaponManager] Weapon model not found:", config.ModelPath)
+		warn("[ThirdPersonWeaponManager] Model not found:", modelPath)
 		return false
 	end
 	
-	-- Clone the weapon
+	-- Clone weapon
 	local weapon = template:Clone()
-	weapon.Name = weaponId .. "_ThirdPerson"
+	weapon.Name = weaponId .. "_3P"
 	
-	-- Make all parts non-collidable and massless
+	-- Make parts non-collidable
 	for _, part in ipairs(weapon:GetDescendants()) do
 		if part:IsA("BasePart") then
 			part.CanCollide = false
@@ -133,18 +135,17 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 		end
 	end
 	
-	-- Find the rig arm to attach to
-	local rigArm = findRigArm(self.Rig, config.RigAttachment or "Right Arm")
+	-- Find rig arm
+	local rigArm = findRigArm(self.Rig, "Right Arm")
 	if not rigArm then
-		warn("[ThirdPersonWeaponManager] Rig arm not found:", config.RigAttachment)
+		warn("[ThirdPersonWeaponManager] Right Arm not found")
 		weapon:Destroy()
 		return false
 	end
 	
-	-- Get the weapon's root part (prefer Root, then PrimaryPart)
+	-- Find weapon root
 	local weaponRoot = weapon:FindFirstChild("Root") or weapon.PrimaryPart
 	if not weaponRoot then
-		-- Find any part as fallback
 		for _, part in ipairs(weapon:GetDescendants()) do
 			if part:IsA("BasePart") then
 				weaponRoot = part
@@ -159,37 +160,27 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 		return false
 	end
 	
-	-- Parent weapon first so attachments have world positions
+	-- Parent weapon
 	weapon.Parent = self.Rig
 	
-	-- Find the RightGrip attachment to position the weapon properly
-	local rightGripAttachment = config.RightGripPath and WeaponIKConfig.GetAttachmentFromPath(weapon, config.RightGripPath)
-	local leftGripAttachment = config.LeftGripPath and WeaponIKConfig.GetAttachmentFromPath(weapon, config.LeftGripPath)
+	-- Find right grip attachment for positioning
+	local rightGrip = config.RightGrip and IKSolver.GetAttachmentFromPath(weapon, config.RightGrip)
 	
-	-- Calculate offset so the RightGrip is at the hand position
-	-- The hand should be at the bottom/end of the arm
-	local handOffset = CFrame.new(0, -rigArm.Size.Y / 2, 0) -- Bottom of arm
+	-- Calculate weld offset
+	local handOffset = CFrame.new(0, -rigArm.Size.Y / 2, 0)
+	local weaponRotation = CFrame.Angles(math.rad(-90), math.rad(180), 0)
 	
 	local weldOffset
-	if rightGripAttachment then
-		-- Get the grip position relative to weapon root (position only)
-		local gripLocalPos = weaponRoot.CFrame:PointToObjectSpace(rightGripAttachment.WorldPosition)
-		
-		-- The weld should position the weapon so the grip is at the hand
-		-- Weapon rotation from config (how the weapon should be oriented in hand)
-		local weaponRotation = config.WeaponRotation or CFrame.Angles(0, 0, 0)
-		
-		-- Offset: move to hand position, rotate, then offset by negative grip position
+	if rightGrip then
+		local gripLocalPos = weaponRoot.CFrame:PointToObjectSpace(rightGrip.WorldPosition)
 		weldOffset = handOffset * weaponRotation * CFrame.new(-gripLocalPos)
 	else
-		-- Fallback to config offset if no grip attachment
-		weldOffset = config.WeaponOffset or CFrame.new(0, -0.5, -0.3) * CFrame.Angles(math.rad(-90), 0, 0)
+		weldOffset = handOffset * weaponRotation
 	end
 	
-	-- Position weapon
+	-- Position and weld
 	weaponRoot.CFrame = rigArm.CFrame * weldOffset
 	
-	-- Create weld
 	local weld = Instance.new("Weld")
 	weld.Part0 = rigArm
 	weld.Part1 = weaponRoot
@@ -197,21 +188,15 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 	weld.C1 = CFrame.new()
 	weld.Parent = weaponRoot
 	
-	-- Store grip attachments for IK
-	self.RightGrip = rightGripAttachment
-	self.LeftGrip = leftGripAttachment
-	
-	-- Store references
-	self.CurrentWeapon = weapon
-	self.CurrentWeaponId = weaponId
+	self.WeaponModel = weapon
+	self.WeaponId = weaponId
 	self.Weld = weld
-	self.DisableIK = config.DisableIK or false
 	
 	return true
 end
 
 --[[
-	Unequip the current weapon.
+	Unequip current weapon.
 ]]
 function ThirdPersonWeaponManager:UnequipWeapon()
 	if self.Weld then
@@ -219,80 +204,40 @@ function ThirdPersonWeaponManager:UnequipWeapon()
 		self.Weld = nil
 	end
 	
-	if self.CurrentWeapon then
-		self.CurrentWeapon:Destroy()
-		self.CurrentWeapon = nil
+	if self.WeaponModel then
+		self.WeaponModel:Destroy()
+		self.WeaponModel = nil
 	end
 	
-	self.CurrentWeaponId = nil
-	self.RightGrip = nil
-	self.LeftGrip = nil
-	self.DisableIK = false
-	
-	-- Reset arm IK
-	if self.ArmIK then
-		self.ArmIK:Reset()
-	end
+	self.WeaponId = nil
 end
 
 --[[
-	Update arm IK to point at the weapon grips.
-	Call this every frame after the rig has been positioned.
-	
-	@param aimDirection - Optional: direction the character is aiming (for arm pointing)
+	Get the current weapon model (for IKSystem to read grip attachments).
 ]]
-function ThirdPersonWeaponManager:UpdateIK(aimDirection: Vector3?)
-	if not self.ArmIK or not self.CurrentWeapon or self.DisableIK then
-		return
-	end
-	
-	-- Get grip world positions
-	local rightTarget = nil
-	local leftTarget = nil
-	
-	if self.RightGrip then
-		rightTarget = self.RightGrip.WorldPosition
-	end
-	
-	if self.LeftGrip then
-		leftTarget = self.LeftGrip.WorldPosition
-	end
-	
-	-- Apply IK to arms
-	if rightTarget then
-		self.ArmIK:SolveArm("Right", rightTarget, 0.8)
-	end
-	
-	if leftTarget then
-		self.ArmIK:SolveArm("Left", leftTarget, 0.8)
-	end
+function ThirdPersonWeaponManager:GetWeaponModel(): Model?
+	return self.WeaponModel
 end
 
 --[[
-	Get the current equipped weapon ID.
+	Get the current weapon ID.
 ]]
-function ThirdPersonWeaponManager:GetCurrentWeaponId(): string?
-	return self.CurrentWeaponId
+function ThirdPersonWeaponManager:GetWeaponId(): string?
+	return self.WeaponId
 end
 
 --[[
-	Check if a weapon is currently equipped.
+	Check if a weapon is equipped.
 ]]
 function ThirdPersonWeaponManager:HasWeapon(): boolean
-	return self.CurrentWeapon ~= nil
+	return self.WeaponModel ~= nil
 end
 
 --[[
-	Destroy the manager and cleanup.
+	Cleanup.
 ]]
 function ThirdPersonWeaponManager:Destroy()
 	self:UnequipWeapon()
-	
-	if self.ArmIK then
-		self.ArmIK:Destroy()
-		self.ArmIK = nil
-	end
-	
 	self.Rig = nil
 end
 

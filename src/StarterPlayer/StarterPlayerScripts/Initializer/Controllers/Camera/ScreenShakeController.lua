@@ -1,14 +1,19 @@
 local ScreenShakeController = {}
 
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+
+local Player = Players.LocalPlayer
 
 ScreenShakeController.IsInitialized = false
 ScreenShakeController.ActiveShakes = {}
+ScreenShakeController.PositionalShakes = {}
 ScreenShakeController.CurrentOffset = Vector3.zero
 ScreenShakeController.CurrentRotation = Vector3.zero
 ScreenShakeController.Connection = nil
@@ -19,11 +24,14 @@ function ScreenShakeController:Init()
 	end
 
 	self.ActiveShakes = {}
+	self.PositionalShakes = {}
 	self.CurrentOffset = Vector3.zero
 	self.CurrentRotation = Vector3.zero
 	self.IsInitialized = true
 
 	self:StartUpdateLoop()
+
+	ServiceRegistry:RegisterController("ScreenShake", self)
 
 	LogService:Info("SCREEN_SHAKE", "ScreenShakeController initialized")
 end
@@ -64,11 +72,7 @@ function ScreenShakeController:ShakeWallJump()
 	end
 
 	local wallJumpConfig = shakeConfig.WallJump
-	self:Shake(
-		wallJumpConfig.Intensity or 0.3,
-		wallJumpConfig.Duration or 0.2,
-		wallJumpConfig.Frequency or 15
-	)
+	self:Shake(wallJumpConfig.Intensity or 0.3, wallJumpConfig.Duration or 0.2, wallJumpConfig.Frequency or 15)
 end
 
 function ScreenShakeController:StopShake(shakeId)
