@@ -1,6 +1,7 @@
 local FOVController = {}
 
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -18,6 +19,15 @@ FOVController.SmoothedFOV = 80
 FOVController.ActiveEffects = {}
 FOVController.IsInitialized = false
 FOVController.UpdateConnection = nil
+
+-- Override state (for SetFOV/TweenFOV)
+FOVController.OverrideFOV = nil           -- nil = use effects system, number = override
+FOVController.OverrideTweenStart = nil
+FOVController.OverrideTweenEnd = nil
+FOVController.OverrideTweenDuration = 0
+FOVController.OverrideTweenElapsed = 0
+FOVController.OverrideTweenEasing = nil
+FOVController.OverrideTweenDirection = nil
 
 -- Effect priorities (higher = takes precedence)
 local EFFECT_PRIORITIES = {
@@ -75,6 +85,37 @@ function FOVController:UpdateSmoothedFOV(deltaTime)
 		return
 	end
 	
+	-- Handle override tweening
+	if self.OverrideFOV and self.OverrideTweenDuration > 0 then
+		self.OverrideTweenElapsed = self.OverrideTweenElapsed + deltaTime
+		local alpha = math.clamp(self.OverrideTweenElapsed / self.OverrideTweenDuration, 0, 1)
+		
+		-- Apply easing
+		local easingStyle = self.OverrideTweenEasing or Enum.EasingStyle.Quad
+		local easingDir = self.OverrideTweenDirection or Enum.EasingDirection.Out
+		local easedAlpha = TweenService:GetValue(alpha, easingStyle, easingDir)
+		
+		self.SmoothedFOV = self.OverrideTweenStart + (self.OverrideTweenEnd - self.OverrideTweenStart) * easedAlpha
+		
+		if alpha >= 1 then
+			self.OverrideTweenDuration = 0
+			self.SmoothedFOV = self.OverrideTweenEnd
+		end
+		
+		camera.FieldOfView = self.SmoothedFOV
+		self.CurrentFOV = self.SmoothedFOV
+		return
+	end
+	
+	-- If override is set (no tween), use it directly
+	if self.OverrideFOV then
+		self.SmoothedFOV = self.OverrideFOV
+		camera.FieldOfView = self.SmoothedFOV
+		self.CurrentFOV = self.SmoothedFOV
+		return
+	end
+	
+	-- Original effects-based logic
 	self.TargetFOV = self:CalculateTargetFOV()
 	
 	local fovConfig = Config.Camera and Config.Camera.FOV
@@ -248,6 +289,107 @@ end
 
 function FOVController:GetActiveEffects()
 	return self.ActiveEffects
+end
+
+-- =============================================================================
+-- DIRECT FOV CONTROL (with override and tweening)
+-- =============================================================================
+
+--[[
+	Set FOV to a specific value (bypasses effects system).
+	
+	@param fov: number - Target FOV value
+	@param tweenDuration: number? - How long to tween (0 or nil = instant)
+	@param easingStyle: Enum.EasingStyle? - Easing style (default = Quad)
+	@param easingDirection: Enum.EasingDirection? - Easing direction (default = Out)
+	@return function - Call to clear the override and return to effects system
+]]
+function FOVController:SetFOV(fov: number, tweenDuration: number?, easingStyle: Enum.EasingStyle?, easingDirection: Enum.EasingDirection?)
+	local duration = tweenDuration or 0
+	
+	if duration <= 0 then
+		-- Instant set
+		self.OverrideFOV = fov
+		self.OverrideTweenDuration = 0
+		self.SmoothedFOV = fov
+		
+		local camera = workspace.CurrentCamera
+		if camera then
+			camera.FieldOfView = fov
+		end
+	else
+		-- Start tween
+		self.OverrideTweenStart = self.SmoothedFOV
+		self.OverrideTweenEnd = fov
+		self.OverrideTweenDuration = duration
+		self.OverrideTweenElapsed = 0
+		self.OverrideTweenEasing = easingStyle or Enum.EasingStyle.Quad
+		self.OverrideTweenDirection = easingDirection or Enum.EasingDirection.Out
+		self.OverrideFOV = fov
+	end
+	
+	-- Return cleanup function
+	return function(returnDuration: number?)
+		self:ClearFOVOverride(returnDuration)
+	end
+end
+
+--[[
+	Tween FOV to a specific value (override).
+	
+	@param targetFov: number - Target FOV
+	@param duration: number - Tween duration in seconds
+	@param easingStyle: Enum.EasingStyle? - Easing style (default = Quad)
+	@param easingDirection: Enum.EasingDirection? - Easing direction (default = Out)
+]]
+function FOVController:TweenFOV(targetFov: number, duration: number, easingStyle: Enum.EasingStyle?, easingDirection: Enum.EasingDirection?)
+	self.OverrideTweenStart = self.SmoothedFOV
+	self.OverrideTweenEnd = targetFov
+	self.OverrideTweenDuration = duration
+	self.OverrideTweenElapsed = 0
+	self.OverrideTweenEasing = easingStyle or Enum.EasingStyle.Quad
+	self.OverrideTweenDirection = easingDirection or Enum.EasingDirection.Out
+	self.OverrideFOV = targetFov
+end
+
+--[[
+	Clear FOV override and return to effects-based system.
+	
+	@param tweenDuration: number? - How long to tween back (0 or nil = instant)
+]]
+function FOVController:ClearFOVOverride(tweenDuration: number?)
+	local duration = tweenDuration or 0
+	
+	if duration <= 0 then
+		-- Instant clear
+		self.OverrideFOV = nil
+		self.OverrideTweenDuration = 0
+	else
+		-- Tween back to effects-based FOV
+		local targetFOV = self:CalculateTargetFOV()
+		self.OverrideTweenStart = self.SmoothedFOV
+		self.OverrideTweenEnd = targetFOV
+		self.OverrideTweenDuration = duration
+		self.OverrideTweenElapsed = 0
+		self.OverrideTweenEasing = Enum.EasingStyle.Quad
+		self.OverrideTweenDirection = Enum.EasingDirection.Out
+		
+		-- Clear override after tween completes
+		task.delay(duration + 0.01, function()
+			if self.OverrideFOV == targetFOV or self.OverrideTweenDuration == 0 then
+				self.OverrideFOV = nil
+			end
+		end)
+	end
+end
+
+--[[
+	Check if FOV is currently overridden.
+	
+	@return boolean
+]]
+function FOVController:IsOverridden()
+	return self.OverrideFOV ~= nil
 end
 
 return FOVController
