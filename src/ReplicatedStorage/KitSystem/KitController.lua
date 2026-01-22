@@ -316,6 +316,21 @@ function KitController:_unholsterWeapon()
 	viewmodelController:SetActiveSlot(slotToRestore)
 end
 
+--[[
+	Returns true if an ability is currently active (player has fists out).
+]]
+function KitController:IsAbilityActive(): boolean
+	return self._abilityActive == true
+end
+
+--[[
+	Returns true if weapon switching should be blocked.
+	ViewmodelController checks this before allowing slot changes.
+]]
+function KitController:IsWeaponSwitchLocked(): boolean
+	return self._abilityActive == true
+end
+
 function KitController:_emit(eventName: string, ...)
 	if not self._coreUi or not self._coreUi.emit then
 		return

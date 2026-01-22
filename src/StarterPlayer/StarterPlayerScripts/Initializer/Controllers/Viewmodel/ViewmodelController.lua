@@ -525,6 +525,15 @@ function ViewmodelController:SetActiveSlot(slot: string)
 	if not self._loadoutVm or not self._loadoutVm.Rigs then
 		return
 	end
+	
+	-- Block switching AWAY from Fists during abilities
+	local kitController = self._registry and self._registry:TryGet("Kit")
+	if kitController and kitController.IsWeaponSwitchLocked and kitController:IsWeaponSwitchLocked() then
+		-- Only allow switching TO Fists (for ability start), not away from it
+		if slot ~= "Fists" then
+			return
+		end
+	end
 
 	-- Fists are the fallback.
 	if not self._loadoutVm.Rigs[slot] then
@@ -667,6 +676,13 @@ function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 	if type(slot) ~= "string" then
 		return
 	end
+	
+	-- Block weapon switching during abilities
+	local kitController = self._registry and self._registry:TryGet("Kit")
+	if kitController and kitController.IsWeaponSwitchLocked and kitController:IsWeaponSwitchLocked() then
+		return
+	end
+	
 	if not self._loadout or type(self._loadout) ~= "table" then
 		return
 	end
