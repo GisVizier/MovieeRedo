@@ -16,7 +16,6 @@ local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local ThirdPersonWeaponManager =
 	require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
-local IKSystem = require(Locations.Game:WaitForChild("IK"):WaitForChild("IKSystem"))
 
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
@@ -37,11 +36,6 @@ function RemoteReplicator:Init(net)
 		self:OnStatesReplicated(batch)
 	end)
 	
-	-- Listen for IK aim broadcasts from server
-	self._net:ConnectClient("IKAimBroadcast", function(aimBatch)
-		self:OnIKAimBroadcast(aimBatch)
-	end)
-
 	self.RenderConnection = RunService.Heartbeat:Connect(function(deltaTime)
 		self:ReplicatePlayers(deltaTime)
 	end)
@@ -81,12 +75,8 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			local headOffset, rigBaseOffset = self:CalculateOffsets()
 
-			-- Initialize weapon manager and IK system for third-person
+			-- Initialize weapon manager for third-person
 			local weaponManager = rig and ThirdPersonWeaponManager.new(rig) or nil
-			local ikSystem = rig and IKSystem.new(rig) or nil
-			if ikSystem then
-				ikSystem:SetEnabled(true)
-			end
 
 			remoteData = {
 				Player = player,
@@ -105,9 +95,6 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				Head = player.Character:FindFirstChild("Head"),
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
 				WeaponManager = weaponManager,
-				IK = ikSystem,
-				IKAimPitch = 0,
-				IKAimYaw = 0,
 				CurrentLoadout = nil,
 				CurrentEquippedSlot = nil,
 			}
@@ -252,6 +239,10 @@ function RemoteReplicator:ReplicatePlayers(dt)
 
 	for userId, remoteData in pairs(self.RemotePlayers) do
 		if not remoteData.Character or not remoteData.Character.Parent or not remoteData.PrimaryPart then
+			-- Cleanup weapon manager before removing
+			if remoteData.WeaponManager then
+				remoteData.WeaponManager:Destroy()
+			end
 			self.RemotePlayers[userId] = nil
 			continue
 		end
@@ -317,10 +308,6 @@ function RemoteReplicator:ReplicatePlayers(dt)
 			self:_updateRemoteLoadout(remoteData, remoteData.Player)
 			self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
 
-			-- Update IK with received aim data
-			if remoteData.IK then
-				remoteData.IK:Update(dt, remoteData.IKAimPitch or 0, remoteData.IKAimYaw or 0)
-			end
 		end
 
 		if remoteData.Head and remoteData.Head.Anchored and remoteData.HeadOffset then
@@ -551,9 +538,6 @@ function RemoteReplicator:_equipRemoteWeapon(remoteData)
 	local slot = remoteData.CurrentEquippedSlot
 	if not slot or slot == "" or slot == "Fists" then
 		remoteData.WeaponManager:UnequipWeapon()
-		if remoteData.IK then
-			remoteData.IK:ClearWeapon()
-		end
 		return
 	end
 
@@ -565,56 +549,12 @@ function RemoteReplicator:_equipRemoteWeapon(remoteData)
 
 	if not weaponId or weaponId == "" then
 		remoteData.WeaponManager:UnequipWeapon()
-		if remoteData.IK then
-			remoteData.IK:ClearWeapon()
-		end
 		return
 	end
 
 	-- Equip the weapon
 	local success = remoteData.WeaponManager:EquipWeapon(weaponId)
-	
-	-- Update IK system with weapon
-	if remoteData.IK then
-		if success then
-			remoteData.IK:SetWeapon(remoteData.WeaponManager:GetWeaponModel(), weaponId)
-		else
-			remoteData.IK:ClearWeapon()
-		end
-	end
-end
-
--- Handle IK aim broadcasts from server
-function RemoteReplicator:OnIKAimBroadcast(aimBatch)
-	if type(aimBatch) ~= "table" then
-		return
-	end
-	
-	local localPlayer = Players.LocalPlayer
-	
-	for userIdStr, aimData in pairs(aimBatch) do
-		local userId = tonumber(userIdStr)
-		if not userId then
-			continue
-		end
-		
-		-- Skip local player
-		if localPlayer and localPlayer.UserId == userId then
-			continue
-		end
-		
-		local remoteData = self.RemotePlayers[userId]
-		if remoteData then
-			-- Smoothly interpolate aim data
-			local targetPitch = aimData.Pitch or 0
-			local targetYaw = aimData.Yaw or 0
-			
-			-- Simple lerp for smooth transitions (can be improved with more sophisticated interpolation)
-			local lerpSpeed = 0.3
-			remoteData.IKAimPitch = remoteData.IKAimPitch and (remoteData.IKAimPitch + (targetPitch - remoteData.IKAimPitch) * lerpSpeed) or targetPitch
-			remoteData.IKAimYaw = remoteData.IKAimYaw and (remoteData.IKAimYaw + (targetYaw - remoteData.IKAimYaw) * lerpSpeed) or targetYaw
-		end
-	end
+	return success
 end
 
 return RemoteReplicator

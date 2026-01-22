@@ -44,6 +44,7 @@ local Remotes = {
 	{ name = "EmotePlay", description = "Client requests emote playback" },
 	{ name = "EmoteStop", description = "Client requests emote stop" },
 	{ name = "EmoteReplicate", description = "Server broadcasts emote to clients" },
+
 }
 
 return Remotes

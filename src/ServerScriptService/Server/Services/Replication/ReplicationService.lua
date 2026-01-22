@@ -10,9 +10,7 @@ local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidat
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 
 ReplicationService.PlayerStates = {}
-ReplicationService.IKAimStates = {} -- [player] = { Pitch, Yaw }
 ReplicationService.LastBroadcastTime = 0
-ReplicationService.LastIKBroadcastTime = 0
 ReplicationService._net = nil
 
 function ReplicationService:Init(registry, net)
@@ -31,13 +29,7 @@ function ReplicationService:Init(registry, net)
 		self:SendInitialStatesToPlayer(player)
 	end)
 	
-	-- IK aim direction updates (20Hz from clients)
-	self._net:ConnectServer("IKAimUpdate", function(player, aimData)
-		self:OnIKAimUpdate(player, aimData)
-	end)
-
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
-	local ikUpdateInterval = 1 / 20 -- 20Hz for IK aim
 	
 	if updateRate > 0 then
 		local interval = 1 / updateRate
@@ -50,11 +42,6 @@ function ReplicationService:Init(registry, net)
 				self.LastBroadcastTime = currentTime
 			end
 			
-			-- Broadcast IK aim states (20Hz)
-			if currentTime - self.LastIKBroadcastTime >= ikUpdateInterval then
-				self:BroadcastIKAim()
-				self.LastIKBroadcastTime = currentTime
-			end
 		end)
 	end
 end
@@ -73,7 +60,6 @@ end
 
 function ReplicationService:UnregisterPlayer(player)
 	self.PlayerStates[player] = nil
-	self.IKAimStates[player] = nil
 end
 
 function ReplicationService:OnClientStateUpdate(player, compressedState)
@@ -191,53 +177,6 @@ function ReplicationService:SendInitialStatesToPlayer(newPlayer)
 	if #initialStates > 0 then
 		self._net:FireClient("CharacterStateReplicated", newPlayer, initialStates)
 	end
-end
-
---------------------------------------------------------------------------------
--- IK AIM REPLICATION
---------------------------------------------------------------------------------
-
-function ReplicationService:OnIKAimUpdate(player, aimData)
-	if type(aimData) ~= "table" then
-		return
-	end
-	
-	-- Validate and store aim data
-	local pitch = tonumber(aimData.Pitch)
-	local yaw = tonumber(aimData.Yaw)
-	
-	if not pitch or not yaw then
-		return
-	end
-	
-	-- Clamp to reasonable values (prevent exploits)
-	pitch = math.clamp(pitch, -math.pi / 2, math.pi / 2)
-	yaw = math.clamp(yaw, -math.pi, math.pi)
-	
-	self.IKAimStates[player] = {
-		Pitch = pitch,
-		Yaw = yaw,
-	}
-end
-
-function ReplicationService:BroadcastIKAim()
-	-- Build aim data table keyed by userId
-	local aimBatch = {}
-	local hasData = false
-	
-	for player, aimData in pairs(self.IKAimStates) do
-		if player.Parent then
-			aimBatch[tostring(player.UserId)] = aimData
-			hasData = true
-		end
-	end
-	
-	if not hasData then
-		return
-	end
-	
-	-- Broadcast to all clients
-	self._net:FireAllClients("IKAimBroadcast", aimBatch)
 end
 
 return ReplicationService
