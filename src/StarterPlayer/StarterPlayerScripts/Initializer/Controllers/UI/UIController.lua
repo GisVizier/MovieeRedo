@@ -85,6 +85,10 @@ function UIController:_bootstrapUi()
 		kitController:init()
 		self._kitController = kitController
 		ui._kitController = kitController
+		
+		-- Register in ServiceRegistry so other systems can access it
+		local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
+		ServiceRegistry:RegisterController("Kit", kitController)
 	end
 
 	-- UI event wiring
