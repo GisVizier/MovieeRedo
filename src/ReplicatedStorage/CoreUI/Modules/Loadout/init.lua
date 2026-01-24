@@ -44,7 +44,7 @@ local ITEM_TEMPLATE_MAP = {
 
 local currentTweens = {}
 
-local DEBUG = true
+local DEBUG = false
 local REVIEW_DURATION = 2
 local KIT_RARITY_ORDER = {
 	Mythic = 1,

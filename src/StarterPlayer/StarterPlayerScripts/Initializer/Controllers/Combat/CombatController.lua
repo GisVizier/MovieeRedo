@@ -50,11 +50,9 @@ function CombatController:Init(registry, net)
 	end)
 	
 	self._initialized = true
-	print("[CombatController] Initialized")
 end
 
 function CombatController:Start()
-	print("[CombatController] Started")
 end
 
 -- =============================================================================

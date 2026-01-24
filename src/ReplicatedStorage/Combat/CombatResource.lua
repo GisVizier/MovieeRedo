@@ -83,6 +83,16 @@ function CombatResource:_syncAttributes()
 	self._player:SetAttribute("Overshield", self._overshield)
 	self._player:SetAttribute("Ultimate", self._ultimate)
 	self._player:SetAttribute("MaxUltimate", self._maxUltimate)
+	
+	-- Sync to Humanoid as well
+	local character = self._player.Character
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.MaxHealth = self._maxHealth
+			humanoid.Health = self._health
+		end
+	end
 end
 
 -- =============================================================================

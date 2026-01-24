@@ -12,7 +12,6 @@ function HitValidator:Init()
 		self.LastFireTimes[player] = nil
 	end)
 
-	print("[HitValidator] Initialized")
 end
 
 function HitValidator:StorePosition(player, position, timestamp)

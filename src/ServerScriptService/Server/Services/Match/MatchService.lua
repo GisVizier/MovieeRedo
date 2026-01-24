@@ -48,16 +48,7 @@ function MatchService:_onSubmitLoadout(player, payload)
 		player:SetAttribute("SelectedLoadout", HttpService:JSONEncode(payload))
 	end)
 
-	-- Log final loadout on submit
 	local loadout = payload.loadout
-	print(("[MatchService] Loadout submitted: userId=%d mapId=%s kit=%s primary=%s secondary=%s melee=%s"):format(
-		userId,
-		tostring(payload.mapId),
-		tostring(loadout.Kit),
-		tostring(loadout.Primary),
-		tostring(loadout.Secondary),
-		tostring(loadout.Melee)
-	))
 
 	self:_tryStartMatch()
 end
@@ -106,24 +97,6 @@ function MatchService:_tryStartMatch()
 		mapId = mapId or "ApexArena",
 		matchCreatedTime = os.time(),
 	}
-
-	-- Log all final loadouts at match start
-	print(("[MatchService] StartMatch: mapId=%s players=%d"):format(tostring(matchData.mapId), #userIds))
-	for _, p in ipairs(players) do
-		local entry = self._loadouts[p.UserId]
-		local loadout = entry and entry.loadout or nil
-		if typeof(loadout) == "table" then
-			print(("[MatchService] FinalLoadout: userId=%d kit=%s primary=%s secondary=%s melee=%s"):format(
-				p.UserId,
-				tostring(loadout.Kit),
-				tostring(loadout.Primary),
-				tostring(loadout.Secondary),
-				tostring(loadout.Melee)
-			))
-		else
-			print(("[MatchService] FinalLoadout: userId=%d <missing>"):format(p.UserId))
-		end
-	end
 
 	self._net:FireAllClients("StartMatch", matchData)
 end

@@ -7,9 +7,7 @@ local Remotes = require(script.Parent:WaitForChild("Remotes"))
 
 local function logInfo(message, data)
 	if data ~= nil then
-		print("[Net]", message, data)
 	else
-		print("[Net]", message)
 	end
 end
 

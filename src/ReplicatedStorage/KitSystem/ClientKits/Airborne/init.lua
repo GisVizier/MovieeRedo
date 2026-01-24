@@ -130,49 +130,34 @@ function Airborne:_createUI()
 end
 
 function Airborne:_cacheUIRefs()
-	print("[Airborne] _cacheUIRefs called")
 	if not self._aangBar then 
-		print("[Airborne] ERROR: _aangBar is nil")
 		return 
 	end
 	
 	local frame = self._aangBar:FindFirstChild("Frame")
 	if not frame then 
-		print("[Airborne] ERROR: Frame not found in AangBar")
-		print("[Airborne] AangBar children:", self._aangBar:GetChildren())
 		return 
 	end
 	
-	print("[Airborne] Frame children:", frame:GetChildren())
 	
 	local bar1 = frame:FindFirstChild("1")
 	local bar2 = frame:FindFirstChild("2")
 	
-	print("[Airborne] bar1 found:", bar1 ~= nil)
-	print("[Airborne] bar2 found:", bar2 ~= nil)
 	
 	if bar1 then
-		print("[Airborne] bar1 children:", bar1:GetChildren())
 		local barLabel = bar1:FindFirstChild("Bar")
-		print("[Airborne] bar1 -> Bar found:", barLabel ~= nil)
 		if barLabel then
 			self._bar1Gradient = barLabel:FindFirstChild("UIGradient")
-			print("[Airborne] bar1 -> Bar -> UIGradient found:", self._bar1Gradient ~= nil)
 		end
 	end
 	
 	if bar2 then
-		print("[Airborne] bar2 children:", bar2:GetChildren())
 		local barLabel = bar2:FindFirstChild("Bar")
-		print("[Airborne] bar2 -> Bar found:", barLabel ~= nil)
 		if barLabel then
 			self._bar2Gradient = barLabel:FindFirstChild("UIGradient")
-			print("[Airborne] bar2 -> Bar -> UIGradient found:", self._bar2Gradient ~= nil)
 		end
 	end
 	
-	print("[Airborne] FINAL: _bar1Gradient =", self._bar1Gradient)
-	print("[Airborne] FINAL: _bar2Gradient =", self._bar2Gradient)
 end
 
 function Airborne:_destroyUI()
@@ -307,7 +292,6 @@ end
 function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 	local DRAIN_TIME = 0.3  -- Time to drain each bar
 	
-	print("[Airborne] _animateDrain called: from", fromCharges, "to", toCharges, "oldPartial", oldPartial)
 	
 	-- Mark as draining (blocks UI updates during animation)
 	Airborne._isDraining = true
@@ -316,7 +300,6 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 	-- Use the OLD partial value (passed in) to determine visual state before drain
 	local partial = oldPartial or 0
 	
-	print("[Airborne] Using oldPartial =", partial)
 	
 	-- Current visual state (before drain):
 	-- charges=2: bar1=100%, bar2=100%
@@ -334,9 +317,6 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 		bar2Current = 0
 	end
 	
-	print("[Airborne] bar1Current =", bar1Current, "bar2Current =", bar2Current)
-	print("[Airborne] _bar1Gradient =", self._bar1Gradient)
-	print("[Airborne] _bar2Gradient =", self._bar2Gradient)
 	
 	-- Show bars during drain
 	self:_setBarVisibility(true)
@@ -353,13 +333,9 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 			bar2Target = 0  -- Will be filled by partial later
 		end
 		
-		print("[Airborne] drainBar2: bar2Current =", bar2Current, "bar2Target =", bar2Target)
-		print("[Airborne] drainBar2: condition (bar2Current > bar2Target) =", bar2Current > bar2Target)
-		print("[Airborne] drainBar2: _bar2Gradient exists =", self._bar2Gradient ~= nil)
 		
 		-- Only drain if bar2 has content and needs to drain
 		if bar2Current > bar2Target and self._bar2Gradient then
-			print("[Airborne] >>> DRAINING BAR2 from", bar2Current, "to", bar2Target)
 			local startOffset = Vector2.new(bar2Current, 0)
 			local endOffset = Vector2.new(bar2Target, 0)
 			
@@ -371,11 +347,9 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 			
 			tween:Play()
 			tween.Completed:Once(function()
-				print("[Airborne] >>> BAR2 DRAIN COMPLETE")
 				callback()
 			end)
 		else
-			print("[Airborne] >>> SKIPPING BAR2 (no drain needed or gradient nil)")
 			callback()
 		end
 	end
@@ -392,13 +366,9 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 			bar1Target = 0  -- Will be filled by partial later during regen
 		end
 		
-		print("[Airborne] drainBar1: bar1Current =", bar1Current, "bar1Target =", bar1Target)
-		print("[Airborne] drainBar1: condition (bar1Current > bar1Target) =", bar1Current > bar1Target)
-		print("[Airborne] drainBar1: _bar1Gradient exists =", self._bar1Gradient ~= nil)
 		
 		-- Only drain if bar1 needs to drain
 		if bar1Current > bar1Target and self._bar1Gradient then
-			print("[Airborne] >>> DRAINING BAR1 from", bar1Current, "to", bar1Target)
 			local startOffset = Vector2.new(bar1Current, 0)
 			local endOffset = Vector2.new(bar1Target, 0)
 			
@@ -410,27 +380,21 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 			
 			tween:Play()
 			tween.Completed:Once(function()
-				print("[Airborne] >>> BAR1 DRAIN COMPLETE")
 				callback()
 			end)
 		else
-			print("[Airborne] >>> SKIPPING BAR1 (no drain needed or gradient nil)")
 			callback()
 		end
 	end
 	
 	-- Execute: bar2 first, then bar1, then wait for regen delay
-	print("[Airborne] Starting drain sequence: BAR2 first, then BAR1")
 	drainBar2(function()
-		print("[Airborne] Bar2 done, now starting Bar1")
 		drainBar1(function()
-			print("[Airborne] Bar1 done, waiting 1.5s for regen delay")
 			-- Done draining - wait for regen delay before showing UI
 			task.delay(1.5, function()
 				Airborne._isDraining = false
 				Airborne._drainTargetCharges = nil
 				self:_updateUI()
-				print("[Airborne] Drain sequence complete, UI updated")
 			end)
 		end)
 	end)

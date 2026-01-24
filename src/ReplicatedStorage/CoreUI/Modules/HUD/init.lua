@@ -810,7 +810,6 @@ end
 function module:_getActionList(slotType, weaponData)
 	local actions = {}
 	if not slotType or slotType == "Kit" then
-		warn("[HUD] Actions skipped: slotType", slotType)
 		return actions
 	end
 
@@ -818,11 +817,8 @@ function module:_getActionList(slotType, weaponData)
 	local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
 	local actionFlags = weaponConfig and weaponConfig.actions
 	if not weaponId then
-		warn("[HUD] Actions missing weaponId for slot", slotType)
 	elseif not weaponConfig then
-		warn("[HUD] Actions missing weaponConfig for", weaponId, "slot", slotType)
 	elseif not actionFlags then
-		warn("[HUD] Actions missing action flags for", weaponId, "slot", slotType)
 	end
 
 	local canQuickMelee = actionFlags and actionFlags.canQuickUseMelee
@@ -853,13 +849,11 @@ function module:_populateActions(slotType)
 	self:_clearActions()
 
 	if not self._actionsListFrame or not self._actionsTemplate then
-		warn("[HUD] Actions missing list/template")
 		return
 	end
 
 	local weaponData = slotType and self._weaponData[slotType]
 	local actions = self:_getActionList(slotType, weaponData)
-	warn("[HUD] Actions count", #actions, "slot", slotType)
 
 	for i, action in ipairs(actions) do
 		local actionFrame = self._actionsTemplate:Clone()
@@ -1399,7 +1393,6 @@ function module:ForceCooldown(slotType: string, duration: number)
 	
 	local templateData = self._weaponTemplates[slotType]
 	if not templateData then
-		warn("[HUD] ForceCooldown: No template for slot", slotType)
 		return
 	end
 	

@@ -91,9 +91,9 @@ local function buildTracks(animator: Animator, weaponId: string?)
 		if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
 			animInstance = getAnimationInstance(weaponId, animRef)
 			if animInstance then
-				print(string.format("[ViewmodelAnimator] Found Animation instance: %s/%s", weaponId, name))
+				
 			else
-				warn(string.format("[ViewmodelAnimator] Animation NOT FOUND: Assets/Animations/ViewModel/%s/Viewmodel/%s", weaponId or "?", animRef))
+		
 			end
 		end
 
@@ -200,7 +200,7 @@ function ViewmodelAnimator.PreloadKitAnimations()
 	
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if not assets then
-		warn("[ViewmodelAnimator] Assets folder not found")
+	
 		return PreloadedKitAnimations
 	end
 	
@@ -244,15 +244,10 @@ function ViewmodelAnimator.PreloadKitAnimations()
 			
 			count += 1
 			
-			if DEBUG_VIEWMODEL then
-				print(string.format("[ViewmodelAnimator] Preloaded kit animation: %s (ID: %s)", fullPath, descendant.AnimationId))
-			end
 		end
 	end
 	
 	KitAnimationsPreloaded = true
-	print(string.format("[ViewmodelAnimator] Preloaded %d kit animations", count))
-	
 	return PreloadedKitAnimations
 end
 
@@ -400,18 +395,6 @@ function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolea
 		local weight = settings.Weight or 1
 		local speed = settings.Speed or 1
 
-		if DEBUG_VIEWMODEL then
-			print(
-				string.format(
-					"[ViewmodelAnimator] Play track: %s (fade=%.2f, weight=%.2f, speed=%.2f)",
-					tostring(name),
-					fade,
-					weight,
-					speed
-				)
-			)
-		end
-
 		-- Play with all parameters at once (matching base animation structure)
 		track:Play(fade, weight, speed)
 	end
@@ -424,11 +407,6 @@ function ViewmodelAnimator:Stop(name: string, fadeTime: number?)
 
 		-- Use provided fadeTime or fall back to attribute, then default
 		local fade = fadeTime or settings.FadeOutTime or 0.1
-
-		if DEBUG_VIEWMODEL then
-			print(string.format("[ViewmodelAnimator] Stop track: %s (fade=%.2f)", tostring(name), fade))
-		end
-
 		track:Stop(fade)
 	end
 end
@@ -569,10 +547,6 @@ function ViewmodelAnimator:PlayKitAnimation(animIdOrName: string, settings: {[st
 	track:Play(fadeTime, weight, speed)
 	
 	if DEBUG_VIEWMODEL then
-		print(string.format(
-			"[ViewmodelAnimator] Playing kit animation: %s (fade=%.2f, speed=%.2f, looped=%s)",
-			animIdOrName, fadeTime, speed, tostring(looped)
-		))
 	end
 	
 	return track
@@ -588,10 +562,6 @@ function ViewmodelAnimator:StopKitAnimation(animIdOrName: string, fadeTime: numb
 	local track = self._kitTracks[animIdOrName]
 	if track and track.IsPlaying then
 		track:Stop(fadeTime or 0.1)
-		
-		if DEBUG_VIEWMODEL then
-			print(string.format("[ViewmodelAnimator] Stopped kit animation: %s", animIdOrName))
-		end
 	end
 end
 
@@ -605,10 +575,7 @@ function ViewmodelAnimator:StopAllKitAnimations(fadeTime: number?)
 	for name, track in pairs(self._kitTracks) do
 		if track and track.IsPlaying then
 			track:Stop(fade)
-			
-			if DEBUG_VIEWMODEL then
-				print(string.format("[ViewmodelAnimator] Stopped kit animation: %s", name))
-			end
+
 		end
 	end
 end
@@ -656,7 +623,6 @@ function ViewmodelAnimator:ResetToBindPose()
 	end
 	
 	if DEBUG_VIEWMODEL then
-		print("[ViewmodelAnimator] Reset to bind pose")
 	end
 end
 

@@ -34,15 +34,6 @@ function KitVFXController:_onKitMessage(message)
 		return
 	end
 
-	local pos = (type(message.extraData) == "table") and message.extraData.position or nil
-	print("[KitVFXController] KitState Event", {
-		event = message.event,
-		kitId = message.kitId,
-		effect = message.effect,
-		abilityType = message.abilityType,
-		playerId = message.playerId,
-		position = pos,
-	})
 	VFXController:Dispatch(message)
 end
 

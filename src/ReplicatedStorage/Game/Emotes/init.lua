@@ -140,7 +140,21 @@ end
 function EmoteService._setupReplication()
 	Net:Init()
 	
-	EmoteService._replicateConnection = Net:ConnectClient("EmoteReplicate", function(playerId, emoteId, action)
+	-- Extended format: (playerId, emoteId, action, rig?)
+	-- If rig is provided, it's a dummy/NPC emote - play directly on that rig
+	-- If playerId > 0, it's a player emote - look up their rig
+	EmoteService._replicateConnection = Net:ConnectClient("EmoteReplicate", function(playerId, emoteId, action, rig)
+		-- Direct rig provided (dummies/NPCs)
+		if rig and typeof(rig) == "Instance" then
+			if action == "play" then
+				EmoteService._playForRig(rig, emoteId)
+			elseif action == "stop" then
+				EmoteService._stopForRig(rig)
+			end
+			return
+		end
+		
+		-- Player-based emote (existing logic)
 		if playerId == LocalPlayer.UserId then
 			-- Already handled locally
 			return
@@ -248,6 +262,84 @@ function EmoteService._stopForOtherPlayer(playerId: number)
 		if animController and animController.StopEmoteForOtherPlayer then
 			animController:StopEmoteForOtherPlayer(player)
 		end
+	end
+end
+
+-- Play emote for a rig directly (dummies/NPCs)
+function EmoteService._playForRig(rig: Model, emoteId: string)
+	if not rig or not rig:IsA("Model") then
+		warn("[EmoteService] Invalid rig provided to _playForRig")
+		return
+	end
+	
+	local emoteClass = EmoteService.getEmoteClass(emoteId)
+	if not emoteClass then
+		warn("[EmoteService] Emote not found for rig:", emoteId)
+		return
+	end
+	
+	-- Stop any existing emote for this rig
+	EmoteService._stopForRig(rig)
+	
+	-- Create emote instance for this rig
+	local emoteData = getEmoteData(emoteClass)
+	local emote = nil
+	
+	if emoteClass.new then
+		local ok, result = pcall(function()
+			return emoteClass.new(emoteId, emoteData, rig)
+		end)
+		if ok then
+			emote = result
+		else
+			warn("[EmoteService] Failed to create emote for rig:", result)
+		end
+	end
+	
+	if not emote then
+		emote = EmoteBase.new(emoteId, emoteData, rig)
+	end
+	
+	-- Start the emote (spawns props, etc.)
+	local started = emote:start()
+	if not started then
+		warn("[EmoteService] Failed to start emote for rig")
+		pcall(function() emote:destroy() end)
+		return
+	end
+	
+	-- Play animation with proper looping
+	local loopable = emoteData.Loopable
+	if loopable == nil then
+		loopable = EmoteConfig.Defaults.Loopable
+	end
+	
+	-- Play animation using the emote's helper (respects looping)
+	if emoteClass.Animations and emoteClass.Animations.Main then
+		local track = emote:PlayAnimation("Main")
+		if track then
+			track.Looped = loopable
+		end
+	end
+	
+	-- Store emote for cleanup (keyed by rig instance)
+	EmoteService._activeByRig[rig] = EmoteService._activeByRig[rig] or {}
+	EmoteService._activeByRig[rig][emoteId] = emote
+end
+
+-- Stop emote for a rig directly (dummies/NPCs)
+function EmoteService._stopForRig(rig: Model)
+	if not rig then
+		return
+	end
+	
+	local rigEmotes = EmoteService._activeByRig[rig]
+	if rigEmotes then
+		for emoteId, emote in rigEmotes do
+			pcall(function() emote:stop() end)
+			pcall(function() emote:destroy() end)
+		end
+		EmoteService._activeByRig[rig] = nil
 	end
 end
 

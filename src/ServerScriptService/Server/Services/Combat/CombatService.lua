@@ -39,7 +39,6 @@ function CombatService:Init(registry, net)
 		self:_tickStatusEffects(deltaTime)
 	end)
 	
-	print("[CombatService] Initialized")
 end
 
 function CombatService:Start()
@@ -47,8 +46,6 @@ function CombatService:Start()
 	Players.PlayerRemoving:Connect(function(player)
 		self:_cleanupPlayer(player)
 	end)
-	
-	print("[CombatService] Started")
 end
 
 -- =============================================================================
@@ -87,8 +84,6 @@ function CombatService:InitializePlayer(player: Player, options: {
 	
 	-- Sync initial state to client
 	self:_syncCombatState(player)
-	
-	print("[CombatService] Initialized player:", player.Name)
 end
 
 --[[
@@ -131,6 +126,27 @@ end
 ]]
 function CombatService:GetStatusEffects(player: Player)
 	return self._statusEffects[player]
+end
+
+--[[
+	Gets the player/pseudo-player by their character model
+	Works for both real players and dummies (pseudo-players)
+	@param character Model
+	@return Player|table?
+]]
+function CombatService:GetPlayerByCharacter(character)
+	if not character then
+		return nil
+	end
+
+	-- Check all registered players/pseudo-players
+	for player, _ in self._playerResources do
+		if player.Character == character then
+			return player
+		end
+	end
+
+	return nil
 end
 
 -- =============================================================================
@@ -501,6 +517,11 @@ end
 function CombatService:_syncCombatState(player: Player)
 	if not self._net then return end
 	
+	-- Skip firing to non-Player entities (like dummies)
+	if not (typeof(player) == "Instance" and player:IsA("Player")) then
+		return
+	end
+	
 	local resource = self._playerResources[player]
 	if not resource then return end
 	
@@ -522,6 +543,11 @@ end
 
 function CombatService:_syncStatusEffects(player: Player)
 	if not self._net then return end
+	
+	-- Skip firing to non-Player entities (like dummies)
+	if not (typeof(player) == "Instance" and player:IsA("Player")) then
+		return
+	end
 	
 	local effectManager = self._statusEffects[player]
 	if not effectManager then return end

@@ -8,6 +8,18 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 
+-- Traverse up from a hit part to find the character model (has Humanoid)
+local function getCharacterFromPart(part)
+	local current = part
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
 function WeaponService:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -19,7 +31,6 @@ function WeaponService:Init(registry, net)
 		self:OnWeaponFired(player, shotData)
 	end)
 
-	print("[WeaponService] Initialized")
 end
 
 function WeaponService:Start()
@@ -27,7 +38,6 @@ function WeaponService:Start()
 end
 
 function WeaponService:OnWeaponFired(player, shotData)
-	print(string.format("[WeaponService] Received shot from %s", player and player.Name or "unknown"))
 	
 	if not player or not shotData or not shotData.weaponId then
 		warn("[WeaponService] Invalid shot data from", player and player.Name or "unknown")
@@ -103,7 +113,6 @@ function WeaponService:OnWeaponFired(player, shotData)
 		return
 	end
 
-	print(string.format("[WeaponService] Shot validated from %s with %s", player.Name, shotData.weaponId))
 
 	-- Calculate damage
 	local damage = self:CalculateDamage(shotData, weaponConfig)
@@ -216,7 +225,8 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 				firstHitPosition = result.Position
 			end
 
-			local character = result.Instance and result.Instance.Parent
+			-- Traverse up to find character (handles nested colliders like Dummy/Root/Head)
+			local character = getCharacterFromPart(result.Instance)
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			if humanoid then
 				if not firstHitCharacter then
@@ -295,32 +305,36 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 		return
 	end
 
-	-- Check if victim is a player
+	local combatService = self._registry:TryGet("CombatService")
+
+	-- Check if victim is a real player
 	local victimPlayer = Players:GetPlayerFromCharacter(character)
-	
-	-- Route through CombatService for players
-	if victimPlayer then
-		local combatService = self._registry:TryGet("CombatService")
-		if combatService then
-			local result = combatService:ApplyDamage(victimPlayer, damage, {
-				source = shooter,
-				isHeadshot = isHeadshot,
-				weaponId = weaponId or self._currentWeaponId,
-			})
-			
-			if result and result.killed then
-				print(string.format(
-					"[WeaponService] %s killed %s (headshot: %s)",
-					shooter.Name,
-					character.Name,
-					tostring(isHeadshot)
-				))
-			end
-			return
-		end
+
+	-- If not a real player, check for pseudo-player (dummies)
+	if not victimPlayer and combatService then
+		victimPlayer = combatService:GetPlayerByCharacter(character)
 	end
 
-	-- Fallback for non-players (dummies, NPCs) - direct humanoid damage
+	-- Route through CombatService for players and dummies
+	if victimPlayer and combatService then
+		local result = combatService:ApplyDamage(victimPlayer, damage, {
+			source = shooter,
+			isHeadshot = isHeadshot,
+			weaponId = weaponId or self._currentWeaponId,
+		})
+
+		if result and result.killed then
+			print(string.format(
+				"[WeaponService] %s killed %s (headshot: %s)",
+				shooter.Name,
+				character.Name,
+				tostring(isHeadshot)
+			))
+		end
+		return
+	end
+
+	-- Fallback for unregistered NPCs - direct humanoid damage
 	humanoid:TakeDamage(damage)
 
 	-- Set last damage dealer (useful for kill attribution)
