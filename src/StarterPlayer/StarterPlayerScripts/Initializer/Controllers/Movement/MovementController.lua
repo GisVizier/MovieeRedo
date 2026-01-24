@@ -428,6 +428,17 @@ function CharacterController:UpdateMovement(deltaTime)
 		return
 	end
 
+	-- Frozen status effect: disable all player-controlled movement, allow physics (sliding)
+	if self.Character and self.Character:GetAttribute("Frozen") == true then
+		if SlidingSystem and SlidingSystem.IsSliding then
+			SlidingSystem:StopSlide(false, true, "Frozen")
+		end
+		if self.VectorForce then
+			self.VectorForce.Force = Vector3.zero
+		end
+		return
+	end
+
 	if self.Character and not self._missingColliderPartLogged then
 		local body = CharacterLocations:GetBody(self.Character)
 		local feet = CharacterLocations:GetFeet(self.Character)
@@ -1327,6 +1338,14 @@ end
 
 function CharacterController:HandleSprint(isSprinting)
 	if not self.Character then
+		return
+	end
+
+	-- Bleed status effect: force walk speed (disable sprinting)
+	if self.Character:GetAttribute("Bleed") == true then
+		if MovementStateManager:IsSprinting() then
+			MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+		end
 		return
 	end
 

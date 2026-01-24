@@ -372,6 +372,26 @@ function KitController:IsWeaponSwitchLocked(): boolean
 	return self._weaponSwitchLocked == true
 end
 
+--[[
+	Returns true if ability is currently on cooldown.
+]]
+function KitController:IsAbilityOnCooldown(): boolean
+	local state = self._state
+	if not state then return false end
+	
+	local cooldownEndsAt = state.abilityCooldownEndsAt or 0
+	if cooldownEndsAt == 0 then return false end
+	
+	local serverNow = state.serverNow or 0
+	local receivedAt = state.receivedAt or 0
+	
+	-- Convert server time to client time
+	local secondsRemaining = cooldownEndsAt - serverNow
+	local clientEndTime = receivedAt + secondsRemaining
+	
+	return os.clock() < clientEndTime
+end
+
 function KitController:_emit(eventName: string, ...)
 	if not self._coreUi or not self._coreUi.emit then
 		return

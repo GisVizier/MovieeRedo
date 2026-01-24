@@ -68,6 +68,14 @@ function PlayerDataTable.init()
 			Revolver = {"Energy"},
 		},
 
+		-- Per-weapon customization data (kill effects, etc.)
+		WEAPON_DATA = {
+			-- Example:
+			-- ["Shotgun"] = {
+			--     killEffect = "Ragdoll", -- Custom kill effect override
+			-- },
+		},
+
 		Settings = {
 			Gameplay = {},
 			Controls = {},
@@ -407,6 +415,71 @@ end
 
 function PlayerDataTable.addOwnedEmote(emoteId: string): boolean
 	return PlayerDataTable.addOwned("OWNED_EMOTES", emoteId)
+end
+
+-- Weapon Data Methods
+
+function PlayerDataTable.getWeaponData(weaponId: string): {[string]: any}?
+	if not mockData then
+		PlayerDataTable.init()
+	end
+
+	if not mockData.WEAPON_DATA then
+		return nil
+	end
+
+	return deepClone(mockData.WEAPON_DATA[weaponId])
+end
+
+function PlayerDataTable.setWeaponData(weaponId: string, data: {[string]: any}): boolean
+	if not mockData then
+		PlayerDataTable.init()
+	end
+
+	if not mockData.WEAPON_DATA then
+		mockData.WEAPON_DATA = {}
+	end
+
+	local oldValue = mockData.WEAPON_DATA[weaponId]
+	mockData.WEAPON_DATA[weaponId] = deepClone(data)
+
+	PlayerDataTable._fireCallbacks("WeaponData", weaponId, data, oldValue)
+
+	return true
+end
+
+function PlayerDataTable.getWeaponKillEffect(weaponId: string): string?
+	local data = PlayerDataTable.getWeaponData(weaponId)
+	return data and data.killEffect or nil
+end
+
+function PlayerDataTable.setWeaponKillEffect(weaponId: string, killEffect: string?): boolean
+	if not mockData then
+		PlayerDataTable.init()
+	end
+
+	if not mockData.WEAPON_DATA then
+		mockData.WEAPON_DATA = {}
+	end
+
+	if not mockData.WEAPON_DATA[weaponId] then
+		mockData.WEAPON_DATA[weaponId] = {}
+	end
+
+	local oldEffect = mockData.WEAPON_DATA[weaponId].killEffect
+	mockData.WEAPON_DATA[weaponId].killEffect = killEffect
+
+	PlayerDataTable._fireCallbacks("WeaponKillEffect", weaponId, killEffect, oldEffect)
+
+	return true
+end
+
+function PlayerDataTable.getAllWeaponData(): {[string]: {[string]: any}}
+	if not mockData then
+		PlayerDataTable.init()
+	end
+
+	return deepClone(mockData.WEAPON_DATA or {})
 end
 
 return PlayerDataTable

@@ -45,6 +45,11 @@ local Remotes = {
 	{ name = "EmoteStop", description = "Client requests emote stop" },
 	{ name = "EmoteReplicate", description = "Server broadcasts emote to clients" },
 
+	-- Combat system
+	{ name = "CombatStateUpdate", description = "Server sends combat state to client" },
+	{ name = "DamageDealt", description = "Server broadcasts damage for damage numbers" },
+	{ name = "StatusEffectUpdate", description = "Server sends status effect changes" },
+
 }
 
 return Remotes

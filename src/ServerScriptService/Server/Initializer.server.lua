@@ -28,6 +28,10 @@ local entries = {
 		module = servicesFolder:WaitForChild("Collision"):WaitForChild("CollisionGroupService"),
 	},
 	{
+		name = "CombatService",
+		module = servicesFolder:WaitForChild("Combat"):WaitForChild("CombatService"),
+	},
+	{
 		name = "CharacterService",
 		module = servicesFolder:WaitForChild("Character"):WaitForChild("CharacterService"),
 	},

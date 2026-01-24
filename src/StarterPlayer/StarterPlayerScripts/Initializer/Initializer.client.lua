@@ -53,6 +53,10 @@ local entries = {
 		name = "Weapon",
 		module = controllersFolder:WaitForChild("Weapon"):WaitForChild("WeaponController"),
 	},
+	{
+		name = "Combat",
+		module = controllersFolder:WaitForChild("Combat"):WaitForChild("CombatController"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

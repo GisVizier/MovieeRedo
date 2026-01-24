@@ -184,6 +184,12 @@ function CharacterService:SpawnCharacter(player)
 	self.ActiveCharacters[player] = character
 	self.IsClientSetupComplete[player.UserId] = false
 
+	-- Initialize combat resources for this player
+	local combatService = self._registry and self._registry:TryGet("CombatService")
+	if combatService then
+		combatService:InitializePlayer(player)
+	end
+
 	local replicationService = self._registry and self._registry:TryGet("ReplicationService")
 	if replicationService and replicationService.RegisterPlayer then
 		replicationService:RegisterPlayer(player)

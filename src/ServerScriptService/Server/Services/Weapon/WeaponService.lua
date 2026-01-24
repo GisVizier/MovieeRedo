@@ -114,7 +114,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 	
 	if shotData.hitCharacter and shotData.hitCharacter:FindFirstChildOfClass("Humanoid") then
 		-- Hit a character with Humanoid (could be player or dummy)
-		self:ApplyDamageToCharacter(shotData.hitCharacter, damage, player, shotData.isHeadshot)
+		self:ApplyDamageToCharacter(shotData.hitCharacter, damage, player, shotData.isHeadshot, shotData.weaponId)
 		hitCharacterName = shotData.hitCharacter.Name
 		
 		-- Check if it's a player
@@ -236,7 +236,7 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 	for character, damage in pairs(damageByCharacter) do
 		totalDamage = totalDamage + damage
 		totalHeadshots = totalHeadshots + (headshotByCharacter[character] or 0)
-		self:ApplyDamageToCharacter(character, damage, player, (headshotByCharacter[character] or 0) > 0)
+		self:ApplyDamageToCharacter(character, damage, player, (headshotByCharacter[character] or 0) > 0, shotData.weaponId)
 	end
 
 	-- If no hits, pick a fallback position for VFX
@@ -285,7 +285,7 @@ function WeaponService:CalculateDamage(shotData, weaponConfig)
 	return math.floor(baseDamage + 0.5) -- Round to nearest integer
 end
 
-function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot)
+function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot, weaponId)
 	if not character or not character.Parent then
 		return
 	end
@@ -295,7 +295,32 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 		return
 	end
 
-	-- Apply damage
+	-- Check if victim is a player
+	local victimPlayer = Players:GetPlayerFromCharacter(character)
+	
+	-- Route through CombatService for players
+	if victimPlayer then
+		local combatService = self._registry:TryGet("CombatService")
+		if combatService then
+			local result = combatService:ApplyDamage(victimPlayer, damage, {
+				source = shooter,
+				isHeadshot = isHeadshot,
+				weaponId = weaponId or self._currentWeaponId,
+			})
+			
+			if result and result.killed then
+				print(string.format(
+					"[WeaponService] %s killed %s (headshot: %s)",
+					shooter.Name,
+					character.Name,
+					tostring(isHeadshot)
+				))
+			end
+			return
+		end
+	end
+
+	-- Fallback for non-players (dummies, NPCs) - direct humanoid damage
 	humanoid:TakeDamage(damage)
 
 	-- Set last damage dealer (useful for kill attribution)
@@ -310,8 +335,6 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 			character.Name,
 			tostring(isHeadshot)
 		))
-
-		-- TODO: Fire kill event for kill feed
 	end
 end
 
