@@ -57,6 +57,10 @@ local entries = {
 		name = "Combat",
 		module = controllersFolder:WaitForChild("Combat"):WaitForChild("CombatController"),
 	},
+	{
+		name = "Ping",
+		module = controllersFolder:WaitForChild("Network"):WaitForChild("PingController"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

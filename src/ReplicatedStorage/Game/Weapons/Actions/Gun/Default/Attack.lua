@@ -1,3 +1,15 @@
+--[[
+	Attack.lua (Default)
+
+	Default client-side attack implementation for guns.
+	Uses buffer-based hit packets for efficient networking.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local HitPacketUtils = require(Locations.Shared.Util:WaitForChild("HitPacketUtils"))
+
 local Attack = {}
 
 function Attack.Execute(weaponInstance, currentTime)
@@ -7,7 +19,7 @@ function Attack.Execute(weaponInstance, currentTime)
 
 	local state = weaponInstance.State
 	local config = weaponInstance.Config
-	local now = currentTime or os.clock()
+	local now = currentTime or workspace:GetServerTimeNow()
 
 	if state.Equipped == false then
 		return false, "NotEquipped"
@@ -54,9 +66,20 @@ function Attack.Execute(weaponInstance, currentTime)
 
 	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(pelletDirections ~= nil)
 	if hitData then
-		if weaponInstance.SendShot then
-			weaponInstance.SendShot(hitData, pelletDirections, now)
+		-- Add timestamp for packet creation
+		hitData.timestamp = now
+		
+		-- Create buffer packet
+		local packet = HitPacketUtils:CreatePacket(hitData, weaponInstance.WeaponName)
+		
+		if weaponInstance.Net then
+			weaponInstance.Net:FireServer("WeaponFired", {
+				packet = packet,
+				pelletDirections = pelletDirections,
+				weaponId = weaponInstance.WeaponName,
+			})
 		end
+		
 		if weaponInstance.PlayFireEffects then
 			weaponInstance.PlayFireEffects(hitData)
 		end

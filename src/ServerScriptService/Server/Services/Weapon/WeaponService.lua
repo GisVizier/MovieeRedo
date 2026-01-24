@@ -6,6 +6,7 @@ local workspace = game:GetService("Workspace")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
+local HitPacketUtils = require(Locations.Shared.Util:WaitForChild("HitPacketUtils"))
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 
 -- Traverse up from a hit part to find the character model (has Humanoid)
@@ -24,7 +25,8 @@ function WeaponService:Init(registry, net)
 	self._registry = registry
 	self._net = net
 
-	HitValidator:Init()
+	-- Initialize HitValidator with network for ping tracking
+	HitValidator:Init(net)
 
 	-- Listen for weapon fire events
 	net:ConnectServer("WeaponFired", function(player, shotData)
@@ -38,16 +40,46 @@ function WeaponService:Start()
 end
 
 function WeaponService:OnWeaponFired(player, shotData)
-	
-	if not player or not shotData or not shotData.weaponId then
+	if not player or not shotData then
 		warn("[WeaponService] Invalid shot data from", player and player.Name or "unknown")
 		return
 	end
 
+	-- Parse the hit packet (new buffer format) or use legacy table format
+	local hitData
+	local weaponId = shotData.weaponId
+	
+	if shotData.packet then
+		-- New buffer-based packet format
+		hitData = HitPacketUtils:ParsePacket(shotData.packet)
+		if not hitData then
+			warn("[WeaponService] Failed to parse hit packet from", player.Name)
+			return
+		end
+		weaponId = hitData.weaponName
+	else
+		-- Legacy table format (backward compatibility)
+		hitData = {
+			timestamp = shotData.timestamp or os.clock(),
+			origin = shotData.origin,
+			hitPosition = shotData.hitPosition,
+			targetUserId = shotData.hitPlayer and shotData.hitPlayer.UserId or 0,
+			hitPlayer = shotData.hitPlayer,
+			isHeadshot = shotData.isHeadshot,
+			hitPart = shotData.hitPart,
+			weaponName = weaponId,
+		}
+	end
+	
+	if not weaponId then
+		warn("[WeaponService] No weapon ID from", player.Name)
+		return
+	end
+
 	-- Validate weapon config exists
-	local weaponConfig = LoadoutConfig.getWeapon(shotData.weaponId)
+	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
-		warn("[WeaponService] Invalid weapon:", shotData.weaponId, "from", player.Name)
+		warn("[WeaponService] Invalid weapon:", weaponId, "from", player.Name)
 		return
 	end
 
@@ -59,7 +91,15 @@ function WeaponService:OnWeaponFired(player, shotData)
 			return
 		end
 
-		local pelletResult = self:_processPellets(player, shotData, weaponConfig)
+		-- Use parsed hitData origin if available
+		local pelletOrigin = hitData.origin or shotData.origin
+		local pelletShotData = {
+			origin = pelletOrigin,
+			pelletDirections = shotData.pelletDirections,
+			weaponId = weaponId,
+		}
+
+		local pelletResult = self:_processPellets(player, pelletShotData, weaponConfig)
 		if not pelletResult then
 			warn("[WeaponService] Pellet processing failed for", player.Name)
 			return
@@ -70,8 +110,8 @@ function WeaponService:OnWeaponFired(player, shotData)
 		-- Broadcast validated hit to all clients for VFX
 		self._net:FireAllClients("HitConfirmed", {
 			shooter = player.UserId,
-			weaponId = shotData.weaponId,
-			origin = shotData.origin,
+			weaponId = weaponId,
+			origin = pelletOrigin,
 			hitPosition = pelletResult.hitPosition,
 			hitPlayer = victimPlayer and victimPlayer.UserId or nil,
 			hitCharacterName = pelletResult.hitCharacter and pelletResult.hitCharacter.Name or nil,
@@ -105,43 +145,40 @@ function WeaponService:OnWeaponFired(player, shotData)
 		return
 	end
 
-	-- Validate the hit with anti-cheat
-	local isValid, reason = HitValidator:ValidateHit(player, shotData, weaponConfig)
+	-- Validate the hit with anti-cheat (using new HitValidator)
+	local isValid, reason = HitValidator:ValidateHit(player, hitData, weaponConfig)
 	if not isValid then
 		warn("[WeaponService] Invalid shot from", player.Name, "Reason:", reason)
 		HitValidator:RecordViolation(player, reason, 1)
 		return
 	end
 
-
 	-- Calculate damage
-	local damage = self:CalculateDamage(shotData, weaponConfig)
+	local damage = self:CalculateDamage(hitData, weaponConfig)
 
-	-- Apply damage if hit a character (player OR dummy)
-	local victimPlayer = nil
+	-- Apply damage if hit a player
+	local victimPlayer = hitData.hitPlayer
+	local hitCharacter = nil
 	local hitCharacterName = nil
 	
-	if shotData.hitCharacter and shotData.hitCharacter:FindFirstChildOfClass("Humanoid") then
-		-- Hit a character with Humanoid (could be player or dummy)
-		self:ApplyDamageToCharacter(shotData.hitCharacter, damage, player, shotData.isHeadshot, shotData.weaponId)
-		hitCharacterName = shotData.hitCharacter.Name
-		
-		-- Check if it's a player
-		if shotData.hitPlayer and shotData.hitPlayer:IsA("Player") then
-			victimPlayer = shotData.hitPlayer
+	if victimPlayer then
+		hitCharacter = victimPlayer.Character
+		if hitCharacter and hitCharacter:FindFirstChildOfClass("Humanoid") then
+			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId)
+			hitCharacterName = hitCharacter.Name
 		end
 	end
 
 	-- Broadcast validated hit to all clients for VFX
 	self._net:FireAllClients("HitConfirmed", {
 		shooter = player.UserId,
-		weaponId = shotData.weaponId,
-		origin = shotData.origin,
-		hitPosition = shotData.hitPosition,
+		weaponId = weaponId,
+		origin = hitData.origin,
+		hitPosition = hitData.hitPosition,
 		hitPlayer = victimPlayer and victimPlayer.UserId or nil,
 		hitCharacterName = hitCharacterName,
 		damage = damage,
-		isHeadshot = shotData.isHeadshot,
+		isHeadshot = hitData.isHeadshot,
 	})
 
 	-- Log successful hit
@@ -151,7 +188,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 			player.Name,
 			victimPlayer.Name,
 			damage,
-			tostring(shotData.isHeadshot)
+			tostring(hitData.isHeadshot)
 		))
 	elseif hitCharacterName then
 		print(string.format(
@@ -159,13 +196,13 @@ function WeaponService:OnWeaponFired(player, shotData)
 			player.Name,
 			hitCharacterName,
 			damage,
-			tostring(shotData.isHeadshot)
+			tostring(hitData.isHeadshot)
 		))
 	else
 		print(string.format(
 			"[WeaponService] %s shot at position %s (no target hit)",
 			player.Name,
-			tostring(shotData.hitPosition)
+			tostring(hitData.hitPosition)
 		))
 	end
 end

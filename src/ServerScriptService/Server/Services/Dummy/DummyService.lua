@@ -55,7 +55,6 @@ local function cacheTemplate()
 		return false
 	end
 	
-	print("[DummyService] Template cached successfully")
 	return true
 end
 
@@ -104,7 +103,6 @@ local function cacheEmoteModules()
 		end
 	end
 	
-	print("[DummyService] Cached", #_emoteClasses, "emote IDs for random selection")
 end
 
 -- Scan for spawn markers and record their positions
@@ -144,7 +142,6 @@ local function scanSpawnMarkers()
 		end
 	end
 	
-	print("[DummyService] Found", #_spawnPositions, "spawn positions")
 end
 
 -- Set up the dummy's physics and welds
@@ -190,8 +187,6 @@ local function setupDummyPhysics(dummy)
 	alignOrientation.RigidityEnabled = false
 	alignOrientation.Parent = root
 	
-	print("[DummyService] Setting up physics for", dummy.Name, "- heavy, grippy, stays upright")
-	
 	-- Parts that should be welded to Root (inside Root folder)
 	local colliderParts = {"Body", "Feet", "Head", "CrouchBody", "CrouchHead", "CollisionBody", "CollisionHead", "HumanoidRootPart"}
 	local weldedCount = 0
@@ -226,7 +221,6 @@ local function setupDummyPhysics(dummy)
 		end
 	end
 	
-	print("[DummyService] Welded", weldedCount, "collider parts to Root")
 	
 	-- Setup Rig (visual only)
 	local rig = dummy:FindFirstChild("Rig")
@@ -257,8 +251,7 @@ local function setupDummyPhysics(dummy)
 				weld.Part1 = rigHRP
 				weld.Parent = rigHRP
 			end
-			
-			print("[DummyService] Welded Rig to Root")
+
 		end
 		
 		-- Make all rig parts non-collidable
@@ -303,7 +296,6 @@ local function setupDummyPhysics(dummy)
 				end
 			end
 		end
-		print("[DummyService] Set up Collider folder parts")
 	end
 	
 	return true
@@ -368,7 +360,6 @@ local function playSpawnEmote(dummy)
 	
 	-- Fire to nearby players
 	local playerCount = fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "play", rig)
-	print("[DummyService] Emote", emoteEntry.id, "sent to", playerCount, "nearby players for", dummy.Name)
 	
 	-- Store emote info for stopping later
 	local emoteInfo = {
@@ -383,7 +374,7 @@ local function playSpawnEmote(dummy)
 		task.delay(DummyConfig.SpawnEmote.LoopDuration, function()
 			-- Fire stop to nearby players
 			local stopCount = fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "stop", rig)
-			print("[DummyService] Stopped emote for", dummy.Name, "- sent to", stopCount, "players")
+		
 		end)
 	end
 	
@@ -443,7 +434,6 @@ local function spawnDummy(spawnIndex)
 	local dummy = _template:Clone()
 	dummy.Name = "Dummy_" .. spawnIndex
 	
-	print("[DummyService] Spawning", dummy.Name, "at", spawnData.position)
 	
 	-- Set up physics and welds BEFORE parenting
 	setupDummyPhysics(dummy)
@@ -462,7 +452,7 @@ local function spawnDummy(spawnIndex)
 	local collisionGroupService = _registry and _registry:TryGet("CollisionGroupService")
 	if collisionGroupService then
 		collisionGroupService:SetCharacterCollisionGroup(dummy)
-		print("[DummyService] Applied player collision group to", dummy.Name)
+
 	end
 	
 	-- Get humanoid and set health
@@ -505,8 +495,7 @@ local function spawnDummy(spawnIndex)
 	-- Connect death handler (fires once)
 	if humanoid then
 		humanoid.Died:Once(function()
-			print("[DummyService]", dummy.Name, "died, respawning in", DummyConfig.RespawnDelay, "seconds")
-			
+
 			local dummyInfo = _activeDummies[dummy]
 			if not dummyInfo then
 				return
@@ -537,7 +526,6 @@ local function spawnDummy(spawnIndex)
 		end)
 	end
 	
-	print("[DummyService]", dummy.Name, "spawned successfully")
 	return dummy
 end
 
@@ -546,8 +534,7 @@ local function spawnAllDummies()
 	for i = 1, #_spawnPositions do
 		spawnDummy(i)
 	end
-	
-	print("[DummyService] Spawned", #_spawnPositions, "dummies")
+
 end
 
 --------------------------------------------------
@@ -561,7 +548,6 @@ function DummyService:Init(registry, net)
 	_initialized = true
 	_registry = registry
 	
-	print("[DummyService] Initializing...")
 	
 	-- Cache template
 	if not cacheTemplate() then
@@ -571,13 +557,11 @@ function DummyService:Init(registry, net)
 	
 	-- Cache emote modules
 	cacheEmoteModules()
-	
-	print("[DummyService] Init complete")
+
 end
 
 function DummyService:Start()
-	print("[DummyService] Starting...")
-	
+
 	-- Scan for spawn markers (destroys them after recording)
 	scanSpawnMarkers()
 	
@@ -585,7 +569,7 @@ function DummyService:Start()
 	if #_spawnPositions > 0 then
 		spawnAllDummies()
 	else
-		print("[DummyService] No spawn positions found")
+	
 	end
 end
 
@@ -639,7 +623,7 @@ function DummyService:DestroyAll()
 	end
 	
 	_activeDummies = {}
-	print("[DummyService] All dummies destroyed")
+
 end
 
 -- Respawn all dummies

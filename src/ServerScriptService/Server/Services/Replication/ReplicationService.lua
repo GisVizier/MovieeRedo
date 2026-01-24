@@ -9,7 +9,15 @@ local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator)
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 
+-- Stance enum (must match PositionHistory.Stance)
+local Stance = {
+	Standing = 0,
+	Crouched = 1,
+	Sliding = 2,
+}
+
 ReplicationService.PlayerStates = {}
+ReplicationService.PlayerStances = {}  -- [player] = stance enum
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
 
@@ -27,6 +35,11 @@ function ReplicationService:Init(registry, net)
 
 	self._net:ConnectServer("RequestInitialStates", function(player)
 		self:SendInitialStatesToPlayer(player)
+	end)
+
+	-- Track crouch state changes for hit detection stance validation
+	self._net:ConnectServer("CrouchStateChanged", function(player, isCrouching)
+		self:OnCrouchStateChanged(player, isCrouching)
 	end)
 	
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
@@ -56,10 +69,21 @@ function ReplicationService:RegisterPlayer(player)
 		CachedCompressedState = nil,
 		LastUpdateTime = tick(),
 	}
+	self.PlayerStances[player] = Stance.Standing
 end
 
 function ReplicationService:UnregisterPlayer(player)
 	self.PlayerStates[player] = nil
+	self.PlayerStances[player] = nil
+end
+
+function ReplicationService:OnCrouchStateChanged(player, isCrouching)
+	-- Update stance tracking
+	local newStance = isCrouching and Stance.Crouched or Stance.Standing
+	self.PlayerStances[player] = newStance
+	
+	-- Notify HitValidator of stance change
+	HitValidator:SetPlayerStance(player, newStance)
 end
 
 function ReplicationService:OnClientStateUpdate(player, compressedState)
@@ -102,8 +126,9 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 	playerData.CachedCompressedState = compressedState
 	playerData.LastUpdateTime = tick()
 
-	-- Store position for weapon hit lag compensation
-	HitValidator:StorePosition(player, state.Position, state.Timestamp)
+	-- Store position for weapon hit lag compensation (with current stance)
+	local currentStance = self.PlayerStances[player] or Stance.Standing
+	HitValidator:StorePosition(player, state.Position, state.Timestamp, currentStance)
 end
 
 function ReplicationService:BroadcastStates()

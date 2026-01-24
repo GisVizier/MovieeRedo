@@ -3,9 +3,14 @@
 
 	Client-side attack checks + ammo consumption.
 	Handles automatic fire mode.
+	Uses buffer-based hit packets for efficient networking.
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local Inspect = require(script.Parent:WaitForChild("Inspect"))
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local HitPacketUtils = require(Locations.Shared.Util:WaitForChild("HitPacketUtils"))
 
 local Attack = {}
 
@@ -19,7 +24,7 @@ function Attack.Execute(weaponInstance, currentTime)
 
 	local state = weaponInstance.State
 	local config = weaponInstance.Config
-	local now = currentTime or os.clock()
+	local now = currentTime or workspace:GetServerTimeNow()
 
 	if state.Equipped == false then
 		return false, "NotEquipped"
@@ -47,16 +52,15 @@ function Attack.Execute(weaponInstance, currentTime)
 
 	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(false)
 	if hitData and weaponInstance.Net then
+		-- Add timestamp for packet creation
+		hitData.timestamp = now
+		
+		-- Create buffer packet for efficient networking
+		local packet = HitPacketUtils:CreatePacket(hitData, weaponInstance.WeaponName)
+		
 		weaponInstance.Net:FireServer("WeaponFired", {
+			packet = packet,
 			weaponId = weaponInstance.WeaponName,
-			timestamp = now,
-			origin = hitData.origin,
-			direction = hitData.direction,
-			hitPart = hitData.hitPart,
-			hitPosition = hitData.hitPosition,
-			hitPlayer = hitData.hitPlayer,
-			hitCharacter = hitData.hitCharacter,
-			isHeadshot = hitData.isHeadshot,
 		})
 
 		if weaponInstance.PlayFireEffects then

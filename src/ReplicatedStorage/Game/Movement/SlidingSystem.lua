@@ -550,9 +550,13 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 		MovementStateManager:TransitionTo(MovementStateManager.States.Crouching)
 	else
 		local CrouchUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CrouchUtils"))
+		local Net = require(Locations.Shared:WaitForChild("Net"):WaitForChild("Net"))
+		
 		if self.Character then
 			CrouchUtils:Uncrouch(self.Character)
 			CrouchUtils:RemoveVisualCrouch(self.Character)
+			-- Fire network event to replicate uncrouch to other clients
+			Net:FireServer("CrouchStateChanged", false)
 		end
 
 		local shouldRestoreSprint = false

@@ -293,7 +293,7 @@ function ClientReplicator:SendStateUpdate()
 	local position = self.PrimaryPart.Position
 	local rotation = self.PrimaryPart.CFrame
 	local velocity = self.PrimaryPart.AssemblyLinearVelocity
-	local timestamp = tick()
+	local timestamp = workspace:GetServerTimeNow()
 	local isGrounded = MovementStateManager:GetIsGrounded()
 
 	local animationController = ServiceRegistry:GetController("AnimationController")

@@ -50,6 +50,10 @@ local Remotes = {
 	{ name = "DamageDealt", description = "Server broadcasts damage for damage numbers" },
 	{ name = "StatusEffectUpdate", description = "Server sends status effect changes" },
 
+	-- Ping measurement (for lag compensation)
+	{ name = "PingRequest", description = "Server sends ping challenge", unreliable = true },
+	{ name = "PingResponse", description = "Client responds to ping challenge", unreliable = true },
+
 }
 
 return Remotes

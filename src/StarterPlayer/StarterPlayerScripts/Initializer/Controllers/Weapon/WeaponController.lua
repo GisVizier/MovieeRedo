@@ -490,7 +490,7 @@ end
 -- =============================================================================
 
 function WeaponController:_onFirePressed()
-	local currentTime = os.clock()
+	local currentTime = workspace:GetServerTimeNow()
 
 	if not self:_isActiveWeaponEquipped() then
 		return

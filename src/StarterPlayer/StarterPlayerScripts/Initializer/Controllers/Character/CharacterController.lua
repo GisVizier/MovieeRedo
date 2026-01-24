@@ -24,6 +24,10 @@ CharacterController._respawnRequested = false
 CharacterController._activeRagdolls = {} -- [player] = ragdoll model
 CharacterController._savedCameraMode = nil -- Saved camera mode before ragdoll
 
+-- Hitbox debug
+CharacterController._hitboxDebugEnabled = false
+CharacterController._remoteColliders = {} -- [character] = collider folder
+
 function CharacterController:_applyRigCollisionFilters(character)
 	CharacterLocations:ForEachRigPart(character, function(part)
 
@@ -58,6 +62,13 @@ function CharacterController:Init(registry, net)
 		self:_onPlayerRagdolled(player, ragdollData)
 	end)
 
+	-- Crouch state replication for remote player colliders
+	self._net:ConnectClient("CrouchStateChanged", function(player, isCrouching)
+		if player and player.Character and player ~= Players.LocalPlayer then
+			self:_setRemoteColliderCrouch(player.Character, isCrouching)
+		end
+	end)
+
 	-- Ragdoll events
 	self._net:ConnectClient("RagdollStarted", function(player, ragdoll)
 		self:_onRagdollStarted(player, ragdoll)
@@ -65,6 +76,15 @@ function CharacterController:Init(registry, net)
 
 	self._net:ConnectClient("RagdollEnded", function(player)
 		self:_onRagdollEnded(player)
+	end)
+
+	-- Hitbox debug keybind (F4 to toggle)
+	local UserInputService = game:GetService("UserInputService")
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.F4 then
+			self:ToggleHitboxDebug()
+		end
 	end)
 
 	task.spawn(function()
@@ -346,16 +366,13 @@ function CharacterController:_setupRemoteCharacter(player, character)
 		rig = RigManager:GetActiveRig(player)
 		if rig then
 			self:_applyRigCollisionFilters(character)
-			return
+		else
+			rig = RigManager:CreateRig(player, character)
+			if not rig or not character.PrimaryPart then
+				return
+			end
+			self:_applyRigCollisionFilters(character)
 		end
-
-		rig = RigManager:CreateRig(player, character)
-		if not rig or not character.PrimaryPart then
-			return
-		end
-		self:_applyRigCollisionFilters(character)
-	else
-		return
 	end
 
 	local animationController = self._registry and self._registry:TryGet("AnimationController")
@@ -364,14 +381,19 @@ function CharacterController:_setupRemoteCharacter(player, character)
 	end
 
 	local characterTemplate = ReplicatedStorage:FindFirstChild("CharacterTemplate")
+	if not characterTemplate then
+		return
+	end
+
+	-- Clone Collider for remote character hit detection
+	self:_setupRemoteCollider(character, characterTemplate)
+
 	local rigOffset = CFrame.new()
-	if characterTemplate then
-		local templateRoot = characterTemplate:FindFirstChild("Root")
-		local templateRig = characterTemplate:FindFirstChild("Rig")
-		local templateRigHRP = templateRig and templateRig:FindFirstChild("HumanoidRootPart")
-		if templateRoot and templateRigHRP then
-			rigOffset = templateRoot.CFrame:Inverse() * templateRigHRP.CFrame
-		end
+	local templateRoot = characterTemplate:FindFirstChild("Root")
+	local templateRig = characterTemplate:FindFirstChild("Rig")
+	local templateRigHRP = templateRig and templateRig:FindFirstChild("HumanoidRootPart")
+	if templateRoot and templateRigHRP then
+		rigOffset = templateRoot.CFrame:Inverse() * templateRigHRP.CFrame
 	end
 
 	-- Use Root if available, fallback to PrimaryPart for remote characters
@@ -379,12 +401,256 @@ function CharacterController:_setupRemoteCharacter(player, character)
 	if not rootPart then
 		return
 	end
-	local targetCFrame = rootPart.CFrame * rigOffset
-	for _, part in ipairs(rig:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CFrame = targetCFrame
+	
+	if rig then
+		local targetCFrame = rootPart.CFrame * rigOffset
+		for _, part in ipairs(rig:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CFrame = targetCFrame
+			end
 		end
 	end
+end
+
+-- Setup hit detection collider for remote characters
+function CharacterController:_setupRemoteCollider(character, characterTemplate)
+	-- Don't setup twice
+	if character:FindFirstChild("Collider") then
+		return
+	end
+
+	local templateCollider = characterTemplate:FindFirstChild("Collider")
+	if not templateCollider then
+		warn("[CharacterController] CharacterTemplate missing Collider")
+		return
+	end
+
+	-- Get template Root for offset calculations
+	local templateRoot = characterTemplate:FindFirstChild("Root")
+	if not templateRoot then
+		warn("[CharacterController] CharacterTemplate missing Root")
+		return
+	end
+
+	-- Clone the collider
+	local collider = templateCollider:Clone()
+	collider.Name = "Collider"
+	
+	-- Store owner info for hit detection
+	local player = Players:GetPlayerFromCharacter(character) or Players:FindFirstChild(character.Name)
+	if player then
+		collider:SetAttribute("OwnerUserId", player.UserId)
+	end
+
+	-- Get anchor part (Root for character, fallback to PrimaryPart)
+	local anchorPart = character:FindFirstChild("Root") or character.PrimaryPart
+	if not anchorPart then
+		collider:Destroy()
+		return
+	end
+
+	-- Helper to setup collider part - use template positions directly
+	local function setupColliderPart(part, templatePart, isActive)
+		if not part:IsA("BasePart") then return end
+		
+		-- Get offset from template Root to this template part
+		local partOffset = templateRoot.CFrame:ToObjectSpace(templatePart.CFrame)
+		
+		-- Position part relative to character's anchor
+		part.CFrame = anchorPart.CFrame * partOffset
+		
+		part.Anchored = false
+		part.CanCollide = false
+		part.CanQuery = isActive
+		part.CanTouch = false
+		part.Massless = true
+		
+		-- Debug visualization
+		if self._hitboxDebugEnabled and isActive then
+			part.Transparency = 0.5
+			part.Color = Color3.fromRGB(255, 0, 0) -- Red for active
+			part.Material = Enum.Material.ForceField
+		else
+			part.Transparency = 1
+		end
+		
+		-- Weld to anchor
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = anchorPart
+		weld.Part1 = part
+		weld.Parent = part
+	end
+
+	-- Get Hitbox folder (new structure: Collider/Hitbox/Standing and Crouching)
+	local hitboxFolder = collider:FindFirstChild("Hitbox")
+	local templateHitboxFolder = templateCollider:FindFirstChild("Hitbox")
+	
+	if not hitboxFolder or not templateHitboxFolder then
+		warn("[CharacterController] Collider missing Hitbox folder")
+		collider:Destroy()
+		return
+	end
+
+	-- Setup Standing hitbox parts - active by default
+	local standingFolder = hitboxFolder:FindFirstChild("Standing")
+	local templateStandingFolder = templateHitboxFolder:FindFirstChild("Standing")
+	if standingFolder and templateStandingFolder then
+		for _, part in standingFolder:GetChildren() do
+			local templatePart = templateStandingFolder:FindFirstChild(part.Name)
+			if templatePart then
+				setupColliderPart(part, templatePart, true)
+			end
+		end
+	end
+
+	-- Setup Crouching hitbox parts - inactive by default
+	local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
+	local templateCrouchingFolder = templateHitboxFolder:FindFirstChild("Crouching")
+	if crouchingFolder and templateCrouchingFolder then
+		for _, part in crouchingFolder:GetChildren() do
+			local templatePart = templateCrouchingFolder:FindFirstChild(part.Name)
+			if templatePart then
+				setupColliderPart(part, templatePart, false)
+			end
+		end
+	end
+
+	collider.Parent = character
+	self._remoteColliders[character] = collider
+end
+
+-- Switch remote player's collider between standing/crouching
+function CharacterController:_setRemoteColliderCrouch(character, isCrouching)
+	local collider = character:FindFirstChild("Collider")
+	if not collider then
+		return
+	end
+
+	local hitboxFolder = collider:FindFirstChild("Hitbox")
+	if not hitboxFolder then
+		return
+	end
+
+	local standingFolder = hitboxFolder:FindFirstChild("Standing")
+	local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
+
+	-- Update Standing parts
+	if standingFolder then
+		for _, part in standingFolder:GetChildren() do
+			if part:IsA("BasePart") then
+				local isActive = not isCrouching
+				part.CanQuery = isActive
+				
+				-- Debug visualization
+				if self._hitboxDebugEnabled then
+					if isActive then
+						part.Transparency = 0.5
+						part.Color = Color3.fromRGB(255, 0, 0)
+						part.Material = Enum.Material.ForceField
+					else
+						part.Transparency = 0.8
+						part.Color = Color3.fromRGB(100, 100, 100)
+					end
+				else
+					part.Transparency = 1
+				end
+			end
+		end
+	end
+
+	-- Update Crouching parts
+	if crouchingFolder then
+		for _, part in crouchingFolder:GetChildren() do
+			if part:IsA("BasePart") then
+				local isActive = isCrouching
+				part.CanQuery = isActive
+				
+				-- Debug visualization
+				if self._hitboxDebugEnabled then
+					if isActive then
+						part.Transparency = 0.5
+						part.Color = Color3.fromRGB(0, 150, 255) -- Blue for crouch
+						part.Material = Enum.Material.ForceField
+					else
+						part.Transparency = 0.8
+						part.Color = Color3.fromRGB(100, 100, 100)
+					end
+				else
+					part.Transparency = 1
+				end
+			end
+		end
+	end
+end
+
+-- Toggle hitbox debug visualization
+function CharacterController:ToggleHitboxDebug()
+	self._hitboxDebugEnabled = not self._hitboxDebugEnabled
+	print("[CharacterController] Hitbox debug:", self._hitboxDebugEnabled and "ENABLED" or "DISABLED")
+	
+	-- Update all existing colliders
+	for character, collider in pairs(self._remoteColliders) do
+		if character and character.Parent and collider and collider.Parent then
+			-- Check current crouch state
+			local isCrouching = character:GetAttribute("IsCrouching") or false
+			
+			local hitboxFolder = collider:FindFirstChild("Hitbox")
+			if not hitboxFolder then continue end
+			
+			local standingFolder = hitboxFolder:FindFirstChild("Standing")
+			local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
+			
+			if standingFolder then
+				for _, part in standingFolder:GetChildren() do
+					if part:IsA("BasePart") then
+						local isActive = not isCrouching and part.CanQuery
+						if self._hitboxDebugEnabled then
+							if isActive then
+								part.Transparency = 0.5
+								part.Color = Color3.fromRGB(255, 0, 0)
+								part.Material = Enum.Material.ForceField
+							else
+								part.Transparency = 0.8
+								part.Color = Color3.fromRGB(100, 100, 100)
+							end
+						else
+							part.Transparency = 1
+						end
+					end
+				end
+			end
+			
+			if crouchingFolder then
+				for _, part in crouchingFolder:GetChildren() do
+					if part:IsA("BasePart") then
+						local isActive = isCrouching and part.CanQuery
+						if self._hitboxDebugEnabled then
+							if isActive then
+								part.Transparency = 0.5
+								part.Color = Color3.fromRGB(0, 150, 255)
+								part.Material = Enum.Material.ForceField
+							else
+								part.Transparency = 0.8
+								part.Color = Color3.fromRGB(100, 100, 100)
+							end
+						else
+							part.Transparency = 1
+						end
+					end
+				end
+			end
+		else
+			-- Clean up invalid entries
+			self._remoteColliders[character] = nil
+		end
+	end
+	
+	return self._hitboxDebugEnabled
+end
+
+-- Get hitbox debug state
+function CharacterController:IsHitboxDebugEnabled()
+	return self._hitboxDebugEnabled
 end
 
 -- =============================================================================

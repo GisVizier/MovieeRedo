@@ -20,6 +20,7 @@ local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local Net = require(Locations.Shared:WaitForChild("Net"):WaitForChild("Net"))
 
 local math_rad = math.rad
 local math_deg = math.deg
@@ -709,9 +710,58 @@ function CharacterController:CheckGrounded()
 	if self.IsGrounded then
 		self.LastGroundedTime = tick()
 		WallJumpUtils:ResetCharges()
+		
+		-- Reset crouch state on landing if crouch isn't held
+		if self.JustLanded then
+			self:_handleLandingCrouchReset()
+		end
 	end
 
 	local lastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
+end
+
+-- Handle crouch state reset when landing
+function CharacterController:_handleLandingCrouchReset()
+	-- Skip if sliding (slide handles its own state)
+	if MovementStateManager:IsSliding() then
+		return
+	end
+	
+	local isCrouchHeld = self.InputManager and self.InputManager:IsCrouchHeld()
+	local isVisuallyCrouched = self.Character and CrouchUtils:IsVisuallycrouched(self.Character)
+	
+	-- If we're visually crouched but not holding crouch, uncrouch
+	if isVisuallyCrouched and not isCrouchHeld then
+		self.IsCrouching = false
+		if self.InputManager then
+			self.InputManager.IsCrouching = false
+		end
+		
+		if self:CanUncrouch() then
+			CrouchUtils:Uncrouch(self.Character)
+			CrouchUtils:RemoveVisualCrouch(self.Character)
+			Net:FireServer("CrouchStateChanged", false)
+			
+			local shouldRestoreSprint = Config.Gameplay.Character.AutoSprint
+			if shouldRestoreSprint then
+				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+			else
+				MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+			end
+		else
+			-- Can't uncrouch (blocked), start checking
+			self:StartUncrouchChecking()
+		end
+	elseif isCrouchHeld and not isVisuallyCrouched then
+		-- Player is holding crouch but not visually crouched (started crouch in air)
+		-- Apply crouch now that we've landed
+		self.IsCrouching = true
+		if self.InputManager then
+			self.InputManager.IsCrouching = true
+		end
+		CrouchUtils:Crouch(self.Character)
+		MovementStateManager:TransitionTo(MovementStateManager.States.Crouching)
+	end
 end
 
 function CharacterController:DebugMovementInput(wasMoving, isMoving, movement)
@@ -1443,6 +1493,7 @@ function CharacterController:HandleSlideInput(isSliding)
 		if self.Character and CrouchUtils:IsVisuallycrouched(self.Character) then
 			CrouchUtils:Uncrouch(self.Character)
 			CrouchUtils:RemoveVisualCrouch(self.Character)
+			Net:FireServer("CrouchStateChanged", false)
 		end
 
 		if not MovementStateManager:IsWalking() and not MovementStateManager:IsSprinting() then
@@ -1628,16 +1679,43 @@ function CharacterController:HandleAutomaticCrouchAfterSlide()
 		return
 	end
 
-	self.IsCrouching = true
-
-	if not CrouchUtils.CharacterCrouchState[self.Character] then
-		CrouchUtils.CharacterCrouchState[self.Character] = {
-			IsCrouched = true,
-		}
+	-- Check if player is still holding crouch
+	local isCrouchHeld = self.InputManager and self.InputManager:IsCrouchHeld()
+	
+	if isCrouchHeld then
+		-- Player is holding crouch, stay crouched
+		self.IsCrouching = true
+		if not CrouchUtils.CharacterCrouchState[self.Character] then
+			CrouchUtils.CharacterCrouchState[self.Character] = {
+				IsCrouched = true,
+			}
+		else
+			CrouchUtils.CharacterCrouchState[self.Character].IsCrouched = true
+		end
 	else
-		CrouchUtils.CharacterCrouchState[self.Character].IsCrouched = true
+		-- Player released crouch, start uncrouch process
+		self.IsCrouching = false
+		if self.InputManager then
+			self.InputManager.IsCrouching = false
+		end
+		
+		-- Check if we can uncrouch immediately or need to wait
+		if self:CanUncrouch() then
+			CrouchUtils:Uncrouch(self.Character)
+			CrouchUtils:RemoveVisualCrouch(self.Character)
+			Net:FireServer("CrouchStateChanged", false)
+			
+			local shouldRestoreSprint = Config.Gameplay.Character.AutoSprint
+			if shouldRestoreSprint then
+				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+			else
+				MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+			end
+		else
+			-- Can't uncrouch yet (something above), start checking
+			self:StartUncrouchChecking()
+		end
 	end
-
 end
 
 function CharacterController:LogSlopeAngle() end
@@ -1726,6 +1804,7 @@ function CharacterController:CheckCrouchCancelJump()
 	self.IsCrouching = false
 	CrouchUtils:Uncrouch(self.Character)
 	CrouchUtils:RemoveVisualCrouch(self.Character)
+	Net:FireServer("CrouchStateChanged", false)
 	if self.InputManager then
 		self.InputManager.IsCrouching = false
 	end

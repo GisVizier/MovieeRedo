@@ -148,6 +148,38 @@ SeraSchemas.AFKToggle = Sera.Schema({
 	-- Total: 5 bytes
 })
 
+-- =============================================================================
+-- HIT DETECTION SYSTEM
+-- =============================================================================
+
+-- Hit Packet (Client -> Server)
+-- Efficient buffer-based hit registration (~39 bytes vs ~200+ for tables)
+SeraSchemas.HitPacket = Sera.Schema({
+	Timestamp = Sera.Float64,      -- 8 bytes (needs precision for GetServerTimeNow)
+	Origin = Sera.Vector3,         -- 12 bytes (shooter position)
+	HitPosition = Sera.Vector3,    -- 12 bytes (world position of hit)
+	TargetUserId = Sera.Int32,     -- 4 bytes (0 = no player target / dummy)
+	HitPart = Sera.Uint8,          -- 1 byte (enum: None/Body/Head/Limb)
+	WeaponId = Sera.Uint8,         -- 1 byte (weapon enum)
+	TargetStance = Sera.Uint8,     -- 1 byte (stance client observed: Standing/Crouched/Sliding)
+	-- Total: 35 bytes
+})
+
+-- Shotgun Hit Packet (Client -> Server)
+-- For multi-pellet weapons, includes pellet count
+SeraSchemas.ShotgunHitPacket = Sera.Schema({
+	Timestamp = Sera.Float64,      -- 8 bytes (needs precision for GetServerTimeNow)
+	Origin = Sera.Vector3,         -- 12 bytes
+	HitPosition = Sera.Vector3,    -- 12 bytes (primary/first hit position)
+	TargetUserId = Sera.Int32,     -- 4 bytes
+	HitPart = Sera.Uint8,          -- 1 byte
+	WeaponId = Sera.Uint8,         -- 1 byte
+	TargetStance = Sera.Uint8,     -- 1 byte
+	PelletHits = Sera.Uint8,       -- 1 byte (how many pellets hit this target)
+	HeadshotPellets = Sera.Uint8,  -- 1 byte (how many were headshots)
+	-- Total: 37 bytes
+})
+
 --[[
 	Enum mappings for efficient serialization
 	These replace string-based enums with uint8 values
@@ -178,6 +210,32 @@ SeraSchemas.Enums = {
 		Taggers = 1,
 		Draw = 2,
 	},
+
+	-- Hit Part (for hit detection)
+	HitPart = {
+		None = 0,
+		Body = 1,
+		Head = 2,
+		Limb = 3,
+	},
+
+	-- Character Stance (for hitbox selection)
+	Stance = {
+		Standing = 0,
+		Crouched = 1,
+		Sliding = 2,
+	},
+
+	-- Weapon IDs (map weapon names to bytes)
+	WeaponId = {
+		Unknown = 0,
+		Sniper = 1,
+		Shotgun = 2,
+		AssaultRifle = 3,
+		Revolver = 4,
+		Knife = 5,
+		ExecutionerBlade = 6,
+	},
 }
 
 -- Reverse lookup tables for deserialization
@@ -185,6 +243,9 @@ SeraSchemas.EnumNames = {
 	Phase = {},
 	PlayerState = {},
 	WinningTeam = {},
+	HitPart = {},
+	Stance = {},
+	WeaponId = {},
 }
 
 -- Build reverse lookups
