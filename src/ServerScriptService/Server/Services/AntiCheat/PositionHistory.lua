@@ -4,12 +4,12 @@
 	Ring buffer-based position and stance history for lag compensation.
 	Stores 60 samples per player (1 second at 60Hz) using efficient buffer storage.
 	
-	Each sample: 17 bytes
-	- Timestamp: f32 (4 bytes)
+	Each sample: 21 bytes
+	- Timestamp: f64 (8 bytes) - double precision for Unix timestamps
 	- Position: Vector3 (12 bytes) 
 	- Stance: u8 (1 byte) - 0=Standing, 1=Crouched, 2=Sliding
 	
-	Total memory per player: ~1KB (60 samples * 17 bytes)
+	Total memory per player: ~1.3KB (60 samples * 21 bytes)
 	
 	Usage:
 		PositionHistory:InitPlayer(player)
@@ -23,7 +23,7 @@ local PositionHistory = {}
 -- Configuration
 local CONFIG = {
 	HistorySize = 60,       -- 1 second at 60Hz
-	SampleSize = 17,        -- bytes per sample (4 + 12 + 1)
+	SampleSize = 21,        -- bytes per sample (8 + 12 + 1) - f64 timestamp for precision
 	MaxInterpolationGap = 0.1, -- Max time gap to interpolate across (seconds)
 }
 
@@ -45,12 +45,12 @@ PositionHistory.StanceNames = {
 PositionHistory.Players = {}
 
 --[[
-	Buffer layout per sample (17 bytes):
-	Offset 0:  f32 timestamp
-	Offset 4:  f32 position.X
-	Offset 8:  f32 position.Y
-	Offset 12: f32 position.Z
-	Offset 16: u8  stance
+	Buffer layout per sample (21 bytes):
+	Offset 0:  f64 timestamp (8 bytes - double precision for Unix timestamps)
+	Offset 8:  f32 position.X
+	Offset 12: f32 position.Y
+	Offset 16: f32 position.Z
+	Offset 20: u8  stance
 ]]
 
 -- =============================================================================
@@ -120,12 +120,12 @@ function PositionHistory:StoreSample(player, position, timestamp, stance)
 	local sampleIndex = data.WriteIndex % CONFIG.HistorySize
 	local offset = sampleIndex * CONFIG.SampleSize
 	
-	-- Write sample to buffer
-	buffer.writef32(data.Buffer, offset, timestamp)
-	buffer.writef32(data.Buffer, offset + 4, position.X)
-	buffer.writef32(data.Buffer, offset + 8, position.Y)
-	buffer.writef32(data.Buffer, offset + 12, position.Z)
-	buffer.writeu8(data.Buffer, offset + 16, stanceValue)
+	-- Write sample to buffer (f64 timestamp for precision with Unix timestamps)
+	buffer.writef64(data.Buffer, offset, timestamp)
+	buffer.writef32(data.Buffer, offset + 8, position.X)
+	buffer.writef32(data.Buffer, offset + 12, position.Y)
+	buffer.writef32(data.Buffer, offset + 16, position.Z)
+	buffer.writeu8(data.Buffer, offset + 20, stanceValue)
 	
 	-- Update indices
 	data.WriteIndex = data.WriteIndex + 1
@@ -159,13 +159,14 @@ end
 function PositionHistory:_readSample(data, index)
 	local offset = index * CONFIG.SampleSize
 	
-	local timestamp = buffer.readf32(data.Buffer, offset)
+	-- Read f64 timestamp for precision with Unix timestamps
+	local timestamp = buffer.readf64(data.Buffer, offset)
 	local position = Vector3.new(
-		buffer.readf32(data.Buffer, offset + 4),
 		buffer.readf32(data.Buffer, offset + 8),
-		buffer.readf32(data.Buffer, offset + 12)
+		buffer.readf32(data.Buffer, offset + 12),
+		buffer.readf32(data.Buffer, offset + 16)
 	)
-	local stance = buffer.readu8(data.Buffer, offset + 16)
+	local stance = buffer.readu8(data.Buffer, offset + 20)
 	
 	return timestamp, position, stance
 end
@@ -350,8 +351,9 @@ function PositionHistory:GetTimeRange(player)
 	local oldestIndex = self:_getBufferIndex(data, 0)
 	local newestIndex = self:_getBufferIndex(data, data.Count - 1)
 	
-	local oldestTime = buffer.readf32(data.Buffer, oldestIndex * CONFIG.SampleSize)
-	local newestTime = buffer.readf32(data.Buffer, newestIndex * CONFIG.SampleSize)
+	-- Read f64 timestamps for precision with Unix timestamps
+	local oldestTime = buffer.readf64(data.Buffer, oldestIndex * CONFIG.SampleSize)
+	local newestTime = buffer.readf64(data.Buffer, newestIndex * CONFIG.SampleSize)
 	
 	return oldestTime, newestTime
 end

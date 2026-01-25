@@ -3,6 +3,9 @@ local Workspace = game:GetService("Workspace")
 
 local WeaponRaycast = {}
 
+-- Debug flag (set to true to see hit logs)
+local DEBUG_LOGGING = true
+
 -- =============================================================================
 -- HELPER FUNCTIONS
 -- =============================================================================
@@ -225,6 +228,16 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		-- Check for headshot (handles hitbox head parts)
 		local isHeadshot = isHeadshotPart(result.Instance)
 
+		-- Debug logging
+		if DEBUG_LOGGING then
+			local targetName = hitPlayer and hitPlayer.Name or (hitCharacter and hitCharacter.Name or "Unknown")
+			print(string.format("[WeaponRaycast DEBUG] HIT DETECTED:"))
+			print(string.format("  Target: %s | Part: %s", targetName, result.Instance.Name))
+			print(string.format("  HitPos: (%.1f, %.1f, %.1f)", result.Position.X, result.Position.Y, result.Position.Z))
+			print(string.format("  Origin: (%.1f, %.1f, %.1f)", origin.X, origin.Y, origin.Z))
+			print(string.format("  Headshot: %s | Timestamp: %.3f", tostring(isHeadshot), workspace:GetServerTimeNow()))
+		end
+
 		return {
 			origin = origin,
 			direction = direction,
@@ -236,6 +249,11 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 			travelTime = weaponConfig.projectileSpeed
 				and (result.Position - origin).Magnitude / weaponConfig.projectileSpeed,
 		}
+	end
+
+	-- Debug logging for misses
+	if DEBUG_LOGGING then
+		print(string.format("[WeaponRaycast DEBUG] MISS - No target hit at (%.1f, %.1f, %.1f)", targetPosition.X, targetPosition.Y, targetPosition.Z))
 	end
 
 	return {

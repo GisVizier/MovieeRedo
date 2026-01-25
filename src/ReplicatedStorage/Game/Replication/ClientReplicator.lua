@@ -25,6 +25,7 @@ ClientReplicator.RigPartOffsets = nil
 ClientReplicator.IsActive = false
 ClientReplicator.LastUpdateTime = 0
 ClientReplicator.LastSentState = nil
+ClientReplicator.LastForcedUpdateTime = 0  -- For heartbeat updates
 ClientReplicator.SequenceNumber = 0
 ClientReplicator.UpdateConnection = nil
 ClientReplicator._net = nil
@@ -301,7 +302,12 @@ function ClientReplicator:SendStateUpdate()
 
 	local rigTilt = RigRotationUtils:GetCurrentTilt(self.Character) or 0
 
-	if ReplicationConfig.Compression.UseDeltaCompression and self.LastSentState then
+	-- Heartbeat: Force update every 0.5s even if nothing changed (for hit detection position history)
+	local HEARTBEAT_INTERVAL = 0.5
+	local timeSinceLastForced = timestamp - self.LastForcedUpdateTime
+	local forceHeartbeat = timeSinceLastForced >= HEARTBEAT_INTERVAL
+
+	if ReplicationConfig.Compression.UseDeltaCompression and self.LastSentState and not forceHeartbeat then
 		local shouldSendPosition = CompressionUtils:ShouldSendPositionUpdate(self.LastSentState.Position, position)
 		local shouldSendRotation = CompressionUtils:ShouldSendRotationUpdate(self.LastSentState.Rotation, rotation)
 		local shouldSendVelocity = CompressionUtils:ShouldSendVelocityUpdate(self.LastSentState.Velocity, velocity)
@@ -320,6 +326,9 @@ function ClientReplicator:SendStateUpdate()
 			return
 		end
 	end
+	
+	-- Update heartbeat timer
+	self.LastForcedUpdateTime = timestamp
 
 	self.SequenceNumber = (self.SequenceNumber + 1) % 65536
 

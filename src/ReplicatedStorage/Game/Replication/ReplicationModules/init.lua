@@ -115,6 +115,23 @@ function VFXRep:Fire(targetSpec, moduleInfo, data)
 		warn("[VFXRep] Fire called but VFXRep not initialized! Call VFXRep:Init(net, false) first.")
 		return
 	end
+	
+	-- Skip network round-trip for "Me" - execute locally immediately
+	if targetSpec == "Me" then
+		local moduleName = moduleInfo.Module or moduleInfo.ReplicateModule
+		local functionName = moduleInfo.Function or moduleInfo.ReplicateFunction or "Execute"
+		
+		if moduleName then
+			local mod = getModule(moduleName)
+			if mod and type(mod[functionName]) == "function" then
+				local localUserId = Players.LocalPlayer and Players.LocalPlayer.UserId or 0
+				mod[functionName](mod, localUserId, data)
+			end
+		end
+		return
+	end
+	
+	-- All other targets need server coordination
 	self._net:FireServer("VFXRep", targetSpec, moduleInfo, data)
 end
 

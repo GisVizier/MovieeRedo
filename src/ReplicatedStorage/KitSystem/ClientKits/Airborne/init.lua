@@ -387,15 +387,13 @@ function Airborne:_animateDrain(fromCharges, toCharges, oldPartial)
 		end
 	end
 	
-	-- Execute: bar2 first, then bar1, then wait for regen delay
+	-- Execute: bar2 first, then bar1
 	drainBar2(function()
 		drainBar1(function()
-			-- Done draining - wait for regen delay before showing UI
-			task.delay(1.5, function()
-				Airborne._isDraining = false
-				Airborne._drainTargetCharges = nil
-				self:_updateUI()
-			end)
+			-- Clear draining state immediately after visual drain completes
+			Airborne._isDraining = false
+			Airborne._drainTargetCharges = nil
+			self:_updateUI()
 		end)
 	end)
 end

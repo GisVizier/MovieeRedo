@@ -26,6 +26,9 @@ local LatencyTracker = require(script.Parent.LatencyTracker)
 -- =============================================================================
 
 local CONFIG = {
+	-- Debug
+	DebugLogging = true,            -- Enable detailed hit validation logging
+	
 	-- Timing
 	MaxTimestampAge = 1.0,          -- Max seconds in the past (hard cap)
 	MaxRollbackTime = 1.0,          -- Never rollback more than this
@@ -249,24 +252,44 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	local targetPosAtHit = PositionHistory:GetPositionAtTime(hitData.hitPlayer, lookbackTime)
 	
 	if not targetPosAtHit then
+		if CONFIG.DebugLogging then
+			print(string.format("[HitValidator DEBUG] %s -> %s: NO POSITION HISTORY (allowing hit)",
+				shooter.Name, hitData.hitPlayer and hitData.hitPlayer.Name or "nil"))
+		end
 		-- No position history - allow hit (player just spawned)
 		return true
 	end
 	
 	-- Calculate tolerance based on hit type
-	local tolerance
+	local baseTolerance
 	if hitData.isHeadshot then
-		tolerance = tolerances.HeadTolerance or CONFIG.BaseHeadTolerance
+		baseTolerance = tolerances.HeadTolerance or CONFIG.BaseHeadTolerance
 	else
-		tolerance = tolerances.PositionTolerance or CONFIG.BasePositionTolerance
+		baseTolerance = tolerances.PositionTolerance or CONFIG.BasePositionTolerance
 	end
+	local tolerance = baseTolerance
 	
 	-- Consider target's ping as well for combined tolerance
+	local pingFactor = 1.0
 	if hitData.hitPlayer and hitData.hitPlayer.Parent then
 		local targetPing = LatencyTracker:GetPing(hitData.hitPlayer)
 		local shooterPing = LatencyTracker:GetPing(shooter)
-		local combinedPingFactor = 1 + ((shooterPing + targetPing) / 400)
-		tolerance = tolerance * math.min(combinedPingFactor, 2.0)
+		pingFactor = 1 + ((shooterPing + targetPing) / 400)
+		pingFactor = math.min(pingFactor, 2.0)
+		tolerance = tolerance * pingFactor
+	end
+	
+	-- Check for stale position data and increase tolerance
+	local oldestTime, newestTime = PositionHistory:GetTimeRange(hitData.hitPlayer)
+	local dataAge = 0
+	local staleFactor = 1.0
+	if newestTime then
+		dataAge = now - newestTime
+		-- If data is older than 0.5s, increase tolerance (up to 2x at 2s stale)
+		if dataAge > 0.5 then
+			staleFactor = 1 + math.min((dataAge - 0.5) / 1.5, 1.0)  -- 1.0 to 2.0
+			tolerance = tolerance * staleFactor
+		end
 	end
 	
 	-- Adjust target position for headshots (head is above root)
@@ -277,6 +300,18 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	
 	-- Check if hit position is within tolerance of target's actual position
 	local offset = (hitData.hitPosition - adjustedTargetPos).Magnitude
+	
+	-- Debug logging
+	if CONFIG.DebugLogging then
+		local targetName = hitData.hitPlayer and hitData.hitPlayer.Name or "Unknown"
+		print(string.format("[HitValidator DEBUG] %s -> %s:", shooter.Name, targetName))
+		print(string.format("  Client hitPos: (%.1f, %.1f, %.1f)", hitData.hitPosition.X, hitData.hitPosition.Y, hitData.hitPosition.Z))
+		print(string.format("  History pos:   (%.1f, %.1f, %.1f)", targetPosAtHit.X, targetPosAtHit.Y, targetPosAtHit.Z))
+		print(string.format("  Adjusted pos:  (%.1f, %.1f, %.1f) %s", adjustedTargetPos.X, adjustedTargetPos.Y, adjustedTargetPos.Z, hitData.isHeadshot and "[+head offset]" or ""))
+		print(string.format("  Offset: %.2f studs | Tolerance: %.2f (base=%.1f * ping=%.2f * stale=%.2f)", offset, tolerance, baseTolerance, pingFactor, staleFactor))
+		print(string.format("  Data age: %.3fs | Headshot: %s", dataAge, tostring(hitData.isHeadshot)))
+		print(string.format("  RESULT: %s", offset <= tolerance and "VALID ✓" or "REJECTED ✗"))
+	end
 	
 	if offset > tolerance then
 		return false, "TargetNotAtPosition"
