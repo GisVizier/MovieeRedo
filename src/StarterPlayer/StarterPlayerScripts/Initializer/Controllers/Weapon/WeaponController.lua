@@ -113,12 +113,16 @@ function WeaponController:_initializeAimAssist()
 	-- Add tagged targets (dummies, etc.)
 	self._aimAssist:addTargetTag(AimAssistConfig.TargetTags.Primary, AimAssistConfig.Defaults.TargetBones)
 	
-	-- Enable debug mode if configured
+	-- Enable debug mode if configured (shows FOV circle and target dots)
 	if AimAssistConfig.Debug then
 		self._aimAssist:setDebug(true)
+		LogService:Info("WEAPON", "Aim Assist DEBUG MODE ENABLED - you should see FOV circle on screen")
 	end
 	
-	LogService:Info("WEAPON", "Aim Assist initialized")
+	LogService:Info("WEAPON", "Aim Assist initialized", {
+		AllowMouseInput = AimAssistConfig.AllowMouseInput,
+		Debug = AimAssistConfig.Debug,
+	})
 end
 
 function WeaponController:Start()
@@ -386,6 +390,7 @@ end
 
 function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 	if not self._aimAssist then
+		LogService:Warn("WEAPON", "Aim assist not initialized!")
 		return
 	end
 	
@@ -400,15 +405,25 @@ function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 		self._aimAssist:enable()
 		self._aimAssistEnabled = true
 		
-		LogService:Debug("WEAPON", "Aim assist enabled for weapon", { 
+		-- Re-apply debug mode (in case it was lost)
+		if AimAssistConfig.Debug then
+			self._aimAssist:setDebug(true)
+		end
+		
+		LogService:Info("WEAPON", "=== AIM ASSIST ENABLED ===", { 
+			weapon = weaponConfig.id or weaponConfig.name or "Unknown",
 			range = aimAssistConfig.range,
 			fov = aimAssistConfig.fov,
+			friction = aimAssistConfig.friction,
+			tracking = aimAssistConfig.tracking,
+			centering = aimAssistConfig.centering,
 		})
 	else
 		-- Disable aim assist for this weapon (e.g., melee)
 		if self._aimAssistEnabled then
 			self._aimAssist:disable()
 			self._aimAssistEnabled = false
+			LogService:Info("WEAPON", "Aim assist DISABLED for this weapon")
 		end
 		self._aimAssistConfig = nil
 	end

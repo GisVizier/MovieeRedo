@@ -125,13 +125,18 @@ end
 
 -- Combined eligibility check
 function AimAssist:isEligible(): boolean
-	-- Must have cursor locked (combat mode)
+	-- For PC testing: bypass cursor lock check if mouse input is allowed
+	if self:getMouseEligibility() then
+		return true
+	end
+	
+	-- For gamepad/touch: require cursor lock (combat mode)
 	if not self:isCursorLocked() then
 		return false
 	end
 	
-	-- Check input type eligibility
-	return self:getMouseEligibility() or self:getGamepadEligibility() or self:getTouchEligibility()
+	-- Check gamepad/touch eligibility
+	return self:getGamepadEligibility() or self:getTouchEligibility()
 end
 
 -- =============================================================================

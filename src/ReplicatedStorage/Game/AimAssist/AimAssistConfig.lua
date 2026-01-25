@@ -13,10 +13,11 @@ local AimAssistConfig = {}
 AimAssistConfig.Enabled = true
 
 -- Debug mode (shows FOV cone and target dots)
-AimAssistConfig.Debug = false
+-- Set to true to see the aim assist visualization
+AimAssistConfig.Debug = true  -- TESTING: Set to false for production
 
 -- Allow aim assist for mouse users (for testing only)
-AimAssistConfig.AllowMouseInput = true  -- Set to false for production
+AimAssistConfig.AllowMouseInput = true  -- TESTING: Set to false for production
 
 -- =============================================================================
 -- INPUT ELIGIBILITY
