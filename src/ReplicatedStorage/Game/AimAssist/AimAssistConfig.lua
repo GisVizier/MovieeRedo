@@ -36,15 +36,15 @@ AimAssistConfig.Input = {
 AimAssistConfig.Defaults = {
 	-- Target selection
 	Range = 150,          -- Max distance to targets (studs)
-	FieldOfView = 25,     -- Cone angle (degrees)
+	FieldOfView = 30,     -- Cone angle (degrees) - wider for testing
 	SortingBehavior = "angle",  -- "angle" or "distance"
 	IgnoreLineOfSight = false,
-	MinRange = 5,         -- No aim assist closer than this
+	MinRange = 3,         -- No aim assist closer than this
 	
-	-- Method strengths (0-1)
-	Friction = 0.25,      -- Slowdown near targets
-	Tracking = 0.35,      -- Follow moving targets
-	Centering = 0.1,      -- Pull toward target center
+	-- Method strengths (0-1) - BOOSTED FOR TESTING
+	Friction = 0.5,       -- Slowdown near targets (was 0.25)
+	Tracking = 0.5,       -- Follow moving targets (was 0.35)
+	Centering = 0.3,      -- Pull toward target center (was 0.1)
 	
 	-- ADS (Aim Down Sights) boost multipliers
 	ADSBoost = {

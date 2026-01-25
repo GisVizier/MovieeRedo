@@ -163,15 +163,16 @@ LoadoutConfig.Weapons = {
 		},
 
 		-- Aim Assist settings (shotgun: close range, wide FOV, strong assist)
+		-- BOOSTED FOR TESTING - reduce values for production
 		aimAssist = {
 			enabled = true,
-			range = 80,
-			minRange = 3,
-			fov = 35,                  -- Wide cone for close combat
+			range = 100,
+			minRange = 2,
+			fov = 45,                  -- Extra wide for testing
 			sortingBehavior = "distance",
-			friction = 0.35,           -- Strong friction
-			tracking = 0.4,            -- Strong tracking
-			centering = 0.15,          -- Moderate centering
+			friction = 0.6,            -- BOOSTED for testing
+			tracking = 0.6,            -- BOOSTED for testing
+			centering = 0.4,           -- BOOSTED for testing
 			adsBoost = {
 				Friction = 1.3,
 				Tracking = 1.2,
@@ -274,15 +275,16 @@ LoadoutConfig.Weapons = {
 		},
 
 		-- Aim Assist settings (assault rifle: balanced, medium range)
+		-- BOOSTED FOR TESTING - reduce values for production
 		aimAssist = {
 			enabled = true,
 			range = 200,
-			minRange = 5,
-			fov = 25,                  -- Standard cone
+			minRange = 3,
+			fov = 35,                  -- Wider cone for testing
 			sortingBehavior = "angle",
-			friction = 0.25,           -- Balanced friction
-			tracking = 0.35,           -- Balanced tracking
-			centering = 0.1,           -- Light centering
+			friction = 0.5,            -- BOOSTED for testing (was 0.25)
+			tracking = 0.5,            -- BOOSTED for testing (was 0.35)
+			centering = 0.3,           -- BOOSTED for testing (was 0.1)
 			adsBoost = {
 				Friction = 1.4,
 				Tracking = 1.3,

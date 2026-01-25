@@ -49,15 +49,19 @@ function AimAssist:enable()
 
 	local bindNames = AimAssistConfig.BindNames
 
-	-- Bind BEFORE camera (record starting CFrame)
-	RunService:BindToRenderStep(bindNames.Start, Enum.RenderPriority.Camera.Value - 1, function()
+	-- Bind BEFORE CameraController (record starting CFrame)
+	-- CameraController runs at Camera + 10, so we run at Camera + 9
+	RunService:BindToRenderStep(bindNames.Start, Enum.RenderPriority.Camera.Value + 9, function()
 		self:startAimAssist()
 	end)
 
-	-- Bind AFTER camera (apply aim assist adjustments)
-	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 1, function(deltaTime: number)
+	-- Bind AFTER CameraController (apply aim assist adjustments)
+	-- CameraController runs at Camera + 10, so we run at Camera + 11
+	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 11, function(deltaTime: number)
 		self:applyAimAssist(deltaTime)
 	end)
+	
+	print("[AimAssist] ENABLED - Running at priority", Enum.RenderPriority.Camera.Value + 11)
 end
 
 function AimAssist:disable()
@@ -310,7 +314,12 @@ function AimAssist:startAimAssist()
 		return
 	end
 
-	self.startingSubjectCFrame = self.subject:GetPivot()
+	-- Cameras use .CFrame, not GetPivot
+	if self.subject:IsA("Camera") then
+		self.startingSubjectCFrame = self.subject.CFrame
+	else
+		self.startingSubjectCFrame = self.subject:GetPivot()
+	end
 end
 
 -- Applies aim assist to the subject
@@ -319,11 +328,18 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 		return
 	end
 
-	local currCFrame = self.subject:GetPivot()
+	-- Get current camera CFrame (cameras don't have GetPivot, use .CFrame)
+	local currCFrame
+	if self.subject:IsA("Camera") then
+		currCFrame = self.subject.CFrame
+	else
+		currCFrame = self.subject:GetPivot()
+	end
 
 	-- Check eligibility
 	local targetResult: TargetSelector.SelectTargetResult? = nil
-	if self:isEligible() then
+	local isEligible = self:isEligible()
+	if isEligible then
 		targetResult = self.targetSelector:selectTarget(self.subject)
 	end
 
@@ -333,21 +349,41 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 		self.debugVisualizer:update(targetResult, self.fieldOfView, allTargetPoints)
 	end
 
+	-- No target = no adjustment needed
+	if not targetResult then
+		self.startingSubjectCFrame = currCFrame
+		return
+	end
+
 	-- Calculate adjustment strength from easing functions
 	local adjustmentStrength = self:getPlayerStrengthMultiplier()
-	if targetResult then
-		for attribute, ease in self.easingFuncs do
-			local value = targetResult[attribute]
-			if value then
-				adjustmentStrength *= ease(value)
-			end
+	for attribute, ease in self.easingFuncs do
+		local value = targetResult[attribute]
+		if value then
+			adjustmentStrength *= ease(value)
 		end
+	end
+
+	-- Log periodically (every ~1 second)
+	self._logTimer = (self._logTimer or 0) + (deltaTime or 0)
+	if self._logTimer > 1 then
+		self._logTimer = 0
+		print(string.format(
+			"[AimAssist] TARGET: %s | Angle: %.1f° | Distance: %.1f | Strength: %.2f | Friction: %.2f | Tracking: %.2f | Centering: %.2f",
+			targetResult.instance and targetResult.instance.Name or "?",
+			targetResult.angle,
+			targetResult.distance,
+			adjustmentStrength,
+			self.aimAdjuster:getMethodStrength("friction"),
+			self.aimAdjuster:getMethodStrength("tracking"),
+			self.aimAdjuster:getMethodStrength("centering")
+		))
 	end
 
 	-- Build aim context
 	local aimContext: AimAdjuster.AimContext = {
 		subjectCFrame = currCFrame,
-		startingCFrame = self.startingSubjectCFrame,
+		startingCFrame = self.startingSubjectCFrame or currCFrame,
 		adjustmentStrength = adjustmentStrength,
 		targetResult = targetResult,
 		deltaTime = deltaTime,
@@ -356,9 +392,27 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 	-- Apply aim adjustments
 	local newCFrame = self.aimAdjuster:adjustAim(aimContext)
 
-	-- Update subject
+	-- Calculate how much the CFrame changed
+	local positionDelta = (newCFrame.Position - currCFrame.Position).Magnitude
+	local rotationDelta = math.deg(math.acos(math.clamp(currCFrame.LookVector:Dot(newCFrame.LookVector), -1, 1)))
+
+	-- Only apply if there's a meaningful change
+	if positionDelta > 0.0001 or rotationDelta > 0.001 then
+		-- Update camera (cameras use .CFrame, not PivotTo)
+		if self.subject:IsA("Camera") then
+			self.subject.CFrame = newCFrame
+		else
+			self.subject:PivotTo(newCFrame)
+		end
+		
+		-- Log when actually applying adjustment
+		if self._logTimer == 0 then
+			print(string.format("[AimAssist] APPLIED: Rotation delta = %.3f°", rotationDelta))
+		end
+	end
+
+	-- Update starting CFrame for next frame
 	self.startingSubjectCFrame = newCFrame
-	self.subject:PivotTo(newCFrame)
 end
 
 -- Get player's strength multiplier from attributes
