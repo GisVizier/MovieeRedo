@@ -3,14 +3,29 @@
 
 	Client-side attack checks + ammo consumption.
 	Semi-automatic fire mode.
-	Uses buffer-based hit packets for efficient networking.
+	
+	Uses the PROJECTILE SYSTEM for bullet physics.
+	Single accurate bullet with slight drop at range.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local Inspect = require(script.Parent:WaitForChild("Inspect"))
-local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
-local HitPacketUtils = require(Locations.Shared.Util:WaitForChild("HitPacketUtils"))
+
+-- Lazy-loaded projectile service
+local WeaponProjectile
+local function getWeaponProjectile()
+	if not WeaponProjectile then
+		local Controllers = Players.LocalPlayer
+			:WaitForChild("PlayerScripts")
+			:WaitForChild("Initializer")
+			:WaitForChild("Controllers")
+		local WeaponServices = Controllers:WaitForChild("Weapon"):WaitForChild("Services")
+		WeaponProjectile = require(WeaponServices:WaitForChild("WeaponProjectile"))
+	end
+	return WeaponProjectile
+end
 
 local Attack = {}
 
@@ -49,26 +64,33 @@ function Attack.Execute(weaponInstance, currentTime)
 		weaponInstance.PlayAnimation("Fire", 0.05, true)
 	end
 
-	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(false)
-	if hitData and weaponInstance.Net then
-		-- Add timestamp for packet creation
-		hitData.timestamp = now
-		
-		-- Create buffer packet for efficient networking
-		local packet = HitPacketUtils:CreatePacket(hitData, weaponInstance.WeaponName)
-		
-		weaponInstance.Net:FireServer("WeaponFired", {
-			packet = packet,
-			weaponId = weaponInstance.WeaponName,
+	-- Fire single projectile
+	local projectileService = getWeaponProjectile()
+	
+	if not projectileService then
+		warn("[Revolver Attack] WeaponProjectile service not found")
+		return false, "ServiceNotFound"
+	end
+	
+	-- Initialize if needed
+	if not projectileService._initialized and weaponInstance.Net then
+		projectileService:Init(weaponInstance.Net)
+		projectileService._initialized = true
+	end
+	
+	-- Fire single bullet
+	local projectileId = projectileService:Fire(weaponInstance, {})
+	
+	if not projectileId then
+		warn("[Revolver Attack] Failed to fire projectile")
+		return false, "FireFailed"
+	end
+
+	-- Play fire effects (muzzle flash, sound, etc.)
+	if weaponInstance.PlayFireEffects then
+		weaponInstance.PlayFireEffects({
+			origin = workspace.CurrentCamera.CFrame.Position,
 		})
-
-		if weaponInstance.PlayFireEffects then
-			weaponInstance.PlayFireEffects(hitData)
-		end
-
-		if weaponInstance.RenderTracer then
-			weaponInstance.RenderTracer(hitData)
-		end
 	end
 
 	return true

@@ -33,9 +33,16 @@ local Remotes = {
 	{ name = "KitRequest", description = "Client requests kit actions (purchase/equip/ability)" },
 	{ name = "KitState", description = "Server sends kit state/events" },
 
-	-- Weapon system
+	-- Weapon system (hitscan)
 	{ name = "WeaponFired", description = "Client sends weapon fire data for validation" },
 	{ name = "HitConfirmed", description = "Server broadcasts validated hit", unreliable = true },
+
+	-- Projectile system
+	{ name = "ProjectileSpawned", description = "Client spawned a projectile" },
+	{ name = "ProjectileHit", description = "Client reports projectile hit" },
+	{ name = "ProjectileReplicate", description = "Server replicates projectile to other clients", unreliable = true },
+	{ name = "ProjectileHitConfirmed", description = "Server broadcasts validated projectile hit", unreliable = true },
+	{ name = "ProjectileDestroyed", description = "Server notifies projectile destruction", unreliable = true },
 
 	-- Debug logging
 	{ name = "DebugLog", description = "Client debug log forwarding" },

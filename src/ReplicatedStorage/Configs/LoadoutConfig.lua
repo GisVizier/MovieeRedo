@@ -136,12 +136,6 @@ LoadoutConfig.Weapons = {
 		headshotMultiplier = 1.5,
 		range = 50,
 		fireRate = 75, -- Rounds per minute
-		projectileSpeed = nil, -- Hitscan
-		bulletDrop = false,
-		spread = 0.15, -- Spread angle in radians
-		minRange = 5,
-		maxRange = 50,
-		minDamage = 5, -- Per pellet at max range
 		tracerColor = Color3.fromRGB(255, 150, 50),
 
 		crosshair = {
@@ -149,6 +143,49 @@ LoadoutConfig.Weapons = {
 			spreadX = 2.5,
 			spreadY = 2.5,
 			recoilMultiplier = 2.0,
+		},
+
+		-- PROJECTILE CONFIG (pellets with visible travel time)
+		projectile = {
+			-- Core physics (slower pellets for visible travel)
+			speed = 200,              -- studs/second (visible travel)
+			gravity = 80,             -- noticeable drop at range
+			drag = 0.08,              -- pellet air resistance
+			lifetime = 1.0,           -- 1 sec max flight
+			inheritVelocity = 0,      -- don't inherit shooter velocity
+
+			-- Pellet spread (tighter spread)
+			spreadMode = "Cone",      -- Cone spread pattern
+			baseSpread = 0.06,        -- reduced spread angle (radians)
+			crosshairSpreadScale = 0.03, -- alignment with crosshair visual
+			movementSpreadMult = 1.1,    -- 10% more spread while moving
+			hipfireSpreadMult = 1.0,     -- same spread hipfire
+			airSpreadMult = 1.2,         -- 20% more spread while airborne
+			crouchSpreadMult = 0.9,      -- 10% less spread while crouching
+			slideSpreadMult = 1.0,       -- normal spread while sliding
+
+			-- Multi-pellet config
+			pelletsPerShot = 8,       -- 8 pellets per shot
+			pelletDamage = 15,        -- damage per pellet
+
+			-- Behaviors (no pierce/ricochet by default)
+			pierce = 0,
+			pierceDamageMult = 1.0,
+			ricochet = 0,
+			ricochetDamageMult = 0.7,
+			ricochetSpeedMult = 0.9,
+
+			-- No AoE
+			aoe = nil,
+
+			-- No charge
+			charge = nil,
+
+			-- Visual
+			visual = "Pellet",
+			tracerColor = Color3.fromRGB(255, 150, 50),
+			tracerLength = 1.5,
+			trailEnabled = true,
 		},
 	},
 
@@ -262,11 +299,6 @@ LoadoutConfig.Weapons = {
 		headshotMultiplier = 2.0,
 		range = 200,
 		fireRate = 120, -- Rounds per minute
-		projectileSpeed = nil, -- Hitscan
-		bulletDrop = false,
-		minRange = 30,
-		maxRange = 200,
-		minDamage = 20,
 		tracerColor = Color3.fromRGB(255, 100, 50),
 
 		crosshair = {
@@ -274,6 +306,46 @@ LoadoutConfig.Weapons = {
 			spreadX = 1.5,
 			spreadY = 1.5,
 			recoilMultiplier = 1.8,
+		},
+
+		-- PROJECTILE CONFIG (single accurate bullet)
+		projectile = {
+			-- Core physics (fast bullet with slight drop)
+			speed = 350,              -- studs/second (fast but visible)
+			gravity = 30,             -- slight drop at range
+			drag = 0.01,              -- minimal air resistance
+			lifetime = 2.0,           -- 2 sec max flight
+			inheritVelocity = 0,
+
+			-- Spread (very accurate)
+			spreadMode = "Cone",
+			baseSpread = 0.015,       -- tight spread
+			crosshairSpreadScale = 0.01,
+			movementSpreadMult = 1.4,
+			hipfireSpreadMult = 1.3,
+			airSpreadMult = 1.5,
+			crouchSpreadMult = 0.8,
+			slideSpreadMult = 1.2,
+
+			-- Single bullet
+			pelletsPerShot = 1,
+
+			-- No pierce/ricochet
+			pierce = 0,
+			pierceDamageMult = 1.0,
+			ricochet = 0,
+			ricochetDamageMult = 0.7,
+			ricochetSpeedMult = 0.9,
+
+			-- No AoE/charge
+			aoe = nil,
+			charge = nil,
+
+			-- Visual
+			visual = "Bullet",
+			tracerColor = Color3.fromRGB(255, 100, 50),
+			tracerLength = 3,
+			trailEnabled = true,
 		},
 	},
 
@@ -342,6 +414,7 @@ LoadoutConfig.Weapons = {
 			recoilMultiplier = 0.3,
 		},
 	},
+
 }
 
 LoadoutConfig.Crosshair = {

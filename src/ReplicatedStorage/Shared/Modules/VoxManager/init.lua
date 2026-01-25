@@ -1,0 +1,3 @@
+local VoxManager = {}
+
+return VoxManager

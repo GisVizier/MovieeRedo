@@ -180,6 +180,67 @@ SeraSchemas.ShotgunHitPacket = Sera.Schema({
 	-- Total: 37 bytes
 })
 
+-- =============================================================================
+-- PROJECTILE SYSTEM
+-- =============================================================================
+
+-- Projectile Spawned Packet (Client -> Server -> Others)
+-- Sent when a projectile is fired, used for visual replication
+SeraSchemas.ProjectileSpawnPacket = Sera.Schema({
+	FireTimestamp = Sera.Float64,  -- 8 bytes (when projectile was fired)
+	Origin = Sera.Vector3,         -- 12 bytes (fire position)
+	DirectionX = Sera.Float32,     -- 4 bytes (direction X component)
+	DirectionY = Sera.Float32,     -- 4 bytes (direction Y component)
+	DirectionZ = Sera.Float32,     -- 4 bytes (direction Z component)
+	Speed = Sera.Float32,          -- 4 bytes (initial speed)
+	ChargePercent = Sera.Uint8,    -- 1 byte (0-255 = 0-100% charge)
+	WeaponId = Sera.Uint8,         -- 1 byte (weapon enum)
+	ProjectileId = Sera.Uint32,    -- 4 bytes (unique ID for this projectile)
+	SpreadSeed = Sera.Uint16,      -- 2 bytes (random seed for server verification)
+	-- Total: 44 bytes
+})
+
+-- Projectile Hit Packet (Client -> Server)
+-- Sent when a projectile hits something
+SeraSchemas.ProjectileHitPacket = Sera.Schema({
+	FireTimestamp = Sera.Float64,   -- 8 bytes (original fire time)
+	ImpactTimestamp = Sera.Float64, -- 8 bytes (when projectile hit)
+	Origin = Sera.Vector3,          -- 12 bytes (fire position)
+	HitPosition = Sera.Vector3,     -- 12 bytes (impact position)
+	TargetUserId = Sera.Int32,      -- 4 bytes (target player, 0 = environment)
+	HitPart = Sera.Uint8,           -- 1 byte (enum: None/Body/Head/Limb)
+	WeaponId = Sera.Uint8,          -- 1 byte (weapon enum)
+	ProjectileId = Sera.Uint32,     -- 4 bytes (matching spawn ID)
+	TargetStance = Sera.Uint8,      -- 1 byte (stance at impact)
+	PierceCount = Sera.Uint8,       -- 1 byte (how many targets already hit)
+	BounceCount = Sera.Uint8,       -- 1 byte (how many times bounced)
+	-- Total: 53 bytes
+})
+
+-- Projectile Replicate Packet (Server -> Clients)
+-- Sent to other clients to spawn visual projectile
+SeraSchemas.ProjectileReplicatePacket = Sera.Schema({
+	ShooterUserId = Sera.Uint32,   -- 4 bytes (who fired)
+	Origin = Sera.Vector3,         -- 12 bytes (fire position)
+	DirectionX = Sera.Float32,     -- 4 bytes
+	DirectionY = Sera.Float32,     -- 4 bytes
+	DirectionZ = Sera.Float32,     -- 4 bytes
+	Speed = Sera.Float32,          -- 4 bytes
+	ProjectileId = Sera.Uint32,    -- 4 bytes
+	WeaponId = Sera.Uint8,         -- 1 byte
+	ChargePercent = Sera.Uint8,    -- 1 byte
+	-- Total: 38 bytes
+})
+
+-- Projectile Destroyed Packet (Server -> Clients)
+-- Sent when projectile should be removed
+SeraSchemas.ProjectileDestroyedPacket = Sera.Schema({
+	ProjectileId = Sera.Uint32,    -- 4 bytes
+	HitPosition = Sera.Vector3,    -- 12 bytes (for impact VFX)
+	DestroyReason = Sera.Uint8,    -- 1 byte (enum: Timeout/Hit/OutOfRange)
+	-- Total: 17 bytes
+})
+
 --[[
 	Enum mappings for efficient serialization
 	These replace string-based enums with uint8 values
@@ -235,6 +296,25 @@ SeraSchemas.Enums = {
 		Revolver = 4,
 		Knife = 5,
 		ExecutionerBlade = 6,
+		Bow = 7,
+		RocketLauncher = 8,
+		Crossbow = 9,
+	},
+
+	-- Projectile Destroy Reasons
+	ProjectileDestroyReason = {
+		Timeout = 0,        -- Exceeded lifetime
+		HitTarget = 1,      -- Hit a player
+		HitEnvironment = 2, -- Hit world geometry
+		OutOfRange = 3,     -- Exceeded max range
+		Cancelled = 4,      -- Manually cancelled
+	},
+
+	-- Spread Modes
+	SpreadMode = {
+		None = 0,    -- Perfect accuracy
+		Cone = 1,    -- Random within cone
+		Pattern = 2, -- Fixed pattern (shotgun)
 	},
 }
 
@@ -246,6 +326,8 @@ SeraSchemas.EnumNames = {
 	HitPart = {},
 	Stance = {},
 	WeaponId = {},
+	ProjectileDestroyReason = {},
+	SpreadMode = {},
 }
 
 -- Build reverse lookups

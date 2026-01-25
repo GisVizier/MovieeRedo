@@ -116,6 +116,18 @@ function Net:FireAllClients(name, ...)
 	end
 end
 
+function Net:FireAllClientsExcept(excludePlayer, name, ...)
+	local remote = self:Get(name)
+	if remote then
+		local Players = game:GetService("Players")
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= excludePlayer then
+				remote:FireClient(player, ...)
+			end
+		end
+	end
+end
+
 function Net:ConnectServer(name, callback)
 	local remote = self:Get(name)
 	if remote then
