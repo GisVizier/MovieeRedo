@@ -182,25 +182,25 @@ LoadoutConfig.Weapons = {
 		-- PROJECTILE CONFIG (pellets with visible travel time)
 		projectile = {
 			-- Core physics (slower pellets for visible travel)
-			speed = 200,              -- studs/second (visible travel)
-			gravity = 80,             -- noticeable drop at range
-			drag = 0.08,              -- pellet air resistance
-			lifetime = 1.0,           -- 1 sec max flight
-			inheritVelocity = 0,      -- don't inherit shooter velocity
+			speed = 200, -- studs/second (visible travel)
+			gravity = 80, -- noticeable drop at range
+			drag = 0.08, -- pellet air resistance
+			lifetime = 1.0, -- 1 sec max flight
+			inheritVelocity = 0, -- don't inherit shooter velocity
 
 			-- Pellet spread (tighter spread)
-			spreadMode = "Cone",      -- Cone spread pattern
-			baseSpread = 0.06,        -- reduced spread angle (radians)
+			spreadMode = "Cone", -- Cone spread pattern
+			baseSpread = 0.06, -- reduced spread angle (radians)
 			crosshairSpreadScale = 0.03, -- alignment with crosshair visual
-			movementSpreadMult = 1.1,    -- 10% more spread while moving
-			hipfireSpreadMult = 1.0,     -- same spread hipfire
-			airSpreadMult = 1.2,         -- 20% more spread while airborne
-			crouchSpreadMult = 0.9,      -- 10% less spread while crouching
-			slideSpreadMult = 1.0,       -- normal spread while sliding
+			movementSpreadMult = 1.1, -- 10% more spread while moving
+			hipfireSpreadMult = 1.0, -- same spread hipfire
+			airSpreadMult = 1.2, -- 20% more spread while airborne
+			crouchSpreadMult = 0.9, -- 10% less spread while crouching
+			slideSpreadMult = 1.0, -- normal spread while sliding
 
 			-- Multi-pellet config
-			pelletsPerShot = 8,       -- 8 pellets per shot
-			pelletDamage = 15,        -- damage per pellet
+			pelletsPerShot = 8, -- 8 pellets per shot
+			pelletDamage = 15, -- damage per pellet
 
 			-- Behaviors (no pierce/ricochet by default)
 			pierce = 0,
@@ -362,17 +362,17 @@ LoadoutConfig.Weapons = {
 		-- PROJECTILE CONFIG (single accurate bullet)
 		projectile = {
 			-- Core physics (fast bullet with slight drop)
-			speed = 350,              -- studs/second (fast but visible)
-			gravity = 30,             -- slight drop at range
-			drag = 0.01,              -- minimal air resistance
-			lifetime = 2.0,           -- 2 sec max flight
+			speed = 350, -- studs/second (fast but visible)
+			gravity = 30, -- slight drop at range
+			drag = 0.01, -- minimal air resistance
+			lifetime = 2.0, -- 2 sec max flight
 			inheritVelocity = 0,
 
 			-- Spread (very accurate)
 			spreadMode = "Cone",
-			baseSpread = 0.015,       -- tight spread
+			baseSpread = 0.015, -- tight spread
 			crosshairSpreadScale = 0.01,
-			movementSpreadMult = 1.4,
+			movementSpreadMult = 1.1,
 			hipfireSpreadMult = 1.3,
 			airSpreadMult = 1.5,
 			crouchSpreadMult = 0.8,
@@ -492,7 +492,6 @@ LoadoutConfig.Weapons = {
 			enabled = false,
 		},
 	},
-
 }
 
 LoadoutConfig.Crosshair = {
