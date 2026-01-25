@@ -374,6 +374,9 @@ function CameraController:SetupInput()
 		if inputObject.KeyCode == Enum.KeyCode.Thumbstick2 then
 			self.RightStickX = inputObject.Position.X
 			self.RightStickY = inputObject.Position.Y
+			
+			-- Update aim assist gamepad eligibility
+			self:_updateAimAssistGamepadInput(inputObject.KeyCode, inputObject.Position)
 		end
 		
 		-- Mouse wheel for zoom (all modes)
@@ -487,6 +490,9 @@ function CameraController:SetupTouchCamera()
 					cameraConfig.AngleLimits.MaxVertical
 				)
 				self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
+				
+				-- Update aim assist touch eligibility
+				self:_updateAimAssistTouchInput()
 			else
 				cameraTouches[input] = Vector2.new(input.Position.X, input.Position.Y)
 				mobileControlsModule.CameraTouches[input] = true
@@ -1332,6 +1338,24 @@ function CameraController:SetFOV(fov)
 	local camera = getCurrentCamera()
 	if camera then
 		camera.FieldOfView = fov
+	end
+end
+
+-- =============================================================================
+-- AIM ASSIST INPUT HELPERS
+-- =============================================================================
+
+function CameraController:_updateAimAssistGamepadInput(keyCode: Enum.KeyCode, position: Vector3)
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController and weaponController.UpdateAimAssistGamepadEligibility then
+		weaponController:UpdateAimAssistGamepadEligibility(keyCode, position)
+	end
+end
+
+function CameraController:_updateAimAssistTouchInput()
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController and weaponController.UpdateAimAssistTouchEligibility then
+		weaponController:UpdateAimAssistTouchEligibility()
 	end
 end
 

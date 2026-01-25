@@ -27,6 +27,10 @@ local WeaponRaycast = require(WeaponServices:WaitForChild("WeaponRaycast"))
 local WeaponFX = require(WeaponServices:WaitForChild("WeaponFX"))
 local WeaponCooldown = require(WeaponServices:WaitForChild("WeaponCooldown"))
 
+-- Aim Assist
+local AimAssist = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"))
+local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
+
 local ActionsRoot = ReplicatedStorage:WaitForChild("Game"):WaitForChild("Weapons"):WaitForChild("Actions")
 
 local DEBUG_WEAPON = false
@@ -63,6 +67,11 @@ WeaponController._reloadToken = 0
 WeaponController._slotChangedConn = nil
 WeaponController._lastCameraMode = nil
 
+-- Aim Assist
+WeaponController._aimAssist = nil
+WeaponController._aimAssistEnabled = false
+WeaponController._aimAssistConfig = nil
+
 -- =============================================================================
 -- INITIALIZATION
 -- =============================================================================
@@ -85,7 +94,31 @@ function WeaponController:Init(registry, net)
 		end)
 	end
 
+	-- Initialize Aim Assist
+	self:_initializeAimAssist()
+
 	LogService:Info("WEAPON", "WeaponController initialized")
+end
+
+function WeaponController:_initializeAimAssist()
+	self._aimAssist = AimAssist.new()
+	
+	-- Configure base settings
+	self._aimAssist:setSubject(workspace.CurrentCamera)
+	self._aimAssist:setType(AimAssist.Enum.AimAssistType.Rotational)
+	
+	-- Add player targets (ignore local player and teammates)
+	self._aimAssist:addPlayerTargets(true, true, AimAssistConfig.Defaults.TargetBones)
+	
+	-- Add tagged targets (dummies, etc.)
+	self._aimAssist:addTargetTag(AimAssistConfig.TargetTags.Primary, AimAssistConfig.Defaults.TargetBones)
+	
+	-- Enable debug mode if configured
+	if AimAssistConfig.Debug then
+		self._aimAssist:setDebug(true)
+	end
+	
+	LogService:Info("WEAPON", "Aim Assist initialized")
 end
 
 function WeaponController:Start()
@@ -345,7 +378,40 @@ function WeaponController:_equipWeapon(weaponId, slot)
 
 	self:_applyCrosshairForWeapon(weaponId)
 
+	-- Setup Aim Assist for this weapon
+	self:_setupAimAssistForWeapon(weaponConfig)
+
 	LogService:Info("WEAPON", "Equipped weapon", { weaponId = weaponId })
+end
+
+function WeaponController:_setupAimAssistForWeapon(weaponConfig)
+	if not self._aimAssist then
+		return
+	end
+	
+	local aimAssistConfig = weaponConfig and weaponConfig.aimAssist
+	
+	if aimAssistConfig and aimAssistConfig.enabled then
+		-- Configure from weapon settings
+		self._aimAssist:configureFromWeapon(aimAssistConfig)
+		self._aimAssistConfig = aimAssistConfig
+		
+		-- Enable aim assist
+		self._aimAssist:enable()
+		self._aimAssistEnabled = true
+		
+		LogService:Debug("WEAPON", "Aim assist enabled for weapon", { 
+			range = aimAssistConfig.range,
+			fov = aimAssistConfig.fov,
+		})
+	else
+		-- Disable aim assist for this weapon (e.g., melee)
+		if self._aimAssistEnabled then
+			self._aimAssist:disable()
+			self._aimAssistEnabled = false
+		end
+		self._aimAssistConfig = nil
+	end
 end
 
 function WeaponController:_unequipCurrentWeapon()
@@ -376,6 +442,13 @@ function WeaponController:_unequipCurrentWeapon()
 		LocalPlayer:SetAttribute("WeaponSpeedMultiplier", 1.0)
 		LocalPlayer:SetAttribute("ADSSpeedMultiplier", 1.0)
 	end
+
+	-- Disable Aim Assist
+	if self._aimAssist and self._aimAssistEnabled then
+		self._aimAssist:disable()
+		self._aimAssistEnabled = false
+	end
+	self._aimAssistConfig = nil
 
 	self._currentActions = nil
 	self._equippedWeaponId = nil
@@ -652,6 +725,24 @@ function WeaponController:Special(isPressed)
 	if self._currentActions.Special then
 		self._currentActions.Special.Execute(self._weaponInstance, isPressed)
 	end
+	
+	-- Apply Aim Assist ADS boost
+	self:_updateAimAssistADS(isPressed)
+end
+
+function WeaponController:_updateAimAssistADS(isADS: boolean)
+	if not self._aimAssist or not self._aimAssistEnabled then
+		return
+	end
+	
+	if isADS then
+		-- Apply ADS boost
+		local boostConfig = self._aimAssistConfig and self._aimAssistConfig.adsBoost
+		self._aimAssist:applyADSBoost(boostConfig)
+	else
+		-- Restore base strengths
+		self._aimAssist:restoreBaseStrengths()
+	end
 end
 
 -- =============================================================================
@@ -829,6 +920,38 @@ function WeaponController:GetADSSpeedMultiplier(): number
 		return LocalPlayer:GetAttribute("ADSSpeedMultiplier") or 1.0
 	end
 	return 1.0
+end
+
+-- =============================================================================
+-- AIM ASSIST PUBLIC API
+-- =============================================================================
+
+function WeaponController:GetAimAssist()
+	return self._aimAssist
+end
+
+function WeaponController:IsAimAssistEnabled(): boolean
+	return self._aimAssistEnabled == true
+end
+
+function WeaponController:SetAimAssistDebug(enabled: boolean)
+	if self._aimAssist then
+		self._aimAssist:setDebug(enabled)
+	end
+end
+
+-- Update gamepad eligibility (call from input handlers)
+function WeaponController:UpdateAimAssistGamepadEligibility(keyCode: Enum.KeyCode, position: Vector3)
+	if self._aimAssist then
+		self._aimAssist:updateGamepadEligibility(keyCode, position)
+	end
+end
+
+-- Update touch eligibility (call from input handlers)
+function WeaponController:UpdateAimAssistTouchEligibility()
+	if self._aimAssist then
+		self._aimAssist:updateTouchEligibility()
+	end
 end
 
 -- =============================================================================

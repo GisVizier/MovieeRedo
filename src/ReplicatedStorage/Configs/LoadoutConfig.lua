@@ -96,6 +96,23 @@ LoadoutConfig.Weapons = {
 			spreadY = 0.5,
 			recoilMultiplier = 2.5,
 		},
+
+		-- Aim Assist settings (sniper: precise, narrow FOV, strong ADS boost)
+		aimAssist = {
+			enabled = true,
+			range = 500,
+			minRange = 10,
+			fov = 15,                  -- Narrow cone for precision
+			sortingBehavior = "angle",
+			friction = 0.2,            -- Light friction
+			tracking = 0.25,           -- Moderate tracking
+			centering = 0.05,          -- Very light centering
+			adsBoost = {
+				Friction = 2.0,        -- Double during scope
+				Tracking = 1.8,
+				Centering = 1.5,
+			},
+		},
 	},
 
 	Shotgun = {
@@ -143,6 +160,23 @@ LoadoutConfig.Weapons = {
 			spreadX = 2.5,
 			spreadY = 2.5,
 			recoilMultiplier = 2.0,
+		},
+
+		-- Aim Assist settings (shotgun: close range, wide FOV, strong assist)
+		aimAssist = {
+			enabled = true,
+			range = 80,
+			minRange = 3,
+			fov = 35,                  -- Wide cone for close combat
+			sortingBehavior = "distance",
+			friction = 0.35,           -- Strong friction
+			tracking = 0.4,            -- Strong tracking
+			centering = 0.15,          -- Moderate centering
+			adsBoost = {
+				Friction = 1.3,
+				Tracking = 1.2,
+				Centering = 1.2,
+			},
 		},
 
 		-- PROJECTILE CONFIG (pellets with visible travel time)
@@ -237,6 +271,23 @@ LoadoutConfig.Weapons = {
 			spreadX = 1.2,
 			spreadY = 1.2,
 			recoilMultiplier = 1.2,
+		},
+
+		-- Aim Assist settings (assault rifle: balanced, medium range)
+		aimAssist = {
+			enabled = true,
+			range = 200,
+			minRange = 5,
+			fov = 25,                  -- Standard cone
+			sortingBehavior = "angle",
+			friction = 0.25,           -- Balanced friction
+			tracking = 0.35,           -- Balanced tracking
+			centering = 0.1,           -- Light centering
+			adsBoost = {
+				Friction = 1.4,
+				Tracking = 1.3,
+				Centering = 1.2,
+			},
 		},
 	},
 
@@ -347,6 +398,23 @@ LoadoutConfig.Weapons = {
 			tracerLength = 3,
 			trailEnabled = true,
 		},
+
+		-- Aim Assist settings (revolver: precise secondary)
+		aimAssist = {
+			enabled = true,
+			range = 150,
+			minRange = 5,
+			fov = 20,                  -- Narrow cone for precision
+			sortingBehavior = "angle",
+			friction = 0.2,
+			tracking = 0.3,
+			centering = 0.08,
+			adsBoost = {
+				Friction = 1.5,
+				Tracking = 1.4,
+				Centering = 1.3,
+			},
+		},
 	},
 
 	Knife = {
@@ -376,6 +444,11 @@ LoadoutConfig.Weapons = {
 			spreadX = 0.5,
 			spreadY = 0.5,
 			recoilMultiplier = 0.3,
+		},
+
+		-- Aim Assist settings (melee: disabled)
+		aimAssist = {
+			enabled = false,
 		},
 	},
 
@@ -412,6 +485,11 @@ LoadoutConfig.Weapons = {
 			spreadX = 0.5,
 			spreadY = 0.5,
 			recoilMultiplier = 0.3,
+		},
+
+		-- Aim Assist settings (melee: disabled)
+		aimAssist = {
+			enabled = false,
 		},
 	},
 

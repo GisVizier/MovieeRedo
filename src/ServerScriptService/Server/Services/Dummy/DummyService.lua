@@ -13,6 +13,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local DummyConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DummyConfig"))
@@ -452,7 +453,26 @@ local function spawnDummy(spawnIndex)
 	local collisionGroupService = _registry and _registry:TryGet("CollisionGroupService")
 	if collisionGroupService then
 		collisionGroupService:SetCharacterCollisionGroup(dummy)
-
+	end
+	
+	-- Tag dummy for Aim Assist targeting
+	CollectionService:AddTag(dummy, "AimAssistTarget")
+	
+	-- Tag specific bones for better aim assist targeting
+	local rig = dummy:FindFirstChild("Rig")
+	if rig then
+		local head = rig:FindFirstChild("Head")
+		if head then
+			CollectionService:AddTag(head, "Head")
+		end
+		local upperTorso = rig:FindFirstChild("UpperTorso")
+		if upperTorso then
+			CollectionService:AddTag(upperTorso, "UpperTorso")
+		end
+		local torso = rig:FindFirstChild("Torso")
+		if torso then
+			CollectionService:AddTag(torso, "Torso")
+		end
 	end
 	
 	-- Get humanoid and set health
