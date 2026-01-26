@@ -894,13 +894,8 @@ function ViewmodelController:_render(dt: number)
 		end
 	end
 
-	local rotationOffset = CFrame.Angles(springs.rotation.Position.X * fxScale, 0, springs.rotation.Position.Z * fxScale)
-	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X * fxScale, 0, springs.tiltRot.Position.Z * fxScale)
-	local recoilRot = CFrame.Angles(springs.recoilRot.Position.X, springs.recoilRot.Position.Y, springs.recoilRot.Position.Z)
-	local recoilPos = springs.recoilPos.Position
-	local offset = (springs.bob.Position + springs.tiltPos.Position + recoilPos) * fxScale
-
-	local target = baseTarget * externalOffset * rotationOffset * tiltRotOffset * recoilRot * CFrame.new(offset)
+	-- FX disabled: only base target + external offset.
+	local target = baseTarget * externalOffset
 	rig.Model:PivotTo(target)
 end
 

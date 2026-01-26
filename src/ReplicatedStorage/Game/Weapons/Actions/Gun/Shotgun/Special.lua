@@ -88,10 +88,19 @@ function Special:_enterADS(weaponInstance)
 			return { align = normalAlign * baseOffset, blend = 0, effectsMultiplier = 1 }
 		end
 
-		-- Compute ADS alignment using lookAt (rig-space align)
+		-- Compute ADS alignment using lookAt with a stable up vector to avoid roll/spin.
 		local eyePos = Special._aimPosition.WorldPosition
 		local lookAtPos = Special._aimLookAt.WorldPosition
-		local adsLookCFrame = CFrame.lookAt(eyePos, lookAtPos)
+		local cam = workspace.CurrentCamera
+		local dir = lookAtPos - eyePos
+		local adsLookCFrame
+		if cam and dir.Magnitude > 1e-4 then
+			adsLookCFrame = CFrame.lookAt(eyePos, lookAtPos, cam.CFrame.UpVector)
+		elseif cam then
+			adsLookCFrame = CFrame.new(eyePos, eyePos + cam.CFrame.LookVector)
+		else
+			adsLookCFrame = CFrame.new(eyePos, eyePos + Vector3.new(0, 0, -1))
+		end
 		local adsAlign = Special._rig.Model:GetPivot():ToObjectSpace(adsLookCFrame):Inverse()
 
 		-- Smoothly adjust blend factor
