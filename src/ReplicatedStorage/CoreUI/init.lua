@@ -5,6 +5,35 @@ local Signal = require(script.Signal)
 local ConnectionManager = require(script.ConnectionManager)
 local TweenLibrary = require(script.TweenLibrary)
 
+-- Screen scaling constants
+local DESIGN_WIDTH = 1920
+local DESIGN_HEIGHT = 1080
+local SCALE_MODE = "fit" -- "fit", "fill", "width", or "height"
+
+local function getScreenScale(designW, designH, mode)
+	designW, designH = designW or DESIGN_WIDTH, designH or DESIGN_HEIGHT
+	mode = mode or SCALE_MODE
+
+	local cam = workspace.CurrentCamera
+	if not cam then
+		repeat task.wait() until workspace.CurrentCamera
+		cam = workspace.CurrentCamera
+	end
+	local vp = cam.ViewportSize
+
+	local sx, sy = vp.X / designW, vp.Y / designH
+
+	if mode == "fill" then
+		return math.max(sx, sy)
+	elseif mode == "width" then
+		return sx
+	elseif mode == "height" then
+		return sy
+	else -- "fit"
+		return math.min(sx, sy)
+	end
+end
+
 local CoreUI = {}
 CoreUI.__index = CoreUI
 
@@ -395,6 +424,9 @@ function CoreUI:init()
 		self.onModuleReady:fire(name, instance)
 	end
 
+	-- Initialize screen scaling for all "ScaleToScreen" UIScales
+	self:_initScaleToScreen()
+
 	return self
 end
 
@@ -513,6 +545,63 @@ function CoreUI:cleanAll()
 	for name in self._modules do
 		if self._moduleStates[name] then
 			self:_cleanup(name)
+		end
+	end
+end
+
+function CoreUI:_initScaleToScreen()
+	self._scaleToScreenElements = {}
+	self._lastViewportSize = Vector2.zero
+
+	-- Find all UIScale objects named "ScaleToScreen"
+	for _, uiScale in self._screenGui:GetDescendants() do
+		if uiScale:IsA("UIScale") and uiScale.Name == "ScaleToScreen" then
+			-- Store original scale as attribute if not already set
+			if not uiScale:GetAttribute("OrginalScale") then
+				uiScale:SetAttribute("OrginalScale", uiScale.Scale)
+			end
+			table.insert(self._scaleToScreenElements, uiScale)
+		end
+	end
+
+	-- Apply initial scale
+	self:_updateScaleToScreen()
+
+	-- Listen for viewport changes
+	local camera = workspace.CurrentCamera
+	if camera then
+		self._connections:add(camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			self:_updateScaleToScreen()
+		end))
+	end
+
+	-- Also listen for camera changes (in case camera gets replaced)
+	self._connections:add(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		local newCamera = workspace.CurrentCamera
+		if newCamera then
+			self._connections:add(newCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+				self:_updateScaleToScreen()
+			end))
+			self:_updateScaleToScreen()
+		end
+	end))
+end
+
+function CoreUI:_updateScaleToScreen()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+
+	local viewportSize = cam.ViewportSize
+	-- Skip if viewport hasn't changed
+	if viewportSize == self._lastViewportSize then return end
+	self._lastViewportSize = viewportSize
+
+	local scaleFactor = getScreenScale()
+
+	for _, uiScale in self._scaleToScreenElements do
+		if uiScale and uiScale.Parent then
+			local originalScale = uiScale:GetAttribute("OrginalScale") or 1
+			uiScale.Scale = originalScale * scaleFactor
 		end
 	end
 end

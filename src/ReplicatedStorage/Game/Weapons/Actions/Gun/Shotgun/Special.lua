@@ -1,10 +1,3 @@
---[[
-	Special.lua (Shotgun - ADS)
-
-	Handles Aim Down Sights for the Shotgun.
-	Aligns viewmodel to aim attachment and adjusts FOV.
-]]
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -12,19 +5,13 @@ local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"
 
 local Special = {}
 Special._isADS = false
-Special._resetOffset = nil
 Special._originalFOV = nil
-Special._adsBlend = 0  -- Blend factor: 0 = hip, 1 = fully ADS
-Special._rig = nil
-Special._aimPosition = nil  -- Eye position attachment (where camera should be)
-Special._aimLookAt = nil    -- Look target attachment (what to look at)
 
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance then
 		return false, "InvalidInstance"
 	end
 
-	-- TODO: Check player settings for toggle vs hold ADS
 	local isToggle = false
 
 	if isToggle then
@@ -52,126 +39,47 @@ function Special:_enterADS(weaponInstance)
 		return
 	end
 
-	local rig = viewmodelController:GetActiveRig()
-	if not rig or not rig.Model then
-		return
-	end
-
-	-- Find the two ADS attachments (inside Parts/Primary)
-	-- AimPosition = where the eye/camera should be
-	-- AimLookAt = what to look at (front sight, target point)
-	local partsFolder = rig.Model:FindFirstChild("Parts", true)
-	local gunPart = partsFolder and partsFolder:FindFirstChild("Primary")
-	local aimPosition = gunPart and gunPart:FindFirstChild("AimPosition")
-	local aimLookAt = gunPart and gunPart:FindFirstChild("AimLookAt")
-
-	if not aimPosition or not aimLookAt then
-		warn("[ADS] Missing AimPosition or AimLookAt attachments")
-		return
-	end
-
-	-- Store references to attachments (live tracking, not frozen)
-	Special._rig = rig
-	Special._aimPosition = aimPosition
-	Special._aimLookAt = aimLookAt
-	Special._adsBlend = 0  -- Start at 0, will blend toward 1
-
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
 	local adsEffectsMultiplier = config and config.adsEffectsMultiplier or 0.25
 
-	-- Set up the alignment override with smooth blending
-	-- Computes ADS alignment LIVE every frame - follows gun animations
-	-- Tilt is applied as local roll by ViewmodelController (not here)
-	Special._resetOffset = viewmodelController:updateTargetCF(function(normalAlign, baseOffset)
-		if not Special._rig or not Special._aimPosition or not Special._aimLookAt then
-			return { align = normalAlign * baseOffset, blend = 0, effectsMultiplier = 1 }
-		end
+	viewmodelController:SetADS(true, adsEffectsMultiplier)
 
-		-- Compute ADS alignment using lookAt with a stable up vector to avoid roll/spin.
-		local eyePos = Special._aimPosition.WorldPosition
-		local lookAtPos = Special._aimLookAt.WorldPosition
-		local cam = workspace.CurrentCamera
-		local dir = lookAtPos - eyePos
-		local adsLookCFrame
-		if cam and dir.Magnitude > 1e-4 then
-			adsLookCFrame = CFrame.lookAt(eyePos, lookAtPos, cam.CFrame.UpVector)
-		elseif cam then
-			adsLookCFrame = CFrame.new(eyePos, eyePos + cam.CFrame.LookVector)
-		else
-			adsLookCFrame = CFrame.new(eyePos, eyePos + Vector3.new(0, 0, -1))
-		end
-		local adsAlign = Special._rig.Model:GetPivot():ToObjectSpace(adsLookCFrame):Inverse()
-
-		-- Smoothly adjust blend factor
-		if Special._isADS then
-			-- Blend toward 1 when ADS active
-			Special._adsBlend = Special._adsBlend + (1 - Special._adsBlend) * 0.12
-		else
-			-- Blend toward 0 when exiting ADS
-			Special._adsBlend = Special._adsBlend * 0.88
-		end
-
-		-- Return ADS alignment, blend factor, and effects multiplier
-		-- ViewmodelController applies local roll for tilt
-		return { 
-			align = adsAlign, 
-			blend = Special._adsBlend,
-			effectsMultiplier = adsEffectsMultiplier
-		}
-	end)
-
-	-- Set ADS FOV
 	if adsFOV then
 		Special._originalFOV = FOVController.BaseFOV
 		FOVController:SetBaseFOV(adsFOV)
 	end
 
-	-- Apply ADS speed multiplier
 	local adsSpeedMult = config and config.adsSpeedMultiplier or 0.7
 	local weaponController = ServiceRegistry:GetController("Weapon")
 	if weaponController and weaponController.SetADSSpeedMultiplier then
 		weaponController:SetADSSpeedMultiplier(adsSpeedMult)
 	end
 
-	-- Play ADS animation if exists
 	if weaponInstance.PlayWeaponTrack then
 		weaponInstance.PlayWeaponTrack("ADS", 0.15)
 	end
 end
 
 function Special:_exitADS(weaponInstance)
-	-- Don't immediately clear the override - let it blend out
-	-- The blend function checks Special._isADS and will blend toward 0
-	
-	-- Reset FOV
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	if viewmodelController then
+		viewmodelController:SetADS(false)
+	end
+
 	if Special._originalFOV then
 		FOVController:SetBaseFOV(Special._originalFOV)
 		Special._originalFOV = nil
 	end
 
-	-- Reset ADS speed multiplier
 	local weaponController = ServiceRegistry:GetController("Weapon")
 	if weaponController and weaponController.SetADSSpeedMultiplier then
 		weaponController:SetADSSpeedMultiplier(1.0)
 	end
 
-	-- Play hip animation if exists
 	if weaponInstance and weaponInstance.PlayWeaponTrack then
 		weaponInstance.PlayWeaponTrack("Hip", 0.15)
 	end
-
-	-- Clear override after a delay to allow blend out
-	task.delay(0.3, function()
-		if not Special._isADS and Special._resetOffset then
-			Special._resetOffset()
-			Special._resetOffset = nil
-			Special._rig = nil
-			Special._aimPosition = nil
-			Special._aimLookAt = nil
-			Special._adsBlend = 0
-		end
-	end)
 end
 
 function Special.Cancel()

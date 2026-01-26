@@ -56,12 +56,13 @@ function AimAssist:enable()
 	end)
 
 	-- Bind AFTER CameraController (apply aim assist adjustments)
-	-- CameraController runs at Camera + 10, so we run at Camera + 11
-	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 11, function(deltaTime: number)
+	-- CameraController runs at Camera + 10, so we run at Camera + 20 for HIGH PRIORITY
+	-- This ensures aim assist can't be overwritten by camera updates
+	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 20, function(deltaTime: number)
 		self:applyAimAssist(deltaTime)
 	end)
-	
-	print("[AimAssist] ENABLED - Running at priority", Enum.RenderPriority.Camera.Value + 11)
+
+	print("[AimAssist] ENABLED - Running at HIGH PRIORITY:", Enum.RenderPriority.Camera.Value + 20)
 end
 
 function AimAssist:disable()

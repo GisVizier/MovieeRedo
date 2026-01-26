@@ -27,7 +27,7 @@ local ROTATION_SPRING_DAMPER = 0.85
 
 local MOVE_SPEED_REFERENCE = 16
 local MOVE_ROLL_MAX = math.rad(16)
-local MOVE_PITCH_MAX = math.rad(2)  -- Reduced from 8 to 2 (0.25x)
+local MOVE_PITCH_MAX = math.rad(8)
 local MOVE_ROTATION_FORCE = 0.85
 
 local BOB_SPRING_SPEED = 14
@@ -40,18 +40,18 @@ local VERT_AMP_Y = 0.08
 
 local TILT_SPRING_SPEED = 12
 local TILT_SPRING_DAMPER = 0.9
-local SLIDE_ROLL = math.rad(30)
-local SLIDE_PITCH = 0
-local SLIDE_TUCK = Vector3.zero
+local SLIDE_ROLL = math.rad(14)
+local SLIDE_PITCH = math.rad(6)
+local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
-local RECOIL_SPRING_SPEED = 25
-local RECOIL_SPRING_DAMPER = 0.8
+local DEFAULT_ADS_EFFECTS_MULTIPLIER = 0.25
+local ADS_LERP_SPEED = 15
 
 ViewmodelController._registry = nil
 ViewmodelController._net = nil
 
 ViewmodelController._loadout = nil
-ViewmodelController._loadoutVm = nil -- object from CreateLoadout
+ViewmodelController._loadoutVm = nil
 ViewmodelController._activeSlot = nil
 ViewmodelController._previousSlot = nil
 
@@ -70,14 +70,15 @@ ViewmodelController._attrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
-ViewmodelController._targetCFOverride = nil -- Function to override/modify the final target CFrame
 
--- Rig preloading/caching state
-ViewmodelController._rigStorage = nil      -- Folder for storing rigs off-screen
-ViewmodelController._storedRigs = nil      -- { [slot] = rig }
-ViewmodelController._cachedKitTracks = nil -- { [kitId] = { Ability = {}, Ultimate = {} } }
+ViewmodelController._rigStorage = nil
+ViewmodelController._storedRigs = nil
+ViewmodelController._cachedKitTracks = nil
 
--- Storage position for preloading rigs off-screen
+ViewmodelController._adsActive = false
+ViewmodelController._adsBlend = 0
+ViewmodelController._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
+
 local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
 
 local function getCameraController(self)
@@ -131,8 +132,6 @@ function ViewmodelController:Init(registry, net)
 		tiltPos = Spring.new(Vector3.zero),
 		externalPos = Spring.new(Vector3.zero),
 		externalRot = Spring.new(Vector3.zero),
-		recoilPos = Spring.new(Vector3.zero),
-		recoilRot = Spring.new(Vector3.zero),
 	}
 	self._springs.rotation.Speed = ROTATION_SPRING_SPEED
 	self._springs.rotation.Damper = ROTATION_SPRING_DAMPER
@@ -146,29 +145,22 @@ function ViewmodelController:Init(registry, net)
 	self._springs.externalPos.Damper = 0.85
 	self._springs.externalRot.Speed = 12
 	self._springs.externalRot.Damper = 0.85
-	self._springs.recoilPos.Speed = RECOIL_SPRING_SPEED
-	self._springs.recoilPos.Damper = RECOIL_SPRING_DAMPER
-	self._springs.recoilRot.Speed = RECOIL_SPRING_SPEED
-	self._springs.recoilRot.Damper = RECOIL_SPRING_DAMPER
 	self._prevCamCF = nil
 	self._bobT = 0
 	self._wasSliding = false
 	self._slideTiltTarget = Vector3.zero
 
-	-- Listen for match start (Option A: equip Primary).
 	if self._net and self._net.ConnectClient then
 		self._startMatchConn = self._net:ConnectClient("StartMatch", function(_matchData)
 			self._gameplayEnabled = true
 			self:SetActiveSlot("Primary")
 		end)
 
-		-- Listen to kit events directly (avoid UI dependencies).
 		self._kitConn = self._net:ConnectClient("KitState", function(message)
 			self:_onKitMessage(message)
 		end)
 	end
 
-	-- Create loadout viewmodels when server records SelectedLoadout.
 	if LocalPlayer then
 		local function onSelectedLoadoutChanged()
 			local raw = LocalPlayer:GetAttribute("SelectedLoadout")
@@ -186,7 +178,6 @@ function ViewmodelController:Init(registry, net)
 			local payload = decoded
 			local loadout = payload.loadout
 			if type(loadout) ~= "table" then
-				-- Some callers may store the loadout directly.
 				loadout = decoded
 			end
 
@@ -194,12 +185,9 @@ function ViewmodelController:Init(registry, net)
 		end
 
 		self._attrConn = LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(onSelectedLoadoutChanged)
-		-- Handle case where it was already set (studio testing / late init).
 		task.defer(onSelectedLoadoutChanged)
 	end
 
-	-- Equip hotkeys (PC): 1=Primary, 2=Secondary, 3=Melee.
-	-- IMPORTANT: uses InputController gating flags so it won't fire in menus/chat.
 	do
 		local inputController = self._registry and self._registry:TryGet("Input")
 		local manager = inputController and inputController.Manager or nil
@@ -209,7 +197,6 @@ function ViewmodelController:Init(registry, net)
 				return
 			end
 
-			-- Gate with InputManager state (matches rest of gameplay input).
 			if manager then
 				if
 					manager.IsMenuOpen
@@ -235,10 +222,6 @@ end
 
 function ViewmodelController:Start() end
 
---[[
-	Creates the storage folder for preloading rigs off-screen.
-	Rigs are stored at (0, 10000, 0) so they can be preloaded without being visible.
-]]
 function ViewmodelController:_ensureRigStorage(): Folder
 	if self._rigStorage and self._rigStorage.Parent then
 		return self._rigStorage
@@ -252,10 +235,6 @@ function ViewmodelController:_ensureRigStorage(): Folder
 	return folder
 end
 
---[[
-	Destroys all stored rigs and clears the kit animation cache.
-	Called before creating a new loadout or when the controller is destroyed.
-]]
 function ViewmodelController:_destroyAllRigs()
 	if self._storedRigs then
 		for _, rig in pairs(self._storedRigs) do
@@ -265,22 +244,16 @@ function ViewmodelController:_destroyAllRigs()
 		end
 		self._storedRigs = nil
 	end
+
+	self._cachedKitTracks = nil
 end
 
---[[
-	Creates all rigs for a loadout (Fists, Primary, Secondary, Melee).
-	Rigs are stored off-screen for preloading, then moved to camera when equipped.
-	
-	@param loadout - The loadout table with Primary, Secondary, Melee weapon IDs
-	@return { [slot] = rig } - Table of created rigs by slot name
-]]
 function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any })
 	local storage = self:_ensureRigStorage()
 	self._storedRigs = {}
 
 	local toPreload = {}
 
-	-- Helper to resolve model path from config
 	local function getModelPath(weaponId: string): string?
 		if weaponId == "Fists" then
 			local fistsCfg = ViewmodelConfig.Weapons.Fists
@@ -292,7 +265,6 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		end
 	end
 
-	-- Helper to resolve model template from path
 	local function resolveModelTemplate(modelPath: string): Model?
 		local assets = ReplicatedStorage:FindFirstChild("Assets")
 		local viewModelsRoot = assets and assets:FindFirstChild("ViewModels")
@@ -314,7 +286,6 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		return nil
 	end
 
-	-- Helper to create a single rig
 	local function createRig(weaponId: string, slotName: string)
 		local modelPath = getModelPath(weaponId)
 		if type(modelPath) ~= "string" or modelPath == "" then
@@ -327,19 +298,16 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 			return nil
 		end
 
-		-- Clone and position off-screen for preloading
 		local clone = template:Clone()
 		clone.Name = slotName
 		clone:PivotTo(RIG_STORAGE_POSITION)
 		clone.Parent = storage
 
-		-- Create rig wrapper
 		local rig = ViewmodelRig.new(clone, slotName)
 		if LocalPlayer then
 			rig:AddCleanup(ViewmodelAppearance.BindShirtToLocalRig(LocalPlayer, clone))
 		end
 
-		-- Collect assets for ContentProvider preload
 		table.insert(toPreload, clone)
 		for _, desc in ipairs(clone:GetDescendants()) do
 			if desc:IsA("MeshPart") or desc:IsA("Decal") or desc:IsA("Texture") then
@@ -350,21 +318,17 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		return rig
 	end
 
-	-- Create Fists (always available as fallback)
 	local fistsRig = createRig("Fists", "Fists")
 	if fistsRig then
 		self._storedRigs.Fists = fistsRig
 
-		-- Preload Fists weapon animations
 		if self._animator then
 			self._animator:PreloadRig(fistsRig, "Fists")
 		end
 
-		-- Preload ALL kit animations on Fists rig
 		self:_preloadKitAnimations(fistsRig)
 	end
 
-	-- Create Primary weapon rig
 	local primaryId = loadout and loadout.Primary
 	if type(primaryId) == "string" and primaryId ~= "" then
 		local rig = createRig(primaryId, "Primary")
@@ -376,7 +340,6 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		end
 	end
 
-	-- Create Secondary weapon rig
 	local secondaryId = loadout and loadout.Secondary
 	if type(secondaryId) == "string" and secondaryId ~= "" then
 		local rig = createRig(secondaryId, "Secondary")
@@ -388,7 +351,6 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		end
 	end
 
-	-- Create Melee weapon rig
 	local meleeId = loadout and loadout.Melee
 	if type(meleeId) == "string" and meleeId ~= "" then
 		local rig = createRig(meleeId, "Melee")
@@ -400,24 +362,11 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		end
 	end
 
-	-- Preload all model assets via ContentProvider (async)
 	if #toPreload > 0 then
 		task.spawn(function()
 			ContentProvider:PreloadAsync(toPreload)
 			LogService:Info("VIEWMODEL", "Model assets preloaded", { Count = #toPreload })
 		end)
-	end
-	
-	-- Parent all rigs to camera immediately (at far-away position)
-	-- This preserves animation state when switching between slots
-	local cam = getCamera()
-	if cam then
-		for _, rig in pairs(self._storedRigs) do
-			if rig and rig.Model then
-				rig.Model:PivotTo(RIG_STORAGE_POSITION)
-				rig.Model.Parent = cam
-			end
-		end
 	end
 
 	LogService:Info("VIEWMODEL", "All rigs created and preloaded", {
@@ -430,65 +379,69 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 	return self._storedRigs
 end
 
---[[
-	Preloads all kit animations (Ability/Ultimate) on the Fists rig.
-	Kit abilities reuse the Fists viewmodel, so we preload all kit animations there.
-	
-	@param fistsRig - The Fists ViewmodelRig to preload animations on
-]]
 function ViewmodelController:_preloadKitAnimations(fistsRig)
 	if not fistsRig or not fistsRig.Animator then
 		return
 	end
-	
-	-- First, preload all Animation instances into ViewmodelAnimator's cache
-	local preloadedAnims = ViewmodelAnimator.PreloadKitAnimations()
-	
-	-- Now load all tracks on the Fists rig to prime them
+
+	self._cachedKitTracks = {}
+
+	local kitsConfig = ViewmodelConfig.Kits
+	if type(kitsConfig) ~= "table" then
+		return
+	end
+
 	local toPreload = {}
-	local trackCount = 0
-	
-	for animName, animInstance in pairs(preloadedAnims) do
-		-- Only process direct name entries (skip path duplicates like "Airborne/CloudskipDash")
-		-- to avoid loading the same animation twice
-		if not string.find(animName, "/") then
-			local animId = animInstance.AnimationId
-			if animId and animId ~= "" and animId ~= "rbxassetid://0" then
-				local success, track = pcall(function()
-					return fistsRig.Animator:LoadAnimation(animInstance)
-				end)
-				
-				if success and track then
-					-- Read priority from attribute or default
-					local priorityAttr = animInstance:GetAttribute("Priority")
-					if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
-						track.Priority = Enum.AnimationPriority[priorityAttr]
-					elseif typeof(priorityAttr) == "EnumItem" then
-						track.Priority = priorityAttr
-					else
-						track.Priority = Enum.AnimationPriority.Action4
-					end
-					
-					-- Read looped from attribute or default
-					local loopAttr = animInstance:GetAttribute("Loop") or animInstance:GetAttribute("Looped")
-					track.Looped = (type(loopAttr) == "boolean") and loopAttr or false
-					
-					-- Prime the track
+
+	for kitId, kitData in pairs(kitsConfig) do
+		self._cachedKitTracks[kitId] = {
+			Ability = {},
+			Ultimate = {},
+		}
+
+		if type(kitData.Ability) == "table" then
+			for animName, animId in pairs(kitData.Ability) do
+				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
+					local animation = Instance.new("Animation")
+					animation.AnimationId = animId
+
+					local track = fistsRig.Animator:LoadAnimation(animation)
+					track.Priority = Enum.AnimationPriority.Action2
+					track.Looped = false
+
 					track:Play(0)
 					track:Stop(0)
-					
-					table.insert(toPreload, animInstance)
-					trackCount += 1
+
+					self._cachedKitTracks[kitId].Ability[animName] = track
+					table.insert(toPreload, animation)
+				end
+			end
+		end
+
+		if type(kitData.Ultimate) == "table" then
+			for animName, animId in pairs(kitData.Ultimate) do
+				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
+					local animation = Instance.new("Animation")
+					animation.AnimationId = animId
+
+					local track = fistsRig.Animator:LoadAnimation(animation)
+					track.Priority = Enum.AnimationPriority.Action2
+					track.Looped = false
+
+					track:Play(0)
+					track:Stop(0)
+
+					self._cachedKitTracks[kitId].Ultimate[animName] = track
+					table.insert(toPreload, animation)
 				end
 			end
 		end
 	end
-	
-	-- Preload animation assets via ContentProvider
+
 	if #toPreload > 0 then
 		task.spawn(function()
 			ContentProvider:PreloadAsync(toPreload)
-			LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = trackCount })
+			LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = #toPreload })
 		end)
 	end
 end
@@ -496,27 +449,21 @@ end
 function ViewmodelController:CreateLoadout(loadout: { [string]: any })
 	self._loadout = loadout
 
-	-- Destroy old rigs before creating new ones
 	self:_destroyAllRigs()
 
-	-- Clear old loadout object reference
 	if self._loadoutVm then
 		self._loadoutVm = nil
 	end
 
-	-- Create all rigs for this loadout (stored off-screen, preloaded)
 	local rigs = self:_createAllRigsForLoadout(loadout)
 
-	-- Wrap in loadout object for compatibility with existing code
 	self._loadoutVm = {
 		Rigs = rigs,
 		Destroy = function(obj)
-			-- Actual cleanup is handled by _destroyAllRigs
 			obj.Rigs = nil
 		end,
 	}
 
-	-- Default equip should be Primary (fallback is handled by SetActiveSlot).
 	self:SetActiveSlot("Primary")
 
 	LogService:Info("VIEWMODEL", "CreateLoadout complete", {
@@ -534,17 +481,7 @@ function ViewmodelController:SetActiveSlot(slot: string)
 	if not self._loadoutVm or not self._loadoutVm.Rigs then
 		return
 	end
-	
-	-- Block switching AWAY from Fists during abilities
-	local kitController = ServiceRegistry:GetController("Kit")
-	if kitController and kitController:IsWeaponSwitchLocked() then
-		-- Only allow switching TO Fists (for ability start), not away from it
-		if slot ~= "Fists" then
-			return
-		end
-	end
 
-	-- Fists are the fallback.
 	if not self._loadoutVm.Rigs[slot] then
 		slot = "Fists"
 	end
@@ -555,9 +492,9 @@ function ViewmodelController:SetActiveSlot(slot: string)
 
 	self._previousSlot = self._activeSlot
 	self._activeSlot = slot
+	self._adsActive = false
+	self._adsBlend = 0
 
-	-- Update HUD selection highlight via player attribute.
-	-- HUD expects Primary/Secondary/Melee (Kit is rendered as ability slot but selection maps to Primary).
 	do
 		if LocalPlayer then
 			local hudSlot = slot
@@ -570,25 +507,17 @@ function ViewmodelController:SetActiveSlot(slot: string)
 		end
 	end
 
-	-- Re-parent: all rigs stay in camera (preserves animation state), inactive ones moved far away
 	local cam = getCamera()
-	local INACTIVE_POSITION = CFrame.new(0, 10000, 0)
-	
-	for name, rig in pairs(self._loadoutVm.Rigs) do
+	for _, rig in pairs(self._loadoutVm.Rigs) do
 		if rig and rig.Model then
-			if cam and isFirstPerson(self) then
+			if isFirstPerson(self) and cam then
 				rig.Model.Parent = cam
-				if name ~= slot then
-					-- Move inactive rigs far away but keep them parented to camera
-					rig.Model:PivotTo(INACTIVE_POSITION)
-				end
 			else
 				rig.Model.Parent = nil
 			end
 		end
 	end
 
-	-- Bind animator to the active rig (movement loops).
 	do
 		local rig = getRigForSlot(self, slot)
 		local weaponId = nil
@@ -600,12 +529,28 @@ function ViewmodelController:SetActiveSlot(slot: string)
 		self._animator:BindRig(rig, weaponId)
 	end
 
-	-- Play equip animation when switching weapons.
 	if self._animator then
 		self._animator:Play("Equip", 0.1, true)
 	end
 
 	self:_ensureRenderLoop()
+end
+
+function ViewmodelController:SetADS(active: boolean, effectsMultiplier: number?)
+	self._adsActive = active and true or false
+	if type(effectsMultiplier) == "number" then
+		self._adsEffectsMultiplier = effectsMultiplier
+	else
+		self._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
+	end
+end
+
+function ViewmodelController:IsADS(): boolean
+	return self._adsActive
+end
+
+function ViewmodelController:GetADSBlend(): number
+	return self._adsBlend
 end
 
 function ViewmodelController:PlayViewmodelAnimation(name: string, fade: number?, restart: boolean?)
@@ -626,13 +571,6 @@ function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
 	return track
 end
 
---[[
-	SetOffset: Set an external offset for the viewmodel (smooth spring transition).
-	Used for inspect animations, etc.
-	
-	@param offset - The CFrame offset to apply.
-	@return function - Call this to reset the offset back to zero.
-]]
 function ViewmodelController:SetOffset(offset: CFrame)
 	local pos = offset.Position
 	local rx, ry, rz = offset:ToEulerAnglesXYZ()
@@ -642,40 +580,6 @@ function ViewmodelController:SetOffset(offset: CFrame)
 	return function()
 		self._springs.externalPos.Target = Vector3.zero
 		self._springs.externalRot.Target = Vector3.zero
-	end
-end
-
---[[
-	ApplyRecoil: spring-based kick and return (no animations).
-	@param kickPos - position kick in viewmodel space (e.g. Vector3.new(0, 0, -0.08))
-	@param kickRot - optional rotation kick (radians, e.g. Vector3.new(-0.08, 0, 0))
-]]
-function ViewmodelController:ApplyRecoil(kickPos: Vector3, kickRot: Vector3?)
-	if not self._springs then
-		return
-	end
-	if typeof(kickPos) == "Vector3" then
-		self._springs.recoilPos:Impulse(kickPos)
-	end
-	if typeof(kickRot) == "Vector3" then
-		self._springs.recoilRot:Impulse(kickRot)
-	end
-end
-
---[[
-	updateTargetCF: Override/modify the final target CFrame.
-	
-	The function receives the normal computed targetCF and can modify/lerp it.
-	On reset, it clears and goes back to normal camera-based target.
-	
-	@param func - Function that receives normalTargetCF and returns the new target CFrame.
-	@return function - Call this to reset back to normal.
-]]
-function ViewmodelController:updateTargetCF(func: (CFrame) -> CFrame)
-	self._targetCFOverride = func
-	
-	return function()
-		self._targetCFOverride = nil
 	end
 end
 
@@ -698,17 +602,9 @@ function ViewmodelController:GetActiveSlot(): string?
 end
 
 function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
-	-- Do not "make up" weapons: only switch if the selected loadout actually has a weapon ID for that slot.
 	if type(slot) ~= "string" then
 		return
 	end
-	
-	-- Block weapon switching during abilities
-	local kitController = ServiceRegistry:GetController("Kit")
-	if kitController and kitController:IsWeaponSwitchLocked() then
-		return
-	end
-	
 	if not self._loadout or type(self._loadout) ~= "table" then
 		return
 	end
@@ -718,7 +614,6 @@ function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 		return
 	end
 
-	-- If the rig doesn't exist (missing model), SetActiveSlot will safely fall back to fists.
 	self:SetActiveSlot(slot)
 end
 
@@ -727,8 +622,6 @@ function ViewmodelController:_ensureRenderLoop()
 		return
 	end
 
-	-- Update AFTER CameraController ("MovieeV2CameraController" runs at Camera + 10).
-	-- This removes the 1-frame "delay" feeling when flicking the camera.
 	self._renderBound = true
 	pcall(function()
 		RunService:UnbindFromRenderStep("ViewmodelRender")
@@ -748,7 +641,6 @@ function ViewmodelController:_render(dt: number)
 		return
 	end
 
-	-- First-person only: if not FP, keep everything unparented.
 	if not isFirstPerson(self) then
 		for _, rig in pairs(self._loadoutVm.Rigs) do
 			if rig and rig.Model then
@@ -758,14 +650,22 @@ function ViewmodelController:_render(dt: number)
 		return
 	end
 
+	-- Parent all rigs to camera, position inactive ones offscreen
+	for slotName, slotRig in pairs(self._loadoutVm.Rigs) do
+		if slotRig and slotRig.Model then
+			if slotRig.Model.Parent ~= cam then
+				slotRig.Model.Parent = cam
+			end
+			-- Move inactive rigs offscreen
+			if slotName ~= self._activeSlot then
+				slotRig.Model:PivotTo(RIG_STORAGE_POSITION)
+			end
+		end
+	end
+
 	local rig = getRigForSlot(self, self._activeSlot)
 	if not rig or not rig.Model or not rig.Anchor then
 		return
-	end
-
-	-- Ensure active model is parented to camera.
-	if rig.Model.Parent ~= cam then
-		rig.Model.Parent = cam
 	end
 
 	local springs = self._springs
@@ -780,13 +680,13 @@ function ViewmodelController:_render(dt: number)
 		yawCF = CFrame.Angles(0, yaw, 0)
 	end
 
-	-- Rotation spring from camera delta + movement direction.
 	do
 		if self._prevCamCF then
 			local diff = self._prevCamCF:ToObjectSpace(cam.CFrame)
-			local rx, ry, rz = diff:ToEulerAnglesXYZ()
-			if rx == rx and ry == ry and rz == rz then
-				springs.rotation:Impulse(Vector3.new(rx, 0, rz) * ROTATION_SENSITIVITY)
+			local axis, angle = diff:ToAxisAngle()
+			if angle == angle then
+				local angularDisp = axis * angle
+				springs.rotation:Impulse(angularDisp * ROTATION_SENSITIVITY)
 			end
 		end
 		self._prevCamCF = cam.CFrame
@@ -802,7 +702,6 @@ function ViewmodelController:_render(dt: number)
 		springs.rotation:Impulse(Vector3.new(pitch, 0, roll) * MOVE_ROTATION_FORCE)
 	end
 
-	-- Walk bob (figure-eight path).
 	local bobTarget = Vector3.zero
 	do
 		local root = getRootPart()
@@ -823,14 +722,27 @@ function ViewmodelController:_render(dt: number)
 		springs.bob.Target = bobTarget
 	end
 
-	-- Slide tilt (tuck + rotate).
 	do
 		local isSliding = MovementStateManager:IsSliding()
 		if isSliding then
+			if not self._wasSliding then
+				local root = getRootPart()
+				local vel = root and root.AssemblyLinearVelocity or Vector3.zero
+				local horizontal = Vector3.new(vel.X, 0, vel.Z)
+				local localDir
+				if horizontal.Magnitude > 0.1 then
+					local slideDir = horizontal.Unit
+					localDir = yawCF:VectorToObjectSpace(slideDir)
+				else
+					localDir = Vector3.new(0, 0, -1)
+				end
+				local roll = -math.clamp(localDir.X, -1, 1) * SLIDE_ROLL
+				local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
+				self._slideTiltTarget = Vector3.new(pitch, 0, roll)
+			end
 			self._wasSliding = true
-			self._slideTiltTarget = Vector3.new(0, 0, -SLIDE_ROLL)
 			springs.tiltRot.Target = self._slideTiltTarget
-			springs.tiltPos.Target = Vector3.zero
+			springs.tiltPos.Target = SLIDE_TUCK
 		else
 			self._wasSliding = false
 			self._slideTiltTarget = Vector3.zero
@@ -839,10 +751,8 @@ function ViewmodelController:_render(dt: number)
 		end
 	end
 
-	-- Align rig so its Anchor part matches the camera.
 	local pivot = rig.Model:GetPivot()
 	local anchorPivot = rig.Anchor:GetPivot()
-	local normalAlign = pivot:ToObjectSpace(anchorPivot):Inverse()
 
 	local weaponId = nil
 	if self._activeSlot == "Fists" then
@@ -851,48 +761,73 @@ function ViewmodelController:_render(dt: number)
 		weaponId = self._loadout[self._activeSlot]
 	end
 	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
-	local baseOffset = (cfg and cfg.Offset) or CFrame.new()
+	local configOffset = (cfg and cfg.Offset) or CFrame.new()
 
-	-- External offset (used by SetOffset for inspect, etc.)
+	local basePosition = rig.Model:FindFirstChild("BasePosition", true)
+	local aimPosition = rig.Model:FindFirstChild("AimPosition", true)
+
+	if not basePosition then
+		warn("[ViewmodelController] Missing BasePosition attachment on rig:", self._activeSlot)
+		return
+	end
+
+	if not aimPosition then
+		warn("[ViewmodelController] Missing AimPosition attachment on rig:", self._activeSlot)
+		return
+	end
+
+	-- Get LOCAL offsets from pivot (constant, doesn't change with model position)
+	local hipOffset = pivot:ToObjectSpace(basePosition.WorldCFrame)
+	local adsOffset = pivot:ToObjectSpace(aimPosition.WorldCFrame)
+
+	-- Smooth ADS blend
+	local targetBlend = self._adsActive and 1 or 0
+	self._adsBlend = self._adsBlend + (targetBlend - self._adsBlend) * math.min(1, dt * ADS_LERP_SPEED)
+	
+	-- Snap to target when close enough
+	if math.abs(self._adsBlend - targetBlend) < 0.001 then
+		self._adsBlend = targetBlend
+	end
+
+	-- Lerp between the local offsets, then invert to get alignment
+	local targetOffset = hipOffset:Lerp(adsOffset, self._adsBlend)
+	local normalAlign = targetOffset:Inverse()
+
+	-- Smoothly remove config offset when ADS
+	local baseOffset = configOffset:Lerp(CFrame.new(), self._adsBlend)
+
 	local extPos = springs.externalPos.Position
 	local extRot = springs.externalRot.Position
 	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X, extRot.Y, extRot.Z)
 
-	-- Compute BASE target first (hip or ADS), then apply FX in a post step.
-	local baseTarget = cam.CFrame * normalAlign * baseOffset
-	local fxScale = 1
+	local fxScale = 1 - (self._adsBlend * (1 - self._adsEffectsMultiplier))
 
-	if self._targetCFOverride then
-		-- Override returns {align = CFrame, blend = number, effectsMultiplier = number}
-		local result = self._targetCFOverride(normalAlign, baseOffset)
-		if type(result) == "table" and result.align and result.blend then
-			-- ADS: align is a rig-space CFrame (no baseOffset reapplication).
-			local adsTarget = cam.CFrame * result.align
-			baseTarget = baseTarget:Lerp(adsTarget, result.blend)
-			local effectsMult = result.effectsMultiplier
-			if type(effectsMult) ~= "number" then
-				effectsMult = 0.25
-			end
-			fxScale = (1 - result.blend) + (result.blend * effectsMult)
-		else
-			-- Fallback: legacy override result is a CFrame
-			baseTarget = cam.CFrame * result
-		end
-	end
+	local rotationOffset = CFrame.Angles(
+		springs.rotation.Position.X * fxScale, 
+		0, 
+		springs.rotation.Position.Z * fxScale
+	)
 
-	-- Apply tilt only (slide tuck + rotate).
-	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X * fxScale, 0, springs.tiltRot.Position.Z * fxScale)
-	local tiltPosOffset = CFrame.new(springs.tiltPos.Position * fxScale)
-	local target = baseTarget * externalOffset * tiltRotOffset * tiltPosOffset
+	local tiltX = math.clamp(springs.tiltRot.Position.X, -SLIDE_PITCH, SLIDE_PITCH) * fxScale
+	local tiltZ = math.clamp(springs.tiltRot.Position.Z, -SLIDE_ROLL, SLIDE_ROLL) * fxScale
+	local tiltRotOffset = CFrame.Angles(tiltX, 0, tiltZ)
+
+	local bobOffset = springs.bob.Position * fxScale
+	local tiltPosOffset = springs.tiltPos.Position * fxScale
+	local posOffset = bobOffset + tiltPosOffset
+
+	local target = cam.CFrame 
+		* normalAlign 
+		* baseOffset 
+		* externalOffset 
+		* rotationOffset 
+		* tiltRotOffset 
+		* CFrame.new(posOffset)
+
 	rig.Model:PivotTo(target)
 end
 
 function ViewmodelController:_onKitMessage(message)
-	-- NOTE: Viewmodel switching for abilities is now handled by KitController directly.
-	-- KitController holsters weapon on ability start and unholsters on AbilityEnded.
-	-- This function is kept for potential future use (e.g., playing kit-specific animations
-	-- that aren't handled by the client kit itself).
-	
 	if type(message) ~= "table" then
 		return
 	end
@@ -900,19 +835,15 @@ function ViewmodelController:_onKitMessage(message)
 		return
 	end
 
-	-- Only local visuals.
 	if message.playerId ~= (LocalPlayer and LocalPlayer.UserId) then
 		return
 	end
 
-	-- Viewmodel switching is now handled by KitController._holsterWeapon / _unholsterWeapon
-	-- Kit animations are now played directly by ClientKits using viewmodelAnimator:PlayKitAnimation()
-	-- 
-	-- if message.event == "AbilityActivated" then
-	-- 	self:_onLocalAbilityBegin(message.kitId, message.abilityType)
-	-- elseif message.event == "AbilityEnded" then
-	-- 	self:_onLocalAbilityEnd(message.kitId, message.abilityType)
-	-- end
+	if message.event == "AbilityActivated" then
+		self:_onLocalAbilityBegin(message.kitId, message.abilityType)
+	elseif message.event == "AbilityEnded" then
+		self:_onLocalAbilityEnd(message.kitId, message.abilityType)
+	end
 end
 
 function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, name: string)
@@ -920,7 +851,6 @@ function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, na
 		return nil
 	end
 
-	-- Try to use cached track first (preloaded during CreateLoadout)
 	if self._cachedKitTracks then
 		local kitTracks = self._cachedKitTracks[kitId]
 		if kitTracks then
@@ -928,7 +858,6 @@ function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, na
 			if section then
 				local track = section[name]
 				if track then
-					-- Use cached track - instant playback!
 					track:Play(0.05)
 					return track
 				end
@@ -936,7 +865,6 @@ function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, na
 		end
 	end
 
-	-- Fallback: create on demand if not cached (original behavior)
 	local kitCfg = ViewmodelConfig.Kits and ViewmodelConfig.Kits[kitId]
 	if type(kitCfg) ~= "table" then
 		return nil
@@ -967,13 +895,9 @@ function ViewmodelController:_playKitAnim(kitId: string, abilityType: string, na
 end
 
 function ViewmodelController:_onLocalAbilityBegin(kitId: string, abilityType: string)
-	-- Swap to fists for now (kit visuals reuse fists).
 	self._previousSlot = self._activeSlot or "Fists"
 	self:SetActiveSlot("Fists")
 
-	-- Moviee-style generic names:
-	-- Ability: Charge
-	-- Ultimate: Activate
 	if abilityType == "Ultimate" then
 		self:_playKitAnim(kitId, abilityType, "Activate")
 	else
@@ -1027,15 +951,12 @@ function ViewmodelController:Destroy()
 		self._equipKeysConn = nil
 	end
 
-	-- Clean up cached rigs and kit tracks
 	self:_destroyAllRigs()
 
-	-- Clear loadout reference
 	if self._loadoutVm then
 		self._loadoutVm = nil
 	end
 
-	-- Destroy storage folder
 	if self._rigStorage then
 		self._rigStorage:Destroy()
 		self._rigStorage = nil
