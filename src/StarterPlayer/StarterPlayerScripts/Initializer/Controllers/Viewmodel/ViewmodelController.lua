@@ -847,46 +847,32 @@ function ViewmodelController:_render(dt: number)
 	local extRot = springs.externalRot.Position
 	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X, extRot.Y, extRot.Z)
 
-	local rotationOffset = CFrame.Angles(springs.rotation.Position.X, 0, springs.rotation.Position.Z)
-	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X, 0, springs.tiltRot.Position.Z)
-	local offset = springs.bob.Position + springs.tiltPos.Position
+	-- Compute BASE target first (hip or ADS), then apply FX in a post step.
+	local baseTarget = cam.CFrame * normalAlign * baseOffset
+	local fxScale = 1
 
-	-- Compute FULL hip target with all effects (sway, tilt, bob)
-	local hipTarget = cam.CFrame
-		* normalAlign
-		* baseOffset
-		* externalOffset
-		* rotationOffset
-		* tiltRotOffset
-		* CFrame.new(offset)
-
-	-- Final target - either hip or blended with ADS
-	local target = hipTarget
-
-	-- If override is set (e.g. ADS), blend between hip and ADS targets
 	if self._targetCFOverride then
 		-- Override returns {align = CFrame, blend = number, effectsMultiplier = number}
 		local result = self._targetCFOverride(normalAlign, baseOffset)
 		if type(result) == "table" and result.align and result.blend then
-			local effectsMult = result.effectsMultiplier or 0.25
-			
-			-- Scaled position effects for ADS (bob only, no rotation)
-			local adsBobOffset = offset * effectsMult
-			
-			-- Compute ADS target: lookAt alignment + position offset (no tilt)
-			local adsTarget = cam.CFrame 
-				* result.align 
-				* externalOffset 
-				* CFrame.new(adsBobOffset)
-			
-			-- Lerp between hip (full effects) and ADS (clean alignment)
-			target = hipTarget:Lerp(adsTarget, result.blend)
+			local adsTarget = cam.CFrame * result.align * baseOffset
+			baseTarget = baseTarget:Lerp(adsTarget, result.blend)
+			local effectsMult = result.effectsMultiplier
+			if type(effectsMult) ~= "number" then
+				effectsMult = 0.25
+			end
+			fxScale = (1 - result.blend) + (result.blend * effectsMult)
 		else
-			-- Fallback: old behavior (result is the alignWithOffset directly)
-			target = cam.CFrame * result * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
+			-- Fallback: legacy override result is a CFrame
+			baseTarget = cam.CFrame * result
 		end
 	end
 
+	local rotationOffset = CFrame.Angles(springs.rotation.Position.X * fxScale, 0, springs.rotation.Position.Z * fxScale)
+	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X * fxScale, 0, springs.tiltRot.Position.Z * fxScale)
+	local offset = (springs.bob.Position + springs.tiltPos.Position) * fxScale
+
+	local target = baseTarget * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
 	rig.Model:PivotTo(target)
 end
 

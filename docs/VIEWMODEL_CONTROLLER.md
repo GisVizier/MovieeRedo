@@ -324,10 +324,9 @@ self:_playKitAnim("WhiteBeard", "Ability", "Charge")
 Per-frame render loop that positions the viewmodel based on camera and spring effects.
 
 - Runs at `RenderPriority.Camera + 11` (after CameraController)
-- Applies rotation sway from camera movement
-- Applies walk/run bob based on velocity
-- Applies slide tilt when sliding
-- Blends hip and ADS targets when `_targetCFOverride` is set
+- Computes base target (hip/ADS blend)
+- Applies spring FX as a post step (rotation/bob/tilt/external)
+- Uses `effectsMultiplier` to scale FX during ADS
 
 ---
 
@@ -350,6 +349,11 @@ Springs provide smooth, responsive visual feedback. Configuration constants:
 - `BOB_AMP_X = 0.04`, `BOB_AMP_Y = 0.03` - Walk bob amplitude
 - `SLIDE_ROLL = 14°`, `SLIDE_PITCH = 6°` - Slide tilt angles
 - `SLIDE_TUCK = (0.12, -0.12, 0.18)` - Slide position offset
+
+**FX Application Order:**
+1. Compute base target (`cam * align * baseOffset`) and blend ADS if active.
+2. Apply external offset (`SetOffset`).
+3. Apply spring FX (rotation, tilt, bob) post-target; optionally scaled via `effectsMultiplier` during ADS.
 
 ---
 
