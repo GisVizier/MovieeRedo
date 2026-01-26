@@ -849,6 +849,7 @@ function ViewmodelController:_render(dt: number)
 	-- Compute BASE target first (hip or ADS), then apply FX in a post step.
 	local baseTarget = cam.CFrame * normalAlign * baseOffset
 	local fxScale = 1
+	local rotScale = 1
 
 	if self._targetCFOverride then
 		-- Override returns {align = CFrame, blend = number, effectsMultiplier = number}
@@ -861,13 +862,16 @@ function ViewmodelController:_render(dt: number)
 				effectsMult = 0.25
 			end
 			fxScale = (1 - result.blend) + (result.blend * effectsMult)
+			if result.blend > 0 then
+				rotScale = 0
+			end
 		else
 			-- Fallback: legacy override result is a CFrame
 			baseTarget = cam.CFrame * result
 		end
 	end
 
-	local rotationOffset = CFrame.Angles(springs.rotation.Position.X * fxScale, 0, springs.rotation.Position.Z * fxScale)
+	local rotationOffset = CFrame.Angles(springs.rotation.Position.X * rotScale, 0, springs.rotation.Position.Z * rotScale)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X * fxScale, 0, springs.tiltRot.Position.Z * fxScale)
 	local offset = (springs.bob.Position + springs.tiltPos.Position) * fxScale
 
