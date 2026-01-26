@@ -79,6 +79,9 @@ WeaponController._autoShootEnabled = false
 WeaponController._autoShootConn = nil
 WeaponController._hasAutoShootTarget = false
 WeaponController._crosshairSlidingRotation = 0
+WeaponController._crosshairRotation = 0
+WeaponController._crosshairRotationTarget = 0
+WeaponController._crosshairRotationConn = nil
 
 -- =============================================================================
 -- INITIALIZATION
@@ -148,6 +151,7 @@ function WeaponController:Start()
 	self:_connectInputs()
 	self:_connectSlotChanges()
 	self:_connectMovementState()
+	self:_ensureCrosshairRotationLoop()
 
 	-- Initialize ammo when loadout changes
 	if LocalPlayer then
@@ -163,6 +167,22 @@ function WeaponController:Start()
 	LogService:Info("WEAPON", "WeaponController started")
 end
 
+function WeaponController:_ensureCrosshairRotationLoop()
+	if self._crosshairRotationConn then
+		return
+	end
+	self._crosshairRotationConn = RunService.RenderStepped:Connect(function(dt)
+		if not self._crosshair then
+			return
+		end
+		local speed = 12
+		local alpha = math.clamp(1 - math.exp(-speed * dt), 0, 1)
+		self._crosshairRotation =
+			self._crosshairRotation + (self._crosshairRotationTarget - self._crosshairRotation) * alpha
+		self._crosshair:SetRotation(self._crosshairRotation)
+	end)
+end
+
 function WeaponController:_connectMovementState()
 	MovementStateManager:ConnectToStateChange(function(_, newState)
 		if not self._crosshair then
@@ -173,7 +193,7 @@ function WeaponController:_connectMovementState()
 		else
 			self._crosshairSlidingRotation = 0
 		end
-		self._crosshair:SetRotation(self._crosshairSlidingRotation)
+		self._crosshairRotationTarget = self._crosshairSlidingRotation
 	end)
 end
 
@@ -343,9 +363,9 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 	local crosshairType = (weaponData and weaponData.type) or "Default"
 	UserInputService.MouseIconEnabled = false
 	self._crosshair:ApplyCrosshair(crosshairType, weaponData)
-	if self._crosshairSlidingRotation ~= 0 then
-		self._crosshair:SetRotation(self._crosshairSlidingRotation)
-	end
+	self._crosshairRotationTarget = self._crosshairSlidingRotation
+	self._crosshairRotation = self._crosshairRotationTarget
+	self._crosshair:SetRotation(self._crosshairRotation)
 end
 
 function WeaponController:_applyCrosshairRecoil()
