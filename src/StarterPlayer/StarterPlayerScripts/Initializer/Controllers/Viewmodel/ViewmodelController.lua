@@ -44,6 +44,9 @@ local SLIDE_ROLL = math.rad(14)
 local SLIDE_PITCH = math.rad(6)
 local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
+local RECOIL_SPRING_SPEED = 25
+local RECOIL_SPRING_DAMPER = 0.8
+
 ViewmodelController._registry = nil
 ViewmodelController._net = nil
 
@@ -128,6 +131,8 @@ function ViewmodelController:Init(registry, net)
 		tiltPos = Spring.new(Vector3.zero),
 		externalPos = Spring.new(Vector3.zero),
 		externalRot = Spring.new(Vector3.zero),
+		recoilPos = Spring.new(Vector3.zero),
+		recoilRot = Spring.new(Vector3.zero),
 	}
 	self._springs.rotation.Speed = ROTATION_SPRING_SPEED
 	self._springs.rotation.Damper = ROTATION_SPRING_DAMPER
@@ -141,6 +146,10 @@ function ViewmodelController:Init(registry, net)
 	self._springs.externalPos.Damper = 0.85
 	self._springs.externalRot.Speed = 12
 	self._springs.externalRot.Damper = 0.85
+	self._springs.recoilPos.Speed = RECOIL_SPRING_SPEED
+	self._springs.recoilPos.Damper = RECOIL_SPRING_DAMPER
+	self._springs.recoilRot.Speed = RECOIL_SPRING_SPEED
+	self._springs.recoilRot.Damper = RECOIL_SPRING_DAMPER
 	self._prevCamCF = nil
 	self._bobT = 0
 	self._wasSliding = false
@@ -637,6 +646,23 @@ function ViewmodelController:SetOffset(offset: CFrame)
 end
 
 --[[
+	ApplyRecoil: spring-based kick and return (no animations).
+	@param kickPos - position kick in viewmodel space (e.g. Vector3.new(0, 0, -0.08))
+	@param kickRot - optional rotation kick (radians, e.g. Vector3.new(-0.08, 0, 0))
+]]
+function ViewmodelController:ApplyRecoil(kickPos: Vector3, kickRot: Vector3?)
+	if not self._springs then
+		return
+	end
+	if typeof(kickPos) == "Vector3" then
+		self._springs.recoilPos:Impulse(kickPos)
+	end
+	if typeof(kickRot) == "Vector3" then
+		self._springs.recoilRot:Impulse(kickRot)
+	end
+end
+
+--[[
 	updateTargetCF: Override/modify the final target CFrame.
 	
 	The function receives the normal computed targetCF and can modify/lerp it.
@@ -849,33 +875,32 @@ function ViewmodelController:_render(dt: number)
 	-- Compute BASE target first (hip or ADS), then apply FX in a post step.
 	local baseTarget = cam.CFrame * normalAlign * baseOffset
 	local fxScale = 1
-	local rotScale = 1
 
 	if self._targetCFOverride then
 		-- Override returns {align = CFrame, blend = number, effectsMultiplier = number}
 		local result = self._targetCFOverride(normalAlign, baseOffset)
 		if type(result) == "table" and result.align and result.blend then
-			local adsTarget = cam.CFrame * result.align * baseOffset
+			-- ADS: align is a rig-space CFrame (no baseOffset reapplication).
+			local adsTarget = cam.CFrame * result.align
 			baseTarget = baseTarget:Lerp(adsTarget, result.blend)
 			local effectsMult = result.effectsMultiplier
 			if type(effectsMult) ~= "number" then
 				effectsMult = 0.25
 			end
 			fxScale = (1 - result.blend) + (result.blend * effectsMult)
-			if result.blend > 0 then
-				rotScale = 0
-			end
 		else
 			-- Fallback: legacy override result is a CFrame
 			baseTarget = cam.CFrame * result
 		end
 	end
 
-	local rotationOffset = CFrame.Angles(springs.rotation.Position.X * rotScale, 0, springs.rotation.Position.Z * rotScale)
+	local rotationOffset = CFrame.Angles(springs.rotation.Position.X * fxScale, 0, springs.rotation.Position.Z * fxScale)
 	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X * fxScale, 0, springs.tiltRot.Position.Z * fxScale)
-	local offset = (springs.bob.Position + springs.tiltPos.Position) * fxScale
+	local recoilRot = CFrame.Angles(springs.recoilRot.Position.X, springs.recoilRot.Position.Y, springs.recoilRot.Position.Z)
+	local recoilPos = springs.recoilPos.Position
+	local offset = (springs.bob.Position + springs.tiltPos.Position + recoilPos) * fxScale
 
-	local target = baseTarget * externalOffset * rotationOffset * tiltRotOffset * CFrame.new(offset)
+	local target = baseTarget * externalOffset * rotationOffset * tiltRotOffset * recoilRot * CFrame.new(offset)
 	rig.Model:PivotTo(target)
 end
 

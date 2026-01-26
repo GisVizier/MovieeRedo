@@ -940,6 +940,17 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	if DEBUG_WEAPON then
 		LogService:Debug("WEAPON", "Fire effects", { weaponId = weaponId })
 	end
+
+	if not self._viewmodelController or not self:_isActiveWeaponEquipped() then
+		return
+	end
+
+	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+	local recoilCfg = weaponConfig and weaponConfig.recoil or {}
+	local kickPos = recoilCfg.kickPos or Vector3.new(0, 0, -0.08)
+	local kickRot = recoilCfg.kickRot or Vector3.new(-0.08, 0, 0)
+
+	self._viewmodelController:ApplyRecoil(kickPos, kickRot)
 end
 
 function WeaponController:_onHitConfirmed(hitData)

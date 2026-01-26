@@ -94,8 +94,7 @@ function Special:_enterADS(weaponInstance)
 			return { align = normalAlign * baseOffset, blend = 0, effectsMultiplier = 1 }
 		end
 
-		-- Compute ADS alignment using simple lookAt
-		-- Eye at AimPosition, looking toward AimLookAt
+		-- Compute ADS alignment using lookAt (rig-space align)
 		local eyePos = Special._aimPosition.WorldPosition
 		local lookAtPos = Special._aimLookAt.WorldPosition
 		local adsLookCFrame = CFrame.lookAt(eyePos, lookAtPos)

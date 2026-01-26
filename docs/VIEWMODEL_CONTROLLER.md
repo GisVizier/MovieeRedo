@@ -244,6 +244,7 @@ resetADS()
 **Parameters:**
 - `func` - Function receiving `(normalAlign, baseOffset)` and returning:
   - `{ align = CFrame, blend = number, effectsMultiplier = number }` for blended ADS
+  - `align` should be a rig-space alignment CFrame (e.g., pivot->AimPosition/AimLookAt inverse)
   - Or a raw CFrame for legacy behavior
 
 **Returns:** Function to reset back to normal hip-fire
@@ -351,9 +352,28 @@ Springs provide smooth, responsive visual feedback. Configuration constants:
 - `SLIDE_TUCK = (0.12, -0.12, 0.18)` - Slide position offset
 
 **FX Application Order:**
-1. Compute base target (`cam * align * baseOffset`) and blend ADS if active.
+1. Compute base target (`cam * normalAlign * baseOffset`) and blend ADS target (`cam * align`) if active.
 2. Apply external offset (`SetOffset`).
 3. Apply spring FX (rotation, tilt, bob) post-target; optionally scaled via `effectsMultiplier` during ADS.
+
+---
+
+## Spring Recoil
+
+Recoil is spring-based (no animations). Fire events should call:
+
+```lua
+ViewmodelController:ApplyRecoil(Vector3.new(0, 0, -0.08), Vector3.new(-0.08, 0, 0))
+```
+
+Weapon configs can optionally define:
+
+```lua
+recoil = {
+    kickPos = Vector3.new(0, 0, -0.08),
+    kickRot = Vector3.new(-0.08, 0, 0),
+}
+```
 
 ---
 
