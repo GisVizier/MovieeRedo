@@ -97,20 +97,25 @@ LoadoutConfig.Weapons = {
 			recoilMultiplier = 2.5,
 		},
 
-		-- Aim Assist settings (sniper: precise, narrow FOV, strong ADS boost)
+		-- Aim Assist settings (sniper: precise, narrow FOV, smooth pull)
 		aimAssist = {
 			enabled = true,
 			range = 500,
 			minRange = 10,
-			fov = 15,                  -- Narrow cone for precision
+			fov = 20,                  -- Narrow cone for precision
 			sortingBehavior = "angle",
-			friction = 0.2,            -- Light friction
-			tracking = 0.25,           -- Moderate tracking
-			centering = 0.05,          -- Very light centering
+			friction = 0.3,            -- Moderate slowdown
+			tracking = 0.4,            -- Moderate tracking
+			centering = 0.7,           -- Strong magnetic pull
 			adsBoost = {
-				Friction = 2.0,        -- Double during scope
-				Tracking = 1.8,
-				Centering = 1.5,
+				Friction = 1.6,
+				Tracking = 1.5,
+				Centering = 2.0,       -- Strong centering during scope
+			},
+			adsSnap = {
+				enabled = false,       -- DISABLED - no snap, smooth pull only
+				strength = 0,
+				maxAngle = 0,
 			},
 		},
 	},
@@ -162,21 +167,25 @@ LoadoutConfig.Weapons = {
 			recoilMultiplier = 2.0,
 		},
 
-		-- Aim Assist settings (shotgun: close range, wide FOV, strong assist)
-		-- BOOSTED FOR TESTING - reduce values for production
+		-- Aim Assist settings (shotgun: close range, wide FOV, strong smooth pull)
 		aimAssist = {
 			enabled = true,
 			range = 100,
 			minRange = 2,
-			fov = 45,                  -- Extra wide for testing
+			fov = 45,                  -- Wide cone for close combat
 			sortingBehavior = "distance",
-			friction = 0.6,            -- BOOSTED for testing
-			tracking = 0.6,            -- BOOSTED for testing
-			centering = 0.4,           -- BOOSTED for testing
+			friction = 0.5,            -- Strong friction
+			tracking = 0.5,            -- Strong tracking
+			centering = 0.85,          -- Very strong magnetic pull for close range
 			adsBoost = {
 				Friction = 1.3,
 				Tracking = 1.2,
-				Centering = 1.2,
+				Centering = 1.5,
+			},
+			adsSnap = {
+				enabled = false,       -- DISABLED - no snap, smooth pull only
+				strength = 0,
+				maxAngle = 0,
 			},
 		},
 
@@ -275,20 +284,24 @@ LoadoutConfig.Weapons = {
 		},
 
 		-- Aim Assist settings (assault rifle: balanced, medium range)
-		-- BOOSTED FOR TESTING - reduce values for production
 		aimAssist = {
 			enabled = true,
 			range = 200,
 			minRange = 3,
-			fov = 35,                  -- Wider cone for testing
+			fov = 35,                  -- Medium cone
 			sortingBehavior = "angle",
-			friction = 0.5,            -- BOOSTED for testing (was 0.25)
-			tracking = 0.5,            -- BOOSTED for testing (was 0.35)
-			centering = 0.3,           -- BOOSTED for testing (was 0.1)
+			friction = 0.4,            -- Balanced friction
+			tracking = 0.4,            -- Balanced tracking
+			centering = 0.8,           -- Strong magnetic pull
 			adsBoost = {
 				Friction = 1.4,
 				Tracking = 1.3,
-				Centering = 1.2,
+				Centering = 1.5,
+			},
+			adsSnap = {
+				enabled = false,       -- DISABLED - no snap, smooth pull only
+				strength = 0,
+				maxAngle = 0,
 			},
 		},
 	},
@@ -401,20 +414,25 @@ LoadoutConfig.Weapons = {
 			trailEnabled = true,
 		},
 
-		-- Aim Assist settings (revolver: precise secondary)
+		-- Aim Assist settings (revolver: precise secondary with smooth pull)
 		aimAssist = {
 			enabled = true,
 			range = 150,
-			minRange = 5,
-			fov = 20,                  -- Narrow cone for precision
+			minRange = 3,
+			fov = 25,                  -- Medium cone
 			sortingBehavior = "angle",
-			friction = 0.2,
-			tracking = 0.3,
-			centering = 0.08,
+			friction = 0.35,           -- Moderate friction
+			tracking = 0.4,            -- Moderate tracking
+			centering = 0.7,           -- Strong magnetic pull
 			adsBoost = {
 				Friction = 1.5,
 				Tracking = 1.4,
-				Centering = 1.3,
+				Centering = 1.6,
+			},
+			adsSnap = {
+				enabled = false,       -- DISABLED - no snap, smooth pull only
+				strength = 0,
+				maxAngle = 0,
 			},
 		},
 	},
@@ -448,9 +466,19 @@ LoadoutConfig.Weapons = {
 			recoilMultiplier = 0.3,
 		},
 
-		-- Aim Assist settings (melee: disabled)
+		-- Aim Assist settings (knife: light melee assist, no snap)
 		aimAssist = {
-			enabled = false,
+			enabled = true,
+			range = 15,                -- Melee range only
+			minRange = 0,
+			fov = 60,                  -- Wide cone for melee
+			sortingBehavior = "distance",
+			friction = 0.3,
+			tracking = 0.4,
+			centering = 0.2,
+			adsSnap = {
+				enabled = false,       -- No ADS for melee
+			},
 		},
 	},
 
@@ -489,9 +517,19 @@ LoadoutConfig.Weapons = {
 			recoilMultiplier = 0.3,
 		},
 
-		-- Aim Assist settings (melee: disabled)
+		-- Aim Assist settings (blade: melee-focused, no snap)
 		aimAssist = {
-			enabled = false,
+			enabled = true,
+			range = 25,                -- Melee range
+			minRange = 0,
+			fov = 55,                  -- Wide cone for melee
+			sortingBehavior = "distance",
+			friction = 0.4,
+			tracking = 0.5,
+			centering = 0.3,
+			adsSnap = {
+				enabled = false,       -- No ADS for melee
+			},
 		},
 	},
 }

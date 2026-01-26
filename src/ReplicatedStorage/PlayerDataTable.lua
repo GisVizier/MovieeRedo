@@ -35,7 +35,7 @@ function PlayerDataTable.init()
 		EMOTES = {},
 
 		OWNED = {
-			OWNED_EMOTES = {"Template"},
+			OWNED_EMOTES = {"Template", `SBR`, `BC`,`CR`, `FR`, `HS`, `SB`, `BMB`},
 			OWNED_KITS = {"WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne"},
 			OWNED_PRIMARY = {"Shotgun", "Sniper"},
 			OWNED_SECONDARY = {"Revolver"},
@@ -55,13 +55,13 @@ function PlayerDataTable.init()
 
 		EQUIPPED_EMOTES = {
 			Slot1 = "Template",
-			Slot2 = nil,
-			Slot3 = nil,
-			Slot4 = nil,
-			Slot5 = nil,
-			Slot6 = nil,
-			Slot7 = nil,
-			Slot8 = nil,
+			Slot2 = `SBR`,
+			Slot3 = `BMB`,
+			Slot4 = `BC`,
+			Slot5 = `SB`,
+			Slot6 = `CR`,
+			Slot7 = `HS`,
+			Slot8 = `FR`,
 		},
 
 		OWNED_SKINS = {

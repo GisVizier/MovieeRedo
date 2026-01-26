@@ -202,6 +202,38 @@ function AimAssist:setAllowMouseInput(allow: boolean)
 	self.allowMouseInput = allow
 end
 
+-- Set camera sensitivity multiplier (from CameraController)
+function AimAssist:setSensitivityMultiplier(multiplier: number)
+	self.sensitivityMultiplier = math.max(0.1, multiplier)
+end
+
+-- Set ADS state (from WeaponController)
+function AimAssist:setADSState(isADS: boolean)
+	self.isADS = isADS
+end
+
+-- Set firing state (from WeaponController)
+function AimAssist:setFiringState(isFiring: boolean)
+	self.isFiring = isFiring
+end
+
+-- Get the target acquired event (for WeaponController to listen to)
+function AimAssist:getTargetAcquiredEvent()
+	return self.targetAcquiredEvent.Event
+end
+
+-- Check if target has been in sight long enough for auto-shoot
+function AimAssist:canAutoShoot(): boolean
+	if not self.hasTarget then
+		return false
+	end
+
+	local acquisitionDelay = AimAssistConfig.AutoShoot.AcquisitionDelay
+	local timeSinceAcquisition = tick() - self.lastTargetAcquisitionTime
+
+	return timeSinceAcquisition >= acquisitionDelay
+end
+
 -- =============================================================================
 -- TARGET MANAGEMENT
 -- =============================================================================
@@ -273,6 +305,95 @@ function AimAssist:applyADSBoost(boostConfig: { Friction: number?, Tracking: num
 			self.baseStrengths.centering * (boost.Centering or 1)
 		)
 	end
+end
+
+-- =============================================================================
+-- SNAP TO TARGET (ADS Feature)
+-- =============================================================================
+
+--[[
+	Instantly snaps the camera toward the nearest valid target.
+	Call this when ADS is activated for Fortnite-style snap aim.
+	
+	@param snapConfig: { strength: number?, maxAngle: number? }
+		- strength: 0-1, how much to rotate toward target (default 0.5)
+		- maxAngle: max degrees to snap (default 15)
+	@return boolean: true if snapped to a target, false if no valid target
+]]
+function AimAssist:snapToTarget(snapConfig: { strength: number?, maxAngle: number? }?): boolean
+	if not self.subject or not self.subject:IsA("Camera") then
+		return false
+	end
+	
+	-- Get nearest target
+	local targetResult = self.targetSelector:selectTarget(self.subject)
+	if not targetResult then
+		print("[AimAssist] Snap: No valid target found")
+		return false
+	end
+	
+	local config = snapConfig or {}
+	local strength = config.strength or 0.5
+	local maxAngle = config.maxAngle or 15
+	
+	-- Check if target is within max snap angle
+	if targetResult.angle > maxAngle then
+		print(string.format("[AimAssist] Snap: Target too far (%.1f° > %.1f° max)", targetResult.angle, maxAngle))
+		return false
+	end
+	
+	local camera = self.subject
+	local targetPos = targetResult.bestPosition
+	local currentCFrame = camera.CFrame
+	
+	-- Calculate ideal CFrame looking at target
+	local idealCFrame = CFrame.lookAt(currentCFrame.Position, targetPos)
+	
+	-- Calculate actual snap strength based on angle (closer = stronger snap)
+	local angleRatio = 1 - (targetResult.angle / maxAngle)
+	local actualStrength = strength * angleRatio
+	
+	-- Interpolate toward target
+	local newCFrame = currentCFrame:Lerp(idealCFrame, actualStrength)
+	
+	-- Apply the snap
+	camera.CFrame = newCFrame
+	
+	-- Calculate how much we rotated
+	local rotationDelta = math.deg(math.acos(math.clamp(currentCFrame.LookVector:Dot(newCFrame.LookVector), -1, 1)))
+	
+	print(string.format(
+		"[AimAssist] SNAP! Target: %s | Angle: %.1f° | Strength: %.2f | Rotated: %.1f°",
+		targetResult.instance and targetResult.instance.Name or "?",
+		targetResult.angle,
+		actualStrength,
+		rotationDelta
+	))
+	
+	return true
+end
+
+--[[
+	Performs ADS snap and applies boost in one call.
+	Convenience function for weapon ADS activation.
+	
+	@param snapConfig: { strength: number?, maxAngle: number? }?
+	@param boostConfig: { Friction: number?, Tracking: number?, Centering: number? }?
+	@return boolean: true if snapped to a target
+]]
+function AimAssist:activateADS(snapConfig: { strength: number?, maxAngle: number? }?, boostConfig: { Friction: number?, Tracking: number?, Centering: number? }?): boolean
+	-- Apply continuous boost
+	self:applyADSBoost(boostConfig)
+	
+	-- Perform snap
+	return self:snapToTarget(snapConfig)
+end
+
+--[[
+	Deactivates ADS - restores base strengths.
+]]
+function AimAssist:deactivateADS()
+	self:restoreBaseStrengths()
 end
 
 -- =============================================================================
@@ -349,14 +470,52 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 		self.debugVisualizer:update(targetResult, self.fieldOfView, allTargetPoints)
 	end
 
+	-- Track target acquisition for auto-shoot
+	-- Only consider target "acquired" if crosshair is ON target (within angle threshold)
+	local hadTarget = self.hasTarget
+	local hasTargetNow = false
+
+	if targetResult ~= nil then
+		local maxAngle = AimAssistConfig.AutoShoot.MaxAngleForAutoShoot
+		hasTargetNow = targetResult.angle < maxAngle
+	end
+
+	-- Fire signal when target state changes
+	if hasTargetNow ~= hadTarget then
+		self.hasTarget = hasTargetNow
+
+		if hasTargetNow then
+			-- Target acquired (crosshair on target)
+			self.lastTargetAcquisitionTime = tick()
+			self.targetAcquiredEvent:Fire({
+				hasTarget = true,
+				targetInfo = {
+					instance = targetResult.instance,
+					position = targetResult.bestPosition,
+					distance = targetResult.distance,
+					angle = targetResult.angle,
+				}
+			})
+		else
+			-- Target lost (crosshair moved off target or no target in FOV)
+			self.targetAcquiredEvent:Fire({
+				hasTarget = false,
+				targetInfo = nil,
+			})
+		end
+	end
+
 	-- No target = no adjustment needed
 	if not targetResult then
 		self.startingSubjectCFrame = currCFrame
 		return
 	end
 
+	-- Calculate state multiplier based on ADS/Firing state
+	local stateMultiplier = self:getStateMultiplier()
+
 	-- Calculate adjustment strength from easing functions
-	local adjustmentStrength = self:getPlayerStrengthMultiplier()
+	local adjustmentStrength = self:getPlayerStrengthMultiplier() * stateMultiplier * self.sensitivityMultiplier
 	for attribute, ease in self.easingFuncs do
 		local value = targetResult[attribute]
 		if value then
@@ -421,15 +580,38 @@ function AimAssist:getPlayerStrengthMultiplier(): number
 	if not player then
 		return 1
 	end
-	
+
 	local attrName = AimAssistConfig.PlayerAttributes.Strength
 	local strength = player:GetAttribute(attrName)
-	
+
 	if strength == nil then
 		return AimAssistConfig.PlayerDefaults.Strength
 	end
-	
+
 	return math.clamp(strength, 0, 1)
+end
+
+-- Get state multiplier based on ADS/Firing state
+function AimAssist:getStateMultiplier(): number
+	local stateMultipliers = AimAssistConfig.StateMultipliers
+
+	-- ADS + Firing (strongest, then adsBoost is applied on top)
+	if self.isADS and self.isFiring then
+		return stateMultipliers.ADSFiring
+	end
+
+	-- ADS only
+	if self.isADS then
+		return stateMultipliers.ADS
+	end
+
+	-- Firing only
+	if self.isFiring then
+		return stateMultipliers.Firing
+	end
+
+	-- Idle (gentlest)
+	return stateMultipliers.Idle
 end
 
 -- =============================================================================
@@ -507,6 +689,18 @@ function AimAssist.new()
 		fieldOfView = defaults.FieldOfView,
 		baseStrengths = nil,
 		adsBoostConfig = nil,
+
+		-- State tracking for tiered assist
+		isADS = false,
+		isFiring = false,
+
+		-- Sensitivity scaling
+		sensitivityMultiplier = 1.0,
+
+		-- Auto-shoot tracking
+		hasTarget = false,
+		lastTargetAcquisitionTime = 0,
+		targetAcquiredEvent = Instance.new("BindableEvent"),
 	}
 
 	self.targetSelector = TargetSelector.new()
@@ -526,11 +720,15 @@ end
 
 function AimAssist:destroy()
 	self:disable()
-	
+
 	if self.debugVisualizer then
 		self.debugVisualizer:destroy()
 	end
-	
+
+	if self.targetAcquiredEvent then
+		self.targetAcquiredEvent:Destroy()
+	end
+
 	self.subject = nil
 	self.targetSelector = nil
 	self.aimAdjuster = nil

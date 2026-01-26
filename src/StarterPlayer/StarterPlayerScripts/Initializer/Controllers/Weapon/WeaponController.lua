@@ -71,6 +71,12 @@ WeaponController._lastCameraMode = nil
 WeaponController._aimAssist = nil
 WeaponController._aimAssistEnabled = false
 WeaponController._aimAssistConfig = nil
+WeaponController._aimAssistTargetConnection = nil
+
+-- Auto-shoot
+WeaponController._autoShootEnabled = false
+WeaponController._autoShootConn = nil
+WeaponController._hasAutoShootTarget = false
 
 -- =============================================================================
 -- INITIALIZATION
@@ -393,24 +399,30 @@ function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 		LogService:Warn("WEAPON", "Aim assist not initialized!")
 		return
 	end
-	
+
 	local aimAssistConfig = weaponConfig and weaponConfig.aimAssist
-	
+
 	if aimAssistConfig and aimAssistConfig.enabled then
 		-- Configure from weapon settings
 		self._aimAssist:configureFromWeapon(aimAssistConfig)
 		self._aimAssistConfig = aimAssistConfig
-		
+
+		-- Set camera sensitivity multiplier (lower sens = gentler pull)
+		self:_updateAimAssistSensitivity()
+
 		-- Enable aim assist
 		self._aimAssist:enable()
 		self._aimAssistEnabled = true
-		
+
+		-- Setup auto-shoot listener
+		self:_setupAutoShoot()
+
 		-- Re-apply debug mode (in case it was lost)
 		if AimAssistConfig.Debug then
 			self._aimAssist:setDebug(true)
 		end
-		
-		LogService:Info("WEAPON", "=== AIM ASSIST ENABLED ===", { 
+
+		LogService:Info("WEAPON", "=== AIM ASSIST ENABLED ===", {
 			weapon = weaponConfig.id or weaponConfig.name or "Unknown",
 			range = aimAssistConfig.range,
 			fov = aimAssistConfig.fov,
@@ -423,10 +435,45 @@ function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 		if self._aimAssistEnabled then
 			self._aimAssist:disable()
 			self._aimAssistEnabled = false
+			self:_cleanupAutoShoot()
 			LogService:Info("WEAPON", "Aim assist DISABLED for this weapon")
 		end
 		self._aimAssistConfig = nil
 	end
+end
+
+-- Update aim assist sensitivity based on camera sensitivity
+function WeaponController:_updateAimAssistSensitivity()
+	if not self._aimAssist or not self._aimAssistEnabled then
+		return
+	end
+
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if not cameraController then
+		return
+	end
+
+	-- Get camera config for base sensitivity values
+	local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Config"))
+	local cameraConfig = Config.Camera
+
+	-- Base mouse sensitivity (from config)
+	local baseSensitivity = cameraConfig.Sensitivity.Mouse or 0.2
+
+	-- Actual sensitivity (we could read from player settings if they can customize it)
+	local actualSensitivity = baseSensitivity
+
+	-- Calculate multiplier: lower sens = lower pull strength
+	-- Sensitivity of 0.1 = 0.5x pull, 0.2 = 1.0x pull, 0.4 = 2.0x pull
+	local sensitivityMultiplier = actualSensitivity / baseSensitivity
+
+	self._aimAssist:setSensitivityMultiplier(sensitivityMultiplier)
+
+	LogService:Info("WEAPON", "Aim assist sensitivity updated", {
+		baseSens = baseSensitivity,
+		actualSens = actualSensitivity,
+		multiplier = sensitivityMultiplier,
+	})
 end
 
 function WeaponController:_unequipCurrentWeapon()
@@ -458,10 +505,11 @@ function WeaponController:_unequipCurrentWeapon()
 		LocalPlayer:SetAttribute("ADSSpeedMultiplier", 1.0)
 	end
 
-	-- Disable Aim Assist
+	-- Disable Aim Assist and Auto-shoot
 	if self._aimAssist and self._aimAssistEnabled then
 		self._aimAssist:disable()
 		self._aimAssistEnabled = false
+		self:_cleanupAutoShoot()
 	end
 	self._aimAssistConfig = nil
 
@@ -586,6 +634,11 @@ function WeaponController:_onFirePressed()
 
 	if not self._currentActions or not self._currentActions.Attack then
 		return
+	end
+
+	-- Update aim assist firing state
+	if self._aimAssist and self._aimAssistEnabled then
+		self._aimAssist:setFiringState(true)
 	end
 
 	-- Update weapon instance state
@@ -749,14 +802,29 @@ function WeaponController:_updateAimAssistADS(isADS: boolean)
 	if not self._aimAssist or not self._aimAssistEnabled then
 		return
 	end
-	
+
+	-- Update ADS state (no more snap, just state tracking)
+	self._aimAssist:setADSState(isADS)
+
 	if isADS then
-		-- Apply ADS boost
+		-- Apply ADS boost to strengthen the continuous pull
 		local boostConfig = self._aimAssistConfig and self._aimAssistConfig.adsBoost
 		self._aimAssist:applyADSBoost(boostConfig)
+		print("[WeaponController] ADS activated - continuous pull strengthened")
+
+		-- Start auto-shoot if target is in sight and ADS-only is enabled
+		if self._hasAutoShootTarget and AimAssistConfig.AutoShoot.ADSOnly then
+			self:_startAutoShootIfEnabled()
+		end
 	else
-		-- Restore base strengths
-		self._aimAssist:restoreBaseStrengths()
+		-- Deactivate ADS (restore base strengths)
+		self._aimAssist:deactivateADS()
+		print("[WeaponController] ADS deactivated - normal pull strength")
+
+		-- Stop auto-shoot if ADS-only is required
+		if AimAssistConfig.AutoShoot.ADSOnly then
+			self:_stopAutoShoot()
+		end
 	end
 end
 
@@ -793,6 +861,12 @@ end
 
 function WeaponController:_stopAutoFire()
 	self._isAutomatic = false
+
+	-- Clear aim assist firing state when we stop firing
+	if self._aimAssist and self._aimAssistEnabled then
+		self._aimAssist:setFiringState(false)
+	end
+
 	if self._autoFireConn then
 		self._autoFireConn:Disconnect()
 		self._autoFireConn = nil
@@ -935,6 +1009,133 @@ function WeaponController:GetADSSpeedMultiplier(): number
 		return LocalPlayer:GetAttribute("ADSSpeedMultiplier") or 1.0
 	end
 	return 1.0
+end
+
+-- =============================================================================
+-- AUTO-SHOOT SYSTEM
+-- =============================================================================
+
+function WeaponController:_setupAutoShoot()
+	-- Cleanup existing connection
+	self:_cleanupAutoShoot()
+
+	if not self._aimAssist then
+		return
+	end
+
+	-- Listen to target acquisition events
+	local targetEvent = self._aimAssist:getTargetAcquiredEvent()
+	self._aimAssistTargetConnection = targetEvent:Connect(function(data)
+		self:_onTargetAcquisitionChanged(data)
+	end)
+
+	LogService:Info("WEAPON", "Auto-shoot listener setup complete")
+end
+
+function WeaponController:_cleanupAutoShoot()
+	if self._aimAssistTargetConnection then
+		self._aimAssistTargetConnection:Disconnect()
+		self._aimAssistTargetConnection = nil
+	end
+
+	self:_stopAutoShoot()
+end
+
+function WeaponController:_onTargetAcquisitionChanged(data)
+	local hasTarget = data.hasTarget
+
+	if hasTarget then
+		-- Target acquired - start auto-shooting if enabled
+		self._hasAutoShootTarget = true
+		self:_startAutoShootIfEnabled()
+	else
+		-- Target lost - stop auto-shooting
+		self._hasAutoShootTarget = false
+		self:_stopAutoShoot()
+	end
+end
+
+function WeaponController:_startAutoShootIfEnabled()
+	-- Check if auto-shoot is globally enabled
+	if not AimAssistConfig.AutoShoot.Enabled then
+		return
+	end
+
+	-- Check if ADS-only mode is enabled and we're not ADS
+	if AimAssistConfig.AutoShoot.ADSOnly and not self._aimAssist.isADS then
+		return
+	end
+
+	-- Don't start if already auto-shooting
+	if self._autoShootConn then
+		return
+	end
+
+	-- Start auto-shoot loop
+	self._autoShootConn = RunService.Heartbeat:Connect(function()
+		if not self._hasAutoShootTarget then
+			self:_stopAutoShoot()
+			return
+		end
+
+		-- Check ADS requirement
+		if AimAssistConfig.AutoShoot.ADSOnly and not self._aimAssist.isADS then
+			return
+		end
+
+		-- Check if target has been in sight long enough
+		if not self._aimAssist:canAutoShoot() then
+			return
+		end
+
+		-- Check if we can actually fire
+		if not self:_isActiveWeaponEquipped() then
+			return
+		end
+
+		if not self._currentActions or not self._currentActions.Attack then
+			return
+		end
+
+		-- Trigger attack
+		self:_onFirePressed()
+	end)
+
+	LogService:Info("WEAPON", "Auto-shoot STARTED")
+end
+
+function WeaponController:_stopAutoShoot()
+	if self._autoShootConn then
+		self._autoShootConn:Disconnect()
+		self._autoShootConn = nil
+		LogService:Info("WEAPON", "Auto-shoot STOPPED")
+	end
+end
+
+-- Toggle auto-shoot feature on/off
+function WeaponController:SetAutoShootEnabled(enabled: boolean)
+	AimAssistConfig.AutoShoot.Enabled = enabled
+
+	if not enabled then
+		self:_stopAutoShoot()
+	elseif self._hasAutoShootTarget then
+		self:_startAutoShootIfEnabled()
+	end
+
+	LogService:Info("WEAPON", "Auto-shoot toggled", { enabled = enabled })
+end
+
+-- Toggle ADS-only requirement
+function WeaponController:SetAutoShootADSOnly(adsOnly: boolean)
+	AimAssistConfig.AutoShoot.ADSOnly = adsOnly
+
+	-- Restart auto-shoot if needed to apply new setting
+	if self._hasAutoShootTarget then
+		self:_stopAutoShoot()
+		self:_startAutoShootIfEnabled()
+	end
+
+	LogService:Info("WEAPON", "Auto-shoot ADS-only toggled", { adsOnly = adsOnly })
 end
 
 -- =============================================================================

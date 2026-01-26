@@ -61,6 +61,18 @@ src/ReplicatedStorage/Game/AimAssist/
 
 ## Aim Assist Methods
 
+### ADS Snap (Fortnite-Style)
+
+Instantly snaps the camera toward the nearest valid target when aiming down sights. This provides immediate target acquisition similar to Fortnite's aim assist.
+
+| Setting | Description | Typical Range |
+|---------|-------------|---------------|
+| enabled | Enable/disable snap | true/false |
+| strength | How much to rotate toward target (0-1) | 0.4 - 0.6 |
+| maxAngle | Max degrees to snap | 10° - 20° |
+
+**When it helps**: Quick target acquisition when entering ADS
+
 ### Friction (Slowdown)
 
 Reduces camera movement sensitivity when crosshair is near a target.
@@ -117,19 +129,24 @@ AssaultRifle = {
             Tracking = 1.3,
             Centering = 1.2,
         },
+        adsSnap = {            -- Fortnite-style snap on ADS
+            enabled = true,
+            strength = 0.45,   -- How much to snap (0-1)
+            maxAngle = 15,     -- Max degrees to snap
+        },
     },
 }
 ```
 
 ### Weapon Type Presets
 
-| Weapon Type | Range | FOV | Friction | Tracking | Centering | Notes |
-|-------------|-------|-----|----------|----------|-----------|-------|
-| **Sniper** | 500 | 15° | 0.2 | 0.25 | 0.05 | Precise, narrow cone, strong ADS boost |
-| **Assault Rifle** | 200 | 25° | 0.25 | 0.35 | 0.1 | Balanced for all ranges |
-| **Shotgun** | 80 | 35° | 0.35 | 0.4 | 0.15 | Wide cone, strong assist |
-| **Revolver** | 150 | 20° | 0.2 | 0.3 | 0.08 | Precise secondary |
-| **Melee** | - | - | - | - | - | Disabled |
+| Weapon Type | Range | FOV | Friction | Tracking | Centering | ADS Snap | Notes |
+|-------------|-------|-----|----------|----------|-----------|----------|-------|
+| **Sniper** | 500 | 20° | 0.4 | 0.5 | 0.3 | 0.6 @ 12° | Strong snap, narrow angle |
+| **Assault Rifle** | 200 | 35° | 0.5 | 0.5 | 0.4 | 0.45 @ 15° | Balanced snap |
+| **Shotgun** | 100 | 45° | 0.6 | 0.6 | 0.5 | 0.5 @ 20° | Wide snap angle |
+| **Revolver** | 150 | 25° | 0.45 | 0.5 | 0.35 | 0.5 @ 12° | Precise snap |
+| **Melee** | 15-25 | 55-60° | 0.3-0.4 | 0.4-0.5 | 0.2-0.3 | Disabled | No ADS snap |
 
 ### Global Settings (AimAssistConfig.lua)
 
@@ -363,6 +380,16 @@ aimAssist:storeBaseStrengths()
 aimAssist:applyADSBoost({ Friction = 1.5, Tracking = 1.3 })
 aimAssist:restoreBaseStrengths()
 
+-- ADS Snap (Fortnite-style)
+local didSnap = aimAssist:snapToTarget({ strength = 0.5, maxAngle = 15 })
+
+-- Combined ADS activation (snap + boost)
+local didSnap = aimAssist:activateADS(
+    { strength = 0.5, maxAngle = 15 },  -- snap config
+    { Friction = 1.5, Tracking = 1.3 }  -- boost config
+)
+aimAssist:deactivateADS()  -- Restore base strengths
+
 -- Input eligibility
 aimAssist:updateGamepadEligibility(keyCode, position)
 aimAssist:updateTouchEligibility()
@@ -421,7 +448,27 @@ WeaponController:UpdateAimAssistTouchEligibility()
 
 ### Per-Weapon Philosophy
 
-- **Snipers**: Narrow FOV, precise targeting, strong ADS boost
-- **SMGs/ARs**: Balanced for tracking moving targets
-- **Shotguns**: Wide FOV, strong assist for close combat
-- **Melee**: Disabled (no ranged aiming needed)
+- **Snipers**: Narrow FOV, precise targeting, strong ADS snap for quick scoping
+- **SMGs/ARs**: Balanced for tracking moving targets, moderate snap
+- **Shotguns**: Wide FOV, strong assist for close combat, wide snap angle
+- **Revolvers**: Precise secondary, medium snap for quick-draw feel
+- **Melee**: Light assist for tracking, no ADS snap (no ranged aiming)
+
+### ADS Snap Tuning
+
+The ADS snap feature creates a "Fortnite-style" instant aim correction when entering ADS:
+
+| Parameter | Effect | Recommendation |
+|-----------|--------|----------------|
+| **strength** | How far to rotate toward target | 0.4-0.6 feels responsive without jarring |
+| **maxAngle** | Max degrees from center to snap | 12-20° prevents snapping to off-screen targets |
+
+**Tips:**
+- Higher strength = more aggressive snap (can feel "magnetic")
+- Lower strength = subtle nudge (more natural)
+- Narrow maxAngle = only snaps when already close to target
+- Wide maxAngle = snaps even when target is at edge of screen
+
+**Console vs PC:**
+- Console players benefit from stronger snap (0.5-0.6)
+- PC players may prefer lighter snap (0.3-0.4) or disabled
