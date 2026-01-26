@@ -255,6 +255,16 @@ function CrosshairController:SetCustomization(customizationData: any)
 	end
 end
 
+function CrosshairController:SetRotation(rotationDeg: number)
+	if not self._customization then
+		self._customization = table.clone(CrosshairController.Mock.customization)
+	end
+	self._customization.rotation = rotationDeg or 0
+	if self._module and self._module.ApplyCustomization then
+		self._module:ApplyCustomization(self._customization)
+	end
+end
+
 function CrosshairController:Destroy()
 	self:RemoveCrosshair()
 	self._connections:cleanupAll()

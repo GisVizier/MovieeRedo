@@ -40,9 +40,9 @@ local VERT_AMP_Y = 0.08
 
 local TILT_SPRING_SPEED = 12
 local TILT_SPRING_DAMPER = 0.9
-local SLIDE_ROLL = math.rad(14)
-local SLIDE_PITCH = math.rad(6)
-local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
+local SLIDE_ROLL = math.rad(30)
+local SLIDE_PITCH = 0
+local SLIDE_TUCK = Vector3.zero
 
 local RECOIL_SPRING_SPEED = 25
 local RECOIL_SPRING_DAMPER = 0.8
@@ -827,24 +827,10 @@ function ViewmodelController:_render(dt: number)
 	do
 		local isSliding = MovementStateManager:IsSliding()
 		if isSliding then
-			if not self._wasSliding then
-				local root = getRootPart()
-				local vel = root and root.AssemblyLinearVelocity or Vector3.zero
-				local horizontal = Vector3.new(vel.X, 0, vel.Z)
-				local localDir
-				if horizontal.Magnitude > 0.1 then
-					local slideDir = horizontal.Unit
-					localDir = yawCF:VectorToObjectSpace(slideDir)
-				else
-					localDir = Vector3.new(0, 0, -1)
-				end
-				local roll = -math.clamp(localDir.X, -1, 1) * SLIDE_ROLL
-				local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
-				self._slideTiltTarget = Vector3.new(pitch, 0, roll)
-			end
 			self._wasSliding = true
+			self._slideTiltTarget = Vector3.new(0, 0, -SLIDE_ROLL)
 			springs.tiltRot.Target = self._slideTiltTarget
-			springs.tiltPos.Target = SLIDE_TUCK
+			springs.tiltPos.Target = Vector3.zero
 		else
 			self._wasSliding = false
 			self._slideTiltTarget = Vector3.zero
@@ -894,8 +880,10 @@ function ViewmodelController:_render(dt: number)
 		end
 	end
 
-	-- FX disabled: only base target + external offset.
-	local target = baseTarget * externalOffset
+	-- Apply tilt only (slide tuck + rotate).
+	local tiltRotOffset = CFrame.Angles(springs.tiltRot.Position.X * fxScale, 0, springs.tiltRot.Position.Z * fxScale)
+	local tiltPosOffset = CFrame.new(springs.tiltPos.Position * fxScale)
+	local target = baseTarget * externalOffset * tiltRotOffset * tiltPosOffset
 	rig.Model:PivotTo(target)
 end
 

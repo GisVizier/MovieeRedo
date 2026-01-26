@@ -18,6 +18,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local CrosshairController =
 	require(ReplicatedStorage:WaitForChild("CrosshairSystem"):WaitForChild("CrosshairController"))
 
@@ -77,6 +78,7 @@ WeaponController._aimAssistTargetConnection = nil
 WeaponController._autoShootEnabled = false
 WeaponController._autoShootConn = nil
 WeaponController._hasAutoShootTarget = false
+WeaponController._crosshairSlidingRotation = 0
 
 -- =============================================================================
 -- INITIALIZATION
@@ -145,6 +147,7 @@ function WeaponController:Start()
 
 	self:_connectInputs()
 	self:_connectSlotChanges()
+	self:_connectMovementState()
 
 	-- Initialize ammo when loadout changes
 	if LocalPlayer then
@@ -158,6 +161,20 @@ function WeaponController:Start()
 	end
 
 	LogService:Info("WEAPON", "WeaponController started")
+end
+
+function WeaponController:_connectMovementState()
+	MovementStateManager:ConnectToStateChange(function(_, newState)
+		if not self._crosshair then
+			return
+		end
+		if newState == MovementStateManager.States.Sliding then
+			self._crosshairSlidingRotation = 30
+		else
+			self._crosshairSlidingRotation = 0
+		end
+		self._crosshair:SetRotation(self._crosshairSlidingRotation)
+	end)
 end
 
 function WeaponController:_connectInputs()
@@ -326,6 +343,9 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 	local crosshairType = (weaponData and weaponData.type) or "Default"
 	UserInputService.MouseIconEnabled = false
 	self._crosshair:ApplyCrosshair(crosshairType, weaponData)
+	if self._crosshairSlidingRotation ~= 0 then
+		self._crosshair:SetRotation(self._crosshairSlidingRotation)
+	end
 end
 
 function WeaponController:_applyCrosshairRecoil()
