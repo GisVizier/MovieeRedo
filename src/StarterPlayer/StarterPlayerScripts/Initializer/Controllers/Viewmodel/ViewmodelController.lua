@@ -758,10 +758,9 @@ function ViewmodelController:_render(dt: number)
 	do
 		if self._prevCamCF then
 			local diff = self._prevCamCF:ToObjectSpace(cam.CFrame)
-			local axis, angle = diff:ToAxisAngle()
-			if angle == angle then
-				local angularDisp = axis * angle
-				springs.rotation:Impulse(angularDisp * ROTATION_SENSITIVITY)
+			local rx, ry, rz = diff:ToEulerAnglesXYZ()
+			if rx == rx and ry == ry and rz == rz then
+				springs.rotation:Impulse(Vector3.new(rx, 0, rz) * ROTATION_SENSITIVITY)
 			end
 		end
 		self._prevCamCF = cam.CFrame
