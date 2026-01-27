@@ -223,6 +223,8 @@ function WeaponProjectile:Fire(weaponInstance, options)
 			position = origin,
 			velocity = finalDirection * speed,
 			physics = ProjectilePhysics.new(projectileConfig),
+			startPosition = origin, -- Store original fire position for flight time calculation
+			initialSpeed = speed, -- Store initial speed for flight time calculation
 			
 			-- Timing
 			fireTimestamp = fireTimestamp,
@@ -384,6 +386,8 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 			position = origin,
 			velocity = pelletDirection * speed,
 			physics = ProjectilePhysics.new(projectileConfig),
+			startPosition = origin, -- Store original fire position for flight time calculation
+			initialSpeed = speed, -- Store initial speed for flight time calculation
 			
 			-- Timing
 			fireTimestamp = fireTimestamp,
@@ -612,14 +616,20 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 	end
 	projectile.pierceCount = projectile.pierceCount + 1
 	
-	-- Calculate impact timestamp
-	local impactTimestamp = projectile.fireTimestamp + projectile.elapsed
+	-- Calculate physics-based flight time (not game loop elapsed time)
+	-- This ensures server validation passes since it uses the same physics calculation
+	local actualFlightTime = projectile.physics:CalculateFlightTime(
+		projectile.startPosition,
+		hitResult.Position,
+		projectile.initialSpeed
+	)
+	local impactTimestamp = projectile.fireTimestamp + actualFlightTime
 	
 	-- Create hit packet
 	local hitPacket = ProjectilePacketUtils:CreateHitPacket({
 		fireTimestamp = projectile.fireTimestamp,
 		impactTimestamp = impactTimestamp,
-		origin = projectile.position, -- Current position (start of this segment)
+		origin = projectile.startPosition, -- Original fire position for server validation
 		hitPosition = hitResult.Position,
 		hitPart = hitResult.Instance,
 		hitPlayer = hitPlayer,
@@ -746,13 +756,19 @@ function WeaponProjectile:_handleAoEExplosion(projectile, hitResult)
 	end
 	
 	-- Send AoE hit for each target
-	local impactTimestamp = projectile.fireTimestamp + projectile.elapsed
+	-- Calculate physics-based flight time (not game loop elapsed time)
+	local actualFlightTime = projectile.physics:CalculateFlightTime(
+		projectile.startPosition,
+		explosionCenter,
+		projectile.initialSpeed
+	)
+	local impactTimestamp = projectile.fireTimestamp + actualFlightTime
 	
 	for _, target in ipairs(hitTargets) do
 		local hitPacket = ProjectilePacketUtils:CreateHitPacket({
 			fireTimestamp = projectile.fireTimestamp,
 			impactTimestamp = impactTimestamp,
-			origin = projectile.position,
+			origin = projectile.startPosition, -- Original fire position for server validation
 			hitPosition = explosionCenter,
 			hitPlayer = target.player,
 			hitCharacter = target.player.Character,
