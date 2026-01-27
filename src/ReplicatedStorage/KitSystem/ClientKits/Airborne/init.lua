@@ -651,83 +651,24 @@ function Airborne.Ability:OnStart(abilityRequest)
 		["Burst"] = function()
 			hrp.AssemblyLinearVelocity = Vector3.new(0, 75, 0)
 			
-			-- Apply upward knockback to nearby enemies using Hitbox detection
+			-- Apply knockback to nearby enemies using preset system
 			local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 			local knockbackController = ServiceRegistry:GetController("Knockback")
 			
 			local KNOCKBACK_RADIUS = 15
-			local KNOCKBACK_MAGNITUDE = 65
 			
-			local myCharacter = abilityRequest.player and abilityRequest.player.Character
-			
-			-- Show visual hitbox sphere (longer duration for debugging)
-			Hitbox.GetEntitiesInSphere(hrp.Position, KNOCKBACK_RADIUS, {
+			-- Get all characters (players AND dummies) in range
+			local targets = Hitbox.GetCharactersInSphere(hrp.Position, KNOCKBACK_RADIUS, {
 				Exclude = abilityRequest.player,
 				Visualize = true,
-				VisualizeDuration = 1.5,
+				VisualizeDuration = 1.0,
 				VisualizeColor = Color3.fromRGB(255, 220, 100),
 			})
 			
-			-- Manual detection for both players and dummies using GetPartBoundsInRadius
-			local params = OverlapParams.new()
-			params.FilterType = Enum.RaycastFilterType.Exclude
-			local excludeList = { workspace:FindFirstChild("Rigs") }
-			if myCharacter then
-				table.insert(excludeList, myCharacter)
-			end
-			params.FilterDescendantsInstances = excludeList
-			
-			local parts = workspace:GetPartBoundsInRadius(hrp.Position, KNOCKBACK_RADIUS, params)
-			print("[Updraft] Found", #parts, "parts in radius", KNOCKBACK_RADIUS)
-			
-			local processedTargets = {}
-			
-			for _, part in parts do
-				-- Find the character/model this part belongs to
-				local character = part.Parent
-				
-				-- Walk up the hierarchy to find the character model
-				local maxDepth = 5
-				local depth = 0
-				while character and depth < maxDepth do
-					if character:IsA("Model") and (character:FindFirstChild("Root") or character:FindFirstChild("Humanoid") or character.PrimaryPart) then
-						-- Found a character-like model
-						break
-					end
-					character = character.Parent
-					depth = depth + 1
-				end
-				
-				-- Validate character and skip already processed
-				if character and character:IsA("Model") and not processedTargets[character] and character ~= myCharacter then
-					local targetRoot = character:FindFirstChild("Root") or character.PrimaryPart
-					if targetRoot then
-						processedTargets[character] = true
-						print("[Updraft] Applying knockback to:", character.Name)
-						
-						-- Calculate upward knockback with slight outward push
-						local outward = (targetRoot.Position - hrp.Position)
-						if outward.Magnitude < 0.1 then
-							outward = Vector3.zero
-						else
-							outward = outward.Unit * 0.3
-						end
-						local direction = (Vector3.new(0, 1, 0) + outward).Unit
-						
-						-- Check if target is a player character or dummy
-						local targetPlayer = Players:GetPlayerFromCharacter(character)
-						if targetPlayer and knockbackController then
-							-- Real player - use network relay
-							knockbackController:RequestKnockbackOnPlayer(
-								targetPlayer,
-								direction,
-								KNOCKBACK_MAGNITUDE
-							)
-						else
-							-- Dummy/NPC - apply velocity directly
-							targetRoot.AssemblyLinearVelocity = direction * KNOCKBACK_MAGNITUDE
-						end
-					end
+			-- Apply knockback using preset - "Fling" sends them flying back!
+			for _, character in targets do
+				if knockbackController then
+					knockbackController:ApplyKnockbackPreset(character, "Fling", hrp.Position)
 				end
 			end
 			
