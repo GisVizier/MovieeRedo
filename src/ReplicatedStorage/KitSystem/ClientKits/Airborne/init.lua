@@ -655,16 +655,16 @@ function Airborne.Ability:OnStart(abilityRequest)
 			local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 			local knockbackController = ServiceRegistry:GetController("Knockback")
 			
-			local KNOCKBACK_RADIUS = 12
+			local KNOCKBACK_RADIUS = 15
 			local KNOCKBACK_MAGNITUDE = 65
 			
 			local myCharacter = abilityRequest.player and abilityRequest.player.Character
 			
-			-- Show visual hitbox sphere
+			-- Show visual hitbox sphere (longer duration for debugging)
 			Hitbox.GetEntitiesInSphere(hrp.Position, KNOCKBACK_RADIUS, {
 				Exclude = abilityRequest.player,
 				Visualize = true,
-				VisualizeDuration = 0.25,
+				VisualizeDuration = 1.5,
 				VisualizeColor = Color3.fromRGB(255, 220, 100),
 			})
 			
@@ -678,22 +678,24 @@ function Airborne.Ability:OnStart(abilityRequest)
 			params.FilterDescendantsInstances = excludeList
 			
 			local parts = workspace:GetPartBoundsInRadius(hrp.Position, KNOCKBACK_RADIUS, params)
+			print("[Updraft] Found", #parts, "parts in radius", KNOCKBACK_RADIUS)
+			
 			local processedTargets = {}
 			
 			for _, part in parts do
 				-- Find the character/model this part belongs to
 				local character = part.Parent
 				
-				-- Check if part is inside a subfolder (like Root folder for dummies, or Hitbox folder)
-				if character and (character.Name == "Hitbox" or character.Name == "Root" or character.Name == "Collider") then
-					character = character.Parent
-				end
-				-- Handle nested collider folders
-				if character and (character.Name == "Default" or character.Name == "Crouch") then
-					character = character.Parent
-					if character and character.Name == "Collider" then
-						character = character.Parent
+				-- Walk up the hierarchy to find the character model
+				local maxDepth = 5
+				local depth = 0
+				while character and depth < maxDepth do
+					if character:IsA("Model") and (character:FindFirstChild("Root") or character:FindFirstChild("Humanoid") or character.PrimaryPart) then
+						-- Found a character-like model
+						break
 					end
+					character = character.Parent
+					depth = depth + 1
 				end
 				
 				-- Validate character and skip already processed
@@ -701,6 +703,7 @@ function Airborne.Ability:OnStart(abilityRequest)
 					local targetRoot = character:FindFirstChild("Root") or character.PrimaryPart
 					if targetRoot then
 						processedTargets[character] = true
+						print("[Updraft] Applying knockback to:", character.Name)
 						
 						-- Calculate upward knockback with slight outward push
 						local outward = (targetRoot.Position - hrp.Position)
