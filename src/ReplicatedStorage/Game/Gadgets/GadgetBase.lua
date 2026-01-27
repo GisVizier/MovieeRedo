@@ -55,7 +55,7 @@ end
 function GadgetBase:onUseResponse(_approved) end
 
 function GadgetBase:destroy()
-	if self.model and self.model.Parent then
+	if self.isServer and self.model and self.model.Parent then
 		self.model:Destroy()
 	end
 	self.model = nil

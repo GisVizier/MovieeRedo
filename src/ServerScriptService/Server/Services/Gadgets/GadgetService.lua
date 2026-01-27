@@ -57,6 +57,15 @@ function GadgetService:CreateForMap(mapInstance, dataByType)
 	})
 	self._gadgetsByMap[mapInstance] = created
 
+	print(string.format("[GadgetService] Scanned map '%s' -> %d gadgets", mapInstance.Name, #created))
+	for _, gadget in ipairs(created) do
+		local model = gadget.getModel and gadget:getModel() or gadget.model
+		local typeName = gadget.getTypeName and gadget:getTypeName() or gadget.typeName
+		if model and typeName then
+			print(string.format("[GadgetService] Gadget '%s' type='%s'", model.Name, tostring(typeName)))
+		end
+	end
+
 	for _, gadget in ipairs(created) do
 		local id = gadget:getId()
 		if id then
