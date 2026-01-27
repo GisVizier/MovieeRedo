@@ -61,12 +61,19 @@ local Remotes = {
 	{ name = "PingRequest", description = "Server sends ping challenge", unreliable = true },
 	{ name = "PingResponse", description = "Client responds to ping challenge", unreliable = true },
 
+<<<<<<< HEAD
 	-- Gadget system
 	{ name = "GadgetInitRequest", description = "Client requests gadget init data" },
 	{ name = "GadgetInit", description = "Server sends gadget init data" },
 	{ name = "GadgetUseRequest", description = "Client requests gadget use" },
 	{ name = "GadgetUseResponse", description = "Server responds to gadget use request" },
 
+=======
+	-- Knockback system
+	{ name = "KnockbackRequest", description = "Client requests knockback on another player" },
+	{ name = "Knockback", description = "Server sends knockback to target client" },
+>>>>>>> aa7dfb8 (knockback)
 }
+
 
 return Remotes

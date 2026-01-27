@@ -651,6 +651,83 @@ function Airborne.Ability:OnStart(abilityRequest)
 		["Burst"] = function()
 			hrp.AssemblyLinearVelocity = Vector3.new(0, 75, 0)
 			
+			-- Apply upward knockback to nearby enemies using Hitbox detection
+			local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
+			local knockbackController = ServiceRegistry:GetController("Knockback")
+			
+			local KNOCKBACK_RADIUS = 12
+			local KNOCKBACK_MAGNITUDE = 65
+			
+			local myCharacter = abilityRequest.player and abilityRequest.player.Character
+			
+			-- Show visual hitbox sphere
+			Hitbox.GetEntitiesInSphere(hrp.Position, KNOCKBACK_RADIUS, {
+				Exclude = abilityRequest.player,
+				Visualize = true,
+				VisualizeDuration = 0.25,
+				VisualizeColor = Color3.fromRGB(255, 220, 100),
+			})
+			
+			-- Manual detection for both players and dummies using GetPartBoundsInRadius
+			local params = OverlapParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			local excludeList = { workspace:FindFirstChild("Rigs") }
+			if myCharacter then
+				table.insert(excludeList, myCharacter)
+			end
+			params.FilterDescendantsInstances = excludeList
+			
+			local parts = workspace:GetPartBoundsInRadius(hrp.Position, KNOCKBACK_RADIUS, params)
+			local processedTargets = {}
+			
+			for _, part in parts do
+				-- Find the character/model this part belongs to
+				local character = part.Parent
+				
+				-- Check if part is inside a subfolder (like Root folder for dummies, or Hitbox folder)
+				if character and (character.Name == "Hitbox" or character.Name == "Root" or character.Name == "Collider") then
+					character = character.Parent
+				end
+				-- Handle nested collider folders
+				if character and (character.Name == "Default" or character.Name == "Crouch") then
+					character = character.Parent
+					if character and character.Name == "Collider" then
+						character = character.Parent
+					end
+				end
+				
+				-- Validate character and skip already processed
+				if character and character:IsA("Model") and not processedTargets[character] and character ~= myCharacter then
+					local targetRoot = character:FindFirstChild("Root") or character.PrimaryPart
+					if targetRoot then
+						processedTargets[character] = true
+						
+						-- Calculate upward knockback with slight outward push
+						local outward = (targetRoot.Position - hrp.Position)
+						if outward.Magnitude < 0.1 then
+							outward = Vector3.zero
+						else
+							outward = outward.Unit * 0.3
+						end
+						local direction = (Vector3.new(0, 1, 0) + outward).Unit
+						
+						-- Check if target is a player character or dummy
+						local targetPlayer = Players:GetPlayerFromCharacter(character)
+						if targetPlayer and knockbackController then
+							-- Real player - use network relay
+							knockbackController:RequestKnockbackOnPlayer(
+								targetPlayer,
+								direction,
+								KNOCKBACK_MAGNITUDE
+							)
+						else
+							-- Dummy/NPC - apply velocity directly
+							targetRoot.AssemblyLinearVelocity = direction * KNOCKBACK_MAGNITUDE
+						end
+					end
+				end
+			end
+			
 			task.delay(0.3025, function()
 				local START, END = 67, -5
 				local kpValue = Instance.new("NumberValue")
