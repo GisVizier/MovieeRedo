@@ -78,6 +78,15 @@ function CharacterController:Init(registry, net)
 		self:_onRagdollEnded(player)
 	end)
 
+	Players.PlayerRemoving:Connect(function(player)
+		local character = player.Character
+		if character then
+			self:_onCharacterRemoving(character)
+		else
+			self:_cleanupPlayer(player)
+		end
+	end)
+
 	-- Hitbox debug keybind (F4 to toggle)
 	local UserInputService = game:GetService("UserInputService")
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -85,6 +94,11 @@ function CharacterController:Init(registry, net)
 		if input.KeyCode == Enum.KeyCode.F4 then
 			self:ToggleHitboxDebug()
 		end
+	end)
+
+	self:_setupExistingCharacters()
+	task.delay(1, function()
+		self:_setupExistingCharacters()
 	end)
 
 	task.spawn(function()
@@ -95,6 +109,39 @@ end
 
 function CharacterController:Start()
 	-- No-op for now.
+end
+
+function CharacterController:_setupExistingCharacters()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= Players.LocalPlayer then
+			local character = player.Character
+			if character then
+				self:_onCharacterSpawned(character)
+			end
+		end
+	end
+end
+
+function CharacterController:_cleanupPlayer(player)
+	if not player then
+		return
+	end
+
+	local rig = RigManager:GetActiveRig(player)
+	if rig then
+		RigManager:DestroyRig(rig)
+	end
+
+	for character, collider in pairs(self._remoteColliders) do
+		if collider and collider:GetAttribute("OwnerUserId") == player.UserId then
+			if collider.Parent then
+				collider:Destroy()
+			end
+			self._remoteColliders[character] = nil
+		elseif not character or not character.Parent then
+			self._remoteColliders[character] = nil
+		end
+	end
 end
 
 function CharacterController:_requestSpawn(source)

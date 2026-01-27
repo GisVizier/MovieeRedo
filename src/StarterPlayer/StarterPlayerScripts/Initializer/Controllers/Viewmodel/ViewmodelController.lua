@@ -124,6 +124,9 @@ function ViewmodelController:Init(registry, net)
 	ServiceRegistry:SetRegistry(registry)
 	ServiceRegistry:RegisterController("Viewmodel", self)
 
+	-- Preload kit animations from Assets/Animations/ViewModel/Kits/
+	ViewmodelAnimator.PreloadKitAnimations()
+
 	self._animator = ViewmodelAnimator.new()
 	self._springs = {
 		rotation = Spring.new(Vector3.zero),
@@ -725,21 +728,21 @@ function ViewmodelController:_render(dt: number)
 	do
 		local isSliding = MovementStateManager:IsSliding()
 		if isSliding then
-			if not self._wasSliding then
-				local root = getRootPart()
-				local vel = root and root.AssemblyLinearVelocity or Vector3.zero
-				local horizontal = Vector3.new(vel.X, 0, vel.Z)
-				local localDir
-				if horizontal.Magnitude > 0.1 then
-					local slideDir = horizontal.Unit
-					localDir = yawCF:VectorToObjectSpace(slideDir)
-				else
-					localDir = Vector3.new(0, 0, -1)
-				end
-				local roll = -math.clamp(localDir.X, -1, 1) * SLIDE_ROLL
-				local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
-				self._slideTiltTarget = Vector3.new(pitch, 0, roll)
+			-- Continuously update tilt based on current slide direction
+			local root = getRootPart()
+			local vel = root and root.AssemblyLinearVelocity or Vector3.zero
+			local horizontal = Vector3.new(vel.X, 0, vel.Z)
+			local localDir
+			if horizontal.Magnitude > 0.1 then
+				local slideDir = horizontal.Unit
+				localDir = yawCF:VectorToObjectSpace(slideDir)
+			else
+				localDir = Vector3.new(0, 0, -1)
 			end
+			local roll = -math.clamp(localDir.X, -1, 1) * SLIDE_ROLL
+			local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
+			self._slideTiltTarget = Vector3.new(pitch, 0, roll)
+			
 			self._wasSliding = true
 			springs.tiltRot.Target = self._slideTiltTarget
 			springs.tiltPos.Target = SLIDE_TUCK

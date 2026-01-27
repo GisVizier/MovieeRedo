@@ -794,7 +794,7 @@ end
 function WeaponProjectile:_createRaycastParams(projectile)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	
+
 	local filterList = {}
 	
 	-- Exclude local player
@@ -818,9 +818,14 @@ function WeaponProjectile:_createRaycastParams(projectile)
 			end
 		end
 	end
-	
+
+	local rigContainer = workspace:FindFirstChild("Rigs")
+	if rigContainer then
+		table.insert(filterList, rigContainer)
+	end
+
 	params.FilterDescendantsInstances = filterList
-	
+
 	return params
 end
 
@@ -838,6 +843,21 @@ function WeaponProjectile:_getPlayerFromHit(hitInstance)
 	local current = hitInstance
 	while current and current ~= workspace do
 		if current.Name == "Collider" then
+			local hitboxFolder = current:FindFirstChild("Hitbox")
+			if not hitboxFolder or not hitInstance:IsDescendantOf(hitboxFolder) then
+				return nil, nil, false
+			end
+
+			local standingFolder = hitboxFolder:FindFirstChild("Standing")
+			local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
+			if standingFolder and hitInstance:IsDescendantOf(standingFolder) then
+				-- ok
+			elseif crouchingFolder and hitInstance:IsDescendantOf(crouchingFolder) then
+				-- ok
+			else
+				return nil, nil, false
+			end
+
 			local ownerUserId = current:GetAttribute("OwnerUserId")
 			if ownerUserId then
 				local player = Players:GetPlayerByUserId(ownerUserId)
@@ -850,7 +870,12 @@ function WeaponProjectile:_getPlayerFromHit(hitInstance)
 		end
 		current = current.Parent
 	end
-	
+
+	local rigContainer = workspace:FindFirstChild("Rigs")
+	if rigContainer and hitInstance:IsDescendantOf(rigContainer) then
+		return nil, nil, false
+	end
+
 	-- Check for humanoid in ancestors (players and rigs/dummies)
 	local character = hitInstance:FindFirstAncestorOfClass("Model")
 	if character then
@@ -861,7 +886,7 @@ function WeaponProjectile:_getPlayerFromHit(hitInstance)
 			-- Check if it's a player
 			local player = Players:GetPlayerFromCharacter(character)
 			if player then
-				return player, character, isHeadshot
+				return nil, nil, false
 			end
 			
 			-- It's a rig/dummy - return nil player but valid character

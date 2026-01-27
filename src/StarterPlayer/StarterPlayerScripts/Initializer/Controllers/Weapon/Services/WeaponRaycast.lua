@@ -207,8 +207,56 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
 
 	if result then
-		-- Get character from hit part (handles hitbox folders and colliders)
-		local hitCharacter = getCharacterFromPart(result.Instance)
+		-- Enforce hitbox-only hits for players (Collider/Hitbox/Standing|Crouching)
+		local current = result.Instance.Parent
+		local hitCharacter = nil
+		if current and (current.Name == "Standing" or current.Name == "Crouching") then
+			local hitboxFolder = current.Parent
+			if hitboxFolder and hitboxFolder.Name == "Hitbox" then
+				local colliderFolder = hitboxFolder.Parent
+				if colliderFolder and colliderFolder.Name == "Collider" then
+					local ownerUserId = colliderFolder:GetAttribute("OwnerUserId")
+					if ownerUserId then
+						local ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
+						if not ownerPlayer then
+							for _, player in Players:GetPlayers() do
+								if player.UserId == ownerUserId then
+									ownerPlayer = player
+									break
+								end
+							end
+						end
+						if ownerPlayer and ownerPlayer.Character then
+							hitCharacter = ownerPlayer.Character
+						end
+					end
+					if not hitCharacter then
+						local characterModel = colliderFolder.Parent
+						if characterModel and characterModel:IsA("Model") and characterModel:FindFirstChildOfClass("Humanoid") then
+							hitCharacter = characterModel
+						end
+					end
+				end
+			end
+		end
+
+		if not hitCharacter then
+			hitCharacter = getCharacterFromPart(result.Instance)
+			if hitCharacter then
+				local hitPlayer = Players:GetPlayerFromCharacter(hitCharacter)
+				if hitPlayer then
+					return {
+						origin = origin,
+						direction = direction,
+						hitPart = nil,
+						hitPosition = targetPosition,
+						hitPlayer = nil,
+						hitCharacter = nil,
+						isHeadshot = false,
+					}
+				end
+			end
+		end
 		
 		-- Get player from character
 		local hitPlayer = nil

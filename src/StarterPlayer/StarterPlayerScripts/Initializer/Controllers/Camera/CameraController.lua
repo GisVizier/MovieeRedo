@@ -67,6 +67,10 @@ function CameraController:_getEnvironmentRaycastParams()
 	if ragdollsFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
 	end
+	local entitiesFolder = workspace:FindFirstChild("Entities")
+	if entitiesFolder then
+		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
+	end
 
 	return raycastParams
 end
@@ -970,6 +974,10 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	if ragdollsFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
 	end
+	local entitiesFolder = workspace:FindFirstChild("Entities")
+	if entitiesFolder then
+		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
+	end
 	
 	local spherecastResult = workspace:Spherecast(rayOrigin, orbitConfig.CollisionRadius, rayDirection, raycastParams)
 	
@@ -1047,6 +1055,10 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	local ragdollsFolder = workspace:FindFirstChild("Ragdolls")
 	if ragdollsFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
+	end
+	local entitiesFolder = workspace:FindFirstChild("Entities")
+	if entitiesFolder then
+		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
 	end
 	
 	local cameraRadius = shoulderConfig.CollisionRadius or 0.5
