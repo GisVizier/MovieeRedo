@@ -35,14 +35,12 @@ function JumpPad:_getPadPart()
 	if bouncePart and bouncePart:IsA("BasePart") then
 		return bouncePart
 	end
-	local bouncerPart = self.model:FindFirstChild("BouncerPart")
-	if bouncerPart and bouncerPart:IsA("BasePart") then
-		return bouncerPart
-	end
+	
 	local root = self.model:FindFirstChild("Root")
 	if root and root:IsA("BasePart") then
 		return root
 	end
+	
 	if self.model.PrimaryPart and self.model.PrimaryPart:IsA("BasePart") then
 		return self.model.PrimaryPart
 	end
@@ -79,21 +77,7 @@ function JumpPad:_getCooldown()
 end
 
 function JumpPad:_getLaunchDirection(padPart)
-	local useLook = self.model and self.model:GetAttribute("UseLookVector")
-	if useLook == nil then
-		useLook = true
-	end
-
-	if useLook and padPart then
-		return padPart.CFrame.LookVector
-	end
-
-	local direction = self.model and self.model:GetAttribute("LaunchDirection")
-	if typeof(direction) == "Vector3" and direction.Magnitude > 0 then
-		return direction.Unit
-	end
-
-	return Vector3.new(0, 1, 0)
+	return padPart.CFrame.LookVector
 end
 
 function JumpPad:_isOnCooldown(userId)
@@ -192,16 +176,13 @@ function JumpPad:onClientCreated()
 		return
 	end
 
-	local template = self.model and self.model:FindFirstChild("Model")
-	if template and not template:IsA("Model") then
-		template = template:FindFirstChildOfClass("Model")
-	end
-
+	local template = script:FindFirstChild("Model")
 	if template and template:IsA("Model") then
 		if self._clientVisualModel then
 			self._clientVisualModel:Destroy()
 			self._clientVisualModel = nil
 		end
+		
 		local clone = template:Clone()
 		clone:PivotTo(self.model:GetPivot())
 		clone.Parent = self.model
@@ -257,7 +238,7 @@ function JumpPad:onUseResponse(approved, responseData)
 		return
 	end
 
-	root.AssemblyLinearVelocity = direction.Unit * speed
+	root.AssemblyLinearVelocity = direction * speed
 end
 
 function JumpPad:destroy()
