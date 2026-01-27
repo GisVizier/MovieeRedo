@@ -1,12 +1,15 @@
 --[[
     Hitbox.lua
     
-    Simple hitbox detection utility for finding players in areas.
+    Hitbox detection utility for finding players and NPCs in areas.
     Non-blocking, runs queries in separate threads when using duration.
     
     API:
-        -- Instant sphere check
+        -- Instant sphere check (returns Players only)
         local players = Hitbox.GetEntitiesInSphere(position, radius, exclude?)
+        
+        -- Instant sphere check (returns character Models - players AND dummies/NPCs)
+        local characters = Hitbox.GetCharactersInSphere(position, radius, exclude?)
         
         -- Lingering sphere check (returns handle)
         local handle = Hitbox.GetEntitiesInSphere(position, radius, {
@@ -32,6 +35,9 @@
             Exclude = player,
             Visualize = true,
         })
+        
+        -- Instant box check returning characters (players AND dummies)
+        local characters = Hitbox.GetCharactersInBox({...})
 ]]
 
 local Players = game:GetService("Players")
@@ -54,17 +60,24 @@ local function buildExcludeList(exclude)
             if exclude.Character then
                 table.insert(list, exclude.Character)
             end
+        elseif typeof(exclude) == "Instance" and exclude:IsA("Model") then
+            -- Direct character/model exclusion
+            table.insert(list, exclude)
         elseif type(exclude) == "table" then
-            -- Could be array of players or config table
+            -- Could be array of players/characters or config table
             for key, val in exclude do
-                if typeof(val) == "Instance" and val:IsA("Player") and val.Character then
-                    table.insert(list, val.Character)
+                if typeof(val) == "Instance" then
+                    if val:IsA("Player") and val.Character then
+                        table.insert(list, val.Character)
+                    elseif val:IsA("Model") then
+                        table.insert(list, val)
+                    end
                 end
             end
         end
     end
     
-    -- Always exclude Rigs folder (not real players)
+    -- Always exclude Rigs folder (visual only, not real targets)
     local rigsFolder = Workspace:FindFirstChild("Rigs")
     if rigsFolder then
         table.insert(list, rigsFolder)
@@ -73,16 +86,86 @@ local function buildExcludeList(exclude)
     return list
 end
 
+--[[
+    Resolves a hit part to its owning character Model.
+    Handles all character structures:
+    - Character/Collider/Hitbox/Standing|Crouching/Part (new hitbox structure)
+    - Character/Collider/Default|Crouch/Part (legacy collision structure)
+    - Dummy/Root/Part (dummy collision parts inside Root)
+    - Character/Hitbox/Part (simple hitbox folder)
+    
+    Returns the character Model (must have Humanoid) or nil.
+]]
+local function resolveCharacter(part, excludeCharacter)
+    if not part then return nil end
+    
+    local current = part.Parent
+    
+    -- Handle new Hitbox structure: Character/Collider/Hitbox/Standing|Crouching/Part
+    if current and (current.Name == "Standing" or current.Name == "Crouching") then
+        local hitboxFolder = current.Parent
+        if hitboxFolder and hitboxFolder.Name == "Hitbox" then
+            local colliderFolder = hitboxFolder.Parent
+            if colliderFolder and colliderFolder.Name == "Collider" then
+                current = colliderFolder.Parent
+            end
+        end
+    end
+    
+    -- Handle legacy Collider structure: Character/Collider/Default|Crouch/Part
+    if current and (current.Name == "Default" or current.Name == "Crouch") then
+        local colliderFolder = current.Parent
+        if colliderFolder and colliderFolder.Name == "Collider" then
+            current = colliderFolder.Parent
+        end
+    end
+    
+    -- Handle Collider folder directly: Character/Collider/Part
+    if current and current.Name == "Collider" then
+        current = current.Parent
+    end
+    
+    -- Handle Root (dummies have collision parts inside Root BasePart): Dummy/Root/Body
+    if current and current:IsA("BasePart") and current.Name == "Root" then
+        current = current.Parent
+    end
+    
+    -- Handle simple Hitbox folder: Character/Hitbox/Part
+    if current and current.Name == "Hitbox" and current:IsA("Folder") then
+        current = current.Parent
+    end
+    
+    -- Walk up to find character model with Humanoid
+    local maxDepth = 5
+    local depth = 0
+    while current and current ~= Workspace and depth < maxDepth do
+        if current:IsA("Model") then
+            -- Skip visual Rigs (they don't have Humanoid anyway)
+            if current.Name == "Rig" then
+                return nil
+            end
+            -- Valid target: Must have Humanoid and not be excluded
+            if current:FindFirstChildOfClass("Humanoid") and current ~= excludeCharacter then
+                return current
+            end
+        end
+        current = current.Parent
+        depth = depth + 1
+    end
+    
+    return nil
+end
+
+-- Legacy: resolves to Player only (for backwards compatibility)
 local function resolvePlayer(part)
     if not part then return nil end
     
-    local character = part.Parent
-    -- Check if part is inside Hitbox folder
-    if character and character.Name == "Hitbox" then
-        character = character.Parent
+    local character = resolveCharacter(part, nil)
+    if character then
+        return Players:GetPlayerFromCharacter(character)
     end
     
-    return Players:GetPlayerFromCharacter(character)
+    return nil
 end
 
 local function parseConfig(config)
@@ -227,6 +310,85 @@ function Hitbox.GetEntitiesInSphere(position: Vector3, radius: number, configOrE
 end
 
 ----------------------------------------------------------------
+-- CHARACTERS IN SPHERE (returns Models, not Players)
+----------------------------------------------------------------
+
+--[[
+    Returns all character Models (players AND dummies/NPCs) in a sphere.
+    Unlike GetEntitiesInSphere which returns Player instances,
+    this returns the character Model directly (useful for knockback, damage, etc.)
+]]
+function Hitbox.GetCharactersInSphere(position: Vector3, radius: number, configOrExclude: any?)
+    local exclude, duration = parseConfig(configOrExclude)
+    local excludeList = buildExcludeList(exclude)
+    
+    -- Get the character to exclude (for resolveCharacter check)
+    local excludeCharacter = nil
+    if exclude then
+        if typeof(exclude) == "Instance" and exclude:IsA("Player") then
+            excludeCharacter = exclude.Character
+        elseif typeof(exclude) == "Instance" and exclude:IsA("Model") then
+            excludeCharacter = exclude
+        elseif type(exclude) == "table" and exclude.Exclude then
+            local e = exclude.Exclude
+            if typeof(e) == "Instance" and e:IsA("Player") then
+                excludeCharacter = e.Character
+            elseif typeof(e) == "Instance" and e:IsA("Model") then
+                excludeCharacter = e
+            end
+        end
+    end
+    
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = excludeList
+    
+    if shouldVisualize(configOrExclude) then
+        local vizDuration, vizColor = getVisualizationOptions(configOrExclude)
+        visualizeSphere(position, radius, vizDuration, vizColor)
+    end
+
+    -- Instant check (no duration)
+    if not duration then
+        local parts = Workspace:GetPartBoundsInRadius(position, radius, params)
+        
+        local seen = {}
+        local found = {}
+        
+        for _, part in parts do
+            local character = resolveCharacter(part, excludeCharacter)
+            if character and not seen[character] then
+                seen[character] = true
+                table.insert(found, character)
+            end
+        end
+        
+        return found
+    end
+    
+    -- Lingering check (with duration) - runs in separate thread
+    local handle = createHandle()
+    
+    task.spawn(function()
+        local elapsed = 0
+        while elapsed < duration and not handle._stopped do
+            local parts = Workspace:GetPartBoundsInRadius(position, radius, params)
+            for _, part in parts do
+                local character = resolveCharacter(part, excludeCharacter)
+                if character then
+                    handle._seen[character] = true
+                end
+            end
+            task.wait(CHECK_INTERVAL)
+            elapsed += CHECK_INTERVAL
+        end
+        handle._stopped = true
+    end)
+    
+    return handle
+end
+
+----------------------------------------------------------------
 -- BOX (SQUARE/RECT)
 ----------------------------------------------------------------
 
@@ -291,6 +453,96 @@ function Hitbox.GetEntitiesInBox(config: any)
                 local player = resolvePlayer(part)
                 if player then
                     handle._seen[player] = true
+                end
+            end
+            task.wait(CHECK_INTERVAL)
+            elapsed += CHECK_INTERVAL
+        end
+        handle._stopped = true
+    end)
+
+    return handle
+end
+
+----------------------------------------------------------------
+-- CHARACTERS IN BOX (returns Models, not Players)
+----------------------------------------------------------------
+
+--[[
+    Returns all character Models (players AND dummies/NPCs) in a box.
+]]
+function Hitbox.GetCharactersInBox(config: any)
+    if type(config) ~= "table" then
+        warn("[Hitbox] GetCharactersInBox expects a config table")
+        return {}
+    end
+
+    local cframe = config.CFrame
+    local boxSize = config.Size
+    if not cframe then
+        local position = config.Position or config.Center
+        if position then
+            cframe = CFrame.new(position)
+        end
+    end
+
+    if not cframe or not boxSize then
+        warn("[Hitbox] GetCharactersInBox missing cframe/size")
+        return {}
+    end
+
+    local exclude, duration = parseConfig(config)
+    local excludeList = buildExcludeList(exclude)
+    
+    -- Get the character to exclude
+    local excludeCharacter = nil
+    if config.Exclude then
+        local e = config.Exclude
+        if typeof(e) == "Instance" and e:IsA("Player") then
+            excludeCharacter = e.Character
+        elseif typeof(e) == "Instance" and e:IsA("Model") then
+            excludeCharacter = e
+        end
+    end
+
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = excludeList
+
+    if shouldVisualize(config) then
+        local vizDuration, vizColor = getVisualizationOptions(config)
+        visualizeBox(cframe, boxSize, vizDuration, vizColor)
+    end
+
+    -- Instant check (no duration)
+    if not duration then
+        local parts = Workspace:GetPartBoundsInBox(cframe, boxSize, params)
+
+        local seen = {}
+        local found = {}
+
+        for _, part in parts do
+            local character = resolveCharacter(part, excludeCharacter)
+            if character and not seen[character] then
+                seen[character] = true
+                table.insert(found, character)
+            end
+        end
+
+        return found
+    end
+
+    -- Lingering check (with duration) - runs in separate thread
+    local handle = createHandle()
+
+    task.spawn(function()
+        local elapsed = 0
+        while elapsed < duration and not handle._stopped do
+            local parts = Workspace:GetPartBoundsInBox(cframe, boxSize, params)
+            for _, part in parts do
+                local character = resolveCharacter(part, excludeCharacter)
+                if character then
+                    handle._seen[character] = true
                 end
             end
             task.wait(CHECK_INTERVAL)
