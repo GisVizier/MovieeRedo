@@ -101,8 +101,8 @@ function GadgetService:_buildInitPayload()
 	local payload = {}
 
 	for id, gadget in pairs(self._gadgetSystem.instances) do
-		local model = gadget:getModel and gadget:getModel() or gadget.model
-		local typeName = gadget:getTypeName and gadget:getTypeName() or gadget.typeName
+		local model = (gadget.getModel and gadget:getModel()) or gadget.model
+		local typeName = (gadget.getTypeName and gadget:getTypeName()) or gadget.typeName
 		if model and model.Parent and type(typeName) == "string" then
 			table.insert(payload, {
 				id = id,

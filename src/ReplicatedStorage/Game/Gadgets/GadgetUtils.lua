@@ -20,6 +20,17 @@ function GadgetUtils:getGadgetType(model, defaultType)
 	return defaultType
 end
 
+function GadgetUtils:_normalizeTypeName(name)
+	if type(name) ~= "string" or name == "" then
+		return name
+	end
+	local aliases = {
+		JumpPads = "JumpPad",
+		Ziplines = "Zipline",
+	}
+	return aliases[name] or name
+end
+
 function GadgetUtils:getOrCreateId(model)
 	if not model then
 		return nil
@@ -41,11 +52,12 @@ function GadgetUtils:listGadgetModels(mapInstance)
 	local results = {}
 	for _, typeFolder in ipairs(gadgetsFolder:GetChildren()) do
 		if typeFolder:IsA("Folder") then
-			local typeName = typeFolder.Name
+			local rawTypeName = typeFolder.Name
+			local typeName = self:_normalizeTypeName(rawTypeName)
 			for _, model in ipairs(typeFolder:GetChildren()) do
 				if model:IsA("Model") then
 					local gadgetType = self:getGadgetType(model, typeName)
-					if gadgetType == typeName then
+					if gadgetType == typeName or gadgetType == rawTypeName then
 						table.insert(results, {
 							typeName = typeName,
 							model = model,

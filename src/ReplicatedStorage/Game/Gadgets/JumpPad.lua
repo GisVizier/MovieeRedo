@@ -29,6 +29,10 @@ function JumpPad:_getPadPart()
 	if bouncePart and bouncePart:IsA("BasePart") then
 		return bouncePart
 	end
+	local bouncerPart = self.model:FindFirstChild("BouncerPart")
+	if bouncerPart and bouncerPart:IsA("BasePart") then
+		return bouncerPart
+	end
 	local root = self.model:FindFirstChild("Root")
 	if root and root:IsA("BasePart") then
 		return root
