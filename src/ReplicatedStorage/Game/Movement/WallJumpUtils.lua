@@ -231,7 +231,7 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 		-- Drive animation name from selected boostType.
 		local animationName = "WallBoostForward"
 		if boostType == "backward" then
-			animationName = "WallBoostBack"
+			animationName = "WallBoostBackward"
 		elseif boostType == "lateral" then
 			-- Use wall side relative to intent.
 			local side = intentDir:Cross(wallNormalHorizontal).Y

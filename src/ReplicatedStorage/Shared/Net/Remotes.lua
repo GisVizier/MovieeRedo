@@ -61,6 +61,12 @@ local Remotes = {
 	{ name = "PingRequest", description = "Server sends ping challenge", unreliable = true },
 	{ name = "PingResponse", description = "Client responds to ping challenge", unreliable = true },
 
+	-- Gadget system
+	{ name = "GadgetInitRequest", description = "Client requests gadget init data" },
+	{ name = "GadgetInit", description = "Server sends gadget init data" },
+	{ name = "GadgetUseRequest", description = "Client requests gadget use" },
+	{ name = "GadgetUseResponse", description = "Server responds to gadget use request" },
+
 }
 
 return Remotes

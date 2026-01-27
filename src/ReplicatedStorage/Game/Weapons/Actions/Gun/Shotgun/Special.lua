@@ -41,9 +41,10 @@ function Special:_enterADS(weaponInstance)
 
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
+	local adsTransitionSpeed = config and config.adsTransitionSpeed or 0.12
 	local adsEffectsMultiplier = config and config.adsEffectsMultiplier or 0.25
 
-	viewmodelController:SetADS(true, adsEffectsMultiplier)
+	viewmodelController:SetADS(true, adsTransitionSpeed, adsEffectsMultiplier)
 
 	if adsFOV then
 		Special._originalFOV = FOVController.BaseFOV

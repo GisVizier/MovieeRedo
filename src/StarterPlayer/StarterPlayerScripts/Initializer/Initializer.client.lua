@@ -50,6 +50,10 @@ local entries = {
 		module = controllersFolder:WaitForChild("KitVFX"):WaitForChild("KitVFXController"),
 	},
 	{
+		name = "Gadgets",
+		module = controllersFolder:WaitForChild("Gadgets"):WaitForChild("GadgetController"),
+	},
+	{
 		name = "Weapon",
 		module = controllersFolder:WaitForChild("Weapon"):WaitForChild("WeaponController"),
 	},
