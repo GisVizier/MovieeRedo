@@ -20,7 +20,7 @@ Each gadget model should include:
 
 JumpPad attributes:
 - `LaunchSpeed` (number, default 120)
-- `UseLookVector` (boolean, default true)
+- `UseLookVector` (boolean, default false; when true uses pad LookVector)
 - `LaunchDirection` (Vector3, used when `UseLookVector` is false)
 - `UseDistance` (number, default 12)
 - `UseCooldown` (number, default 0.5)
