@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local GadgetBase = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("GadgetBase"))
+local HitDetectionAPI = require(Locations.Services.ServerScriptService:WaitForChild("Server"):WaitForChild("Services"):WaitForChild("AntiCheat"):WaitForChild("HitDetectionAPI"))
 
 local JumpPad = {}
 JumpPad.__index = JumpPad
@@ -18,6 +19,7 @@ function JumpPad.new(params)
 	self._lastUseByUserId = {}
 	self._clientConnection = nil
 	self._clientLastRequest = 0
+	self._clientVisualModel = nil
 	return self
 end
 
@@ -104,30 +106,48 @@ end
 
 function JumpPad:onUseRequest(player, _payload)
 	if not player then
+		warn("[JumpPad] Reject: missing player")
 		return false
 	end
 
 	local character = player.Character
 	if not character or not character.Parent then
+		warn("[JumpPad] Reject: missing character")
 		return false
 	end
 
 	local root = character:FindFirstChild("Root") or character.PrimaryPart
-	if not root or not root:IsA("BasePart") then
+	local rootPosition = nil
+	if root and root:IsA("BasePart") then
+		rootPosition = root.Position
+	end
+
+	local serverNow = workspace:GetServerTimeNow()
+	local rollback = HitDetectionAPI:GetRollbackTime(player)
+	local historicalPosition = HitDetectionAPI:GetPositionAtTime(player, serverNow - rollback)
+	if typeof(historicalPosition) == "Vector3" then
+		rootPosition = historicalPosition
+	end
+
+	if not rootPosition then
+		warn("[JumpPad] Reject: missing root position")
 		return false
 	end
 
 	local padPart = self:_getPadPart()
 	if not padPart then
+		warn("[JumpPad] Reject: missing pad part")
 		return false
 	end
 
 	if self:_isOnCooldown(player.UserId) then
+		warn("[JumpPad] Reject: cooldown", player.UserId)
 		return false
 	end
 
-	local distance = (root.Position - padPart.Position).Magnitude
+	local distance = (rootPosition - padPart.Position).Magnitude
 	if distance > self:_getUseDistance() then
+		warn(string.format("[JumpPad] Reject: out of range (%.2f > %.2f)", distance, self:_getUseDistance()))
 		return false
 	end
 
@@ -164,6 +184,24 @@ function JumpPad:onClientCreated()
 	local padPart = self:_getPadPart()
 	if not padPart then
 		return
+	end
+
+	local template = self.model and self.model:FindFirstChild("Model")
+	if template and not template:IsA("Model") then
+		template = template:FindFirstChildOfClass("Model")
+	end
+
+	if template and template:IsA("Model") then
+		if self._clientVisualModel then
+			self._clientVisualModel:Destroy()
+			self._clientVisualModel = nil
+		end
+		local clone = template:Clone()
+		clone:PivotTo(self.model:GetPivot())
+		clone.Parent = self.model
+		self._clientVisualModel = clone
+	else
+		warn("[JumpPad] Client visual model missing under gadget model")
 	end
 
 	if self._clientConnection then
@@ -220,6 +258,10 @@ function JumpPad:destroy()
 	if self._clientConnection then
 		self._clientConnection:Disconnect()
 		self._clientConnection = nil
+	end
+	if self._clientVisualModel then
+		self._clientVisualModel:Destroy()
+		self._clientVisualModel = nil
 	end
 	GadgetBase.destroy(self)
 end
