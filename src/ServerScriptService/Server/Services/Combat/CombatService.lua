@@ -39,10 +39,6 @@ function CombatService:Init(registry, net)
 		self:_tickStatusEffects(deltaTime)
 	end)
 	
-	-- Knockback relay: client requests knockback on another player
-	self._net:ConnectServer("KnockbackRequest", function(player, data)
-		self:_handleKnockbackRequest(player, data)
-	end)
 end
 
 function CombatService:Start()
@@ -606,69 +602,6 @@ function CombatService:_broadcastHeal(target: Player, amount: number, options: {
 		isCritical = false,
 		isHeal = true,
 		position = position,
-	})
-end
-
--- =============================================================================
--- KNOCKBACK RELAY
--- =============================================================================
-
-local MAX_KNOCKBACK_MAGNITUDE = 150
-
---[[
-	Handles knockback request from a client
-	Relays the knockback to the target player
-	@param player Player - The requesting player (source)
-	@param data table - { targetUserId, direction, magnitude }
-]]
-function CombatService:_handleKnockbackRequest(player: Player, data)
-	if not data or not data.targetUserId then return end
-	
-	local targetPlayer = Players:GetPlayerByUserId(data.targetUserId)
-	if not targetPlayer then return end
-	
-	-- Don't allow knockback on self through this relay
-	if targetPlayer == player then return end
-	
-	-- Validate direction
-	local direction = data.direction
-	if not direction or type(direction) ~= "table" then return end
-	if not direction.X or not direction.Y or not direction.Z then return end
-	
-	-- Cap magnitude on server
-	local magnitude = math.min(data.magnitude or 50, MAX_KNOCKBACK_MAGNITUDE)
-	
-	-- Relay knockback to target
-	self._net:FireClient("Knockback", targetPlayer, {
-		direction = direction,
-		magnitude = magnitude,
-		sourceUserId = player.UserId,
-	})
-end
-
---[[
-	Apply knockback to a player directly from server
-	@param targetPlayer Player - The player to knockback
-	@param direction Vector3 - Knockback direction
-	@param magnitude number - Knockback strength
-	@param source Player? - Who caused the knockback
-]]
-function CombatService:ApplyKnockback(targetPlayer: Player, direction: Vector3, magnitude: number, source: Player?)
-	if not self._net then return end
-	if not targetPlayer then return end
-	
-	-- Skip non-Player entities (like dummies)
-	if not (typeof(targetPlayer) == "Instance" and targetPlayer:IsA("Player")) then
-		return
-	end
-	
-	-- Cap magnitude
-	magnitude = math.min(magnitude, MAX_KNOCKBACK_MAGNITUDE)
-	
-	self._net:FireClient("Knockback", targetPlayer, {
-		direction = { X = direction.X, Y = direction.Y, Z = direction.Z },
-		magnitude = magnitude,
-		sourceUserId = source and source.UserId or nil,
 	})
 end
 

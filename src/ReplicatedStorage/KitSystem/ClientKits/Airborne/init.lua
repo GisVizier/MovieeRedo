@@ -651,15 +651,13 @@ function Airborne.Ability:OnStart(abilityRequest)
 		["Burst"] = function()
 			hrp.AssemblyLinearVelocity = Vector3.new(0, 75, 0)
 			
-			-- Apply upward knockback to nearby enemies using Hitbox detection
+			-- Apply knockback to nearby enemies using preset system
 			local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 			local knockbackController = ServiceRegistry:GetController("Knockback")
 			
 			local KNOCKBACK_RADIUS = 15
-			local KNOCKBACK_MAGNITUDE = 65
 			
 			-- Get all characters (players AND dummies) in range
-			-- GetCharactersInSphere handles all hitbox structures properly
 			local targets = Hitbox.GetCharactersInSphere(hrp.Position, KNOCKBACK_RADIUS, {
 				Exclude = abilityRequest.player,
 				Visualize = true,
@@ -667,32 +665,10 @@ function Airborne.Ability:OnStart(abilityRequest)
 				VisualizeColor = Color3.fromRGB(255, 220, 100),
 			})
 			
-			-- Apply knockback to each target
+			-- Apply knockback using preset - "Fling" sends them flying back!
 			for _, character in targets do
-				local targetRoot = character:FindFirstChild("Root") or character.PrimaryPart
-				if targetRoot then
-					-- Calculate upward knockback with slight outward push
-					local outward = (targetRoot.Position - hrp.Position)
-					if outward.Magnitude < 0.1 then
-						outward = Vector3.zero
-					else
-						outward = outward.Unit * 0.3
-					end
-					local direction = (Vector3.new(0, 1, 0) + outward).Unit
-					
-					-- Check if target is a player character or dummy
-					local targetPlayer = Players:GetPlayerFromCharacter(character)
-					if targetPlayer and knockbackController then
-						-- Real player - use network relay
-						knockbackController:RequestKnockbackOnPlayer(
-							targetPlayer,
-							direction,
-							KNOCKBACK_MAGNITUDE
-						)
-					else
-						-- Dummy/NPC - apply velocity directly
-						targetRoot.AssemblyLinearVelocity = direction * KNOCKBACK_MAGNITUDE
-					end
+				if knockbackController then
+					knockbackController:ApplyKnockbackPreset(character, "Fling", hrp.Position)
 				end
 			end
 			

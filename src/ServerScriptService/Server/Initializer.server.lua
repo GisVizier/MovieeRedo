@@ -71,6 +71,10 @@ local entries = {
 		name = "DummyService",
 		module = servicesFolder:WaitForChild("Dummy"):WaitForChild("DummyService"),
 	},
+	{
+		name = "KnockbackService",
+		module = servicesFolder:WaitForChild("Knockback"):WaitForChild("KnockbackService"),
+	},
 }
 
 Loader:Load(entries, registry, Net)
