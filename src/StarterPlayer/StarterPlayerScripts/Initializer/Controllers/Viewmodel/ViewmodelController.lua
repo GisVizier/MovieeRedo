@@ -105,6 +105,46 @@ local function getRootPart(): BasePart?
 	return character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
 end
 
+local function isHudVisible(): boolean
+	local player = Players.LocalPlayer
+	if not player then
+		return false
+	end
+	local playerGui = player:FindFirstChild("PlayerGui")
+	if not playerGui then
+		return false
+	end
+	local screenGui = playerGui:FindFirstChild("Gui")
+	if not screenGui then
+		return false
+	end
+	local hud = screenGui:FindFirstChild("Hud")
+	if not hud or not hud:IsA("GuiObject") then
+		return false
+	end
+	return hud.Visible == true
+end
+
+local function isLoadoutVisible(): boolean
+	local player = Players.LocalPlayer
+	if not player then
+		return false
+	end
+	local playerGui = player:FindFirstChild("PlayerGui")
+	if not playerGui then
+		return false
+	end
+	local screenGui = playerGui:FindFirstChild("Gui")
+	if not screenGui then
+		return false
+	end
+	local loadout = screenGui:FindFirstChild("Loadout")
+	if not loadout or not loadout:IsA("GuiObject") then
+		return false
+	end
+	return loadout.Visible == true
+end
+
 local function getRigForSlot(self, slot: string)
 	return self._loadoutVm and self._loadoutVm.Rigs and self._loadoutVm.Rigs[slot] or nil
 end
@@ -196,7 +236,14 @@ function ViewmodelController:Init(registry, net)
 		local manager = inputController and inputController.Manager or nil
 
 		self._equipKeysConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-			if gameProcessed then
+			local key = input.KeyCode
+			local isGamepad = input.UserInputType == Enum.UserInputType.Gamepad1
+				or input.UserInputType == Enum.UserInputType.Gamepad2
+				or input.UserInputType == Enum.UserInputType.Gamepad3
+				or input.UserInputType == Enum.UserInputType.Gamepad4
+			local isShoulder = key == Enum.KeyCode.ButtonL1 or key == Enum.KeyCode.ButtonR1
+
+			if gameProcessed and not (isGamepad and isShoulder and isHudVisible() and not isLoadoutVisible()) then
 				return
 			end
 
@@ -211,13 +258,24 @@ function ViewmodelController:Init(registry, net)
 				end
 			end
 
-			local key = input.KeyCode
 			if key == Enum.KeyCode.One then
 				self:_tryEquipSlotFromLoadout("Primary")
 			elseif key == Enum.KeyCode.Two then
 				self:_tryEquipSlotFromLoadout("Secondary")
 			elseif key == Enum.KeyCode.Three then
 				self:_tryEquipSlotFromLoadout("Melee")
+			elseif isGamepad then
+				if isLoadoutVisible() then
+					return
+				end
+				if not isHudVisible() then
+					return
+				end
+				if key == Enum.KeyCode.ButtonL1 then
+					self:_cycleEquipSlot(-1)
+				elseif key == Enum.KeyCode.ButtonR1 then
+					self:_cycleEquipSlot(1)
+				end
 			end
 		end)
 	end
@@ -389,53 +447,86 @@ function ViewmodelController:_preloadKitAnimations(fistsRig)
 
 	self._cachedKitTracks = {}
 
-	local kitsConfig = ViewmodelConfig.Kits
-	if type(kitsConfig) ~= "table" then
-		return
-	end
-
 	local toPreload = {}
+	local trackCount = 0
 
-	for kitId, kitData in pairs(kitsConfig) do
-		self._cachedKitTracks[kitId] = {
-			Ability = {},
-			Ultimate = {},
-		}
+	-- System 1: Preload from ViewmodelConfig.Kits (asset ID based)
+	local kitsConfig = ViewmodelConfig.Kits
+	if type(kitsConfig) == "table" then
+		for kitId, kitData in pairs(kitsConfig) do
+			self._cachedKitTracks[kitId] = {
+				Ability = {},
+				Ultimate = {},
+			}
 
-		if type(kitData.Ability) == "table" then
-			for animName, animId in pairs(kitData.Ability) do
-				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
-					local animation = Instance.new("Animation")
-					animation.AnimationId = animId
+			if type(kitData.Ability) == "table" then
+				for animName, animId in pairs(kitData.Ability) do
+					if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
+						local animation = Instance.new("Animation")
+						animation.AnimationId = animId
 
-					local track = fistsRig.Animator:LoadAnimation(animation)
-					track.Priority = Enum.AnimationPriority.Action2
-					track.Looped = false
+						local track = fistsRig.Animator:LoadAnimation(animation)
+						track.Priority = Enum.AnimationPriority.Action2
+						track.Looped = false
 
-					track:Play(0)
-					track:Stop(0)
+						track:Play(0)
+						track:Stop(0)
 
-					self._cachedKitTracks[kitId].Ability[animName] = track
-					table.insert(toPreload, animation)
+						self._cachedKitTracks[kitId].Ability[animName] = track
+						table.insert(toPreload, animation)
+						trackCount = trackCount + 1
+					end
+				end
+			end
+
+			if type(kitData.Ultimate) == "table" then
+				for animName, animId in pairs(kitData.Ultimate) do
+					if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
+						local animation = Instance.new("Animation")
+						animation.AnimationId = animId
+
+						local track = fistsRig.Animator:LoadAnimation(animation)
+						track.Priority = Enum.AnimationPriority.Action2
+						track.Looped = false
+
+						track:Play(0)
+						track:Stop(0)
+
+						self._cachedKitTracks[kitId].Ultimate[animName] = track
+						table.insert(toPreload, animation)
+						trackCount = trackCount + 1
+					end
 				end
 			end
 		end
+	end
 
-		if type(kitData.Ultimate) == "table" then
-			for animName, animId in pairs(kitData.Ultimate) do
-				if type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0" then
-					local animation = Instance.new("Animation")
-					animation.AnimationId = animId
+	-- System 2: Preload from file-based animations (Assets/Animations/ViewModel/Kits/)
+	-- This preloads tracks for ViewmodelAnimator:PlayKitAnimation() usage
+	local preloadedAnims = ViewmodelAnimator.PreloadKitAnimations()
+	if preloadedAnims and self._animator then
+		for animKey, animInstance in pairs(preloadedAnims) do
+			if animInstance and animInstance:IsA("Animation") then
+				local animId = animInstance.AnimationId
+				if animId and animId ~= "" and animId ~= "rbxassetid://0" then
+					local success, track = pcall(function()
+						return fistsRig.Animator:LoadAnimation(animInstance)
+					end)
 
-					local track = fistsRig.Animator:LoadAnimation(animation)
-					track.Priority = Enum.AnimationPriority.Action2
-					track.Looped = false
+					if success and track then
+						track.Priority = Enum.AnimationPriority.Action4
+						track.Looped = false
 
-					track:Play(0)
-					track:Stop(0)
+						track:Play(0)
+						track:Stop(0)
 
-					self._cachedKitTracks[kitId].Ultimate[animName] = track
-					table.insert(toPreload, animation)
+						-- Cache the track on the animator instance for PlayKitAnimation
+						if not self._animator._kitTracks then
+							self._animator._kitTracks = {}
+						end
+						self._animator._kitTracks[animKey] = track
+						trackCount = trackCount + 1
+					end
 				end
 			end
 		end
@@ -444,9 +535,10 @@ function ViewmodelController:_preloadKitAnimations(fistsRig)
 	if #toPreload > 0 then
 		task.spawn(function()
 			ContentProvider:PreloadAsync(toPreload)
-			LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = #toPreload })
 		end)
 	end
+
+	LogService:Info("VIEWMODEL", "Kit animations preloaded", { Count = trackCount })
 end
 
 function ViewmodelController:CreateLoadout(loadout: { [string]: any })
@@ -586,6 +678,27 @@ function ViewmodelController:SetOffset(offset: CFrame)
 	end
 end
 
+--[[
+	Applies recoil to the viewmodel using spring impulses.
+	The viewmodel will kick back and naturally return via spring physics.
+
+	@param kickPos: Vector3 - Position impulse (e.g., Vector3.new(0, 0.02, 0.1) for back+up kick)
+	@param kickRot: Vector3 - Rotation impulse in radians (e.g., Vector3.new(-0.1, 0, 0) for upward pitch)
+]]
+function ViewmodelController:ApplyRecoil(kickPos, kickRot)
+	if not self._springs then
+		return
+	end
+
+	if kickPos then
+		self._springs.externalPos:Impulse(kickPos)
+	end
+
+	if kickRot then
+		self._springs.externalRot:Impulse(kickRot)
+	end
+end
+
 function ViewmodelController:GetActiveRig()
 	if not self._loadoutVm or not self._activeSlot then
 		return nil
@@ -618,6 +731,46 @@ function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 	end
 
 	self:SetActiveSlot(slot)
+end
+
+function ViewmodelController:_cycleEquipSlot(direction: number)
+	if not self._loadout or type(self._loadout) ~= "table" then
+		return
+	end
+
+	local slots = {}
+	for _, slotName in ipairs({ "Primary", "Secondary", "Melee" }) do
+		local weaponId = self._loadout[slotName]
+		if type(weaponId) == "string" and weaponId ~= "" then
+			table.insert(slots, slotName)
+		end
+	end
+
+	if #slots <= 1 then
+		return
+	end
+
+	local current = self._activeSlot
+	if current == "Fists" or current == nil then
+		current = slots[1]
+	end
+
+	local currentIndex = 1
+	for i, name in ipairs(slots) do
+		if name == current then
+			currentIndex = i
+			break
+		end
+	end
+
+	local nextIndex = currentIndex + (direction >= 0 and 1 or -1)
+	if nextIndex < 1 then
+		nextIndex = #slots
+	elseif nextIndex > #slots then
+		nextIndex = 1
+	end
+
+	self:_tryEquipSlotFromLoadout(slots[nextIndex])
 end
 
 function ViewmodelController:_ensureRenderLoop()
@@ -909,21 +1062,13 @@ function ViewmodelController:_onLocalAbilityBegin(kitId: string, abilityType: st
 end
 
 function ViewmodelController:_onLocalAbilityEnd(kitId: string, abilityType: string)
-	local track = nil
+	-- Only play the release animation if configured
+	-- Slot restoration is handled by KitController:_unholsterWeapon()
 	if abilityType ~= "Ultimate" then
-		track = self:_playKitAnim(kitId, abilityType, "Release")
+		self:_playKitAnim(kitId, abilityType, "Release")
 	end
 
-	local returnSlot = self._previousSlot or "Primary"
 	self._previousSlot = nil
-
-	if track then
-		track.Stopped:Once(function()
-			self:SetActiveSlot(returnSlot)
-		end)
-	else
-		self:SetActiveSlot(returnSlot)
-	end
 end
 
 function ViewmodelController:Destroy()

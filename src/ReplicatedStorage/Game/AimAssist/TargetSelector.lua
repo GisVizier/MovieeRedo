@@ -127,23 +127,72 @@ end
 -- Return the world position of all bones of an instance
 function TargetSelector:_getTargetPoints(instance: PVInstance, bones: { string }?): { Vector3 }
 	if not bones or #bones == 0 then
-		-- Get center of bounding box as sole target point
 		local worldPos: Vector3 = getCenterPoint(instance)
 		return { worldPos }
 	end
 
 	local points = {}
 
-	for _, bone in bones do
-		for _, descendant in instance:GetDescendants() do
-			if descendant:IsA("PVInstance") and CollectionService:HasTag(descendant, bone) then
-				local worldPos = getCenterPoint(descendant)
-				table.insert(points, worldPos)
+	-- For player characters, look in Collider/Hitbox structure first (same as hit detection)
+	local collider = instance:FindFirstChild("Collider")
+	if collider then
+		local hitbox = collider:FindFirstChild("Hitbox")
+		if hitbox then
+			-- Check Standing hitboxes first
+			local standingFolder = hitbox:FindFirstChild("Standing")
+			local crouchingFolder = hitbox:FindFirstChild("Crouching")
+			
+			-- Determine which folder is active (CanQuery = true)
+			local activeFolder = standingFolder
+			if standingFolder then
+				local firstPart = standingFolder:FindFirstChildWhichIsA("BasePart")
+				if firstPart and not firstPart.CanQuery then
+					activeFolder = crouchingFolder
+				end
+			end
+			
+			if activeFolder then
+				for _, bone in bones do
+					-- Map common bone names to hitbox part names
+					local partName = bone
+					if bone == "UpperTorso" or bone == "Torso" or bone == "LowerTorso" then
+						partName = "Body"  -- Hitbox uses "Body" not "UpperTorso"
+					end
+					
+					local part = activeFolder:FindFirstChild(partName)
+					if part and part:IsA("BasePart") then
+						table.insert(points, getCenterPoint(part))
+					end
+				end
+			end
+		end
+	end
+	
+	-- Fallback: check CollectionService tags (for dummies/NPCs that have tags)
+	if #points == 0 then
+		for _, bone in bones do
+			for _, descendant in instance:GetDescendants() do
+				if descendant:IsA("BasePart") then
+					if CollectionService:HasTag(descendant, bone) then
+						table.insert(points, getCenterPoint(descendant))
+					end
+				end
+			end
+		end
+	end
+	
+	-- Second fallback: check by part name directly (for tagged dummies)
+	if #points == 0 then
+		for _, bone in bones do
+			for _, descendant in instance:GetDescendants() do
+				if descendant:IsA("BasePart") and descendant.Name == bone then
+					table.insert(points, getCenterPoint(descendant))
+				end
 			end
 		end
 	end
 
-	-- Fallback: if no bones found, use center
+	-- Final fallback: use center of bounding box
 	if #points == 0 then
 		table.insert(points, getCenterPoint(instance))
 	end

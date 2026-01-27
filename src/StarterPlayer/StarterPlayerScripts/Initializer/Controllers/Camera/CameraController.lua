@@ -67,7 +67,7 @@ function CameraController:_getEnvironmentRaycastParams()
 	if ragdollsFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
 	end
-	local entitiesFolder = workspace:FindFirstChild("Entities")
+	local entitiesFolder = workspace:FindFirstChild("Entities") or workspace:FindFirstChild("entities")
 	if entitiesFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
 	end
@@ -81,6 +81,12 @@ function CameraController:_clampPositionAboveGround(pos: Vector3, clearance: num
 	local dir = Vector3.new(0, -CAMERA_GROUND_CLAMP_RAY_DOWN, 0)
 
 	local result = workspace:Raycast(origin, dir, self:_getEnvironmentRaycastParams())
+	
+	-- DEBUG: Log ALL ground clamp hits
+	if result then
+		warn("[CAMERA GROUNDCLAMP] HIT:", result.Instance:GetFullName())
+	end
+	
 	if not result then
 		return pos
 	end
@@ -962,6 +968,8 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = { self.Character }
+	raycastParams.RespectCanCollide = true
+
 	if self.Rig then
 		table.insert(raycastParams.FilterDescendantsInstances, self.Rig)
 	end
@@ -974,12 +982,17 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	if ragdollsFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
 	end
-	local entitiesFolder = workspace:FindFirstChild("Entities")
+	local entitiesFolder = workspace:FindFirstChild("Entities") or workspace:FindFirstChild("entities")
 	if entitiesFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
 	end
-	
+
 	local spherecastResult = workspace:Spherecast(rayOrigin, orbitConfig.CollisionRadius, rayDirection, raycastParams)
+	
+	-- DEBUG: Log ALL camera collision results
+	if spherecastResult then
+		warn("[CAMERA ORBIT] HIT:", spherecastResult.Instance:GetFullName())
+	end
 	
 	local finalPosition
 	if spherecastResult then
@@ -991,7 +1004,7 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	end
 
 	-- Keep camera above ground (prevents crouch/slide dip under terrain)
-	finalPosition = self:_clampPositionAboveGround(finalPosition)
+	--finalPosition = self:_clampPositionAboveGround(finalPosition)
 	
 	-- Look at pivot point
 	local desiredCFrame = CFrame.lookAt(finalPosition, pivotPosition)
@@ -1044,6 +1057,8 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = { self.Character }
+	raycastParams.RespectCanCollide = true
+
 	if self.Rig then
 		table.insert(raycastParams.FilterDescendantsInstances, self.Rig)
 	end
@@ -1056,13 +1071,18 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	if ragdollsFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, ragdollsFolder)
 	end
-	local entitiesFolder = workspace:FindFirstChild("Entities")
+	local entitiesFolder = workspace:FindFirstChild("Entities") or workspace:FindFirstChild("entities")
 	if entitiesFolder then
 		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
 	end
-	
+
 	local cameraRadius = shoulderConfig.CollisionRadius or 0.5
 	local spherecastResult = workspace:Spherecast(rayOrigin, cameraRadius, rayDirection, raycastParams)
+	
+	-- DEBUG: Log ALL camera collision results
+	if spherecastResult then
+		warn("[CAMERA SHOULDER] HIT:", spherecastResult.Instance:GetFullName())
+	end
 	
 	local finalCameraPosition
 	if spherecastResult then
@@ -1074,7 +1094,7 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	end
 
 	-- Keep camera above ground (prevents crouch/slide dip under terrain)
-	finalCameraPosition = self:_clampPositionAboveGround(finalCameraPosition)
+	--finalCameraPosition = self:_clampPositionAboveGround(finalCameraPosition)
 	
 	-- Look forward along aim direction (NOT at the head)
 	local lookDir = aimCF.LookVector
@@ -1158,9 +1178,10 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	-- Skip clamping if DisableGroundClamp is set (fixes camera being forced above low ceilings)
 	local desiredPos = desiredCF.Position
 	local clampedPos = desiredPos
-	if not fpConfig.DisableGroundClamp then
-		clampedPos = self:_clampPositionAboveGround(desiredPos)
-	end
+	--if not fpConfig.DisableGroundClamp then
+	--	clampedPos = self:_clampPositionAboveGround(desiredPos)
+	--end
+	
 	local desiredCFrame = CFrame.new(clampedPos) * desiredCF.Rotation
 	
 	-- CRITICAL: Update Camera.Focus to tell Roblox where to prioritize rendering

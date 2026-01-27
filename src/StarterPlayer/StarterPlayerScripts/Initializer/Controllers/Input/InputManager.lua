@@ -33,6 +33,8 @@ InputManager.VerticalPriority = nil
 
 InputManager.InputMode = "Unknown"
 InputManager.LastInputType = Enum.UserInputType.None
+InputManager.ActiveGamepadType = Enum.UserInputType.Gamepad1
+InputManager.GamepadSetupComplete = false
 
 InputManager.Callbacks = {
 	Movement = {},
@@ -139,6 +141,17 @@ function InputManager:Init()
 		self.LastInputType = lastInputType
 		self:DetectInputMode()
 	end)
+
+	UserInputService.GamepadConnected:Connect(function(gamepad)
+		self.ActiveGamepadType = gamepad
+		self:SetupGamepad()
+	end)
+
+	UserInputService.GamepadDisconnected:Connect(function(gamepad)
+		if self.ActiveGamepadType == gamepad then
+			self.ActiveGamepadType = Enum.UserInputType.Gamepad1
+		end
+	end)
 end
 
 function InputManager:SetupMenuDetection()
@@ -149,6 +162,7 @@ function InputManager:SetupMenuDetection()
 
 	GuiService.MenuClosed:Connect(function()
 		self.IsMenuOpen = false
+		self:ResampleGamepadMovement()
 	end)
 end
 
@@ -447,9 +461,15 @@ function InputManager:SetupTouch()
 end
 
 function InputManager:SetupGamepad()
+	if self.GamepadSetupComplete then
+		return
+	end
+
 	if not UserInputService.GamepadEnabled then
 		return
 	end
+
+	self.GamepadSetupComplete = true
 
 	UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if
@@ -465,11 +485,16 @@ function InputManager:SetupGamepad()
 			return
 		end
 
-		if input.KeyCode == Enum.KeyCode.Thumbstick1 then
-			if self.InputMode ~= "Controller" then
-				return
-			end
+		if input.UserInputType == Enum.UserInputType.Gamepad1
+			or input.UserInputType == Enum.UserInputType.Gamepad2
+			or input.UserInputType == Enum.UserInputType.Gamepad3
+			or input.UserInputType == Enum.UserInputType.Gamepad4
+		then
+			self.ActiveGamepadType = input.UserInputType
+			self.InputMode = "Controller"
+		end
 
+		if input.KeyCode == Enum.KeyCode.Thumbstick1 then
 			local rawMovement = Vector2.new(input.Position.X, input.Position.Y)
 
 			if rawMovement.Magnitude > 0.1 then
@@ -479,23 +504,22 @@ function InputManager:SetupGamepad()
 			end
 			self:FireCallbacks("Movement", self.Movement)
 		elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
-			if self.InputMode ~= "Controller" then
-				return
-			end
-
 			self.LookDelta = Vector2.new(input.Position.X * 2, -input.Position.Y * 2)
 			self:FireCallbacks("Look", self.LookDelta)
 		end
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if self.InputMode ~= "Controller" then
+		if input.UserInputType ~= Enum.UserInputType.Gamepad1
+			and input.UserInputType ~= Enum.UserInputType.Gamepad2
+			and input.UserInputType ~= Enum.UserInputType.Gamepad3
+			and input.UserInputType ~= Enum.UserInputType.Gamepad4
+		then
 			return
 		end
 
-		if input.UserInputType ~= Enum.UserInputType.Gamepad1 then
-			return
-		end
+		self.ActiveGamepadType = input.UserInputType
+		self.InputMode = "Controller"
 
 		-- Emote wheel works regardless of menu state (but not during chat)
 		if not self.IsChatFocused and input.KeyCode == Enum.KeyCode.DPadDown then
@@ -540,13 +564,16 @@ function InputManager:SetupGamepad()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, gameProcessed)
-		if self.InputMode ~= "Controller" then
+		if input.UserInputType ~= Enum.UserInputType.Gamepad1
+			and input.UserInputType ~= Enum.UserInputType.Gamepad2
+			and input.UserInputType ~= Enum.UserInputType.Gamepad3
+			and input.UserInputType ~= Enum.UserInputType.Gamepad4
+		then
 			return
 		end
 
-		if input.UserInputType ~= Enum.UserInputType.Gamepad1 then
-			return
-		end
+		self.ActiveGamepadType = input.UserInputType
+		self.InputMode = "Controller"
 
 		-- Emote wheel release
 		if input.KeyCode == Enum.KeyCode.DPadDown then
@@ -585,6 +612,31 @@ function InputManager:SetupGamepad()
 			self:FireCallbacks("Ultimate", false)
 		end
 	end)
+end
+
+function InputManager:ResampleGamepadMovement()
+	if not UserInputService.GamepadEnabled then
+		return
+	end
+
+	if self.InputMode ~= "Controller" then
+		return
+	end
+
+	local gamepadType = self.ActiveGamepadType or Enum.UserInputType.Gamepad1
+	local states = UserInputService:GetGamepadState(gamepadType)
+	for _, state in ipairs(states) do
+		if state.KeyCode == Enum.KeyCode.Thumbstick1 then
+			local rawMovement = Vector2.new(state.Position.X, state.Position.Y)
+			if rawMovement.Magnitude > 0.1 then
+				self.Movement = Vector2.new(rawMovement.X, rawMovement.Y)
+			else
+				self.Movement = Vector2.new(0, 0)
+			end
+			self:FireCallbacks("Movement", self.Movement)
+			break
+		end
+	end
 end
 
 function InputManager:UpdateMovement()

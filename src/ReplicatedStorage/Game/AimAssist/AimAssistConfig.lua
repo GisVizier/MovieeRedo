@@ -53,8 +53,9 @@ AimAssistConfig.Defaults = {
 		Centering = 1.2,  -- 20% stronger during ADS
 	},
 
-	-- Target bones (CollectionService tags on character parts)
-	TargetBones = { "Head", "UpperTorso", "Torso" },
+	-- Target bones - uses hitbox part names (Head, Body) for players
+	-- Maps UpperTorso/Torso -> Body automatically in TargetSelector
+	TargetBones = { "Head", "Body" },
 }
 
 -- =============================================================================

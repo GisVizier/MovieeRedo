@@ -1,6 +1,7 @@
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
@@ -282,6 +283,8 @@ function module.start(export, ui)
 	self._timerRunning = false
 	self._loadoutFinished = false
 	self._pendingSelectedItemId = nil
+	self._gamepadInputsBound = false
+	self._prevMouseBehavior = nil
 
 	self._previewTemplates = nil
 	self._itemScrollerTemplates = nil
@@ -311,10 +314,45 @@ function module:_init()
 	self:_setupTemplateReferences()
 	self:_setupCurrentItems()
 	self:_setupNetworkListeners()
+	self:_setupGamepadSlotCycling()
 	self:_selectSlot(self._selectedSlot, true)
 end
 
 function module:_setupNetworkListeners() end
+
+
+function module:_setupGamepadSlotCycling()
+	if self._gamepadInputsBound then
+		return
+	end
+
+	self._gamepadInputsBound = true
+
+	self._connections:track(UserInputService, "InputBegan", function(input, gameProcessed)
+		if gameProcessed then
+			return
+		end
+
+		if not self._ui or not self._ui.Visible or self._loadoutFinished then
+			return
+		end
+
+		local inputType = input.UserInputType
+		if inputType ~= Enum.UserInputType.Gamepad1
+			and inputType ~= Enum.UserInputType.Gamepad2
+			and inputType ~= Enum.UserInputType.Gamepad3
+			and inputType ~= Enum.UserInputType.Gamepad4
+		then
+			return
+		end
+
+		if input.KeyCode == Enum.KeyCode.ButtonL1 then
+			self:_cycleSlotSelection(-1)
+		elseif input.KeyCode == Enum.KeyCode.ButtonR1 then
+			self:_cycleSlotSelection(1)
+		end
+	end, "loadout_gamepad")
+end
 
 function module:_startGradientSpin(key, root)
 	self:_stopGradientSpin(key)
@@ -1061,6 +1099,28 @@ function module:_advanceSlotSelection(currentSlot)
 	end
 end
 
+function module:_cycleSlotSelection(direction)
+	if self._loadoutFinished then
+		return
+	end
+
+	local current = self._selectedSlot or SLOT_TYPES[1]
+	local currentIndex = table.find(SLOT_TYPES, current) or 1
+	local delta = (direction and direction >= 0) and 1 or -1
+	local nextIndex = currentIndex + delta
+
+	if nextIndex < 1 then
+		nextIndex = #SLOT_TYPES
+	elseif nextIndex > #SLOT_TYPES then
+		nextIndex = 1
+	end
+
+	local nextSlot = SLOT_TYPES[nextIndex]
+	if nextSlot then
+		self:_selectSlot(nextSlot, true)
+	end
+end
+
 function module:_updateSlotWithWeapon(slotType, weaponId, weaponData)
 	local slotData = self._slotTemplates[slotType]
 	if not slotData then
@@ -1734,6 +1794,10 @@ end
 
 function module:show()
 	self._ui.Visible = true
+	if self._prevMouseBehavior == nil then
+		self._prevMouseBehavior = UserInputService.MouseBehavior
+	end
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	self:_animateShow()
 	self:_init()
 	self:startTimer()
@@ -1742,6 +1806,10 @@ end
 
 function module:hide()
 	self:_animateHide()
+	if self._prevMouseBehavior ~= nil then
+		UserInputService.MouseBehavior = self._prevMouseBehavior
+	end
+	self._prevMouseBehavior = nil
 
 	task.delay(0.6, function()
 		self._ui.Visible = false
@@ -1775,6 +1843,7 @@ function module:_cleanup()
 		self:_stopGradientSpin("item_" .. weaponId)
 	end
 
+
 	self:_clearSlotTemplates()
 	self:_clearItemTemplates()
 	for key in self._gradientSpin do
@@ -1783,6 +1852,8 @@ function module:_cleanup()
 
 	self._selectedSlot = "Kit"
 	self._pendingSelectedItemId = nil
+	self._gamepadInputsBound = false
+	self._prevMouseBehavior = nil
 	table.clear(self._currentLoadout)
 	self._currentLoadout = {
 		Kit = nil,
