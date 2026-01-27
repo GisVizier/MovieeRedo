@@ -1,9 +1,13 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local GadgetBase = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("GadgetBase"))
-local HitDetectionAPI = require(Locations.Services.ServerScriptService:WaitForChild("Server"):WaitForChild("Services"):WaitForChild("AntiCheat"):WaitForChild("HitDetectionAPI"))
+local HitDetectionAPI = nil
+if RunService:IsServer() then
+	HitDetectionAPI = require(Locations.Services.ServerScriptService:WaitForChild("Server"):WaitForChild("Services"):WaitForChild("AntiCheat"):WaitForChild("HitDetectionAPI"))
+end
 
 local JumpPad = {}
 JumpPad.__index = JumpPad
@@ -122,11 +126,13 @@ function JumpPad:onUseRequest(player, _payload)
 		rootPosition = root.Position
 	end
 
-	local serverNow = workspace:GetServerTimeNow()
-	local rollback = HitDetectionAPI:GetRollbackTime(player)
-	local historicalPosition = HitDetectionAPI:GetPositionAtTime(player, serverNow - rollback)
-	if typeof(historicalPosition) == "Vector3" then
-		rootPosition = historicalPosition
+	if HitDetectionAPI then
+		local serverNow = workspace:GetServerTimeNow()
+		local rollback = HitDetectionAPI:GetRollbackTime(player)
+		local historicalPosition = HitDetectionAPI:GetPositionAtTime(player, serverNow - rollback)
+		if typeof(historicalPosition) == "Vector3" then
+			rootPosition = historicalPosition
+		end
 	end
 
 	if not rootPosition then
