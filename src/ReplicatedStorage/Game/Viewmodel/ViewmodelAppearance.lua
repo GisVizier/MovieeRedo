@@ -3,6 +3,50 @@ local Workspace = game:GetService("Workspace")
 
 local ViewmodelAppearance = {}
 
+-- Maps body color properties to viewmodel part names
+local LEFT_ARM_PARTS = {
+	["Left Arm"] = true,
+	["LeftUpperArm"] = true,
+	["LeftLowerArm"] = true,
+	["LeftHand"] = true,
+}
+
+local RIGHT_ARM_PARTS = {
+	["Right Arm"] = true,
+	["RightUpperArm"] = true,
+	["RightLowerArm"] = true,
+	["RightHand"] = true,
+}
+
+local function applyBodyColorsToViewmodel(viewmodel, bodyColors)
+	if not bodyColors or not bodyColors:IsA("BodyColors") then
+		return
+	end
+
+	local leftColor = bodyColors.LeftArmColor3
+	local rightColor = bodyColors.RightArmColor3
+
+	for _, desc in ipairs(viewmodel:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			if LEFT_ARM_PARTS[desc.Name] then
+				desc.Color = leftColor
+			elseif RIGHT_ARM_PARTS[desc.Name] then
+				desc.Color = rightColor
+			end
+		end
+	end
+end
+
+local function tryApplyBodyColors(viewmodel, rig)
+	local bodyColors = rig:FindFirstChildOfClass("BodyColors")
+	if not bodyColors then
+		return false
+	end
+
+	applyBodyColorsToViewmodel(viewmodel, bodyColors)
+	return true
+end
+
 local function applyShirtTemplateToViewmodel(viewmodel: Model, shirtTemplate: string)
 	if type(shirtTemplate) ~= "string" or shirtTemplate == "" then
 		return
@@ -32,8 +76,8 @@ end
 
 -- No fallback by design: only read from the workspace cosmetic rig.
 -- Returns a cleanup function (disconnects listeners).
-function ViewmodelAppearance.BindShirtToLocalRig(player: Player, viewmodel: Model): () -> ()
-	local connections: { RBXScriptConnection } = {}
+function ViewmodelAppearance.BindShirtToLocalRig(player, viewmodel)
+	local connections = {}
 
 	local function cleanup()
 		for _, c in ipairs(connections) do
@@ -44,14 +88,13 @@ function ViewmodelAppearance.BindShirtToLocalRig(player: Player, viewmodel: Mode
 		table.clear(connections)
 	end
 
-	if not player or not viewmodel or not viewmodel.Parent then
-		-- Viewmodel not parented yet is fine; we can still bind.
+	if not player or not viewmodel then
+		return cleanup
 	end
 
 	-- Rig location: workspace.Rigs/<PlayerName>_Rig
 	local rigsFolder = Workspace:FindFirstChild("Rigs")
 	if not rigsFolder then
-		-- RigManager should create it, but don't yield forever.
 		rigsFolder = Workspace:WaitForChild("Rigs", 5)
 	end
 	if not rigsFolder then
@@ -60,17 +103,24 @@ function ViewmodelAppearance.BindShirtToLocalRig(player: Player, viewmodel: Mode
 
 	local rigName = player.Name .. "_Rig"
 
-	local function bindRig(rig: Model)
-		-- Try immediately; if shirt isn't present yet, wait for it.
-		if tryApplyFromRig(viewmodel, rig) then
-			return
+	local function bindRig(rig)
+		-- Apply shirt
+		if not tryApplyFromRig(viewmodel, rig) then
+			table.insert(connections, rig.ChildAdded:Connect(function(child)
+				if child:IsA("Shirt") then
+					tryApplyFromRig(viewmodel, rig)
+				end
+			end))
 		end
 
-		table.insert(connections, rig.ChildAdded:Connect(function(child)
-			if child:IsA("Shirt") then
-				tryApplyFromRig(viewmodel, rig)
-			end
-		end))
+		-- Apply body colors (skin color to arms)
+		if not tryApplyBodyColors(viewmodel, rig) then
+			table.insert(connections, rig.ChildAdded:Connect(function(child)
+				if child:IsA("BodyColors") then
+					tryApplyBodyColors(viewmodel, rig)
+				end
+			end))
+		end
 	end
 
 	local existing = rigsFolder:FindFirstChild(rigName)

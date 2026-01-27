@@ -5,6 +5,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local Gadgets = require(Locations.Game:WaitForChild("Gadgets"))
 local GadgetBase = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("GadgetBase"))
 local JumpPad = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("JumpPad"))
+local Zipline = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Zipline"))
 
 local GadgetService = {}
 
@@ -17,6 +18,7 @@ function GadgetService:Init(registry, net)
 	self._mapByGadgetId = {}
 
 	self:Register("JumpPad", JumpPad)
+	self:Register("Zipline", Zipline)
 
 	self._net:ConnectServer("GadgetInitRequest", function(player)
 		self:SendInitToPlayer(player)
