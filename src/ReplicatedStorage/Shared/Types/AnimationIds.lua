@@ -30,6 +30,10 @@ AnimationIds.Enum = {
 	HurricaneStart = 26,
 	HurricaneLoop = 27,
 	HurricaneEnd = 28,
+	ZiplineIdle = 29,
+	ZiplineHookUp = 30,
+	ZiplineFastHookUp = 31,
+	ZiplineJump = 32,
 }
 
 AnimationIds.Names = {}

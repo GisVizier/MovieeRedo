@@ -418,30 +418,37 @@ function Airborne:_setupFloatPassive(ctx)
 
 	local inputManager = ServiceRegistry:GetController("Input").Manager
 	local kitController = ServiceRegistry:GetController("Kit")
-	
+
 	local jumpStart = nil
-	local jumpConnection = nil
 	local lastFloatTime = 0
 	local FLOAT_COOLDOWN = 0.25
 	local ABILITY_BUFFER = 0.35  -- Can't float until 0.35s after ability ends
+	local ZIPLINE_BUFFER = 0.35
 
 	self._connections.jumpInput = inputManager:ConnectToInput("Jump", function(isJumping)
 		if isJumping then
 			local isGrounded = MovementStateManager:GetIsGrounded()
 			if isGrounded then
 				return
-			end 
+			end
+			local player = Players.LocalPlayer
+			if player then
+				local lastZiplineJump = player:GetAttribute("ZiplineJumpDetachTime")
+				if type(lastZiplineJump) == "number" and tick() - lastZiplineJump < ZIPLINE_BUFFER then
+					return
+				end
+			end
 
 			-- Can't float while ability is active
 			if kitController:IsAbilityActive() then
 				return
 			end
-			
+
 			-- Can't float while on cooldown
 			if kitController:IsAbilityOnCooldown() then
 				return
 			end
-			
+
 			-- Can't float until 0.35s after ability ends
 			if tick() - Airborne._lastAbilityEndTime < ABILITY_BUFFER then
 				return
@@ -453,10 +460,19 @@ function Airborne:_setupFloatPassive(ctx)
 
 			jumpStart = tick()
 			lastFloatTime = tick()
-			
-			jumpConnection = RunService.RenderStepped:Connect(function()
+
+			-- Disconnect any existing float render connection
+			if self._connections.floatRender then
+				self._connections.floatRender:Disconnect()
+				self._connections.floatRender = nil
+			end
+
+			self._connections.floatRender = RunService.RenderStepped:Connect(function()
 				if not primaryPart or not primaryPart.Parent then
-					if jumpConnection then jumpConnection:Disconnect() end
+					if self._connections.floatRender then
+						self._connections.floatRender:Disconnect()
+						self._connections.floatRender = nil
+					end
 					return
 				end
 
@@ -464,12 +480,19 @@ function Airborne:_setupFloatPassive(ctx)
 				if kitController:IsAbilityActive() then
 					return
 				end
-				
+				local player = Players.LocalPlayer
+				if player then
+					local lastZiplineJump = player:GetAttribute("ZiplineJumpDetachTime")
+					if type(lastZiplineJump) == "number" and tick() - lastZiplineJump < ZIPLINE_BUFFER then
+						return
+					end
+				end
+
 				-- Can't float while on cooldown
 				if kitController:IsAbilityOnCooldown() then
 					return
 				end
-				
+
 				-- Can't float until 0.35s after ability ends
 				if tick() - Airborne._lastAbilityEndTime < ABILITY_BUFFER then
 					return
@@ -488,7 +511,10 @@ function Airborne:_setupFloatPassive(ctx)
 				if tick() - jumpStart > 0.25 then
 					local isGrounded = MovementStateManager:GetIsGrounded()
 					if isGrounded then
-						if jumpConnection then jumpConnection:Disconnect() end
+						if self._connections.floatRender then
+							self._connections.floatRender:Disconnect()
+							self._connections.floatRender = nil
+						end
 						return
 					end
 
@@ -499,9 +525,9 @@ function Airborne:_setupFloatPassive(ctx)
 			end)
 		else
 			-- Jump released
-			if jumpConnection then
-				jumpConnection:Disconnect()
-				jumpConnection = nil
+			if self._connections.floatRender then
+				self._connections.floatRender:Disconnect()
+				self._connections.floatRender = nil
 			end
 		end
 	end)
@@ -546,6 +572,10 @@ function Airborne:OnUnequip(reason)
 	for key, conn in pairs(self._connections) do
 		if typeof(conn) == "RBXScriptConnection" then
 			conn:Disconnect()
+		elseif type(conn) == "table" and type(conn.Disconnect) == "function" then
+			pcall(function() conn:Disconnect() end)
+		elseif type(conn) == "function" then
+			pcall(conn)
 		end
 		self._connections[key] = nil
 	end

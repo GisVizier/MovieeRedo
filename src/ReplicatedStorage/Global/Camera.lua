@@ -100,10 +100,11 @@ Camera.FOV = {
 	-- Velocity-based FOV
 	Velocity = {
 		Enabled = true,
-			MinSpeed = 22,          -- Speed threshold to start FOV increase
-			MaxSpeed = 140,         -- Speed at max FOV boost
+		MinSpeed = 10,          -- Speed threshold to start FOV increase
+		MaxSpeed = 140,         -- Speed at max FOV boost
+		
 		MinBoost = 0,           -- FOV boost at min speed
-			MaxBoost = 12,          -- FOV boost at max speed
+		MaxBoost = 45,          -- FOV boost at max speed
 	},
 	
 	-- State-based FOV effects

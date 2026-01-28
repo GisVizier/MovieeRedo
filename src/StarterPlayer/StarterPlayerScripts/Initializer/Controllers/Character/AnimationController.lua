@@ -101,7 +101,9 @@ AnimationController.OtherCharacterEmoteTracks = {}
 
 -- Custom/Kit animation system
 AnimationController.CustomAnimationTracks = {}
-AnimationController.PreloadedAnimations = {}  -- { [animationId or name] = Animation instance }
+AnimationController.PreloadedAnimations = {}
+AnimationController.ZiplineActive = false
+AnimationController.CurrentZiplineAnimationName = nil
 
 local STATE_ANIMATIONS = {
 	Walking = "WalkingForward",
@@ -168,6 +170,18 @@ local function getDefaultSettings(name)
 		settings.FadeOutTime = 0.2
 	end
 
+	if name == "ZiplineIdle" then
+		settings.FadeInTime = 0.1
+		settings.FadeOutTime = 0.1
+		settings.Loop = true
+		settings.Priority = Enum.AnimationPriority.Action
+	elseif name:match("^Zipline") then
+		settings.FadeInTime = 0.05
+		settings.FadeOutTime = 0.1
+		settings.Loop = false
+		settings.Priority = Enum.AnimationPriority.Action
+	end
+
 	return settings
 end
 
@@ -229,6 +243,10 @@ local function getAnimationCategory(animationName)
 		return "Airborne"
 	end
 
+	if animationName:match("^Zipline") then
+		return "Action"
+	end
+
 	return "State"
 end
 
@@ -276,6 +294,12 @@ function AnimationController:_loadAnimationInstances()
 				self.JumpCancelVariants[tonumber(index)] = child
 			else
 				self.AnimationInstances[name] = child
+			end
+		elseif child:IsA("Folder") and child.Name == "Zipline" then
+			for _, zipAnim in ipairs(child:GetChildren()) do
+				if zipAnim:IsA("Animation") then
+					self.AnimationInstances[zipAnim.Name] = zipAnim
+				end
 			end
 		end
 	end
@@ -610,6 +634,9 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 	if not self.LocalCharacter or not self.LocalAnimator then
 		return
 	end
+	if self.ZiplineActive then
+		return
+	end
 
 	local isSliding = (newState == "Sliding")
 	local isMoving = MovementStateManager:GetIsMoving()
@@ -702,6 +729,9 @@ function AnimationController:OnMovementChanged(_wasMoving, isMoving)
 	if not self.LocalCharacter or not self.LocalAnimator then
 		return
 	end
+	if self.ZiplineActive then
+		return
+	end
 
 	local currentState = MovementStateManager:GetCurrentState()
 	local isGrounded = MovementStateManager:GetIsGrounded()
@@ -744,6 +774,9 @@ end
 
 function AnimationController:OnGroundedChanged(wasGrounded, isGrounded)
 	if not self.LocalCharacter or not self.LocalAnimator then
+		return
+	end
+	if self.ZiplineActive then
 		return
 	end
 
@@ -897,6 +930,97 @@ function AnimationController:PlayActionAnimation(animationName)
 	track:Play(settings.FadeInTime, settings.Weight, settings.Speed)
 	self.CurrentActionAnimation = track
 	self:SetCurrentAnimation(animationName)
+end
+
+function AnimationController:PlayZiplineAnimation(animationName)
+	if not self.LocalAnimator or not animationName then
+		return nil
+	end
+	if not self:_loadAnimationInstances() then
+		return nil
+	end
+	local track = self.LocalAnimationTracks[animationName]
+	if type(track) == "table" then
+		track = track[1]
+	end
+	if not track then
+		return nil
+	end
+
+	self.ZiplineActive = true
+	self.CurrentZiplineAnimationName = animationName
+
+	self:StopSlideAnimationUpdates()
+	self:StopWalkAnimationUpdates()
+	self:StopCrouchAnimationUpdates()
+
+	if self.CurrentStateAnimation and self.CurrentStateAnimation.IsPlaying then
+		local settings = self.AnimationSettings[self.CurrentAnimationName] or getDefaultSettings(self.CurrentAnimationName)
+		self.CurrentStateAnimation:Stop(settings.FadeOutTime)
+	end
+	if self.CurrentIdleAnimation and self.CurrentIdleAnimation.IsPlaying then
+		local settings = self.AnimationSettings[self.CurrentAnimationName] or getDefaultSettings(self.CurrentAnimationName)
+		self.CurrentIdleAnimation:Stop(settings.FadeOutTime)
+	end
+	if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
+		local settings = self.AnimationSettings[self.CurrentAnimationName] or getDefaultSettings(self.CurrentAnimationName)
+		self.CurrentAirborneAnimation:Stop(settings.FadeOutTime)
+		self.CurrentAirborneAnimation = nil
+	end
+
+	local settings = self.AnimationSettings[animationName] or getDefaultSettings(animationName)
+	if self.CurrentActionAnimation and self.CurrentActionAnimation ~= track and self.CurrentActionAnimation.IsPlaying then
+		self.CurrentActionAnimation:Stop(settings.FadeOutTime)
+	end
+
+	if track.IsPlaying then
+		track:Stop(0)
+	end
+	track.Looped = settings.Loop
+	track:Play(settings.FadeInTime, settings.Weight, settings.Speed)
+	self.CurrentActionAnimation = track
+	self:SetCurrentAnimation(animationName)
+
+	return track
+end
+
+function AnimationController:StopZiplineAnimation(fadeOutOverride)
+	if not self.ZiplineActive then
+		return
+	end
+	self.ZiplineActive = false
+	self.CurrentZiplineAnimationName = nil
+	local function getFadeOutTime(name)
+		if type(fadeOutOverride) == "number" then
+			return fadeOutOverride
+		end
+		local anim = self.AnimationInstances and self.AnimationInstances[name]
+		local attr = anim and anim:GetAttribute("FadeOutTime")
+		local fadeOutTime = type(attr) == "number" and attr or 0
+		if name == "ZiplineIdle" then
+			fadeOutTime = math.min(fadeOutTime or 0, 0.05)
+		end
+		return fadeOutTime or 0
+	end
+	for name, track in pairs(self.CustomAnimationTracks) do
+		if type(name) == "string" and name:match("^Zipline") then
+			if track and track.IsPlaying then
+				track:Stop(getFadeOutTime(name))
+			end
+			self.CustomAnimationTracks[name] = nil
+		end
+	end
+	for name, track in pairs(self.LocalAnimationTracks) do
+		if type(name) == "string" and name:match("^Zipline") then
+			local resolved = track
+			if type(resolved) == "table" then
+				resolved = resolved[1]
+			end
+			if resolved and resolved.IsPlaying then
+				resolved:Stop(getFadeOutTime(name))
+			end
+		end
+	end
 end
 
 function AnimationController:StopAllLocalAnimations()
@@ -1413,6 +1537,9 @@ end
 
 function AnimationController:UpdateAnimationSpeed()
 	if not self.LocalCharacter then
+		return
+	end
+	if self.ZiplineActive then
 		return
 	end
 

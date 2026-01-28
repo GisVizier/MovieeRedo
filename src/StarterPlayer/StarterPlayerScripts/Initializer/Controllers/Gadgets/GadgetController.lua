@@ -5,6 +5,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local Gadgets = require(Locations.Game:WaitForChild("Gadgets"))
 local GadgetBase = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("GadgetBase"))
 local JumpPad = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("JumpPad"))
+local Zipline = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Zipline"))
 
 local GadgetController = {}
 
@@ -14,6 +15,7 @@ function GadgetController:Init(registry, net)
 	self._gadgetSystem = Gadgets.new()
 	self._gadgetSystem:setFallbackClass(GadgetBase)
 	self._gadgetSystem:register("JumpPad", JumpPad)
+	self._gadgetSystem:register("Zipline", Zipline)
 
 	self._net:ConnectClient("GadgetInit", function(payload)
 		self:_onInit(payload)

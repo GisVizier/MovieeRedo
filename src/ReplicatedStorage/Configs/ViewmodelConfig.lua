@@ -86,6 +86,9 @@ ViewmodelConfig.Weapons = {
 			Idle = "rbxassetid://116832822109675",
 			Walk = "rbxassetid://116832822109675",  -- Reuse Idle
 			Run = "rbxassetid://116832822109675",   -- Reuse Idle
+			ZiplineHold = "rbxassetid://76927446014111",
+			ZiplineHookUp = "rbxassetid://123241316387450",
+			ZiplineFastHookUp = "rbxassetid://123241316387450",
 		},
 	},
 
@@ -203,4 +206,3 @@ ViewmodelConfig.Kits = {
 }
 
 return ViewmodelConfig
-

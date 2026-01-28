@@ -42,6 +42,7 @@ local TILT_SPRING_SPEED = 12
 local TILT_SPRING_DAMPER = 0.9
 local SLIDE_ROLL = math.rad(14)
 local SLIDE_PITCH = math.rad(6)
+local SLIDE_YAW = math.rad(30)
 local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
 local DEFAULT_ADS_EFFECTS_MULTIPLIER = 0.25
@@ -67,6 +68,7 @@ ViewmodelController._renderBound = false
 ViewmodelController._kitConn = nil
 ViewmodelController._startMatchConn = nil
 ViewmodelController._attrConn = nil
+ViewmodelController._ziplineAttrConn = nil
 ViewmodelController._equipKeysConn = nil
 
 ViewmodelController._gameplayEnabled = false
@@ -78,6 +80,8 @@ ViewmodelController._cachedKitTracks = nil
 ViewmodelController._adsActive = false
 ViewmodelController._adsBlend = 0
 ViewmodelController._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
+ViewmodelController._ziplineActive = false
+ViewmodelController._ziplineArmCache = {}
 
 local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
 
@@ -157,6 +161,55 @@ local function axisAngleToCFrame(vec: Vector3): CFrame
 	return CFrame.fromAxisAngle(vec / angle, angle)
 end
 
+function ViewmodelController:_getZiplineLeftArmMotors(rig)
+	if not rig or not rig.Model then
+		return {}
+	end
+	local rigKey = rig.Model and rig.Model:GetFullName() or tostring(rig)
+	local cached = self._ziplineArmCache[rigKey]
+	if cached then
+		local stillValid = true
+		for _, motor in ipairs(cached) do
+			if not motor or not motor.Parent then
+				stillValid = false
+				break
+			end
+		end
+		if stillValid then
+			return cached
+		end
+	end
+	local motors = {}
+	local root = rig.Model:FindFirstChild("HumanoidRootPart", true)
+	if root then
+		local motor = root:FindFirstChild("Left Arm")
+		if motor and motor:IsA("Motor6D") then
+			table.insert(motors, motor)
+		end
+	end
+	self._ziplineArmCache[rigKey] = motors
+	return motors
+end
+
+function ViewmodelController:_applyZiplineArmPose(rig)
+	local motors = self:_getZiplineLeftArmMotors(rig)
+	if not motors or #motors == 0 then
+		return
+	end
+	if self._ziplineActive and isFirstPerson(self) then
+		local transform = CFrame.Angles(-math.rad(90), 0, 0)
+		for _, motor in ipairs(motors) do
+			motor.Transform = transform
+		end
+	else
+		for _, motor in ipairs(motors) do
+			if motor.Transform ~= CFrame.new() then
+				motor.Transform = CFrame.new()
+			end
+		end
+	end
+end
+
 function ViewmodelController:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -229,6 +282,14 @@ function ViewmodelController:Init(registry, net)
 
 		self._attrConn = LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(onSelectedLoadoutChanged)
 		task.defer(onSelectedLoadoutChanged)
+
+		local function onZiplineActiveChanged()
+			local active = LocalPlayer:GetAttribute("ZiplineActive")
+			self:_setZiplineActive(active == true)
+		end
+
+		self._ziplineAttrConn = LocalPlayer:GetAttributeChangedSignal("ZiplineActive"):Connect(onZiplineActiveChanged)
+		task.defer(onZiplineActiveChanged)
 	end
 
 	do
@@ -627,6 +688,9 @@ function ViewmodelController:SetActiveSlot(slot: string)
 	if self._animator then
 		self._animator:Play("Equip", 0.1, true)
 	end
+	if self._ziplineActive and self._animator then
+		self._animator:Play("ZiplineHold", 0.05, true)
+	end
 
 	self:_ensureRenderLoop()
 end
@@ -646,6 +710,56 @@ end
 
 function ViewmodelController:GetADSBlend(): number
 	return self._adsBlend
+end
+
+function ViewmodelController:_setZiplineActive(active: boolean)
+	active = active == true
+	if self._ziplineActive == active then
+		return
+	end
+	self._ziplineActive = active
+	if active then
+		if isFirstPerson(self) then
+			if self._animator then
+				local fast = LocalPlayer and LocalPlayer:GetAttribute("ZiplineHookupFast") == true
+				local hookName = fast and "ZiplineFastHookUp" or "ZiplineHookUp"
+				self._animator:Play(hookName, 0.05, true)
+				local track = self._animator:GetTrack(hookName)
+				if track then
+					track.Stopped:Once(function()
+						if self._ziplineActive then
+							self._animator:Play("ZiplineHold", 0.05, true)
+						end
+					end)
+				else
+					self._animator:Play("ZiplineHold", 0.05, true)
+				end
+			end
+			local rig = getRigForSlot(self, self._activeSlot)
+			if rig and rig.Model then
+				local motors = {}
+				for _, desc in ipairs(rig.Model:GetDescendants()) do
+					if desc:IsA("Motor6D") then
+						table.insert(motors, {
+							name = desc.Name,
+							part1 = desc.Part1 and desc.Part1.Name or "",
+							fullName = desc:GetFullName(),
+						})
+					end
+				end
+				print("[ZiplineVM] Active rig:", rig.Model:GetFullName(), "motors:", motors)
+			else
+				print("[ZiplineVM] No active rig when zipline active")
+			end
+		end
+	else
+		if self._animator then
+			self._animator:Stop("ZiplineHold", 0)
+			self._animator:Stop("ZiplineHookUp", 0)
+			self._animator:Stop("ZiplineFastHookUp", 0)
+		end
+		self:_applyZiplineArmPose(getRigForSlot(self, self._activeSlot))
+	end
 end
 
 function ViewmodelController:PlayViewmodelAnimation(name: string, fade: number?, restart: boolean?)
@@ -823,6 +937,7 @@ function ViewmodelController:_render(dt: number)
 	if not rig or not rig.Model or not rig.Anchor then
 		return
 	end
+	self:_applyZiplineArmPose(rig)
 
 	local springs = self._springs
 	if not springs then
@@ -894,7 +1009,7 @@ function ViewmodelController:_render(dt: number)
 			end
 			local roll = -math.clamp(localDir.X, -1, 1) * SLIDE_ROLL
 			local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
-			self._slideTiltTarget = Vector3.new(pitch, 0, roll)
+			self._slideTiltTarget = Vector3.new(pitch, SLIDE_YAW, roll)
 			
 			self._wasSliding = true
 			springs.tiltRot.Target = self._slideTiltTarget
@@ -965,8 +1080,9 @@ function ViewmodelController:_render(dt: number)
 	)
 
 	local tiltX = math.clamp(springs.tiltRot.Position.X, -SLIDE_PITCH, SLIDE_PITCH) * fxScale
+	local tiltY = math.clamp(springs.tiltRot.Position.Y, -SLIDE_YAW, SLIDE_YAW) * fxScale
 	local tiltZ = math.clamp(springs.tiltRot.Position.Z, -SLIDE_ROLL, SLIDE_ROLL) * fxScale
-	local tiltRotOffset = CFrame.Angles(tiltX, 0, tiltZ)
+	local tiltRotOffset = CFrame.Angles(tiltX, tiltY, tiltZ)
 
 	local bobOffset = springs.bob.Position * fxScale
 	local tiltPosOffset = springs.tiltPos.Position * fxScale
@@ -1093,6 +1209,10 @@ function ViewmodelController:Destroy()
 	if self._attrConn then
 		self._attrConn:Disconnect()
 		self._attrConn = nil
+	end
+	if self._ziplineAttrConn then
+		self._ziplineAttrConn:Disconnect()
+		self._ziplineAttrConn = nil
 	end
 	if self._equipKeysConn then
 		self._equipKeysConn:Disconnect()

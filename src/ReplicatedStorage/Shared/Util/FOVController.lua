@@ -243,19 +243,19 @@ function FOVController:UpdateSprintFOV(currentSpeed)
 end
 
 function FOVController:CalculateTargetFOV()
-	local highestPriority = -1
-	local highestDelta = 0
+	local totalDelta = 0
 	
 	for _, effectData in pairs(self.ActiveEffects) do
-		if effectData.Priority > highestPriority then
-			highestPriority = effectData.Priority
-			highestDelta = effectData.Delta
-		elseif effectData.Priority == highestPriority then
-			highestDelta = math.max(highestDelta, effectData.Delta)
-		end
+		totalDelta += effectData.Delta or 0
 	end
 	
-	return self.BaseFOV + highestDelta
+	local fovConfig = Config.Camera and Config.Camera.FOV
+	local maxTotalBoost = fovConfig and fovConfig.MaxTotalBoost
+	if maxTotalBoost then
+		totalDelta = math.min(totalDelta, maxTotalBoost)
+	end
+	
+	return self.BaseFOV + totalDelta
 end
 
 -- =============================================================================

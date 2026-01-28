@@ -3,20 +3,38 @@ local Workspace = game:GetService("Workspace")
 
 local ViewmodelAppearance = {}
 
--- Maps body color properties to viewmodel part names
-local LEFT_ARM_PARTS = {
-	["Left Arm"] = true,
-	["LeftUpperArm"] = true,
-	["LeftLowerArm"] = true,
-	["LeftHand"] = true,
-}
+local function isLeftPart(name)
+	local lower = string.lower(name)
+	return string.find(lower, "left", 1, true) ~= nil
+end
 
-local RIGHT_ARM_PARTS = {
-	["Right Arm"] = true,
-	["RightUpperArm"] = true,
-	["RightLowerArm"] = true,
-	["RightHand"] = true,
-}
+local function isRightPart(name)
+	local lower = string.lower(name)
+	return string.find(lower, "right", 1, true) ~= nil
+end
+
+local function findBodyColors(rig)
+	-- Check direct children first
+	local bc = rig:FindFirstChildOfClass("BodyColors")
+	if bc then
+		return bc
+	end
+	-- Search recursively
+	for _, desc in ipairs(rig:GetDescendants()) do
+		if desc:IsA("BodyColors") then
+			return desc
+		end
+	end
+	return nil
+end
+
+local function colorDescendants(instance, color)
+	for _, desc in ipairs(instance:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Color = color
+		end
+	end
+end
 
 local function applyBodyColorsToViewmodel(viewmodel, bodyColors)
 	if not bodyColors or not bodyColors:IsA("BodyColors") then
@@ -26,19 +44,25 @@ local function applyBodyColorsToViewmodel(viewmodel, bodyColors)
 	local leftColor = bodyColors.LeftArmColor3
 	local rightColor = bodyColors.RightArmColor3
 
-	for _, desc in ipairs(viewmodel:GetDescendants()) do
-		if desc:IsA("BasePart") then
-			if LEFT_ARM_PARTS[desc.Name] then
-				desc.Color = leftColor
-			elseif RIGHT_ARM_PARTS[desc.Name] then
-				desc.Color = rightColor
+	for _, child in ipairs(viewmodel:GetDescendants()) do
+		if child:IsA("BasePart") or child:IsA("Folder") or child:IsA("Model") then
+			if isLeftPart(child.Name) then
+				if child:IsA("BasePart") then
+					child.Color = leftColor
+				end
+				colorDescendants(child, leftColor)
+			elseif isRightPart(child.Name) then
+				if child:IsA("BasePart") then
+					child.Color = rightColor
+				end
+				colorDescendants(child, rightColor)
 			end
 		end
 	end
 end
 
 local function tryApplyBodyColors(viewmodel, rig)
-	local bodyColors = rig:FindFirstChildOfClass("BodyColors")
+	local bodyColors = findBodyColors(rig)
 	if not bodyColors then
 		return false
 	end
@@ -47,7 +71,7 @@ local function tryApplyBodyColors(viewmodel, rig)
 	return true
 end
 
-local function applyShirtTemplateToViewmodel(viewmodel: Model, shirtTemplate: string)
+local function applyShirtTemplateToViewmodel(viewmodel, shirtTemplate)
 	if type(shirtTemplate) ~= "string" or shirtTemplate == "" then
 		return
 	end
@@ -64,7 +88,7 @@ local function applyShirtTemplateToViewmodel(viewmodel: Model, shirtTemplate: st
 	end
 end
 
-local function tryApplyFromRig(viewmodel: Model, rig: Model): boolean
+local function tryApplyFromRig(viewmodel, rig)
 	local shirt = rig:FindFirstChildOfClass("Shirt")
 	if not shirt then
 		return false

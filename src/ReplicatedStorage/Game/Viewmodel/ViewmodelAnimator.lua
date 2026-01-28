@@ -128,13 +128,16 @@ local function buildTracks(animator: Animator, weaponId: string?)
 			else
 				track.Priority = Enum.AnimationPriority.Action
 			end
+			if name == "ZiplineHold" or name == "ZiplineHookUp" or name == "ZiplineFastHookUp" then
+				track.Priority = Enum.AnimationPriority.Action4
+			end
 			
 			-- Loop: check attribute, fall back to based on animation type
 			local loopAttr = animInstance:GetAttribute("Loop")
 			if type(loopAttr) == "boolean" then
 				track.Looped = loopAttr
 			else
-				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS")
+				track.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS" or name == "ZiplineHold")
 			end
 
 			-- Build settings from attributes (matching base animation structure)
@@ -379,6 +382,20 @@ end
 
 function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolean?)
 	local track = self._tracks[name]
+	if not track and (name == "ZiplineHold" or name == "ZiplineHookUp" or name == "ZiplineFastHookUp") and self._rig and self._rig.Animator then
+		local fistsCfg = ViewmodelConfig.Weapons and ViewmodelConfig.Weapons.Fists
+		local zipAnim = fistsCfg and fistsCfg.Animations and fistsCfg.Animations[name]
+		if isValidAnimId(zipAnim) then
+			local animation = Instance.new("Animation")
+			animation.AnimationId = zipAnim
+			local loaded = self._rig.Animator:LoadAnimation(animation)
+			loaded.Priority = Enum.AnimationPriority.Action4
+			loaded.Looped = name == "ZiplineHold"
+			self._tracks[name] = loaded
+			self._trackSettings[name] = self._trackSettings[name] or {}
+			track = loaded
+		end
+	end
 	if not track then
 		return
 	end
