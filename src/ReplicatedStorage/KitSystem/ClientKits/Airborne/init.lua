@@ -788,6 +788,7 @@ function Airborne.Ability:OnStart(abilityRequest)
 		
 		Events["_finish"]()
 		unlock()
+		kitController:_unholsterWeapon()
 		
 		-- Track when ability ended (for float buffer)
 		Airborne._lastAbilityEndTime = tick()

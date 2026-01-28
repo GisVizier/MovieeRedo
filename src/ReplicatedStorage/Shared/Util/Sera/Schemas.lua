@@ -158,7 +158,7 @@ SeraSchemas.HitPacket = Sera.Schema({
 	Timestamp = Sera.Float64,      -- 8 bytes (needs precision for GetServerTimeNow)
 	Origin = Sera.Vector3,         -- 12 bytes (shooter position)
 	HitPosition = Sera.Vector3,    -- 12 bytes (world position of hit)
-	TargetUserId = Sera.Int32,     -- 4 bytes (0 = no player target / dummy)
+	TargetUserId = Sera.Uint32,    -- 4 bytes (0 = no player target / dummy)
 	HitPart = Sera.Uint8,          -- 1 byte (enum: None/Body/Head/Limb)
 	WeaponId = Sera.Uint8,         -- 1 byte (weapon enum)
 	TargetStance = Sera.Uint8,     -- 1 byte (stance client observed: Standing/Crouched/Sliding)
@@ -171,7 +171,7 @@ SeraSchemas.ShotgunHitPacket = Sera.Schema({
 	Timestamp = Sera.Float64,      -- 8 bytes (needs precision for GetServerTimeNow)
 	Origin = Sera.Vector3,         -- 12 bytes
 	HitPosition = Sera.Vector3,    -- 12 bytes (primary/first hit position)
-	TargetUserId = Sera.Int32,     -- 4 bytes
+	TargetUserId = Sera.Uint32,    -- 4 bytes
 	HitPart = Sera.Uint8,          -- 1 byte
 	WeaponId = Sera.Uint8,         -- 1 byte
 	TargetStance = Sera.Uint8,     -- 1 byte

@@ -321,19 +321,24 @@ function KitController:_unholsterWeapon()
 	if not self._abilityActive then
 		return
 	end
-	
+
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	if not viewmodelController then
+		self._abilityActive = false
+		self._holsteredSlot = nil
 		return
 	end
-	
+
 	self._abilityActive = false
-	
-	-- Restore previous weapon slot
+
+	-- Restore previous weapon slot only if still on Fists
+	-- (player may have already swapped weapons manually)
 	local slotToRestore = self._holsteredSlot or "Primary"
 	self._holsteredSlot = nil
-	
-	viewmodelController:SetActiveSlot(slotToRestore)
+
+	if viewmodelController:GetActiveSlot() == "Fists" then
+		viewmodelController:SetActiveSlot(slotToRestore)
+	end
 end
 
 --[[
