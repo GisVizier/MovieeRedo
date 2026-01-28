@@ -3,6 +3,7 @@ local CharacterService = {}
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PhysicsService = game:GetService("PhysicsService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
@@ -11,11 +12,28 @@ CharacterService.ActiveCharacters = {}
 CharacterService.IsClientSetupComplete = {}
 CharacterService.IsSpawningCharacter = {}
 
+-- Register collision groups for ragdoll system
+local function setupCollisionGroups()
+	-- Register Ragdolls group
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup("Ragdolls")
+	end)
+	
+	-- Ragdolls should not collide with Players (character physics body)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Players", false)
+		PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Default", true)
+	end)
+end
+
 function CharacterService:Init(registry, net)
 	self._registry = registry
 	self._net = net
 
 	Players.CharacterAutoLoads = false
+
+	-- Setup collision groups for ragdoll system (must be done on server)
+	setupCollisionGroups()
 
 	self:_cacheTemplate()
 	self:_ensureEntitiesContainer()
@@ -84,10 +102,9 @@ function CharacterService:_bindRemotes()
 		if self:IsRagdolled(player) then
 			self:Unragdoll(player)
 		else
-			-- Ragdoll for 3 seconds with a small upward fling
+			-- Ragdoll for 3 seconds with a noticeable upward fling
 			self:Ragdoll(player, 3, {
-				FlingDirection = Vector3.new(0, 1, 0),
-				FlingStrength = 30,
+				Velocity = Vector3.new(0, 60, 0), -- Direct velocity for reliable upward launch
 			})
 		end
 	end)

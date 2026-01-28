@@ -27,11 +27,16 @@ Visual Rig (workspace.Rigs/)
 
 1. **Normal State**: Visual rig follows the Root part via `BulkMoveTo()` in ClientReplicator
 2. **Ragdoll State**: 
-   - Stop following Root (via `RagdollActive` attribute)
+   - **Anchor** the character's Root part (freezes in place, no physics conflicts)
+   - MovementController stops applying forces (checks `RagdollActive` attribute)
    - Convert Motor6Ds → BallSocketConstraints with joint limits
    - Enable physics on rig parts (CanCollide, unanchor)
-   - Apply initial velocity/fling
-3. **Recovery**: Restore motors, disable physics, resume following
+   - Apply initial velocity/fling to rig
+3. **Recovery**: 
+   - Get rig's final position (where it landed)
+   - Teleport Root to that position
+   - Restore motors, disable physics
+   - Unanchor Root, resume movement
 
 ## API Reference
 
@@ -112,12 +117,16 @@ This prevents the ragdoll from fighting with the character's Root part.
 ```
 1. Server: CharacterService:Ragdoll(player, duration, options)
    └── Sets character:SetAttribute("RagdollActive", true)
-   └── Fires "RagdollStarted" to all clients
+   └── Fires "RagdollStarted" to all clients with velocity/fling data
    └── Schedules auto-recovery if duration provided
 
 2. Client: CharacterController receives "RagdollStarted"
-   └── Stops CollisionUtils enforcement loop
-   └── Calls RagdollSystem:RagdollRig(rig, options)
+   └── MovementController sees RagdollActive, zeros VectorForce
+   └── RagdollSystem:RagdollRig(rig, options):
+       └── ANCHORS the character Root (no physics interference)
+       └── Applies velocity to rig BEFORE converting joints
+       └── Converts Motor6Ds → BallSocketConstraints
+       └── Enables physics on rig parts (collision, unanchor)
    └── ClientReplicator stops moving rig (checks RagdollActive)
 
 3. Server: CharacterService:Unragdoll(player) [after duration or manual]
@@ -125,7 +134,11 @@ This prevents the ragdoll from fighting with the character's Root part.
    └── Fires "RagdollEnded" to all clients
 
 4. Client: CharacterController receives "RagdollEnded"
-   └── Calls RagdollSystem:UnragdollRig(rig)
+   └── RagdollSystem:UnragdollRig(rig):
+       └── Gets rig's final position (where ragdoll landed)
+       └── Teleports Root to that position
+       └── Restores motors, disables physics on rig
+       └── UNANCHORS Root, restores physics forces
    └── Restarts collision enforcement
    └── ClientReplicator resumes moving rig
 ```

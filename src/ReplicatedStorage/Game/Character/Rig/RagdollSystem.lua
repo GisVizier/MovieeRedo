@@ -3,6 +3,11 @@
 	
 	Handles ragdolling of R6 visual rigs with proper joint limits and physics.
 	
+	Architecture:
+		- The rig ragdolls with physics (Motor6Ds -> BallSocketConstraints)
+		- The character Root is ANCHORED during ragdoll (not welded)
+		- On unragdoll, Root teleports to where the rig ended up
+	
 	API:
 		RagdollSystem:RagdollRig(rig, options) -> boolean
 		RagdollSystem:UnragdollRig(rig) -> boolean
@@ -12,7 +17,7 @@
 		- Velocity: Vector3 - Initial velocity to apply
 		- FlingDirection: Vector3 - Direction to fling
 		- FlingStrength: number - Strength of fling (default 50)
-		- Character: Model - The character model to weld ragdoll to
+		- Character: Model - The character model (Root will be anchored)
 ]]
 
 local PhysicsService = game:GetService("PhysicsService")
@@ -20,7 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RagdollSystem = {}
 
-RagdollSystem._states = {} -- [rig] = { MotorStates, Constraints, Colliders, RootWeld, CharacterState }
+RagdollSystem._states = {} -- [rig] = { MotorStates, Constraints, CharacterState, Character }
 RagdollSystem._collisionGroupSetup = false
 
 -- Collision group name for ragdolls
@@ -85,13 +90,14 @@ local function setupCollisionGroups()
 		return
 	end
 	
+	-- Note: On client, we can only set parts to groups that exist.
+	-- The server should register these groups. We'll attempt registration
+	-- but it may fail silently on client (which is fine).
 	pcall(function()
 		PhysicsService:RegisterCollisionGroup(RAGDOLL_COLLISION_GROUP)
 	end)
 	
-	-- Ragdolls should not collide with:
-	-- - Players (the character physics body)
-	-- - Other ragdolls (optional, can enable for chaos)
+	-- Ragdolls should not collide with Players (character physics body)
 	pcall(function()
 		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, "Players", false)
 		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, "Default", true)
@@ -134,7 +140,7 @@ function RagdollSystem:RagdollRig(rig, options)
 	-- Setup collision groups (once)
 	setupCollisionGroups()
 
-	-- Stop collision enforcement if RigManager is enforcing it
+	-- Stop collision enforcement if active
 	local success, Locations = pcall(function()
 		return require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 	end)
@@ -147,7 +153,96 @@ function RagdollSystem:RagdollRig(rig, options)
 	local motorStates = {}
 	local constraints = {}
 	local characterState = nil
-	local rootWeld = nil
+	
+	-- Get the rig's HumanoidRootPart
+	local rigHRP = rig:FindFirstChild("HumanoidRootPart")
+	
+	-- Handle character Root (anchor it, don't weld)
+	local character = options.Character
+	local characterRoot = character and character:FindFirstChild("Root")
+	
+	if characterRoot then
+		-- Save character state BEFORE modifying
+		characterState = {
+			RootCFrame = characterRoot.CFrame,
+			RootAnchored = characterRoot.Anchored,
+			RootCanCollide = characterRoot.CanCollide,
+			RootMassless = characterRoot.Massless,
+		}
+		
+		-- Disable physics forces on Root
+		local alignOrientation = characterRoot:FindFirstChild("AlignOrientation")
+		local vectorForce = characterRoot:FindFirstChild("VectorForce")
+		
+		if alignOrientation then
+			characterState.AlignOrientationEnabled = alignOrientation.Enabled
+			alignOrientation.Enabled = false
+		end
+		
+		if vectorForce then
+			characterState.VectorForceEnabled = vectorForce.Enabled
+			vectorForce.Enabled = false
+		end
+		
+		-- ANCHOR the Root so it doesn't interfere with ragdoll physics
+		-- This is key: we don't weld, we just freeze the Root in place
+		characterRoot.Anchored = true
+	end
+
+	-- Apply physics properties and unanchor all rig parts FIRST
+	for _, part in ipairs(rig:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = true
+			part.CanQuery = false
+			part.CanTouch = false
+			part.Massless = false
+			part.Anchored = false
+			
+			-- Set collision group
+			pcall(function()
+				part.CollisionGroup = RAGDOLL_COLLISION_GROUP
+			end)
+			
+			-- Apply physical properties
+			local density = RAGDOLL_PHYSICS.Density
+			local friction = RAGDOLL_PHYSICS.Friction
+			
+			if part.Name == "Head" then
+				density = RAGDOLL_PHYSICS.HeadDensity
+				friction = RAGDOLL_PHYSICS.HeadFriction
+			end
+			
+			part.CustomPhysicalProperties = PhysicalProperties.new(
+				density,
+				friction,
+				RAGDOLL_PHYSICS.Elasticity,
+				RAGDOLL_PHYSICS.FrictionWeight,
+				RAGDOLL_PHYSICS.ElasticityWeight
+			)
+		end
+	end
+
+	-- Apply initial velocity BEFORE converting motors (so parts have momentum)
+	if rigHRP then
+		if options.Velocity then
+			rigHRP.AssemblyLinearVelocity = options.Velocity
+		elseif options.FlingDirection then
+			local strength = options.FlingStrength or 50
+			local direction = options.FlingDirection
+			if typeof(direction) == "Vector3" and direction.Magnitude > 0 then
+				rigHRP.AssemblyLinearVelocity = direction.Unit * strength
+			end
+		end
+		
+		-- Add some tumble for natural ragdoll feel
+		if options.FlingDirection or options.Velocity then
+			rigHRP.AssemblyAngularVelocity = Vector3.new(
+				math.random() * 8 - 4,
+				math.random() * 4 - 2,
+				math.random() * 8 - 4
+			)
+		end
+	end
 
 	-- Convert all Motor6Ds to BallSocketConstraints
 	for _, motor in ipairs(rig:GetDescendants()) do
@@ -189,108 +284,12 @@ function RagdollSystem:RagdollRig(rig, options)
 		end
 	end
 
-	-- Apply physics properties and collision group to all rig parts
-	for _, part in ipairs(rig:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CanCollide = true
-			part.CanQuery = false  -- Keep out of raycasts
-			part.CanTouch = false
-			part.Massless = false
-			part.Anchored = false
-			
-			-- Set collision group to avoid colliding with character
-			pcall(function()
-				part.CollisionGroup = RAGDOLL_COLLISION_GROUP
-			end)
-			
-			-- Apply physical properties
-			local density = RAGDOLL_PHYSICS.Density
-			local friction = RAGDOLL_PHYSICS.Friction
-			
-			if part.Name == "Head" then
-				density = RAGDOLL_PHYSICS.HeadDensity
-				friction = RAGDOLL_PHYSICS.HeadFriction
-			end
-			
-			part.CustomPhysicalProperties = PhysicalProperties.new(
-				density,
-				friction,
-				RAGDOLL_PHYSICS.Elasticity,
-				RAGDOLL_PHYSICS.FrictionWeight,
-				RAGDOLL_PHYSICS.ElasticityWeight
-			)
-		end
-	end
-
-	-- Get the rig's HumanoidRootPart
-	local rigHRP = rig:FindFirstChild("HumanoidRootPart")
-	
-	-- If character is provided, weld rig to it and disable its physics
-	local character = options.Character
-	if character and rigHRP then
-		local characterRoot = character:FindFirstChild("Root")
-		
-		if characterRoot then
-			-- Save character physics state
-			characterState = {
-				RootAnchored = characterRoot.Anchored,
-				RootCanCollide = characterRoot.CanCollide,
-			}
-			
-			-- Disable character physics forces during ragdoll
-			-- The Root should follow the ragdoll, not fight it
-			local alignOrientation = characterRoot:FindFirstChild("AlignOrientation")
-			local vectorForce = characterRoot:FindFirstChild("VectorForce")
-			
-			if alignOrientation then
-				characterState.AlignOrientationEnabled = alignOrientation.Enabled
-				alignOrientation.Enabled = false
-			end
-			
-			if vectorForce then
-				characterState.VectorForceEnabled = vectorForce.Enabled
-				vectorForce.Enabled = false
-			end
-			
-			-- Weld the rig HRP to the character Root so they move together
-			rootWeld = Instance.new("WeldConstraint")
-			rootWeld.Name = "RagdollToRootWeld"
-			rootWeld.Part0 = rigHRP
-			rootWeld.Part1 = characterRoot
-			rootWeld.Parent = rigHRP
-			
-			-- Make Root follow ragdoll (massless, no collision)
-			characterRoot.Massless = true
-			characterRoot.CanCollide = false
-		end
-	end
-
-	-- Apply initial velocity/fling
-	if rigHRP then
-		if options.Velocity then
-			rigHRP.AssemblyLinearVelocity = options.Velocity
-		elseif options.FlingDirection then
-			local strength = options.FlingStrength or 50
-			rigHRP.AssemblyLinearVelocity = options.FlingDirection.Unit * strength
-		end
-		
-		-- Add some tumble
-		if options.FlingDirection or options.Velocity then
-			rigHRP.AssemblyAngularVelocity = Vector3.new(
-				math.random() * 8 - 4,
-				math.random() * 4 - 2,
-				math.random() * 8 - 4
-			)
-		end
-	end
-
 	-- Store state
 	rig:SetAttribute("IsRagdolled", true)
 	
 	self._states[rig] = {
 		MotorStates = motorStates,
 		Constraints = constraints,
-		RootWeld = rootWeld,
 		CharacterState = characterState,
 		Character = character,
 	}
@@ -310,29 +309,47 @@ function RagdollSystem:UnragdollRig(rig)
 		return false
 	end
 
-	-- Destroy the root weld
-	if state.RootWeld and state.RootWeld.Parent then
-		state.RootWeld:Destroy()
-	end
+	local rigHRP = rig:FindFirstChild("HumanoidRootPart")
+	local character = state.Character
+	local characterState = state.CharacterState
+	
+	-- Get the rig's current position (where ragdoll ended up)
+	local finalRigCFrame = rigHRP and rigHRP.CFrame or nil
 
-	-- Restore character physics state
-	if state.Character and state.CharacterState then
-		local characterRoot = state.Character:FindFirstChild("Root")
+	-- Restore character Root state
+	if character and characterState then
+		local characterRoot = character:FindFirstChild("Root")
 		if characterRoot then
-			characterRoot.Massless = false
-			characterRoot.CanCollide = state.CharacterState.RootCanCollide or true
+			-- Teleport Root to where the rig ended up (before unanchoring)
+			if finalRigCFrame then
+				-- Keep Root's Y rotation but use rig's position
+				local currentRotY = characterRoot.CFrame - characterRoot.CFrame.Position
+				local upright = CFrame.new(finalRigCFrame.Position) * CFrame.Angles(0, currentRotY:ToEulerAnglesYXZ())
+				characterRoot.CFrame = CFrame.new(finalRigCFrame.Position + Vector3.new(0, 2, 0))
+			end
+			
+			-- Restore physics properties
+			characterRoot.Massless = characterState.RootMassless or false
+			characterRoot.CanCollide = characterState.RootCanCollide or true
 			
 			-- Restore physics forces
 			local alignOrientation = characterRoot:FindFirstChild("AlignOrientation")
 			local vectorForce = characterRoot:FindFirstChild("VectorForce")
 			
-			if alignOrientation and state.CharacterState.AlignOrientationEnabled ~= nil then
-				alignOrientation.Enabled = state.CharacterState.AlignOrientationEnabled
+			if alignOrientation and characterState.AlignOrientationEnabled ~= nil then
+				alignOrientation.Enabled = characterState.AlignOrientationEnabled
 			end
 			
-			if vectorForce and state.CharacterState.VectorForceEnabled ~= nil then
-				vectorForce.Enabled = state.CharacterState.VectorForceEnabled
+			if vectorForce and characterState.VectorForceEnabled ~= nil then
+				vectorForce.Enabled = characterState.VectorForceEnabled
 			end
+			
+			-- Unanchor Root (do this last!)
+			characterRoot.Anchored = characterState.RootAnchored or false
+			
+			-- Clear any residual velocity
+			characterRoot.AssemblyLinearVelocity = Vector3.zero
+			characterRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
 
@@ -364,6 +381,8 @@ function RagdollSystem:UnragdollRig(rig)
 			part.CanQuery = false
 			part.CanTouch = false
 			part.Massless = true
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
 			
 			-- Reset collision group
 			pcall(function()
