@@ -2,27 +2,29 @@ local CharacterService = {}
 
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
-local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PhysicsService = game:GetService("PhysicsService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 
 CharacterService.ActiveCharacters = {}
-CharacterService.ActiveRagdolls = {} -- [player] = ragdoll model
-CharacterService.RagdollWelds = {} -- [player] = WeldConstraint
 CharacterService.IsClientSetupComplete = {}
 CharacterService.IsSpawningCharacter = {}
 
--- R6 motor names and their joint config mappings
-local MOTOR_TO_JOINT_CONFIG = {
-	["Neck"] = "Neck",
-	["Left Shoulder"] = "Shoulder",
-	["Right Shoulder"] = "Shoulder",
-	["Left Hip"] = "Hip",
-	["Right Hip"] = "Hip",
-	["RootJoint"] = "RootJoint",
-}
+-- Register collision groups for ragdoll system
+local function setupCollisionGroups()
+	-- Register Ragdolls group
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup("Ragdolls")
+	end)
+	
+	-- Ragdolls should not collide with Players (character physics body)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Players", false)
+		PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Default", true)
+	end)
+end
 
 function CharacterService:Init(registry, net)
 	self._registry = registry
@@ -30,13 +32,15 @@ function CharacterService:Init(registry, net)
 
 	Players.CharacterAutoLoads = false
 
+	-- Setup collision groups for ragdoll system (must be done on server)
+	setupCollisionGroups()
+
 	self:_cacheTemplate()
 	self:_ensureEntitiesContainer()
-	self:_createRagdollContainer()
 	self:_bindRemotes()
 
 	Players.PlayerRemoving:Connect(function(player)
-		self:EndRagdoll(player)
+		self:Unragdoll(player)
 		self:RemoveCharacter(player)
 	end)
 end
@@ -93,24 +97,17 @@ function CharacterService:_bindRemotes()
 		end
 	end)
 
-	-- Ragdoll test toggle
+	-- Ragdoll test toggle (G key)
 	self._net:ConnectServer("ToggleRagdollTest", function(player)
-		if self.ActiveRagdolls[player] then
-			self:EndRagdoll(player)
+		if self:IsRagdolled(player) then
+			self:Unragdoll(player)
 		else
-			self:StartRagdoll(player)
+			-- Ragdoll for 3 seconds with a noticeable upward fling
+			self:Ragdoll(player, 3, {
+				Velocity = Vector3.new(0, 60, 0), -- Direct velocity for reliable upward launch
+			})
 		end
 	end)
-end
-
-function CharacterService:_createRagdollContainer()
-	local container = workspace:FindFirstChild("Ragdolls")
-	if not container then
-		container = Instance.new("Folder")
-		container.Name = "Ragdolls"
-		container.Parent = workspace
-	end
-	self._ragdollContainer = container
 end
 
 function CharacterService:_ensureEntitiesContainer()
@@ -237,19 +234,39 @@ end
 -- RAGDOLL SYSTEM
 -- =============================================================================
 
-function CharacterService:GetRagdoll(player)
-	return self.ActiveRagdolls[player]
-end
+--[[
+	Simple API for abilities, weapons, and game systems to ragdoll players.
+	
+	Usage:
+		CharacterService:Ragdoll(player, duration)
+		CharacterService:Ragdoll(player, duration, { FlingDirection = dir, FlingStrength = 80 })
+		CharacterService:Unragdoll(player)
+		CharacterService:IsRagdolled(player)
+]]
+
+CharacterService.RagdollDurationThreads = {} -- [player] = thread
 
 function CharacterService:IsRagdolled(player)
-	return self.ActiveRagdolls[player] ~= nil
+	local character = self.ActiveCharacters[player]
+	return character and character:GetAttribute("RagdollActive") == true
 end
 
-function CharacterService:StartRagdoll(player, options)
+--[[
+	Ragdolls a player for a specified duration.
+	
+	@param player Player - The player to ragdoll
+	@param duration number? - Seconds before auto-recovery (nil = permanent)
+	@param options table? - Optional configuration:
+		- FlingDirection: Vector3 - Direction to fling
+		- FlingStrength: number - Force of fling (default: 50)
+		- Velocity: Vector3 - Direct velocity to apply
+	@return boolean - Whether ragdoll started successfully
+]]
+function CharacterService:Ragdoll(player, duration, options)
 	options = options or {}
 
 	-- Already ragdolled?
-	if self.ActiveRagdolls[player] then
+	if self:IsRagdolled(player) then
 		return false
 	end
 
@@ -258,113 +275,55 @@ function CharacterService:StartRagdoll(player, options)
 		return false
 	end
 
-	local root = character.PrimaryPart
-	if not root then
-		return false
+	-- Cancel any existing duration thread
+	if self.RagdollDurationThreads[player] then
+		task.cancel(self.RagdollDurationThreads[player])
+		self.RagdollDurationThreads[player] = nil
 	end
 
-	-- Create ragdoll clone
-	local ragdoll = self:_createRagdollClone(player, character)
-	if not ragdoll then
-		return false
-	end
-
-	-- Position ragdoll at character's current position
-	local ragdollHRP = ragdoll:FindFirstChild("HumanoidRootPart")
-	if ragdollHRP then
-		ragdollHRP.CFrame = root.CFrame
-	end
-
-	-- Parent ragdoll to container
-	ragdoll.Parent = self._ragdollContainer
-
-	-- Convert motors to ragdoll constraints
-	self:_convertMotorsToConstraints(ragdoll)
-
-	-- Apply ragdoll physics properties
-	self:_applyRagdollPhysics(ragdoll)
-
-	-- Apply collision group
-	self:_applyRagdollCollisionGroup(ragdoll)
-
-	-- Weld ragdoll HRP to character Root (bean follows ragdoll)
-	local weld = self:_createRagdollWeld(ragdollHRP, root)
-	self.RagdollWelds[player] = weld
-
-	-- Set network owner to server for consistent replication
-	for _, part in ipairs(ragdoll:GetDescendants()) do
-		if part:IsA("BasePart") then
-			pcall(function()
-				part:SetNetworkOwner(nil)
-			end)
-		end
-	end
-
-	-- Store ragdoll reference
-	self.ActiveRagdolls[player] = ragdoll
-
-	-- Set RagdollActive attribute on character
+	-- Set RagdollActive attribute on character (this stops ClientReplicator from moving rig)
 	character:SetAttribute("RagdollActive", true)
 
-	-- Apply random fling impulse
-	if ragdollHRP then
-		local randomDir = Vector3.new(
-			math.random() * 2 - 1,
-			math.random() * 0.5 + 0.5, -- Mostly upward
-			math.random() * 2 - 1
-		).Unit
-		local flingStrength = options.FlingStrength or 80
-		local impulse = randomDir * flingStrength * ragdollHRP.AssemblyMass
-		ragdollHRP:ApplyImpulse(impulse)
+	-- Build ragdoll data to send to clients
+	local ragdollData = {
+		FlingDirection = options.FlingDirection,
+		FlingStrength = options.FlingStrength or 50,
+		Velocity = options.Velocity,
+	}
 
-		-- Also apply some angular velocity for tumbling
-		ragdollHRP.AssemblyAngularVelocity = Vector3.new(
-			math.random() * 10 - 5,
-			math.random() * 5 - 2.5,
-			math.random() * 10 - 5
-		)
+	-- Fire RagdollStarted to all clients - they will ragdoll their local rig
+	self._net:FireAllClients("RagdollStarted", player, ragdollData)
+
+	-- Schedule auto-unragdoll if duration provided
+	if duration and duration > 0 then
+		self.RagdollDurationThreads[player] = task.delay(duration, function()
+			self:Unragdoll(player)
+		end)
 	end
-
-	-- Fire RagdollStarted to all clients
-	self._net:FireAllClients("RagdollStarted", player, ragdoll)
 
 	return true
 end
 
-function CharacterService:EndRagdoll(player)
-	local ragdoll = self.ActiveRagdolls[player]
-	if not ragdoll then
+--[[
+	Ends ragdoll for a player.
+	
+	@param player Player - The player to unragdoll
+	@return boolean - Whether unragdoll succeeded
+]]
+function CharacterService:Unragdoll(player)
+	if not self:IsRagdolled(player) then
 		return false
 	end
 
-	-- Remove weld
-	local weld = self.RagdollWelds[player]
-	if weld and weld.Parent then
-		weld:Destroy()
+	-- Cancel duration thread if active (use pcall since thread may have completed)
+	if self.RagdollDurationThreads[player] then
+		pcall(task.cancel, self.RagdollDurationThreads[player])
+		self.RagdollDurationThreads[player] = nil
 	end
-	self.RagdollWelds[player] = nil
 
-	-- Get ragdoll position before destroying
-	local ragdollHRP = ragdoll:FindFirstChild("HumanoidRootPart")
-	local ragdollPosition = ragdollHRP and ragdollHRP.Position or nil
-
-	-- Destroy ragdoll
-	ragdoll:Destroy()
-	self.ActiveRagdolls[player] = nil
-
-	-- Clear RagdollActive attribute
 	local character = self.ActiveCharacters[player]
 	if character then
 		character:SetAttribute("RagdollActive", false)
-
-		-- Optionally reposition the character Root to where ragdoll ended
-		local root = character:FindFirstChild("Root")
-		if root and ragdollPosition then
-			-- Keep character at ragdoll's final position
-			root.CFrame = CFrame.new(ragdollPosition) * CFrame.Angles(0, math.rad(root.CFrame:ToEulerAnglesYXZ()), 0)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
 	end
 
 	-- Fire RagdollEnded to all clients
@@ -373,197 +332,17 @@ function CharacterService:EndRagdoll(player)
 	return true
 end
 
-function CharacterService:_createRagdollClone(player, character)
-	-- Get the rig template from CharacterTemplate
-	local characterTemplate = ReplicatedStorage:FindFirstChild("CharacterTemplate")
-	if not characterTemplate then
-		warn("[CharacterService] CharacterTemplate not found")
-		return nil
-	end
-
-	local templateRig = characterTemplate:FindFirstChild("Rig")
-	if not templateRig then
-		warn("[CharacterService] CharacterTemplate Rig not found")
-		return nil
-	end
-
-	-- Clone the rig
-	local ragdoll = templateRig:Clone()
-	ragdoll.Name = player.Name .. "_Ragdoll"
-	ragdoll:SetAttribute("OwnerUserId", player.UserId)
-	ragdoll:SetAttribute("OwnerName", player.Name)
-	ragdoll:SetAttribute("IsRagdoll", true)
-
-	-- Apply player's appearance
-	local humanoid = ragdoll:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		-- Ensure animator exists
-		if not humanoid:FindFirstChildOfClass("Animator") then
-			local animator = Instance.new("Animator")
-			animator.Parent = humanoid
-		end
-
-		-- Apply appearance asynchronously
-		task.spawn(function()
-			local ok, desc = pcall(function()
-				return Players:GetHumanoidDescriptionFromUserId(player.UserId)
-			end)
-			if ok and desc and humanoid.Parent then
-				pcall(function()
-					humanoid:ApplyDescription(desc)
-				end)
-			end
-		end)
-	end
-
-	return ragdoll
+-- Legacy compatibility
+function CharacterService:GetRagdoll(player)
+	return nil -- No longer creating ragdoll clones
 end
 
-function CharacterService:_convertMotorsToConstraints(ragdoll)
-	local ragdollConfig = Config.Gameplay.Character.Ragdoll
-	local jointLimits = ragdollConfig and ragdollConfig.JointLimits or {}
-
-	local torso = ragdoll:FindFirstChild("Torso")
-	local hrp = ragdoll:FindFirstChild("HumanoidRootPart")
-
-	if not torso then
-		warn("[CharacterService] Ragdoll has no Torso")
-		return
-	end
-
-	-- Find all motors and convert them
-	local motorsToProcess = {}
-
-	-- RootJoint is in HumanoidRootPart
-	if hrp then
-		local rootJoint = hrp:FindFirstChild("RootJoint")
-		if rootJoint and rootJoint:IsA("Motor6D") then
-			motorsToProcess["RootJoint"] = rootJoint
-		end
-	end
-
-	-- Other motors are in Torso
-	for _, child in ipairs(torso:GetChildren()) do
-		if child:IsA("Motor6D") then
-			motorsToProcess[child.Name] = child
-		end
-	end
-
-	-- Convert each motor to a BallSocketConstraint
-	for motorName, motor in pairs(motorsToProcess) do
-		local configKey = MOTOR_TO_JOINT_CONFIG[motorName]
-		local config = configKey and jointLimits[configKey] or {}
-
-		local part0 = motor.Part0
-		local part1 = motor.Part1
-
-		if part0 and part1 then
-			-- Create attachments
-			local att0 = Instance.new("Attachment")
-			att0.Name = "RagdollAtt0_" .. motorName
-			att0.CFrame = motor.C0
-			att0.Parent = part0
-
-			local att1 = Instance.new("Attachment")
-			att1.Name = "RagdollAtt1_" .. motorName
-			att1.CFrame = motor.C1
-			att1.Parent = part1
-
-			-- Create BallSocketConstraint
-			local constraint = Instance.new("BallSocketConstraint")
-			constraint.Name = "Ragdoll_" .. motorName
-			constraint.Attachment0 = att0
-			constraint.Attachment1 = att1
-			constraint.LimitsEnabled = true
-			constraint.UpperAngle = config.UpperAngle or 45
-
-			if config.TwistLowerAngle and config.TwistUpperAngle then
-				constraint.TwistLimitsEnabled = true
-				constraint.TwistLowerAngle = config.TwistLowerAngle
-				constraint.TwistUpperAngle = config.TwistUpperAngle
-			end
-
-			if config.MaxFrictionTorque then
-				constraint.MaxFrictionTorque = config.MaxFrictionTorque
-			end
-
-			constraint.Parent = part0
-
-			-- Disable the motor
-			motor.Enabled = false
-		end
-	end
+function CharacterService:StartRagdoll(player, options)
+	return self:Ragdoll(player, nil, options)
 end
 
-function CharacterService:_applyRagdollPhysics(ragdoll)
-	local ragdollConfig = Config.Gameplay.Character.Ragdoll
-	local physics = ragdollConfig and ragdollConfig.Physics or {}
-
-	for _, part in ipairs(ragdoll:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CanCollide = true
-			part.CanQuery = false
-			part.CanTouch = false
-			part.Massless = false
-			part.Anchored = false
-
-			-- Apply physical properties
-			local density = physics.Density or 0.7
-			local friction = physics.Friction or 0.5
-			local elasticity = physics.Elasticity or 0
-
-			if part.Name == "Head" then
-				density = physics.HeadDensity or density
-				friction = physics.HeadFriction or friction
-			end
-
-			part.CustomPhysicalProperties = PhysicalProperties.new(
-				density,
-				friction,
-				elasticity,
-				1, -- FrictionWeight
-				1  -- ElasticityWeight
-			)
-		end
-	end
-end
-
-function CharacterService:_applyRagdollCollisionGroup(ragdoll)
-	-- Try to use "Ragdolls" collision group
-	local success = pcall(function()
-		PhysicsService:GetCollisionGroupId("Ragdolls")
-	end)
-
-	if not success then
-		-- Register the collision group if it doesn't exist
-		pcall(function()
-			PhysicsService:RegisterCollisionGroup("Ragdolls")
-			PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Players", false)
-			PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Ragdolls", true)
-		end)
-	end
-
-	for _, part in ipairs(ragdoll:GetDescendants()) do
-		if part:IsA("BasePart") then
-			pcall(function()
-				part.CollisionGroup = "Ragdolls"
-			end)
-		end
-	end
-end
-
-function CharacterService:_createRagdollWeld(ragdollHRP, characterRoot)
-	if not ragdollHRP or not characterRoot then
-		return nil
-	end
-
-	local weld = Instance.new("WeldConstraint")
-	weld.Name = "RagdollToCharacterWeld"
-	weld.Part0 = ragdollHRP
-	weld.Part1 = characterRoot
-	weld.Parent = ragdollHRP
-
-	return weld
+function CharacterService:EndRagdoll(player)
+	return self:Unragdoll(player)
 end
 
 return CharacterService

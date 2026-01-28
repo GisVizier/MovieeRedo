@@ -58,6 +58,7 @@ function CharacterController:Init(registry, net)
 		self:_onCharacterRemoving(character)
 	end)
 
+	-- Legacy event (deprecated, use RagdollStarted instead)
 	self._net:ConnectClient("PlayerRagdolled", function(player, ragdollData)
 		self:_onPlayerRagdolled(player, ragdollData)
 	end)
@@ -712,14 +713,40 @@ function CharacterController:IsRagdolled(player)
 	return self._activeRagdolls[player] ~= nil
 end
 
-function CharacterController:_onRagdollStarted(player, ragdoll)
-	if not player or not ragdoll then
+function CharacterController:_onRagdollStarted(player, ragdollData)
+	if not player then
 		return
 	end
 
-	self._activeRagdolls[player] = ragdoll
+	ragdollData = ragdollData or {}
 
-	-- If this is the local player, switch camera to ragdoll mode
+	-- Get the player's visual rig
+	local rig = RigManager:GetActiveRig(player)
+	if not rig then
+		return
+	end
+
+	-- Get the player's character (bean)
+	local character = player.Character
+
+	-- Build options for RagdollSystem
+	local options = {
+		Character = character, -- Pass character so rig can weld to Root
+	}
+	if ragdollData.FlingDirection then
+		options.FlingDirection = ragdollData.FlingDirection
+		options.FlingStrength = ragdollData.FlingStrength or 50
+	elseif ragdollData.Velocity then
+		options.Velocity = ragdollData.Velocity
+	end
+
+	-- Ragdoll the visual rig
+	local success = RagdollSystem:RagdollRig(rig, options)
+	if success then
+		self._activeRagdolls[player] = rig
+	end
+
+	-- If this is the local player, handle camera
 	if player == Players.LocalPlayer then
 		local cameraController = self._registry and self._registry:TryGet("Camera")
 		if cameraController then
@@ -728,12 +755,10 @@ function CharacterController:_onRagdollStarted(player, ragdoll)
 				self._savedCameraMode = cameraController:GetCurrentMode()
 			end
 
-			-- Force orbit mode and focus on ragdoll head
-			local ragdollHead = ragdoll:FindFirstChild("Head")
-			if ragdollHead then
-				if cameraController.SetRagdollFocus then
-					cameraController:SetRagdollFocus(ragdollHead)
-				end
+			-- Focus camera on ragdoll head
+			local rigHead = rig:FindFirstChild("Head")
+			if rigHead and cameraController.SetRagdollFocus then
+				cameraController:SetRagdollFocus(rigHead)
 			end
 		end
 
@@ -744,6 +769,13 @@ end
 function CharacterController:_onRagdollEnded(player)
 	if not player then
 		return
+	end
+
+	-- Get the player's visual rig
+	local rig = self._activeRagdolls[player] or RigManager:GetActiveRig(player)
+	if rig then
+		-- Unragdoll the visual rig
+		RagdollSystem:UnragdollRig(rig)
 	end
 
 	self._activeRagdolls[player] = nil

@@ -1,0 +1,3 @@
+local Callbacks = {}
+
+return Callbacks
