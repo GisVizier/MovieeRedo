@@ -1,0 +1,3 @@
+local LeftShoulder = {}
+
+return LeftShoulder

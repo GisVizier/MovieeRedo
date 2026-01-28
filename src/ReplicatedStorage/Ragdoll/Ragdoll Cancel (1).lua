@@ -1,0 +1,3 @@
+local RagdollCancel = {}
+
+return RagdollCancel

@@ -581,6 +581,11 @@ function WeaponProjectile:_handleCollision(projectile, hitResult)
 	local hitPlayer, hitCharacter, isHeadshot = self:_getPlayerFromHit(hitInstance)
 	
 	if hitCharacter then
+		-- Skip hit detection for remote projectiles (visual only, no hit registration)
+		if projectile.isRemote then
+			return true, nil
+		end
+		
 		-- Check if it's our own character
 		if hitPlayer and hitPlayer == LocalPlayer then
 			-- Skip our own character

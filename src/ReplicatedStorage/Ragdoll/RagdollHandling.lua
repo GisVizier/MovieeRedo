@@ -1,0 +1,3 @@
+local RagdollHandling = {}
+
+return RagdollHandling
