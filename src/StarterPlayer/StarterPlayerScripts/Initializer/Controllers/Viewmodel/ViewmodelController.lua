@@ -1086,7 +1086,8 @@ function ViewmodelController:_render(dt: number)
 	)
 
 	local tiltX = math.clamp(springs.tiltRot.Position.X, -SLIDE_PITCH, SLIDE_PITCH) * fxScale
-	local tiltY = math.clamp(springs.tiltRot.Position.Y, -SLIDE_YAW, SLIDE_YAW) * fxScale
+	local yawAbs = math.abs(SLIDE_YAW)
+	local tiltY = math.clamp(springs.tiltRot.Position.Y, -yawAbs, yawAbs) * fxScale
 	local tiltZ = math.clamp(springs.tiltRot.Position.Z, -SLIDE_ROLL, SLIDE_ROLL) * fxScale
 	local tiltRotOffset = CFrame.Angles(tiltX, tiltY, tiltZ)
 
