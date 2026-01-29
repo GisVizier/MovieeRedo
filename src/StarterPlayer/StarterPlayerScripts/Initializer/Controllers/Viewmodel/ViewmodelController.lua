@@ -839,6 +839,12 @@ function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 		return
 	end
 
+	-- Block weapon swapping while ability is active
+	local kitController = ServiceRegistry:GetController("Kit")
+	if kitController and kitController:IsWeaponSwitchLocked() then
+		return
+	end
+
 	local weaponId = self._loadout[slot]
 	if type(weaponId) ~= "string" or weaponId == "" then
 		return

@@ -177,6 +177,17 @@ function KitController:_interruptClientKit(reason: string)
 end
 
 function KitController:_onAbilityInput(abilityType: string, inputState)
+	-- Safety: if _abilityActive is stuck true but we're no longer on Fists,
+	-- a previous ability was interrupted without proper cleanup — reset the state.
+	if self._abilityActive then
+		local vmController = ServiceRegistry:GetController("Viewmodel")
+		if vmController and vmController:GetActiveSlot() ~= "Fists" then
+			self._abilityActive = false
+			self._holsteredSlot = nil
+			self._weaponSwitchLocked = false
+		end
+	end
+
 	-- Manual-send pipeline:
 	-- - Build a request object for the active client kit module
 	-- - The kit decides when/if to call request.Send(extraData)
@@ -185,7 +196,7 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 
 	local character = self._player and self._player.Character or nil
 	local hrp = character and character.PrimaryPart or nil
-	
+
 	-- Get viewmodel controller and animator for kit abilities
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	local viewmodelAnimator = viewmodelController and viewmodelController._animator or nil

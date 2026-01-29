@@ -679,6 +679,10 @@ function Airborne.Ability:OnStart(abilityRequest)
 		end,
 		
 		["Burst"] = function()
+
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+
 			hrp.AssemblyLinearVelocity = Vector3.new(0, 75, 0)
 			
 			-- Apply knockback to nearby enemies using preset system
@@ -732,6 +736,9 @@ function Airborne.Ability:OnStart(abilityRequest)
 		end,
 		
 		["Dash"] = function()
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+
 			local direction = getInputDirection() or workspace.CurrentCamera.CFrame.LookVector
 			
 			local START, END = 380, 15

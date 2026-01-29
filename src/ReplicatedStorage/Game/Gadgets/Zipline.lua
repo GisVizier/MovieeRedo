@@ -56,6 +56,7 @@ local ziplineAttributes = {
 	"JumpDetachCooldownBonus",
 	"JumpDetachAccel",
 	"JumpDetachUpAccel",
+	"JumpDetachMoveSpeed",
 }
 
 function Zipline.new(params)
@@ -79,9 +80,7 @@ function Zipline.new(params)
 	self._savedAlignEnabled = nil
 	self._lastTouchTime = 0
 	self._lastJumpTime = 0
-	self._movementController = nil
 	self._inputController = nil
-	self._restoreMovementEnabled = nil
 	self._ziplineFovActive = nil
 	self._pathPoints = nil
 	self._pathLengths = nil
@@ -99,6 +98,9 @@ function Zipline.new(params)
 	self._animationController = nil
 	self._ziplineTrack = nil
 	self._ziplineTrackConnection = nil
+	self._cameraController = nil
+	self._bufferedMovementInput = nil
+	self._bufferedCameraAngle = nil
 	return self
 end
 
@@ -461,6 +463,54 @@ function Zipline:_getAnimationController()
 	return self._animationController
 end
 
+function Zipline:_getCameraController()
+	if self._cameraController then
+		return self._cameraController
+	end
+	local context = self:getContext()
+	local registry = context and context.registry
+	self._cameraController = registry and registry:TryGet("Camera") or nil
+	return self._cameraController
+end
+
+function Zipline:_getWorldMovementDirection()
+	-- Get the current movement input and convert to world direction
+	if not self._inputController then
+		return nil
+	end
+	
+	local movementInput = self._inputController:GetMovementVector()
+	if not movementInput or movementInput.Magnitude < 0.1 then
+		return nil
+	end
+	
+	local cameraController = self:_getCameraController()
+	if not cameraController then
+		return nil
+	end
+	
+	local cameraAngles = cameraController:GetCameraAngles()
+	local cameraYAngle = math.rad(cameraAngles.X)
+	
+	-- Convert 2D input to 3D world direction (same logic as MovementUtils:CalculateWorldMovementDirection)
+	local inputVector = Vector3.new(movementInput.X, 0, -movementInput.Y)
+	if inputVector.Magnitude > 0 then
+		inputVector = inputVector.Unit
+	end
+	
+	local cameraCFrame = CFrame.Angles(0, cameraYAngle, 0)
+	local worldMovement = cameraCFrame:VectorToWorldSpace(inputVector)
+	
+	return worldMovement
+end
+
+function Zipline:_bufferMovementInput()
+	local worldDir = self:_getWorldMovementDirection()
+	if worldDir then
+		self._bufferedMovementInput = worldDir
+	end
+end
+
 function Zipline:_clearZiplineTrackConnection()
 	if self._ziplineTrackConnection then
 		self._ziplineTrackConnection:Disconnect()
@@ -808,17 +858,16 @@ function Zipline:_beginRide(directionSign, startDistance, speed)
 
 	local context = self:getContext()
 	local registry = context and context.registry
-	self._movementController = registry and registry:TryGet("Movement")
+	self._inputController = registry and registry:TryGet("Input")
 
-	if self._movementController and self._movementController.SetGameplayEnabled then
-		self._movementController:SetGameplayEnabled(false)
-		self._restoreMovementEnabled = true
-	end
+	-- Don't disable movement controller - just let VectorForce handle it
+	-- This keeps input active so movement is buffered when jumping off
 
 	FOVController:AddEffect("Zipline", 6)
 	self._ziplineFovActive = true
 
 	self._isAttached = true
+	self._bufferedMovementInput = nil -- Reset buffered input at start
 
 	local distance = math.clamp(startDistance or 0, 0, self._pathTotalLength)
 	local direction = directionSign == 1 and 1 or -1
@@ -826,6 +875,10 @@ function Zipline:_beginRide(directionSign, startDistance, speed)
 	local attachOffset = self:_getAttachOffset()
 	self._rideDirection = direction
 	self._rideSpeed = speedPerSecond
+
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+
 
 	self._movementConnection = RunService.Heartbeat:Connect(function(dt)
 		if not self._isAttached then
@@ -839,8 +892,6 @@ function Zipline:_beginRide(directionSign, startDistance, speed)
 			self:RequestDetach("Emote")
 			return
 		end
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
 
 		distance += (speedPerSecond * dt) * direction
 		if distance <= 0 then
@@ -878,6 +929,9 @@ function Zipline:_beginRide(directionSign, startDistance, speed)
 			self:_applyRideCFrame(targetCFrame)
 		end
 
+		-- Buffer movement input continuously so we have latest input when jumping off
+		self:_bufferMovementInput()
+
 		if distance == 0 or distance == self._pathTotalLength then
 			self._pendingEndFling = true
 			self._pendingEndForward = self._lastForward
@@ -890,14 +944,40 @@ function Zipline:_applyEndFling(root, forward)
 	if not root or not forward or forward.Magnitude == 0 then
 		return
 	end
-	root.AssemblyLinearVelocity = Vector3.new(0, 1, 0) * self:_getEndFlingUpAccel()
+	
+	
+	root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 1  * self:_getEndFlingUpAccel(), root.AssemblyLinearVelocity.Z)
 end
 
 function Zipline:_applyJumpDetachFling(root, forward)
 	if not root or not forward then
 		return
 	end
-	root.AssemblyLinearVelocity = Vector3.new(0, 1, 0) * (self.model:GetAttribute("JumpDetachUpAccel") or 40 )
+	
+	local upVelocity = self.model:GetAttribute("JumpDetachUpAccel") or 40
+	local bufferedMoveSpeed = self.model:GetAttribute("JumpDetachMoveSpeed") or 50
+	
+	-- Start with upward velocity
+	local newVelocity = Vector3.new(0, upVelocity, 0)
+	
+	-- Apply buffered movement input direction for horizontal velocity
+	if self._bufferedMovementInput and self._bufferedMovementInput.Magnitude > 0.1 then
+		local moveDir = Vector3.new(self._bufferedMovementInput.X, 0, self._bufferedMovementInput.Z)
+		if moveDir.Magnitude > 0.1 then
+			moveDir = moveDir.Unit
+			newVelocity = newVelocity + (moveDir * bufferedMoveSpeed)
+		end
+	else
+		-- No movement input buffered, use forward direction from zipline
+		local horizontalForward = Vector3.new(forward.X, 0, forward.Z)
+		if horizontalForward.Magnitude > 0.1 then
+			horizontalForward = horizontalForward.Unit
+			local forwardSpeed = self.model:GetAttribute("JumpDetachAccel") or 30
+			newVelocity = newVelocity + (horizontalForward * forwardSpeed)
+		end
+	end
+	
+	root.AssemblyLinearVelocity = newVelocity
 end
 
 function Zipline:_endRide()
@@ -961,14 +1041,11 @@ function Zipline:_endRide()
 	self._savedAutoRotate = nil
 	self._savedHumanoidState = nil
 	self._savedStateEnabled = nil
+	self._bufferedMovementInput = nil
 	if self._ziplineFovActive then
 		FOVController:RemoveEffect("Zipline")
 		self._ziplineFovActive = nil
 	end
-	if self._movementController and self._restoreMovementEnabled then
-		self._movementController:SetGameplayEnabled(true)
-	end
-	self._restoreMovementEnabled = nil
 end
 
 function Zipline:RequestDetach(reason)
