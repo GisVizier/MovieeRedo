@@ -7,8 +7,8 @@ local KitConfig = require(Configs:WaitForChild("KitConfig"))
 local module = {}
 module.__index = module
 
-local TWEEN_IN = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local TWEEN_OUT = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local TWEEN_IN = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_OUT = TweenInfo.new(0.67, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 
 function module.start(export, ui)
 	local self = setmetatable({}, module)
@@ -76,9 +76,10 @@ function module:_show()
 		return
 	end
 	self._active = true
+	self._ui.Visible = true
 	self._template.Visible = true
 	self:_cancelTweens()
-	local startPos = self._originalPosition + UDim2.new(0, 0, 0.03, 0)
+	local startPos = self._originalPosition + UDim2.new(0, 0, 0.01, 0)
 	self._template.Position = startPos
 	self._template.GroupTransparency = 1
 	local tween = self._tween:tween(self._template, {
@@ -97,16 +98,18 @@ function module:_hide()
 	end
 	self._active = false
 	self:_cancelTweens()
-	local endPos = self._originalPosition + UDim2.new(0, 0, 0.03, 0)
+	local endPos = self._originalPosition + UDim2.new(0, 0, 0.01, 0)
 	local tween = self._tween:tween(self._template, {
 		Position = endPos,
 		GroupTransparency = 1,
 	}, TWEEN_OUT, "dialogue")
+
 	table.insert(self._currentTweens, tween)
 	tween.Completed:Once(function()
 		if self._template then
 			self._template.Visible = false
 		end
+		self._ui.Visible = false
 	end)
 end
 

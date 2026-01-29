@@ -40,9 +40,9 @@ local VERT_AMP_Y = 0.08
 
 local TILT_SPRING_SPEED = 12
 local TILT_SPRING_DAMPER = 0.9
-local SLIDE_ROLL = math.rad(14)
+local SLIDE_ROLL = math.rad(30) -- Constant tilt to the right when sliding
 local SLIDE_PITCH = math.rad(6)
-local SLIDE_YAW = math.rad(-30) -- Negative = rotate right
+local SLIDE_YAW = math.rad(0) -- No yaw rotation
 local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
 local DEFAULT_ADS_EFFECTS_MULTIPLIER = 0.25
@@ -1013,7 +1013,7 @@ function ViewmodelController:_render(dt: number)
 			else
 				localDir = Vector3.new(0, 0, -1)
 			end
-			local roll = -math.clamp(localDir.X, -1, 1) * SLIDE_ROLL
+			local roll = -SLIDE_ROLL -- Always tilt right when sliding
 			local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
 			self._slideTiltTarget = Vector3.new(pitch, SLIDE_YAW, roll)
 			
