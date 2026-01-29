@@ -59,6 +59,10 @@ function CollisionGroupService:Init()
 	pcall(function()
 		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, PLAYER_COLLISION_GROUP, false)
 		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, HITBOX_COLLISION_GROUP, false)
+		-- Prevent ragdoll parts from colliding with each other (reduces jitter)
+		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, RAGDOLL_COLLISION_GROUP, false)
+		-- Ensure ragdolls collide with the ground/world geometry
+		PhysicsService:CollisionGroupSetCollidable(RAGDOLL_COLLISION_GROUP, "Default", true)
 	end)
 
 	LogService:Info("COLLISION", "CollisionGroupService initialized")

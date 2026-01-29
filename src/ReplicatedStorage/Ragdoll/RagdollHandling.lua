@@ -1,3 +1,0 @@
-local RagdollHandling = {}
-
-return RagdollHandling

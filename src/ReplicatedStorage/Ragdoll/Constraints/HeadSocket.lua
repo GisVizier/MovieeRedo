@@ -1,3 +1,0 @@
-local HeadSocket = {}
-
-return HeadSocket

@@ -987,11 +987,21 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 		table.insert(raycastParams.FilterDescendantsInstances, entitiesFolder)
 	end
 
+	-- Guard against invalid/zero direction vectors
+	if not rayDirection or rayDirection.Magnitude < 1e-4 or rayDirection.Magnitude ~= rayDirection.Magnitude then
+		return CFrame.new(pivotPosition + Vector3.new(0, 0, orbitConfig.MinDistance)), CFrame.new(pivotPosition)
+	end
+
 	local spherecastResult = workspace:Spherecast(rayOrigin, orbitConfig.CollisionRadius, rayDirection, raycastParams)
 	
-	-- DEBUG: Log ALL camera collision results
+	-- DEBUG: Log camera collision results (throttled)
 	if spherecastResult then
-		warn("[CAMERA ORBIT] HIT:", spherecastResult.Instance:GetFullName())
+		local now = os.clock()
+		self._lastCameraOrbitLog = self._lastCameraOrbitLog or 0
+		if now - self._lastCameraOrbitLog > 0.5 then
+			self._lastCameraOrbitLog = now
+			warn("[CAMERA ORBIT] HIT:", spherecastResult.Instance:GetFullName())
+		end
 	end
 	
 	local finalPosition

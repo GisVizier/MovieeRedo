@@ -1,3 +1,0 @@
-local RightShoulder = {}
-
-return RightShoulder

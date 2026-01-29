@@ -1,3 +1,0 @@
-local RagdollCancel = {}
-
-return RagdollCancel

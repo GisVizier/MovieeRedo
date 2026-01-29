@@ -1,258 +1,503 @@
-local Ragdoller = {}
+--[[
+	Ragdoll.lua - Clone-Based Ragdoll System
+	
+	Uses a CLONE of the rig for ragdoll physics.
+	Original rig is hidden during ragdoll, then shown on recovery.
+	This avoids complex state management on the original rig.
+	
+	API:
+		Module.Ragdoll(target, knockbackForce?, duration?)
+		Module.GetBackUp(target)
+		Module.IsRagdolled(target) -> boolean
+		Module.SetupRig(player, rig, character) -- Called by RigManager
+		Module.CleanupRig(rig) -- Called when rig destroyed
+]]
 
-type Dictionary<i, v> = { [i]: v }
-type Array<v> = Dictionary<number, v>
+local Module = {}
+Module.RagdollStates = {} -- Server: [player] = true
+Module.Ragdollers = {}    -- Client: [rig] = RagdollData
 
-local bridgeNet = require(game.ReplicatedStorage.Modules.Shared.BridgeNet2)
-local bridges = require(game.ReplicatedStorage.Modules.DatabaseModules.Bridges)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local PhysicsService = game:GetService("PhysicsService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
-local global = require(game.ReplicatedStorage.Global)
+local IsClient = RunService:IsClient()
+local IsServer = RunService:IsServer()
 
-local Callbacks: Dictionary<string, Model> = require(script.Callbacks) :: Dictionary<string, Model>
+-- Collision group for ragdolls
+local RAGDOLL_GROUP = "Ragdolls"
+pcall(function()
+	PhysicsService:RegisterCollisionGroup(RAGDOLL_GROUP)
+	PhysicsService:CollisionGroupSetCollidable(RAGDOLL_GROUP, RAGDOLL_GROUP, false)
+	PhysicsService:CollisionGroupSetCollidable(RAGDOLL_GROUP, "Players", false)
+	PhysicsService:CollisionGroupSetCollidable(RAGDOLL_GROUP, "Default", true)
+end)
 
-local disableStates = {
-	Enum.HumanoidStateType.Seated,
-	Enum.HumanoidStateType.GettingUp,
-	Enum.HumanoidStateType.RunningNoPhysics,
-	Enum.HumanoidStateType.Running,
-	Enum.HumanoidStateType.Freefall,
-	Enum.HumanoidStateType.StrafingNoPhysics,
-	Enum.HumanoidStateType.PlatformStanding,
-	Enum.HumanoidStateType.Flying,
-	Enum.HumanoidStateType.Climbing,
-	Enum.HumanoidStateType.FallingDown,
-} :: { Enum.HumanoidStateType }
+-- Physics properties for ragdoll parts
+local RAGDOLL_PHYSICS = PhysicalProperties.new(0.7, 0.3, 0.1, 1, 1)
 
-local enableStates = {
-	Enum.HumanoidStateType.Seated,
-	Enum.HumanoidStateType.GettingUp,
-	Enum.HumanoidStateType.RunningNoPhysics,
-	Enum.HumanoidStateType.Running,
-	Enum.HumanoidStateType.Freefall,
-	Enum.HumanoidStateType.StrafingNoPhysics,
-	Enum.HumanoidStateType.PlatformStanding,
-	Enum.HumanoidStateType.Flying,
-	Enum.HumanoidStateType.Climbing,
-	Enum.HumanoidStateType.FallingDown,
-} :: { Enum.HumanoidStateType }
+-- Joint configuration
+local JOINT_CONFIG = {
+	["Neck"] = { UpperAngle = 45, TwistLower = -70, TwistUpper = 70, TwistEnabled = true },
+	["Left Shoulder"] = { UpperAngle = 110, TwistLower = -85, TwistUpper = 85, TwistEnabled = true },
+	["Right Shoulder"] = { UpperAngle = 110, TwistLower = -85, TwistUpper = 85, TwistEnabled = true },
+	["Left Hip"] = { UpperAngle = 90, TwistLower = -45, TwistUpper = 45, TwistEnabled = false },
+	["Right Hip"] = { UpperAngle = 90, TwistLower = -45, TwistUpper = 45, TwistEnabled = false },
+}
 
-function Ragdoller:Setup(Character: Model)
-	local Humanoid = Character:WaitForChild("Humanoid") :: Humanoid
-	local playerStates: Folder = game.ReplicatedStorage.PlayerStates:FindFirstChild(Character.Name) or Character
+local JOINT_OFFSETS = {
+	["Neck"] = { C0 = CFrame.new(0, 1, 0), C1 = CFrame.new(0, -0.5, 0) },
+	["Left Shoulder"] = { C0 = CFrame.new(-1.3, 0.75, 0), C1 = CFrame.new(0.2, 0.75, 0) },
+	["Right Shoulder"] = { C0 = CFrame.new(1.3, 0.75, 0), C1 = CFrame.new(-0.2, 0.75, 0) },
+	["Left Hip"] = { C0 = CFrame.new(-0.5, -1, 0), C1 = CFrame.new(0, 1, 0) },
+	["Right Hip"] = { C0 = CFrame.new(0.5, -1, 0), C1 = CFrame.new(0, 1, 0) },
+}
 
-	--warn("SET UP RAGDOLL FOR: ",Character.Name)
+-- Limb collider sizes (from 4thAxis)
+local COLLIDER_SIZES = {
+	["Head"] = Vector3.new(1, 1, 1),
+	["Torso"] = Vector3.new(2, 2, 1),
+	["Left Arm"] = Vector3.new(1, 2, 1),
+	["Right Arm"] = Vector3.new(1, 2, 1),
+	["Left Leg"] = Vector3.new(1, 2, 1),
+	["Right Leg"] = Vector3.new(1, 2, 1),
+}
 
-	local connections = {}
-	connections[#connections + 1] = playerStates:GetAttributeChangedSignal("Ragdoll"):Connect(function(val)
-		if global.HasState(Character, "Knocked") then
-			return
-		end
-		if playerStates:GetAttribute("Ragdoll") > 0 then
-			--if not playerStates:GetAttribute("BeingCarried") and not playerStates:GetAttribute("BeingGripped") then
-			Ragdoller:Enable(Character)
-			--end
-		else
-			Ragdoller:Disable(Character)
-		end
-	end)
-
-	connections[#connections + 1] = playerStates:GetAttributeChangedSignal("Knocked"):Connect(function(val)
-		if playerStates:GetAttribute("Knocked") > 0 then
-			--if not playerStates:GetAttribute("BeingCarried") and not playerStates:GetAttribute("BeingGripped") then
-			Ragdoller:Enable(Character)
-			--end
-		else
-			Ragdoller:Disable(Character)
-		end
-	end)
-
-	connections[#connections + 1] = playerStates:GetAttributeChangedSignal("Unconscious"):Connect(function(val)
-		if playerStates:GetAttribute("Unconscious") > 0 then
-			--if not playerStates:GetAttribute("BeingCarried") and not playerStates:GetAttribute("BeingGripped") then
-			Ragdoller:Enable(Character)
-			--end
-		else
-			Ragdoller:Disable(Character)
-		end
-	end)
-
-	connections[#connections + 1] = Humanoid.Died:Connect(function()
-		for _, connection: RBXScriptConnection in connections :: { RBXScriptConnection } do
-			connection:Disconnect()
-		end
-		table.clear(connections)
-	end)
-end
-
-function Ragdoller:Enable(character: Model)
-	if character:FindFirstChild(" Ragdoll") then
-		return
-	end
-	if global.HasState(character, "Hyperarmour") then
-		return
-	end
-	if character:GetAttribute("IsHostage") then
-		return
-	end
-
-	local playerStates: Folder? = game.ReplicatedStorage.PlayerStates:FindFirstChild(character.Name) or character
-	if not playerStates then
-		return
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid") :: Humanoid
-
-	local Ragdoll = global.NewInstance("BoolValue", { Name = "Ragdoll", Parent = character }) :: BoolValue
-	Ragdoll.Name = "Ragdoll"
-
-	playerStates:SetAttribute("NoRotation", 1)
-
-	humanoid.AutoRotate = false
-	humanoid.RequiresNeck = false
-	humanoid.PlatformStand = true
-
-	for _, state in disableStates do
-		humanoid:SetStateEnabled(state, false)
-	end
-	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-
-	if not game.Players:GetPlayerFromCharacter(character) then
-		bridges.Client:Fire(
-			bridgeNet.AllPlayers(),
-			{ Character = character, Module = "ChangeState", State = Enum.HumanoidStateType.Physics }
-		)
-
-		bridges.Client:Fire(
-			bridgeNet.AllPlayers(),
-			{ Character = character, Module = "SetStateEnabled", States = disableStates, Debounce = true }
-		)
-		bridges.Client:Fire(
-			bridgeNet.AllPlayers(),
-			{ Character = character, Module = "SetStateEnabled", States = enableStates, Debounce = false }
-		)
-	end
-
-	if character:FindFirstChild("NoRagdollEffect") == nil then
-		for _, v in character:GetDescendants() do
-			if character:FindFirstChild(`{character.Name}Stand`) and v:FindFirstAncestor(`{character.Name}Stand`) then
-				continue
-			end
-			if (v:IsA("Motor6D") or v:IsA("Weld")) and v:GetAttribute("C0Position") == nil then
-				local X0, Y0, Z0 = v.C0:ToEulerAnglesXYZ()
-				local X1, Y1, Z1 = v.C1:ToEulerAnglesXYZ()
-
-				v:SetAttribute("C0Position", vector.create(v.C0.X, v.C0.Y, v.C0.Z))
-				v:SetAttribute("C0Angle", vector.create(X0, Y0, Z0))
-
-				v:SetAttribute("C1Position", vector.create(v.C1.X, v.C1.Y, v.C1.Z))
-				v:SetAttribute("C1Angle", vector.create(X1, Y1, Z1))
-			end
-
-			if v:IsA("Motor6D") then
-				local callback: any = Callbacks[v.Name]
-				if callback then
-					callback(character)
-				end
-			end
-		end
-	end
-end
-
-function Ragdoller:Disable(character: Model)
-	if not character:FindFirstChild("Ragdoll") then
-		return
-	end
-
-	local playerStates: Folder? = game.ReplicatedStorage.PlayerStates:FindFirstChild(character.Name) or character
-	if not playerStates then
-		return
-	end
-
-	if character:FindFirstChild("Ragdoll") then
-		character.Ragdoll:Destroy()
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid") :: Humanoid
-	local oldRotation: vector = character.HumanoidRootPart.Orientation
-
-	for _, state in enableStates :: { Enum.HumanoidStateType } do
-		humanoid:SetStateEnabled(state, true)
-	end
-	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-
-	if not game.Players:GetPlayerFromCharacter(character) then
-		bridges.Client:Fire(
-			bridgeNet.AllPlayers(),
-			{ Character = character, Module = "ChangeState", State = Enum.HumanoidStateType.GettingUp }
-		)
-
-		bridges.Client:Fire(
-			bridgeNet.AllPlayers(),
-			{ Character = character, Module = "SetStateEnabled", States = enableStates, Debounce = true }
-		)
-		bridges.Client:Fire(
-			bridgeNet.AllPlayers(),
-			{ Character = character, Module = "SetStateEnabled", States = disableStates, Debounce = false }
-		)
-	end
-
-	for _, v in character:GetDescendants() do
-		if character:FindFirstChild(`{character.Name}Stand`) and v:FindFirstAncestor(`{character.Name}Stand`) then
-			continue
-		end
-		if v:IsA("Motor6D") then
-			if
-				v.Name == "Right Shoulder"
-				or v.Name == "Right Hip"
-				or v.Name == "Left Shoulder"
-				or v.Name == "Left Hip"
-				or v.Name == "Neck"
-			then
-				v.Part0 = character.Torso
-			end
-		elseif v.Name == "RagdollAttachment" or v.Name == "ConstraintJoint" or v.Name == "Collision" then
-			v:Destroy()
-		end
-		if (v:IsA("Motor6D") or v:IsA("Weld")) and v:GetAttribute("C0Position") ~= nil then
-			local C0Position = v:GetAttribute("C0Position")
-			local C1Position = v:GetAttribute("C1Position")
-			local C0Angle = v:GetAttribute("C0Angle")
-			local C1Angle = v:GetAttribute("C1Angle")
-
-			v.C0 = CFrame.new(C0Position.X, C0Position.Y, C0Position.Z) * CFrame.Angles(C0Angle.X, C0Angle.Y, C0Angle.Z)
-			v.C1 = CFrame.new(C1Position.X, C1Position.Y, C1Position.Z) * CFrame.Angles(C1Angle.X, C1Angle.Y, C1Angle.Z)
-		end
-	end
-
-	humanoid.PlatformStand = false
-
-	task.delay(1, function()
-		humanoid.RequiresNeck = true
-	end)
-
-	---Fix for a roblox bug, that messes with the character's motor's if they get rebuilt by a script :3
+-- Create invisible collision part for a limb (from 4thAxis original)
+local function createJointCollider(limb)
+	local collider = Instance.new("Part")
+	collider.Name = "JointCollider"
+	collider.Size = COLLIDER_SIZES[limb.Name] or Vector3.new(1, 1, 1)
+	collider.Transparency = 1
+	collider.BrickColor = BrickColor.new("Really red")
+	collider.CanCollide = true
+	collider.Massless = true
+	collider.CustomPhysicalProperties = RAGDOLL_PHYSICS
+	
 	pcall(function()
-		---Roots
-		character.HumanoidRootPart.RootJoint.C0 = CFrame.Angles(-math.pi / 2, 0, -math.pi)
-		character.HumanoidRootPart["Root Hip"].C0 = CFrame.Angles(-math.pi / 2, 0, -math.pi)
-		character.HumanoidRootPart["Root Hip"].C1 = CFrame.Angles(-math.pi / 2, 0, -math.pi)
-
-		---Hips
-		character.Torso["Right Hip"].C0 = CFrame.new(1, -1, 0) * CFrame.Angles(0, math.pi / 2, 0)
-		character.Torso["Left Hip"].C0 = CFrame.new(-1, -1, 0) * CFrame.Angles(0, -math.pi / 2, 0)
-
-		---Shoulders
-		character.Torso["Right Shoulder"].C0 = CFrame.new(1, 0.5, 0) * CFrame.Angles(0, math.pi / 2, 0)
-		character.Torso["Left Shoulder"].C0 = CFrame.new(-1, 0.5, 0) * CFrame.Angles(0, -math.pi / 2, 0)
-
-		---Heads
-		character.Torso["Neck"].C0 = CFrame.new(0, 1, 0) * CFrame.Angles(-math.pi / 2, 0, -math.pi)
+		collider.CollisionGroup = RAGDOLL_GROUP
 	end)
-
-	character.HumanoidRootPart.CFrame = CFrame.new(character.HumanoidRootPart.Position + vector.create(0, 1.75, 0))
-		* CFrame.Angles(0, math.rad(oldRotation.Y), 0)
-	playerStates:SetAttribute("NoRotation", 0)
-	--humanoid.AutoRotate = true;
+	
+	-- Weld to limb
+	local weld = Instance.new("Weld")
+	weld.Part0 = collider
+	weld.Part1 = limb
+	weld.C0 = CFrame.identity
+	weld.Parent = collider
+	
+	collider.Parent = limb
+	return collider
 end
 
-return Ragdoller
+local function resolvePlayer(target)
+	if typeof(target) ~= "Instance" then return nil end
+	if target:IsA("Player") then return target end
+	if target:IsA("Model") then
+		return Players:GetPlayerFromCharacter(target) or Players:FindFirstChild(target.Name)
+	end
+	return nil
+end
+
+local function getRemote()
+	local remote = script:FindFirstChild("RagdollEvent")
+	if not remote then
+		if IsServer then
+			remote = Instance.new("RemoteEvent")
+			remote.Name = "RagdollEvent"
+			remote.Parent = script
+		else
+			remote = script:WaitForChild("RagdollEvent", 10)
+		end
+	end
+	return remote
+end
+
+local RagdollEvent = getRemote()
+
+-- =============================================================================
+-- SHARED
+-- =============================================================================
+
+function Module.IsRagdolled(target)
+	local player = resolvePlayer(target)
+	if not player then return false end
+	
+	if IsServer then
+		return Module.RagdollStates[player] == true
+	else
+		for _, data in Module.Ragdollers do
+			if data.Player == player then
+				return data.IsActive
+			end
+		end
+		local char = player.Character
+		return char and char:GetAttribute("RagdollActive") == true
+	end
+end
+
+function Module.GetRig(target)
+	local player = resolvePlayer(target)
+	if not player then return nil end
+	
+	for rig, data in Module.Ragdollers do
+		if data.Player == player then
+			-- Return the ragdoll clone if active, otherwise the original rig
+			return data.RagdollClone or rig
+		end
+	end
+	return nil
+end
+
+-- =============================================================================
+-- SERVER
+-- =============================================================================
+
+if IsServer then
+	function Module.Ragdoll(target, knockbackForce, duration)
+		local player = resolvePlayer(target)
+		if not player or Module.RagdollStates[player] then return false end
+		
+		local character = player.Character
+		if not character then return false end
+		
+		Module.RagdollStates[player] = true
+		character:SetAttribute("RagdollActive", true)
+		RagdollEvent:FireAllClients(player, true, knockbackForce)
+		
+		if duration and duration > 0 then
+			task.delay(duration, function()
+				if Module.RagdollStates[player] then
+					Module.GetBackUp(player)
+				end
+			end)
+		end
+		return true
+	end
+	
+	function Module.GetBackUp(target)
+		local player = resolvePlayer(target)
+		if not player or not Module.RagdollStates[player] then return false end
+		
+		Module.RagdollStates[player] = nil
+		local character = player.Character
+		if character then
+			character:SetAttribute("RagdollActive", false)
+		end
+		RagdollEvent:FireAllClients(player, false)
+		return true
+	end
+	
+	RagdollEvent.OnServerEvent:Connect(function(player, targetPlayer, isRagdoll, force, dur)
+		local resolved = resolvePlayer(targetPlayer)
+		if resolved ~= player then return end
+		if isRagdoll then
+			Module.Ragdoll(player, force, dur)
+		else
+			Module.GetBackUp(player)
+		end
+	end)
+	
+	Players.PlayerRemoving:Connect(function(player)
+		Module.RagdollStates[player] = nil
+	end)
+end
+
+-- =============================================================================
+-- CLIENT
+-- =============================================================================
+
+if IsClient then
+	local LocalPlayer = Players.LocalPlayer
+	
+	-- Register rig for ragdolling (called by RigManager)
+	function Module.SetupRig(player, rig, character)
+		if Module.Ragdollers[rig] then return end
+		
+		Module.Ragdollers[rig] = {
+			Player = player,
+			Rig = rig,
+			Character = character,
+			IsActive = false,
+			RagdollClone = nil,
+			SavedState = nil,
+		}
+	end
+	
+	function Module.CleanupRig(rig)
+		local data = Module.Ragdollers[rig]
+		if data then
+			if data.RagdollClone and data.RagdollClone.Parent then
+				data.RagdollClone:Destroy()
+			end
+			Module.Ragdollers[rig] = nil
+		end
+	end
+	
+	-- Create ragdoll clone with physics constraints (4thAxis style with JointColliders)
+	local function createRagdollClone(rig)
+		local clone = rig:Clone()
+		clone.Name = rig.Name .. "_Ragdoll"
+		
+		-- Collect main limb parts for colliders
+		local mainLimbs = {}
+		for _, part in clone:GetChildren() do
+			if part:IsA("BasePart") and COLLIDER_SIZES[part.Name] then
+				mainLimbs[part.Name] = part
+			end
+		end
+		
+		-- Setup constraints for each motor
+		for _, motor in clone:GetDescendants() do
+			if motor:IsA("Motor6D") and JOINT_OFFSETS[motor.Name] then
+				local offsets = JOINT_OFFSETS[motor.Name]
+				local config = JOINT_CONFIG[motor.Name] or JOINT_CONFIG["Left Hip"]
+				
+				-- Create attachments
+				local att0 = Instance.new("Attachment")
+				att0.Name = "RagdollAtt0"
+				att0.CFrame = offsets.C0
+				att0.Parent = motor.Part0
+				
+				local att1 = Instance.new("Attachment")
+				att1.Name = "RagdollAtt1"
+				att1.CFrame = offsets.C1
+				att1.Parent = motor.Part1
+				
+				-- Create constraint with full 4thAxis physics properties
+				local constraint = Instance.new("BallSocketConstraint")
+				constraint.Name = "RagdollJoint"
+				constraint.Attachment0 = att0
+				constraint.Attachment1 = att1
+				constraint.LimitsEnabled = true
+				constraint.UpperAngle = config.UpperAngle
+				constraint.TwistLimitsEnabled = config.TwistEnabled
+				constraint.TwistLowerAngle = config.TwistLower
+				constraint.TwistUpperAngle = config.TwistUpper
+				-- Key physics properties from 4thAxis
+				constraint.Radius = 0.15
+				constraint.MaxFrictionTorque = 50
+				constraint.Restitution = 0
+				constraint.Parent = motor.Part0
+				
+				-- Disable the motor
+				motor.Enabled = false
+			end
+		end
+		
+		-- Setup humanoid for ragdoll
+		local hum = clone:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:ChangeState(Enum.HumanoidStateType.Physics)
+			hum.AutoRotate = false
+			hum.RequiresNeck = false
+			hum.PlatformStand = true
+		end
+		
+		-- Setup physics on parts - visual parts are NON-COLLIDEABLE, only JointColliders collide
+		for _, part in clone:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.Anchored = false
+				part.Massless = false
+				-- Visual parts don't collide - JointColliders handle collision
+				part.CanCollide = false
+				part.CustomPhysicalProperties = RAGDOLL_PHYSICS
+				pcall(function()
+					part.CollisionGroup = RAGDOLL_GROUP
+				end)
+			end
+		end
+		
+		-- Create JointColliders for main limbs (this is what makes ragdolls feel natural)
+		for limbName, limb in mainLimbs do
+			createJointCollider(limb)
+		end
+		
+		return clone
+	end
+	
+	-- Activate ragdoll
+	local function activate(player, knockbackForce)
+		local data
+		for _, d in Module.Ragdollers do
+			if d.Player == player then data = d break end
+		end
+		if not data or data.IsActive then return end
+		
+		local rig = data.Rig
+		local character = data.Character or player.Character
+		local root = character and character:FindFirstChild("Root")
+		
+		-- Calculate ground offset while standing
+		local groundOffset = 3
+		if root then
+			local collider = character:FindFirstChild("Collider")
+			local feet = collider and collider:FindFirstChild("Default") and collider.Default:FindFirstChild("Feet")
+			if feet then
+				groundOffset = root.Position.Y - (feet.Position.Y - feet.Size.Y / 2)
+			end
+		end
+		
+		-- Save state
+		data.SavedState = {
+			GroundOffset = groundOffset,
+		}
+		
+		if root then
+			data.SavedState.RootAnchored = root.Anchored
+			local ao = root:FindFirstChild("AlignOrientation")
+			local vf = root:FindFirstChild("VectorForce")
+			if ao then data.SavedState.AOEnabled = ao.Enabled; ao.Enabled = false end
+			if vf then data.SavedState.VFEnabled = vf.Enabled; vf.Enabled = false end
+			root.Anchored = true
+		end
+		
+		-- Disable character humanoid states
+		local charHum = character and character:FindFirstChildOfClass("Humanoid")
+		if charHum then
+			charHum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+			charHum:SetStateEnabled(Enum.HumanoidStateType.Running, false)
+		end
+		
+		-- Create ragdoll clone
+		local ragdollClone = createRagdollClone(rig)
+		ragdollClone.Parent = Workspace:FindFirstChild("Rigs") or Workspace
+		data.RagdollClone = ragdollClone
+		
+		-- Hide original rig (save original transparencies)
+		data.SavedTransparencies = {}
+		for _, part in rig:GetDescendants() do
+			if part:IsA("BasePart") then
+				data.SavedTransparencies[part] = part.Transparency
+				part.Transparency = 1
+			end
+		end
+		
+		data.IsActive = true
+		rig:SetAttribute("IsRagdolled", true)
+		
+		-- Apply knockback to clone
+		local cloneHRP = ragdollClone:FindFirstChild("HumanoidRootPart")
+		if cloneHRP and knockbackForce then
+			task.defer(function()
+				local force = typeof(knockbackForce) == "Vector3" and knockbackForce or cloneHRP.CFrame.LookVector * (knockbackForce or 0)
+				cloneHRP:ApplyImpulse(force)
+				cloneHRP.AssemblyAngularVelocity = Vector3.new(math.random() * 4 - 2, math.random() * 2 - 1, math.random() * 4 - 2)
+			end)
+		end
+	end
+	
+	-- Deactivate ragdoll
+	local function deactivate(player)
+		local data
+		for _, d in Module.Ragdollers do
+			if d.Player == player then data = d break end
+		end
+		if not data or not data.IsActive then return end
+		
+		local rig = data.Rig
+		local character = data.Character or player.Character
+		local root = character and character:FindFirstChild("Root")
+		local ragdollClone = data.RagdollClone
+		local saved = data.SavedState or {}
+		
+		-- Get final position from ragdoll clone
+		local finalPos = nil
+		if ragdollClone then
+			local cloneHRP = ragdollClone:FindFirstChild("HumanoidRootPart")
+			if cloneHRP then
+				finalPos = cloneHRP.Position
+			end
+		end
+		
+		-- Find ground
+		local groundY = nil
+		if finalPos then
+			local params = RaycastParams.new()
+			params.FilterDescendantsInstances = { character, rig, ragdollClone }
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			local result = Workspace:Raycast(finalPos + Vector3.new(0, 3, 0), Vector3.new(0, -50, 0), params)
+			if result then
+				groundY = result.Position.Y
+			end
+		end
+		
+		-- Destroy ragdoll clone
+		if ragdollClone then
+			ragdollClone:Destroy()
+			data.RagdollClone = nil
+		end
+		
+		-- Show original rig (restore original transparencies)
+		local savedTransparencies = data.SavedTransparencies or {}
+		for _, part in rig:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.Transparency = savedTransparencies[part] or 0
+			end
+		end
+		data.SavedTransparencies = nil
+		
+		-- Position Root at final location
+		if root and finalPos then
+			local offset = saved.GroundOffset or 3
+			local targetY = groundY and (groundY + offset) or finalPos.Y
+			local _, yaw, _ = root.CFrame:ToOrientation()
+			root.CFrame = CFrame.new(finalPos.X, targetY, finalPos.Z) * CFrame.Angles(0, yaw, 0)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		
+		-- Enable movement forces
+		if root then
+			local ao = root:FindFirstChild("AlignOrientation")
+			local vf = root:FindFirstChild("VectorForce")
+			if ao and saved.AOEnabled ~= nil then ao.Enabled = saved.AOEnabled end
+			if vf and saved.VFEnabled ~= nil then vf.Enabled = saved.VFEnabled end
+			root.Anchored = saved.RootAnchored or false
+		end
+		
+		-- Restore character humanoid
+		local charHum = character and character:FindFirstChildOfClass("Humanoid")
+		if charHum then
+			charHum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+			charHum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+			charHum:ChangeState(Enum.HumanoidStateType.Running)
+		end
+		
+		data.IsActive = false
+		rig:SetAttribute("IsRagdolled", false)
+		data.SavedState = nil
+	end
+	
+	-- Public API
+	function Module.Ragdoll(target, knockbackForce, duration)
+		local player = resolvePlayer(target)
+		if player == LocalPlayer then
+			RagdollEvent:FireServer(player, true, knockbackForce, duration)
+			activate(player, knockbackForce)
+		end
+	end
+	
+	function Module.GetBackUp(target)
+		local player = resolvePlayer(target)
+		if player == LocalPlayer then
+			RagdollEvent:FireServer(player, false)
+			deactivate(player)
+		end
+	end
+	
+	-- Listen for server events
+	RagdollEvent.OnClientEvent:Connect(function(player, isRagdoll, force)
+		if isRagdoll then
+			activate(player, force)
+		else
+			deactivate(player)
+		end
+	end)
+end
+
+return Module

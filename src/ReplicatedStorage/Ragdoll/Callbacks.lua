@@ -1,3 +1,0 @@
-local Callbacks = {}
-
-return Callbacks

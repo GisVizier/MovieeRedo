@@ -8,7 +8,12 @@ local function loadModules()
 	for _, child in ipairs(script:GetChildren()) do
 		if child:IsA("ModuleScript") and child.Name ~= "init" and child.Name ~= "Util" then
 			if not VFXRep.Modules[child.Name] then
-				VFXRep.Modules[child.Name] = require(child)
+				local ok, mod = pcall(require, child)
+				if ok then
+					VFXRep.Modules[child.Name] = mod
+				else
+					warn("[VFXRep] Failed to load module:", child.Name, mod)
+				end
 			end
 		end
 	end
@@ -18,7 +23,12 @@ local function getModule(name)
 	if not VFXRep.Modules[name] then
 		local moduleScript = script:FindFirstChild(name)
 		if moduleScript and moduleScript:IsA("ModuleScript") then
-			VFXRep.Modules[name] = require(moduleScript)
+			local ok, mod = pcall(require, moduleScript)
+			if ok then
+				VFXRep.Modules[name] = mod
+			else
+				warn("[VFXRep] Failed to load module:", name, mod)
+			end
 		end
 	end
 	return VFXRep.Modules[name]

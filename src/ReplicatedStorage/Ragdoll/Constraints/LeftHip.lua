@@ -1,3 +1,0 @@
-local LeftHip = {}
-
-return LeftHip

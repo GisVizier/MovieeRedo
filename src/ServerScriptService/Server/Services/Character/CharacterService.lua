@@ -7,6 +7,7 @@ local PhysicsService = game:GetService("PhysicsService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local RagdollModule = require(ReplicatedStorage:WaitForChild("Ragdoll"):WaitForChild("Ragdoll"))
 
 CharacterService.ActiveCharacters = {}
 CharacterService.IsClientSetupComplete = {}
@@ -231,7 +232,7 @@ function CharacterService:_getSpawnPosition()
 end
 
 -- =============================================================================
--- RAGDOLL SYSTEM
+-- RAGDOLL SYSTEM (uses RagdollModule)
 -- =============================================================================
 
 --[[
@@ -244,11 +245,8 @@ end
 		CharacterService:IsRagdolled(player)
 ]]
 
-CharacterService.RagdollDurationThreads = {} -- [player] = thread
-
 function CharacterService:IsRagdolled(player)
-	local character = self.ActiveCharacters[player]
-	return character and character:GetAttribute("RagdollActive") == true
+	return RagdollModule.IsRagdolled(player)
 end
 
 --[[
@@ -270,37 +268,17 @@ function CharacterService:Ragdoll(player, duration, options)
 		return false
 	end
 
-	local character = self.ActiveCharacters[player]
-	if not character or not character.Parent then
-		return false
+	-- Build knockback force from options
+	local knockbackForce = nil
+	if options.Velocity then
+		knockbackForce = options.Velocity
+	elseif options.FlingDirection then
+		local strength = options.FlingStrength or 50
+		knockbackForce = options.FlingDirection.Unit * strength
 	end
 
-	-- Cancel any existing duration thread
-	if self.RagdollDurationThreads[player] then
-		task.cancel(self.RagdollDurationThreads[player])
-		self.RagdollDurationThreads[player] = nil
-	end
-
-	-- Set RagdollActive attribute on character (this stops ClientReplicator from moving rig)
-	character:SetAttribute("RagdollActive", true)
-
-	-- Build ragdoll data to send to clients
-	local ragdollData = {
-		FlingDirection = options.FlingDirection,
-		FlingStrength = options.FlingStrength or 50,
-		Velocity = options.Velocity,
-	}
-
-	-- Fire RagdollStarted to all clients - they will ragdoll their local rig
-	self._net:FireAllClients("RagdollStarted", player, ragdollData)
-
-	-- Schedule auto-unragdoll if duration provided
-	if duration and duration > 0 then
-		self.RagdollDurationThreads[player] = task.delay(duration, function()
-			self:Unragdoll(player)
-		end)
-	end
-
+	-- Use the RagdollModule
+	RagdollModule.Ragdoll(player, knockbackForce, duration)
 	return true
 end
 
@@ -315,26 +293,13 @@ function CharacterService:Unragdoll(player)
 		return false
 	end
 
-	-- Cancel duration thread if active (use pcall since thread may have completed)
-	if self.RagdollDurationThreads[player] then
-		pcall(task.cancel, self.RagdollDurationThreads[player])
-		self.RagdollDurationThreads[player] = nil
-	end
-
-	local character = self.ActiveCharacters[player]
-	if character then
-		character:SetAttribute("RagdollActive", false)
-	end
-
-	-- Fire RagdollEnded to all clients
-	self._net:FireAllClients("RagdollEnded", player)
-
+	RagdollModule.GetBackUp(player)
 	return true
 end
 
 -- Legacy compatibility
 function CharacterService:GetRagdoll(player)
-	return nil -- No longer creating ragdoll clones
+	return RagdollModule.GetRig(player)
 end
 
 function CharacterService:StartRagdoll(player, options)

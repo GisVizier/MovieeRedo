@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
-local RagdollSystem = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RagdollSystem"))
+local RagdollModule = require(ReplicatedStorage:WaitForChild("Ragdoll"):WaitForChild("Ragdoll"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
 local CharacterUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterUtils"))
 local CrouchUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CrouchUtils"))
@@ -94,6 +94,20 @@ function CharacterController:Init(registry, net)
 		if gameProcessed then return end
 		if input.KeyCode == Enum.KeyCode.F4 then
 			self:ToggleHitboxDebug()
+		end
+		
+		-- RAGDOLL TEST KEYBINDS (R = ragdoll with force, G = get back up)
+		if input.KeyCode == Enum.KeyCode.R then
+			local character = Players.LocalPlayer.Character
+			if character then
+				-- Strong knockback force for testing (upward + backward)
+				local knockbackForce = Vector3.new(0, 200, -150)
+				RagdollModule.Ragdoll(Players.LocalPlayer, knockbackForce)
+				print("[CharacterController] TEST: Ragdoll triggered with force", knockbackForce)
+			end
+		elseif input.KeyCode == Enum.KeyCode.G then
+			RagdollModule.GetBackUp(Players.LocalPlayer)
+			print("[CharacterController] TEST: GetBackUp triggered")
 		end
 	end)
 
@@ -247,23 +261,8 @@ function CharacterController:_onCharacterRemoving(character)
 end
 
 function CharacterController:_onPlayerRagdolled(player, ragdollData)
-	if not player then
-		return
-	end
-
-	local rig = RigManager:GetActiveRig(player)
-	if not rig then
-		return
-	end
-
-	if RagdollSystem:RagdollRig(rig, ragdollData) then
-		RigManager:MarkRigAsDead(rig)
-	end
-
-	local replicationController = self._registry and self._registry:TryGet("Replication")
-	if replicationController and replicationController.SetPlayerRagdolled then
-		replicationController:SetPlayerRagdolled(player, true)
-	end
+	-- Legacy event - redirect to new handler
+	self:_onRagdollStarted(player, ragdollData)
 end
 
 function CharacterController:_setupLocalCharacter(player, character)
@@ -702,15 +701,15 @@ function CharacterController:IsHitboxDebugEnabled()
 end
 
 -- =============================================================================
--- RAGDOLL SYSTEM
+-- RAGDOLL SYSTEM (uses RagdollModule)
 -- =============================================================================
 
 function CharacterController:GetRagdoll(player)
-	return self._activeRagdolls[player]
+	return RagdollModule.GetRig(player)
 end
 
 function CharacterController:IsRagdolled(player)
-	return self._activeRagdolls[player] ~= nil
+	return RagdollModule.IsRagdolled(player)
 end
 
 function CharacterController:_onRagdollStarted(player, ragdollData)
@@ -720,29 +719,21 @@ function CharacterController:_onRagdollStarted(player, ragdollData)
 
 	ragdollData = ragdollData or {}
 
-	-- Get the player's visual rig
-	local rig = RigManager:GetActiveRig(player)
-	if not rig then
-		return
+	-- Build knockback force from ragdoll data
+	local knockbackForce = nil
+	if ragdollData.Velocity then
+		knockbackForce = ragdollData.Velocity
+	elseif ragdollData.FlingDirection then
+		local strength = ragdollData.FlingStrength or 50
+		knockbackForce = ragdollData.FlingDirection.Unit * strength
 	end
 
-	-- Get the player's character (bean)
-	local character = player.Character
+	-- Ragdoll the player (RagdollModule handles rig targeting)
+	RagdollModule.Ragdoll(player, knockbackForce)
 
-	-- Build options for RagdollSystem
-	local options = {
-		Character = character, -- Pass character so rig can weld to Root
-	}
-	if ragdollData.FlingDirection then
-		options.FlingDirection = ragdollData.FlingDirection
-		options.FlingStrength = ragdollData.FlingStrength or 50
-	elseif ragdollData.Velocity then
-		options.Velocity = ragdollData.Velocity
-	end
-
-	-- Ragdoll the visual rig
-	local success = RagdollSystem:RagdollRig(rig, options)
-	if success then
+	-- Track for this controller
+	local rig = RagdollModule.GetRig(player)
+	if rig then
 		self._activeRagdolls[player] = rig
 	end
 
@@ -756,9 +747,11 @@ function CharacterController:_onRagdollStarted(player, ragdollData)
 			end
 
 			-- Focus camera on ragdoll head
-			local rigHead = rig:FindFirstChild("Head")
-			if rigHead and cameraController.SetRagdollFocus then
-				cameraController:SetRagdollFocus(rigHead)
+			if rig then
+				local rigHead = rig:FindFirstChild("Head")
+				if rigHead and cameraController.SetRagdollFocus then
+					cameraController:SetRagdollFocus(rigHead)
+				end
 			end
 		end
 
@@ -771,12 +764,8 @@ function CharacterController:_onRagdollEnded(player)
 		return
 	end
 
-	-- Get the player's visual rig
-	local rig = self._activeRagdolls[player] or RigManager:GetActiveRig(player)
-	if rig then
-		-- Unragdoll the visual rig
-		RagdollSystem:UnragdollRig(rig)
-	end
+	-- Unragdoll the player (RagdollModule handles rig targeting)
+	RagdollModule.GetBackUp(player)
 
 	self._activeRagdolls[player] = nil
 

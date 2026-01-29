@@ -3,10 +3,25 @@ local RigManager = {}
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local CollisionUtils = require(Locations.Shared.Util:WaitForChild("CollisionUtils"))
+
+-- Lazy load RagdollModule to avoid circular dependency
+local RagdollModule = nil
+local function getRagdollModule()
+	if not RagdollModule then
+		local success, module = pcall(function()
+			return require(ReplicatedStorage:WaitForChild("Ragdoll"):WaitForChild("Ragdoll"))
+		end)
+		if success then
+			RagdollModule = module
+		end
+	end
+	return RagdollModule
+end
 
 RigManager.ActiveRigs = {}
 RigManager.RigContainer = nil
@@ -148,6 +163,14 @@ function RigManager:CreateRig(player, character)
 		end
 	end
 
+	-- Setup ragdoll system for this rig (client-only)
+	if RunService:IsClient() then
+		local ragdoll = getRagdollModule()
+		if ragdoll and ragdoll.SetupRig then
+			ragdoll.SetupRig(player, rig, character)
+		end
+	end
+
 	return rig
 end
 
@@ -191,8 +214,18 @@ function RigManager:MarkRigAsDead(rig)
 end
 
 function RigManager:DestroyRig(rig)
-	if rig and rig.Parent then
-		rig:Destroy()
+	if rig then
+		-- Cleanup ragdoll data (client-only)
+		if RunService:IsClient() then
+			local ragdoll = getRagdollModule()
+			if ragdoll and ragdoll.CleanupRig then
+				ragdoll.CleanupRig(rig)
+			end
+		end
+		
+		if rig.Parent then
+			rig:Destroy()
+		end
 	end
 end
 
