@@ -27,6 +27,12 @@ local SlidingSystem = require(Locations.Game.Movement:WaitForChild("SlidingSyste
 -- VFXRep for visual effects
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 
+-- Dialogue
+local DialogueService = require(ReplicatedStorage:WaitForChild("Dialogue"))
+
+local DIALOGUE_COOLDOWN = 8
+local _lastDialogueTime = 0
+
 -- Animation IDs
 local VM_ANIMS = {
 	CloudskipDash = "CloudskipDash",
@@ -650,7 +656,16 @@ function Airborne.Ability:OnStart(abilityRequest)
 			Animation = animation and animation.Name,
 		})
 	end
-	
+
+	-- Ability dialogue (cooldown + overlap check)
+	if not DialogueService.isActive("Airborne") and os.clock() - _lastDialogueTime >= DIALOGUE_COOLDOWN then
+		_lastDialogueTime = os.clock()
+		DialogueService.generate("Airborne", "Ability", actionType, {
+			fallbackKey = "Airborne",
+			override = false,
+		})
+	end
+
 	if not animation then
 		unlock()
 		return

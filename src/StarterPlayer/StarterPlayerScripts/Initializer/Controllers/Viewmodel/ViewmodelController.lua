@@ -42,7 +42,7 @@ local TILT_SPRING_SPEED = 12
 local TILT_SPRING_DAMPER = 0.9
 local SLIDE_ROLL = math.rad(14)
 local SLIDE_PITCH = math.rad(6)
-local SLIDE_YAW = math.rad(30)
+local SLIDE_YAW = math.rad(-30) -- Negative = rotate right
 local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
 local DEFAULT_ADS_EFFECTS_MULTIPLIER = 0.25

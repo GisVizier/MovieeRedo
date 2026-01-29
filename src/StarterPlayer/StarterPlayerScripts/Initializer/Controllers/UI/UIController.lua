@@ -70,7 +70,7 @@ function UIController:_bootstrapUi()
 	self._coreUi = ui
 
 	-- Force-hide any UI that might be Visible by default in Studio.
-	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Map", "Loadout", "Black", "TallFade", "HUD", "Emotes" }) do
+	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Map", "Loadout", "Black", "TallFade", "HUD", "Emotes", "Dialogue" }) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then
 			inst.Visible = false

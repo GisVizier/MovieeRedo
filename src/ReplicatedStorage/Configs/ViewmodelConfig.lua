@@ -62,7 +62,7 @@ ViewmodelConfig.Effects = {
 		Enabled = true,
 		AngleDeg = 18, -- roll
 		Offset = Vector3.new(0.14, -0.12, 0.06),
-		RotationDeg = Vector3.new(8, 10, 0),
+		RotationDeg = Vector3.new(8, 30, 0), -- Y = 30 degrees turn right
 		TransitionSpeed = 10,
 	},
 

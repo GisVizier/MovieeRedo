@@ -253,6 +253,14 @@ function CharacterController:ConnectToInputs(inputManager, cameraController)
 			self:DebugMovementInput(wasMoving, isMoving, movement)
 		end
 		MovementStateManager:UpdateMovementState(isMoving)
+		
+		-- When starting to move with AutoSprint enabled, transition to Sprinting
+		if not wasMoving and isMoving then
+			local autoSprint = Config.Gameplay.Character.AutoSprint
+			if autoSprint and MovementStateManager:IsWalking() then
+				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+			end
+		end
 	end)
 
 	self.InputManager:ConnectToInput("Jump", function(isJumping)
@@ -1497,7 +1505,12 @@ function CharacterController:HandleSlideInput(isSliding)
 		end
 
 		if not MovementStateManager:IsWalking() and not MovementStateManager:IsSprinting() then
-			MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+			local shouldSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+			if shouldSprint then
+				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+			else
+				MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+			end
 		end
 	end
 end

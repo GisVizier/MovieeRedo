@@ -214,7 +214,7 @@ KitConfig.Kits = {
 
 	Aki = {
 		Icon = "rbxassetid://136186193137355",
-		Name = "AKI",
+		Name = "DEVIL HUNTER",
 		Description = "A disciplined fighter who makes binding deals with spirits and devils, gaining power at the cost of pain, stamina, and pieces of his soul.",
 		Rarity = "Epic",
 		Price = 12570,
