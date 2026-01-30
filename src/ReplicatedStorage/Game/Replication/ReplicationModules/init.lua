@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VFXRep = {}
 
 VFXRep.Modules = {}
+VFXRep._initialized = false
 
 local function loadModules()
 	for _, child in ipairs(script:GetChildren()) do
@@ -114,7 +115,12 @@ function VFXRep:Init(net, isServer)
 			end
 
 			for _, target in ipairs(targets) do
-				self._net:FireClient("VFXRep", target, player.UserId, moduleName, functionName, data)
+				if target:GetAttribute("ClientReplicationReady") then
+					print("[VFXRep] send ->", target.Name, moduleName, functionName)
+					self._net:FireClient("VFXRep", target, player.UserId, moduleName, functionName, data)
+				else
+					print("[VFXRep] drop(not ready) ->", target.Name, moduleName, functionName)
+				end
 			end
 		end)
 	else
@@ -127,6 +133,7 @@ function VFXRep:Init(net, isServer)
 		waitForLocalPlayerLoaded()
 		loadModules()
 		self._net:ConnectClient("VFXRep", function(originUserId, moduleName, functionName, data)
+			print("[VFXRep] recv", originUserId, moduleName, functionName)
 			local mod = getModule(moduleName)
 			if mod and type(mod[functionName]) == "function" then
 				mod[functionName](mod, originUserId, data)
@@ -140,12 +147,12 @@ function VFXRep:Fire(targetSpec, moduleInfo, data)
 		warn("[VFXRep] Fire called but VFXRep not initialized! Call VFXRep:Init(net, false) first.")
 		return
 	end
-	
+
 	-- Skip network round-trip for "Me" - execute locally immediately
 	if targetSpec == "Me" then
 		local moduleName = moduleInfo.Module or moduleInfo.ReplicateModule
 		local functionName = moduleInfo.Function or moduleInfo.ReplicateFunction or "Execute"
-		
+
 		if moduleName then
 			local mod = getModule(moduleName)
 			if mod and type(mod[functionName]) == "function" then
@@ -155,7 +162,7 @@ function VFXRep:Fire(targetSpec, moduleInfo, data)
 		end
 		return
 	end
-	
+
 	-- All other targets need server coordination
 	self._net:FireServer("VFXRep", targetSpec, moduleInfo, data)
 end

@@ -100,10 +100,14 @@ function CharacterController:Init(registry, net)
 	self.MovementInputProcessor:Init(self)
 
 	SlidingSystem:Init()
-	VFXRep:Init(net, false)
+	-- VFXRep is now initialized early in Initializer.client.lua to prevent race conditions
+	-- where VFX events arrive before the OnClientEvent handler is connected.
 
 	MovementStateManager:ConnectToStateChange(function(previousState, newState)
-		if previousState == MovementStateManager.States.Sliding and newState == MovementStateManager.States.Crouching then
+		if
+			previousState == MovementStateManager.States.Sliding
+			and newState == MovementStateManager.States.Crouching
+		then
 			self:HandleAutomaticCrouchAfterSlide()
 		end
 	end)
@@ -121,7 +125,6 @@ function CharacterController:Init(registry, net)
 			end
 		end
 	end)
-
 end
 
 function CharacterController:Start()
@@ -298,7 +301,7 @@ function CharacterController:ConnectToInputs(inputManager, cameraController)
 			self:DebugMovementInput(wasMoving, isMoving, movement)
 		end
 		MovementStateManager:UpdateMovementState(isMoving)
-		
+
 		-- When starting to move with AutoSprint enabled, transition to Sprinting
 		if not wasMoving and isMoving then
 			local autoSprint = Config.Gameplay.Character.AutoSprint
@@ -510,11 +513,8 @@ function CharacterController:UpdateMovement(deltaTime)
 		if primaryPart then
 			local currentVelocity = primaryPart.AssemblyLinearVelocity
 			if currentVelocity.Y > 0 then
-				primaryPart.AssemblyLinearVelocity = Vector3.new(
-					currentVelocity.X,
-					math.min(currentVelocity.Y * 0.5, 0),
-					currentVelocity.Z
-				)
+				primaryPart.AssemblyLinearVelocity =
+					Vector3.new(currentVelocity.X, math.min(currentVelocity.Y * 0.5, 0), currentVelocity.Z)
 			end
 		end
 	end
@@ -558,11 +558,7 @@ function CharacterController:UpdateMovement(deltaTime)
 		local primaryPart = self.PrimaryPart
 		if primaryPart then
 			local currentVelocity = primaryPart.AssemblyLinearVelocity
-			primaryPart.AssemblyLinearVelocity = Vector3.new(
-				currentVelocity.X,
-				-50,
-				currentVelocity.Z
-			)
+			primaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, -50, currentVelocity.Z)
 		end
 
 		local currentDirection = self:CalculateMovementDirection()
@@ -661,11 +657,8 @@ function CharacterController:ApplySlopeMagnet()
 		return false
 	end
 
-	self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-		currentVelocity.X,
-		magnetConfig.SnapVelocity or -80,
-		currentVelocity.Z
-	)
+	self.PrimaryPart.AssemblyLinearVelocity =
+		Vector3.new(currentVelocity.X, magnetConfig.SnapVelocity or -80, currentVelocity.Z)
 
 	return true
 end
@@ -731,7 +724,12 @@ function CharacterController:CheckGrounded()
 
 	self.WasGrounded = self.IsGrounded
 	local graceTime = Config.Gameplay.Sliding.JumpCancel.GroundedGraceTime or 0
-	if graceTime > 0 and SlidingSystem and SlidingSystem.LastJumpCancelTime and SlidingSystem.LastJumpCancelTime > 0 then
+	if
+		graceTime > 0
+		and SlidingSystem
+		and SlidingSystem.LastJumpCancelTime
+		and SlidingSystem.LastJumpCancelTime > 0
+	then
 		local age = tick() - SlidingSystem.LastJumpCancelTime
 		if age >= 0 and age < graceTime then
 			self.IsGrounded = false
@@ -767,7 +765,7 @@ function CharacterController:CheckGrounded()
 	if self.IsGrounded then
 		self.LastGroundedTime = tick()
 		WallJumpUtils:ResetCharges()
-		
+
 		-- Reset crouch state on landing if crouch isn't held
 		if self.JustLanded then
 			self:_handleLandingCrouchReset()
@@ -783,22 +781,22 @@ function CharacterController:_handleLandingCrouchReset()
 	if MovementStateManager:IsSliding() then
 		return
 	end
-	
+
 	local isCrouchHeld = self.InputManager and self.InputManager:IsCrouchHeld()
 	local isVisuallyCrouched = self.Character and CrouchUtils:IsVisuallycrouched(self.Character)
-	
+
 	-- If we're visually crouched but not holding crouch, uncrouch
 	if isVisuallyCrouched and not isCrouchHeld then
 		self.IsCrouching = false
 		if self.InputManager then
 			self.InputManager.IsCrouching = false
 		end
-		
+
 		if self:CanUncrouch() then
 			CrouchUtils:Uncrouch(self.Character)
 			CrouchUtils:RemoveVisualCrouch(self.Character)
 			Net:FireServer("CrouchStateChanged", false)
-			
+
 			local shouldRestoreSprint = Config.Gameplay.Character.AutoSprint
 			if shouldRestoreSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
@@ -1015,17 +1013,10 @@ function CharacterController:TryStepUp(deltaTime)
 		local highOrigin = Vector3.new(feet.Position.X, feetBottomY + stepHeight, feet.Position.Z)
 		local hitHigh = workspace:Raycast(highOrigin, forward * forwardDistance, self.RaycastParams)
 		if not hitHigh then
-			local downOrigin = Vector3.new(
-				feet.Position.X,
-				feetBottomY + stepHeight + 0.5,
-				feet.Position.Z
-			) + (forward * forwardDistance)
+			local downOrigin = Vector3.new(feet.Position.X, feetBottomY + stepHeight + 0.5, feet.Position.Z)
+				+ (forward * forwardDistance)
 			local downDistance = stepHeight + 1
-			local hitDown = workspace:Raycast(
-				downOrigin,
-				Vector3.new(0, -downDistance, 0),
-				self.RaycastParams
-			)
+			local hitDown = workspace:Raycast(downOrigin, Vector3.new(0, -downDistance, 0), self.RaycastParams)
 			if hitDown and hitDown.Normal.Y >= 0.6 then
 				local stepDelta = hitDown.Position.Y - feetBottomY
 				if stepDelta > 0.05 and stepDelta <= stepHeight then
@@ -1050,11 +1041,7 @@ function CharacterController:TryStepUp(deltaTime)
 		end
 		if required > 0 then
 			local newY = math.max(currentVelocity.Y, required)
-			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-				currentVelocity.X,
-				newY,
-				currentVelocity.Z
-			)
+			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, newY, currentVelocity.Z)
 		end
 		self.StepUpBoostTime = math.max(0, self.StepUpBoostTime - deltaTime)
 		if self.StepUpBoostTime == 0 then
@@ -1086,7 +1073,7 @@ function CharacterController:ApplyMovement()
 		local weaponSpeedModifier = weaponMult * adsMult
 		targetSpeed = targetSpeed * weaponSpeedModifier
 	end
-	
+
 	-- Apply emote speed multiplier (always applies, even when sprinting)
 	local emoteMult = localPlayer and localPlayer:GetAttribute("EmoteSpeedMultiplier") or 1
 	targetSpeed = targetSpeed * emoteMult
@@ -1099,7 +1086,8 @@ function CharacterController:ApplyMovement()
 	local isHittingWall = false
 	local wallNormal = nil
 	if timeSinceWallJump > wallJumpImmunity then
-		isHittingWall, wallNormal = MovementUtils:CheckWallStopWithNormal(self.PrimaryPart, self.RaycastParams, moveVector)
+		isHittingWall, wallNormal =
+			MovementUtils:CheckWallStopWithNormal(self.PrimaryPart, self.RaycastParams, moveVector)
 	end
 	local finalMoveVector = moveVector
 
@@ -1138,8 +1126,10 @@ function CharacterController:ApplyMovement()
 	local horizontalVelocity = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
 	local horizontalSpeed = horizontalVelocity.Magnitude
 
-	local isNearWallLook = MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, self.PrimaryPart.CFrame.LookVector)
-	local isNearWallVel = horizontalSpeed > 0.1 and MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, horizontalVelocity.Unit)
+	local isNearWallLook =
+		MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, self.PrimaryPart.CFrame.LookVector)
+	local isNearWallVel = horizontalSpeed > 0.1
+		and MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, horizontalVelocity.Unit)
 	local isNearWall = isNearWallLook or isNearWallVel
 
 	local totalSpeed = currentVelocity.Magnitude
@@ -1152,11 +1142,8 @@ function CharacterController:ApplyMovement()
 
 		local airborneStuckDuration = tick() - self.AirborneStuckStartTime
 		if airborneStuckDuration > 0.1 then
-			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-				currentVelocity.X,
-				math.min(currentVelocity.Y, -30),
-				currentVelocity.Z
-			)
+			self.PrimaryPart.AssemblyLinearVelocity =
+				Vector3.new(currentVelocity.X, math.min(currentVelocity.Y, -30), currentVelocity.Z)
 			currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
 			self.AirborneStuckStartTime = nil
 		end
@@ -1179,11 +1166,8 @@ function CharacterController:ApplyMovement()
 				self.PrimaryPart.CFrame.LookVector
 			)
 			if not stuckWallNormal and horizontalSpeed > 0.1 then
-				_, stuckWallNormal = MovementUtils:CheckWallStopWithNormal(
-					self.PrimaryPart,
-					self.RaycastParams,
-					horizontalVelocity.Unit
-				)
+				_, stuckWallNormal =
+					MovementUtils:CheckWallStopWithNormal(self.PrimaryPart, self.RaycastParams, horizontalVelocity.Unit)
 			end
 
 			if not self._wallStuckLogged then
@@ -1194,20 +1178,14 @@ function CharacterController:ApplyMovement()
 				local escapeDir = Vector3.new(stuckWallNormal.X, 0, stuckWallNormal.Z)
 				if escapeDir.Magnitude > 0.01 then
 					escapeDir = escapeDir.Unit
-					self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-						escapeDir.X * 30,
-						math.max(currentVelocity.Y, 5),
-						escapeDir.Z * 30
-					)
+					self.PrimaryPart.AssemblyLinearVelocity =
+						Vector3.new(escapeDir.X * 30, math.max(currentVelocity.Y, 5), escapeDir.Z * 30)
 					currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
 				end
 			else
 				local backDir = -self.PrimaryPart.CFrame.LookVector
-				self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-					backDir.X * 25,
-					math.max(currentVelocity.Y, 10),
-					backDir.Z * 25
-				)
+				self.PrimaryPart.AssemblyLinearVelocity =
+					Vector3.new(backDir.X * 25, math.max(currentVelocity.Y, 10), backDir.Z * 25)
 				currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
 			end
 			self.WallStuckStartTime = nil
@@ -1297,7 +1275,6 @@ function CharacterController:ApplyMovement()
 
 	local finalForce = vector3_new(moveForce.X, self.SmoothedVerticalForce, moveForce.Z) + slopeAssistForce
 	self.VectorForce.Force = finalForce
-
 end
 
 function CharacterController:CalculateMovement()
@@ -1305,11 +1282,7 @@ function CharacterController:CalculateMovement()
 		return vector3_new(0, 0, 0)
 	end
 
-	return MovementUtils:CalculateWorldMovementDirection(
-		self.MovementInput,
-		self.CachedCameraYAngle,
-		true
-	)
+	return MovementUtils:CalculateWorldMovementDirection(self.MovementInput, self.CachedCameraYAngle, true)
 end
 
 function CharacterController:CalculateMovementDirection()
@@ -1387,11 +1360,8 @@ function CharacterController:UpdateFootsteps()
 
 	self.LastFootstepTime = now
 
-	local grounded, materialName = MovementUtils:CheckGroundedWithMaterial(
-		self.Character,
-		self.PrimaryPart,
-		self.RaycastParams
-	)
+	local grounded, materialName =
+		MovementUtils:CheckGroundedWithMaterial(self.Character, self.PrimaryPart, self.RaycastParams)
 
 	if not grounded or not materialName then
 		return
@@ -1426,14 +1396,34 @@ function CharacterController:UpdateMovementAudio()
 		local isWallJump = math.abs(lastJumpTime - lastWallJumpTime) < 0.05
 
 		if isSlideLaunch then
-			self:PlayMovementSound("SlideLaunch", self.PrimaryPart.Position, movementSounds.SlideLaunch and movementSounds.SlideLaunch.Pitch)
-			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "SlideLaunch", pitch = movementSounds.SlideLaunch and movementSounds.SlideLaunch.Pitch })
+			self:PlayMovementSound(
+				"SlideLaunch",
+				self.PrimaryPart.Position,
+				movementSounds.SlideLaunch and movementSounds.SlideLaunch.Pitch
+			)
+			VFXRep:Fire(
+				"Others",
+				{ Module = "Sound" },
+				{ sound = "SlideLaunch", pitch = movementSounds.SlideLaunch and movementSounds.SlideLaunch.Pitch }
+			)
 		elseif isWallJump then
-			self:PlayMovementSound("WallJump", self.PrimaryPart.Position, movementSounds.WallJump and movementSounds.WallJump.Pitch)
-			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "WallJump", pitch = movementSounds.WallJump and movementSounds.WallJump.Pitch })
+			self:PlayMovementSound(
+				"WallJump",
+				self.PrimaryPart.Position,
+				movementSounds.WallJump and movementSounds.WallJump.Pitch
+			)
+			VFXRep:Fire(
+				"Others",
+				{ Module = "Sound" },
+				{ sound = "WallJump", pitch = movementSounds.WallJump and movementSounds.WallJump.Pitch }
+			)
 		else
 			self:PlayMovementSound("Jump", self.PrimaryPart.Position, movementSounds.Jump and movementSounds.Jump.Pitch)
-			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Jump", pitch = movementSounds.Jump and movementSounds.Jump.Pitch })
+			VFXRep:Fire(
+				"Others",
+				{ Module = "Sound" },
+				{ sound = "Jump", pitch = movementSounds.Jump and movementSounds.Jump.Pitch }
+			)
 		end
 	end
 
@@ -1460,11 +1450,8 @@ function CharacterController:UpdateMovementAudio()
 
 		local footstepConfig = Config.Audio and Config.Audio.Footsteps
 		if footstepConfig then
-			local _, materialName = MovementUtils:CheckGroundedWithMaterial(
-				self.Character,
-				self.PrimaryPart,
-				self.RaycastParams
-			)
+			local _, materialName =
+				MovementUtils:CheckGroundedWithMaterial(self.Character, self.PrimaryPart, self.RaycastParams)
 			local soundName = (materialName and footstepConfig.MaterialMap and footstepConfig.MaterialMap[materialName])
 				or footstepConfig.DefaultSound
 				or "FootstepConcrete"
@@ -1484,7 +1471,9 @@ function CharacterController:EnsureFallSound()
 		return nil
 	end
 
-	local definition = Config.Audio and Config.Audio.Sounds and Config.Audio.Sounds.Movement
+	local definition = Config.Audio
+		and Config.Audio.Sounds
+		and Config.Audio.Sounds.Movement
 		and Config.Audio.Sounds.Movement.Falling
 	if not definition or not definition.Id then
 		return nil
@@ -1606,31 +1595,19 @@ function CharacterController:HandleSlideInput(isSliding)
 	if isSliding then
 		local movementDirection
 		if self.MovementInput.Magnitude < 0.01 then
-			movementDirection = MovementUtils:CalculateWorldMovementDirection(
-				vector2_new(0, 1),
-				self.CachedCameraYAngle,
-				true
-			)
+			movementDirection =
+				MovementUtils:CalculateWorldMovementDirection(vector2_new(0, 1), self.CachedCameraYAngle, true)
 		else
 			movementDirection = self:CalculateMovementDirection()
 		end
 
-		local canSlide, reason = SlidingSystem:CanStartSlide(
-			vector2_new(0, 1),
-			true,
-			self.IsGrounded
-		)
+		local canSlide, reason = SlidingSystem:CanStartSlide(vector2_new(0, 1), true, self.IsGrounded)
 
 		if canSlide then
 			local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 			SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 		elseif not self.IsGrounded then
-			local canBuffer = SlidingSystem:CanBufferSlide(
-				self.MovementInput,
-				true,
-				self.IsGrounded,
-				self
-			)
+			local canBuffer = SlidingSystem:CanBufferSlide(self.MovementInput, true, self.IsGrounded, self)
 			if canBuffer then
 				SlidingSystem:StartSlideBuffer(movementDirection, false)
 			end
@@ -1687,11 +1664,7 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 
 		if autoSlideEnabled and isSprinting and hasMovementInput and not isLikelyTryingToCrouchAfterSlide then
 			local movementDirection = self:CalculateMovementDirection()
-			local canSlide, reason = SlidingSystem:CanStartSlide(
-				self.MovementInput,
-				isCrouching,
-				self.IsGrounded
-			)
+			local canSlide, reason = SlidingSystem:CanStartSlide(self.MovementInput, isCrouching, self.IsGrounded)
 
 			if canSlide then
 				local currentCameraAngle = math_deg(self.CachedCameraYAngle)
@@ -1701,12 +1674,8 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 		end
 
 		if autoSlideEnabled and not self.IsGrounded and isSprinting and hasMovementInput then
-			local canBuffer, reason = SlidingSystem:CanBufferSlide(
-				self.MovementInput,
-				isCrouching,
-				self.IsGrounded,
-				self
-			)
+			local canBuffer, reason =
+				SlidingSystem:CanBufferSlide(self.MovementInput, isCrouching, self.IsGrounded, self)
 
 			if canBuffer then
 				local movementDirection = self:CalculateMovementDirection()
@@ -1842,7 +1811,7 @@ function CharacterController:HandleAutomaticCrouchAfterSlide()
 
 	-- Check if player is still holding crouch
 	local isCrouchHeld = self.InputManager and self.InputManager:IsCrouchHeld()
-	
+
 	if isCrouchHeld then
 		-- Player is holding crouch, stay crouched
 		self.IsCrouching = true
@@ -1859,13 +1828,13 @@ function CharacterController:HandleAutomaticCrouchAfterSlide()
 		if self.InputManager then
 			self.InputManager.IsCrouching = false
 		end
-		
+
 		-- Check if we can uncrouch immediately or need to wait
 		if self:CanUncrouch() then
 			CrouchUtils:Uncrouch(self.Character)
 			CrouchUtils:RemoveVisualCrouch(self.Character)
 			Net:FireServer("CrouchStateChanged", false)
-			
+
 			local shouldRestoreSprint = Config.Gameplay.Character.AutoSprint
 			if shouldRestoreSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
@@ -1956,11 +1925,8 @@ function CharacterController:CheckCrouchCancelJump()
 	local downforce = jumpConfig.CrouchCancel.DownforceOnCancel
 
 	local newYVelocity = currentVelocity.Y * cancelMultiplier
-	self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-		currentVelocity.X,
-		newYVelocity - downforce * 0.1,
-		currentVelocity.Z
-	)
+	self.PrimaryPart.AssemblyLinearVelocity =
+		Vector3.new(currentVelocity.X, newYVelocity - downforce * 0.1, currentVelocity.Z)
 
 	self.IsCrouching = false
 	CrouchUtils:Uncrouch(self.Character)
@@ -1969,7 +1935,6 @@ function CharacterController:CheckCrouchCancelJump()
 	if self.InputManager then
 		self.InputManager.IsCrouching = false
 	end
-
 end
 
 function CharacterController:ApplyAirborneDownforce(deltaTime)
@@ -2020,7 +1985,8 @@ function CharacterController:ApplyAirborneDownforce(deltaTime)
 			local velocityThreshold = floatDecayConfig.VelocityThreshold or 0.5
 			local shrinkRate = floatDecayConfig.ThresholdShrinkRate or 0.005
 
-			local effectiveFloatDuration = baseFloatDuration * math.max(velocityThreshold, 1 - (horizontalSpeed * shrinkRate))
+			local effectiveFloatDuration = baseFloatDuration
+				* math.max(velocityThreshold, 1 - (horizontalSpeed * shrinkRate))
 
 			if airborneTime > effectiveFloatDuration then
 				local decayTime = airborneTime - effectiveFloatDuration
@@ -2056,11 +2022,7 @@ function CharacterController:ApplyAirborneDownforce(deltaTime)
 
 	newYVelocity = math.max(newYVelocity, -gravityConfig.MaxFallSpeed)
 
-	self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(
-		currentVelocity.X,
-		newYVelocity,
-		currentVelocity.Z
-	)
+	self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, newYVelocity, currentVelocity.Z)
 end
 
 return CharacterController
