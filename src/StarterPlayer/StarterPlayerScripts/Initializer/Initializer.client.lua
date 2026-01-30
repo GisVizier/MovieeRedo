@@ -9,6 +9,11 @@ local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 Net:Init()
 SoundManager:Init()
 
+-- Initialize VFXRep early BEFORE controllers load to ensure OnClientEvent is connected
+-- before any VFX events arrive from the server. This prevents "did you forget to implement OnClientEvent?" warnings.
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
+VFXRep:Init(Net, false)
+
 local registry = Registry.new()
 
 local controllersFolder = script.Parent:WaitForChild("Controllers")
@@ -72,6 +77,17 @@ local entries = {
 }
 
 Loader:Load(entries, registry, Net)
+
+-- Signal server we can receive replication
+print("[INIT] Loader complete, signaling ClientReplicationReady")
+Net:FireServer("ClientReplicationReady")
+local localPlayer = game:GetService("Players").LocalPlayer
+if localPlayer then
+	localPlayer:SetAttribute("ClientReplicationReady", true)
+	print("[INIT] ClientReplicationReady attribute set")
+else
+	warn("[INIT] LocalPlayer missing when setting ready")
+end
 
 -- Initialize EmoteService early so replication listener is active
 local EmoteService = require(Locations.Game:WaitForChild("Emotes"))

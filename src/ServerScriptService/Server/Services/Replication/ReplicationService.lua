@@ -17,8 +17,8 @@ local Stance = {
 }
 
 ReplicationService.PlayerStates = {}
-ReplicationService.PlayerStances = {}  -- [player] = stance enum
-ReplicationService.ReadyPlayers = {}   -- [player] = true when client ready to receive replication
+ReplicationService.PlayerStances = {} -- [player] = stance enum
+ReplicationService.ReadyPlayers = {} -- [player] = true when client ready to receive replication
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
 
@@ -42,30 +42,29 @@ function ReplicationService:Init(registry, net)
 	self._net:ConnectServer("CrouchStateChanged", function(player, isCrouching)
 		self:OnCrouchStateChanged(player, isCrouching)
 	end)
-	
+
 	-- Client signals ready to receive replication events
 	self._net:ConnectServer("ClientReplicationReady", function(player)
 		self.ReadyPlayers[player] = true
 	end)
-	
+
 	-- Cleanup on player leaving
 	game.Players.PlayerRemoving:Connect(function(player)
 		self.ReadyPlayers[player] = nil
 	end)
-	
+
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
-	
+
 	if updateRate > 0 then
 		local interval = 1 / updateRate
 		RunService.Heartbeat:Connect(function()
 			local currentTime = tick()
-			
+
 			-- Broadcast character states
 			if currentTime - self.LastBroadcastTime >= interval then
 				self:BroadcastStates()
 				self.LastBroadcastTime = currentTime
 			end
-			
 		end)
 	end
 end
@@ -92,7 +91,7 @@ function ReplicationService:OnCrouchStateChanged(player, isCrouching)
 	-- Update stance tracking
 	local newStance = isCrouching and Stance.Crouched or Stance.Standing
 	self.PlayerStances[player] = newStance
-	
+
 	-- Notify HitValidator of stance change
 	HitValidator:SetPlayerStance(player, newStance)
 end
@@ -144,6 +143,16 @@ end
 
 -- Helper to send to only ready players (avoids race condition on join)
 function ReplicationService:_fireToReadyClients(eventName, data)
+	print(
+		"[Replication] ReadyPlayers count:",
+		(function()
+			local count = 0
+			for _ in pairs(self.ReadyPlayers) do
+				count += 1
+			end
+			return count
+		end)()
+	)
 	for player in pairs(self.ReadyPlayers) do
 		if player.Parent then
 			self._net:FireClient(eventName, player, data)
