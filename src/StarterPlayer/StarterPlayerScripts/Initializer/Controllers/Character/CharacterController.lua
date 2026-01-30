@@ -129,7 +129,18 @@ end
 function CharacterController:_setupExistingCharacters()
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= Players.LocalPlayer then
+			-- player.Character relies on property replication which can be slow.
+			-- Fallback: look for character in Entities folder by player name.
 			local character = player.Character
+			if not character then
+				local entities = workspace:FindFirstChild("Entities")
+				if entities then
+					character = entities:FindFirstChild(player.Name)
+				end
+				if not character then
+					character = workspace:FindFirstChild(player.Name)
+				end
+			end
 			if character then
 				self:_onCharacterSpawned(character)
 			end

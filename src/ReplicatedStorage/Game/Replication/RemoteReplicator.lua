@@ -35,7 +35,7 @@ function RemoteReplicator:Init(net)
 	self._net:ConnectClient("CharacterStateReplicated", function(batch)
 		self:OnStatesReplicated(batch)
 	end)
-	
+
 	self.RenderConnection = RunService.Heartbeat:Connect(function(deltaTime)
 		self:ReplicatePlayers(deltaTime)
 	end)
@@ -61,7 +61,25 @@ function RemoteReplicator:OnStatesReplicated(batch)
 		local remoteData = self.RemotePlayers[userId]
 		if not remoteData then
 			local player = Players:GetPlayerByUserId(userId)
-			if not player or not player.Character or not player.Character.PrimaryPart then
+			if not player then
+				continue
+			end
+
+			-- player.Character relies on property replication which can be slow.
+			-- Fallback: look for character in Entities folder by player name.
+			local character = player.Character
+			if not character or not character.PrimaryPart then
+				local entities = workspace:FindFirstChild("Entities")
+				if entities then
+					character = entities:FindFirstChild(player.Name)
+				end
+				-- Final fallback: check workspace directly
+				if not character then
+					character = workspace:FindFirstChild(player.Name)
+				end
+			end
+
+			if not character or not character.PrimaryPart then
 				continue
 			end
 
@@ -69,7 +87,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			if Config.Gameplay.Character.EnableRig then
 				rig = RigManager:GetActiveRig(player)
 				if not rig then
-					rig = RigManager:CreateRig(player, player.Character)
+					rig = RigManager:CreateRig(player, character)
 				end
 			end
 
@@ -80,8 +98,8 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			remoteData = {
 				Player = player,
-				Character = player.Character,
-				PrimaryPart = player.Character.PrimaryPart,
+				Character = character,
+				PrimaryPart = character.PrimaryPart,
 				Rig = rig,
 				SnapshotBuffer = {},
 				SmoothDirection = (state.Rotation * Vector3.new(0, 0, -1)).Unit,
@@ -92,7 +110,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				SimulatedPosition = state.Position,
 				LastSequenceNumber = state.SequenceNumber,
 				LastAnimationId = state.AnimationId or 1,
-				Head = player.Character:FindFirstChild("Head"),
+				Head = character:FindFirstChild("Head"),
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
 				WeaponManager = weaponManager,
 				CurrentLoadout = nil,
@@ -307,7 +325,6 @@ function RemoteReplicator:ReplicatePlayers(dt)
 			-- Check for loadout/slot changes on the remote player
 			self:_updateRemoteLoadout(remoteData, remoteData.Player)
 			self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
-
 		end
 
 		if remoteData.Head and remoteData.Head.Anchored and remoteData.HeadOffset then
