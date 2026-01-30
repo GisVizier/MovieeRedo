@@ -34,7 +34,6 @@ function Exit:onClientCreated()
 
 	local leavePart = model:FindFirstChild("Leave")
 	if not leavePart or not leavePart:IsA("BasePart") then
-		warn("[Exit] No Leave part found in " .. model.Name)
 		return
 	end
 
@@ -50,7 +49,6 @@ function Exit:_onTouched(hit, localPlayer)
 	local character = localPlayer.Character
 	if not character then return end
 
-	-- Check if the hit part belongs to the local player
 	local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
@@ -75,7 +73,6 @@ function Exit:_onTouched(hit, localPlayer)
 end
 
 function Exit:onUseRequest(player, _payload)
-	-- Server-side: Handle teleportation back to World/Spawn
 	local character = player.Character
 	if not character then
 		return { approved = false }
@@ -86,52 +83,123 @@ function Exit:onUseRequest(player, _payload)
 		return { approved = false }
 	end
 
-	-- Find World/Spawn
+	-- Find World/Spawn/Spawn
 	local world = workspace:FindFirstChild("World")
-	local spawnPart = world and world:FindFirstChild("Spawn")
+	local spawnFolder = world and world:FindFirstChild("Spawn")
+	local spawnPart = spawnFolder and spawnFolder:FindFirstChild("Spawn")
 	
 	if not spawnPart or not spawnPart:IsA("BasePart") then
-		warn("[Exit] World/Spawn not found")
 		return { approved = false }
 	end
 
-	-- Teleport with random offset based on spawn size
+	-- Calculate spawn position with random offset based on spawn size
 	local size = spawnPart.Size
 	local offset = Vector3.new(
 		(math.random() - 0.5) * size.X,
 		0,
 		(math.random() - 0.5) * size.Z
 	)
-	root.CFrame = spawnPart.CFrame * CFrame.new(offset)
+	local spawnCFrame = spawnPart.CFrame * CFrame.new(offset)
 
 	-- Determine source area to tell client to unload
 	local sourceArea = self.model:GetAttribute("SourceArea")
+	
 	if not sourceArea then
 		-- Auto-detect from mapInstance
 		if self.mapInstance then
 			sourceArea = self.mapInstance.Name
+		else
+			-- Fallback: Check model parent hierarchy for area folder
+			local current = self.model
+			while current and current ~= workspace do
+				local parent = current.Parent
+				if parent and parent.Name == "Gadgets" then
+					local areaFolder = parent.Parent
+					if areaFolder then
+						sourceArea = areaFolder.Name
+					end
+					break
+				end
+				current = parent
+			end
 		end
 	end
 
-	return { approved = true, data = { sourceArea = sourceArea } }
+	-- Remove player from training match
+	local registry = self.context and self.context.registry
+	local roundService = registry and registry:TryGet("RoundService")
+	if roundService then
+		roundService:RemovePlayer(player)
+	end
+
+	-- Clear player's match state so they can re-enter training
+	local matchService = registry and registry:TryGet("MatchService")
+	if matchService and matchService.ClearPlayerState then
+		matchService:ClearPlayerState(player)
+	end
+
+	-- Update player state to Lobby
+	player:SetAttribute("PlayerState", "Lobby")
+
+	-- Fire ReturnToLobby so UIController hides HUD
+	local net = self.context and self.context.net
+	if net then
+		net:FireClient("ReturnToLobby", player, {})
+	end
+
+	return { 
+		approved = true, 
+		data = { 
+			sourceArea = sourceArea,
+			spawnPosition = spawnCFrame.Position,
+			spawnLookVector = spawnCFrame.LookVector,
+		} 
+	}
 end
 
 function Exit:onUseResponse(approved, responseData)
-	-- Client-side: Unload area gadgets after teleporting back
-	if not approved then return end
-
-	local sourceArea = responseData and responseData.sourceArea
-	if not sourceArea then return end
-
-	-- Get GadgetController to unload area
-	local registry = self.context and self.context.registry
-	local gadgetController = registry and registry:TryGet("GadgetController")
-	
-	if gadgetController and type(gadgetController.UnloadArea) == "function" then
-		gadgetController:UnloadArea(sourceArea)
+	if not approved or not responseData then
+		return
 	end
 
-	print("[Exit] Returned to lobby, unloaded: " .. tostring(sourceArea))
+	local spawnPos = responseData.spawnPosition
+	local lookVector = responseData.spawnLookVector
+	local registry = self.context and self.context.registry
+
+	-- Teleport first
+	if spawnPos then
+		local movementController = registry and registry:TryGet("Movement")
+		
+		if movementController and type(movementController.Teleport) == "function" then
+			movementController:Teleport(spawnPos, lookVector)
+		end
+	end
+
+	-- Update client state to lobby (reset all training-related state)
+	local Players = game:GetService("Players")
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("InLobby", true)
+		player:SetAttribute("PlayerState", "Lobby")
+		player:SetAttribute("TrainingMode", nil)
+	end
+
+	-- Fire ReturnToLobby event to UIController (via net if available)
+	local net = self.context and self.context.net
+	-- Note: ReturnToLobby is server->client, so we manually trigger UI update
+	-- The UIController will handle this when it receives the state change
+
+	-- Delay unload until AFTER teleport completes (teleport takes 0.1s)
+	local sourceArea = responseData.sourceArea
+	if sourceArea then
+		task.delay(0.2, function()
+			local gadgetController = registry and registry:TryGet("GadgetController")
+			
+			if gadgetController and type(gadgetController.UnloadArea) == "function" then
+				gadgetController:UnloadArea(sourceArea)
+			end
+		end)
+	end
 end
 
 function Exit:destroy()
@@ -139,7 +207,6 @@ function Exit:destroy()
 		self._touchConnection:Disconnect()
 		self._touchConnection = nil
 	end
-	-- Don't destroy the model - it's part of the map
 	self.model = nil
 end
 

@@ -18,6 +18,7 @@ local Stance = {
 
 ReplicationService.PlayerStates = {}
 ReplicationService.PlayerStances = {}  -- [player] = stance enum
+ReplicationService.ReadyPlayers = {}   -- [player] = true when client ready to receive replication
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
 
@@ -40,6 +41,16 @@ function ReplicationService:Init(registry, net)
 	-- Track crouch state changes for hit detection stance validation
 	self._net:ConnectServer("CrouchStateChanged", function(player, isCrouching)
 		self:OnCrouchStateChanged(player, isCrouching)
+	end)
+	
+	-- Client signals ready to receive replication events
+	self._net:ConnectServer("ClientReplicationReady", function(player)
+		self.ReadyPlayers[player] = true
+	end)
+	
+	-- Cleanup on player leaving
+	game.Players.PlayerRemoving:Connect(function(player)
+		self.ReadyPlayers[player] = nil
 	end)
 	
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
@@ -131,6 +142,15 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 	HitValidator:StorePosition(player, state.Position, state.Timestamp, currentStance)
 end
 
+-- Helper to send to only ready players (avoids race condition on join)
+function ReplicationService:_fireToReadyClients(eventName, data)
+	for player in pairs(self.ReadyPlayers) do
+		if player.Parent then
+			self._net:FireClient(eventName, player, data)
+		end
+	end
+end
+
 function ReplicationService:BroadcastStates()
 	local batch = {}
 
@@ -157,18 +177,18 @@ function ReplicationService:BroadcastStates()
 			batchCount += 1
 
 			if batchCount >= optimization.MaxBatchSize then
-				self._net:FireAllClients("CharacterStateReplicated", currentBatch)
+				self:_fireToReadyClients("CharacterStateReplicated", currentBatch)
 				currentBatch = {}
 				batchCount = 0
 			end
 		end
 
 		if batchCount > 0 then
-			self._net:FireAllClients("CharacterStateReplicated", currentBatch)
+			self:_fireToReadyClients("CharacterStateReplicated", currentBatch)
 		end
 	else
 		for _, entry in ipairs(batch) do
-			self._net:FireAllClients("CharacterStateReplicated", { entry })
+			self:_fireToReadyClients("CharacterStateReplicated", { entry })
 		end
 	end
 end

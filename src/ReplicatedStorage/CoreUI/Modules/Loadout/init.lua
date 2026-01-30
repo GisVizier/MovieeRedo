@@ -64,6 +64,16 @@ end
 
 local function getOwnedKits()
 	local player = Players.LocalPlayer
+	
+	-- Training mode: unlock all kits
+	if player and player:GetAttribute("TrainingMode") then
+		local allKits = {}
+		for kitId, _ in pairs(KitsConfig.Kits) do
+			table.insert(allKits, kitId)
+		end
+		return allKits
+	end
+	
 	local json = player and player:GetAttribute("OwnedKits")
 
 	if type(json) == "string" and json ~= "" then
@@ -76,6 +86,11 @@ local function getOwnedKits()
 	end
 
 	return PlayerDataTable.getOwnedWeaponsByType("Kit")
+end
+
+local function isTrainingMode()
+	local player = Players.LocalPlayer
+	return player and player:GetAttribute("TrainingMode") == true
 end
 
 local function findFirstGuiButton(root)
@@ -801,15 +816,22 @@ function module:_populateItemScroller(slotType)
 			return orderA < orderB
 		end)
 	else
-		local ownedWeapons = PlayerDataTable.getOwnedWeaponsByType(slotType)
-		local ownedLookup = {}
-		for _, weaponId in ipairs(ownedWeapons) do
-			ownedLookup[weaponId] = true
-		end
-
-		for _, weaponEntry in ipairs(LoadoutConfig.getWeaponsByType(slotType)) do
-			if ownedLookup[weaponEntry.id] then
+		-- Training mode: unlock all weapons
+		if isTrainingMode() then
+			for _, weaponEntry in ipairs(LoadoutConfig.getWeaponsByType(slotType)) do
 				table.insert(weapons, weaponEntry)
+			end
+		else
+			local ownedWeapons = PlayerDataTable.getOwnedWeaponsByType(slotType)
+			local ownedLookup = {}
+			for _, weaponId in ipairs(ownedWeapons) do
+				ownedLookup[weaponId] = true
+			end
+
+			for _, weaponEntry in ipairs(LoadoutConfig.getWeaponsByType(slotType)) do
+				if ownedLookup[weaponEntry.id] then
+					table.insert(weapons, weaponEntry)
+				end
 			end
 		end
 	end
@@ -1795,6 +1817,18 @@ function module:show()
 		self._prevMouseBehavior = UserInputService.MouseBehavior
 	end
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	
+	-- Reset loadout state for fresh entry (allows re-entry to training)
+	self._loadoutFinished = false
+	self._initialized = false
+	self._selectedSlot = "Kit"
+	self._currentLoadout = {
+		Kit = nil,
+		Primary = nil,
+		Secondary = nil,
+		Melee = nil,
+	}
+	
 	self:_animateShow()
 	self:_init()
 	self:startTimer()

@@ -62,7 +62,7 @@ function GadgetService:Start()
 	else
 	end
 
-	-- Register TrainingArea folder (but don't load gadgets yet)
+	-- Load TrainingArea gadgets at startup (training match runs from server start)
 	local trainingArea = mapFolder:FindFirstChild("TrainingArea")
 	if trainingArea then
 		self._areaFolders["TrainingArea"] = trainingArea
@@ -71,6 +71,10 @@ function GadgetService:Start()
 		if trainingArea:IsA("Model") then
 			trainingArea.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 		end
+		
+		-- Load gadgets immediately
+		self:CreateForMap(trainingArea, nil)
+		self._loadedAreas["TrainingArea"] = true
 	end
 end
 

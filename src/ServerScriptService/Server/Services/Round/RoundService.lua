@@ -35,9 +35,23 @@ function RoundService:Init(registry, net)
 
 	-- Setup listeners
 	self:_setupPlayerRemoving()
+	
+	-- Hook into player deaths for respawn handling in training mode
+	net:ConnectServer("PlayerDied", function(player)
+		if self:IsPlayerInMatch(player) then
+			self:OnPlayerKilled(nil, player)
+		end
+	end)
 end
 
-function RoundService:Start() end
+function RoundService:Start()
+	-- Start Training match immediately when server starts
+	-- Players join via AreaTeleport gadget
+	self:StartMatch({
+		mode = "Training",
+		players = {},
+	})
+end
 
 --------------------------------------------------------------------------------
 -- PUBLIC API

@@ -61,6 +61,12 @@ function AreaTeleport:_onTouched(hit, localPlayer)
 		end
 	end
 
+	-- Don't trigger if player is already in Training (prevent re-triggering)
+	local playerState = localPlayer:GetAttribute("PlayerState")
+	if playerState == "Training" then
+		return
+	end
+
 	-- Debounce - only trigger once per teleport
 	if self._teleporting then return end
 	self._teleporting = true
@@ -99,9 +105,13 @@ function AreaTeleport:onUseRequest(player, _payload)
 		return { approved = false }
 	end
 
-	-- Get GadgetService to find destination
+	-- Get services
 	local registry = self.context and self.context.registry
 	local gadgetService = registry and registry:TryGet("GadgetService")
+	local roundService = registry and registry:TryGet("RoundService")
+	local matchService = registry and registry:TryGet("MatchService")
+	local net = self.context and self.context.net
+
 	if not gadgetService then
 		return { approved = false }
 	end
@@ -118,20 +128,42 @@ function AreaTeleport:onUseRequest(player, _payload)
 		return { approved = false }
 	end
 
-	-- Teleport player (anchor briefly to prevent physics fighting)
-	local wasAnchored = root.Anchored
-	root.Anchored = true
-	root.CFrame = spawnCFrame
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	task.defer(function()
-		root.Anchored = wasAnchored
-	end)
-
+	-- Check if player is already in the training match
+	local isInMatch = roundService and roundService:IsPlayerInMatch(player)
+	
 	-- Load destination area gadgets for this player
 	gadgetService:LoadAreaForPlayer(player, destAreaId)
+	
+	if not isInMatch then
+		-- Player needs to select loadout after teleporting
+		-- Store pending entry data in MatchService
+		if matchService then
+			matchService:SetPendingTrainingEntry(player, {
+				areaId = destAreaId,
+			})
+		end
+		
+		-- Return with requiresLoadout flag - client will teleport THEN show loadout
+		return {
+			approved = true,
+			data = {
+				requiresLoadout = true,
+				areaId = destAreaId,
+				spawnPosition = spawnCFrame.Position,
+				spawnLookVector = spawnCFrame.LookVector,
+			}
+		}
+	end
 
-	return { approved = true, data = { areaId = destAreaId } }
+	-- Player already in match - just teleport
+	return { 
+		approved = true, 
+		data = { 
+			areaId = destAreaId,
+			spawnPosition = spawnCFrame.Position,
+			spawnLookVector = spawnCFrame.LookVector,
+		} 
+	}
 end
 
 function AreaTeleport:_findSpawnInArea(areaFolder)
@@ -176,7 +208,45 @@ function AreaTeleport:_findSpawnInArea(areaFolder)
 end
 
 function AreaTeleport:onUseResponse(approved, responseData)
-	-- Client-side: Handle response (teleport already happened server-side)
+	if not approved or not responseData then
+		return
+	end
+
+	local spawnPos = responseData.spawnPosition
+	local lookVector = responseData.spawnLookVector
+	local registry = self.context and self.context.registry
+	local net = self.context and self.context.net
+
+	-- Stop any active emotes before teleporting
+	if net then
+		net:FireServer("EmoteStop")
+	end
+
+	-- Teleport player first
+	if spawnPos then
+		local movementController = registry and registry:TryGet("Movement")
+		
+		if movementController and type(movementController.Teleport) == "function" then
+			movementController:Teleport(spawnPos, lookVector)
+		end
+	end
+
+	-- If requiresLoadout is set, show loadout UI after teleporting
+	if responseData.requiresLoadout then
+		-- Small delay to let teleport settle before showing UI
+		task.delay(0.15, function()
+			if net then
+				-- Fire event to UIController to show loadout
+				-- We do this client-side since server already sent the approval
+				local Players = game:GetService("Players")
+				local player = Players.LocalPlayer
+				if player then
+					-- Trigger the ShowTrainingLoadout flow via attribute (UIController watches this)
+					player:SetAttribute("_showTrainingLoadout", responseData.areaId or "TrainingArea")
+				end
+			end
+		end)
+	end
 end
 
 function AreaTeleport:destroy()

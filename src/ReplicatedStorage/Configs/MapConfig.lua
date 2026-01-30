@@ -1,4 +1,16 @@
 local MapConfig = {
+	TrainingGrounds = {
+		name = "Training Grounds",
+		creator = "UiteszeTeam",
+		description = "Practice your skills with all weapons and kits unlocked.",
+		imageId = "rbxassetid://122392514179092", -- Can update with a training-specific image
+		playerReq = {
+			min = 1,
+			max = 99,
+		},
+		instance = nil,
+	},
+
 	DirtyDepo = {
 		name = "Dirty Depo",
 		creator = "UiteszeTeam",

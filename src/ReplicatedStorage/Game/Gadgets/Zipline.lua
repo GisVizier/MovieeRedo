@@ -734,6 +734,11 @@ function Zipline:onUseRequest(player, payload)
 		return false
 	end
 
+	-- Prevent attaching if already on any zipline
+	if player:GetAttribute("ZiplineActive") == true then
+		return false
+	end
+
 	if self._attachedUsers[player.UserId] then
 		return false
 	end
@@ -1008,11 +1013,20 @@ function Zipline:_applyJumpDetachFling(root, forward)
 end
 
 function Zipline:_endRide()
+	-- Only apply position/physics changes if player was actually attached
+	local wasAttached = self._isAttached
 	self._isAttached = false
+	
 	if self._movementConnection then
 		self._movementConnection:Disconnect()
 		self._movementConnection = nil
 	end
+	
+	-- Skip position changes if player wasn't riding (e.g., during gadget cleanup)
+	if not wasAttached then
+		return
+	end
+	
 	local root = self:_getLocalRoot()
 	if root and root:IsA("BasePart") then
 		if self._lastRideCFrame then
@@ -1211,6 +1225,13 @@ function Zipline:onClientCreated()
 				self:RequestDetach("Jump")
 				return
 			end
+			
+			-- Prevent attaching to another zipline while already on one
+			local localPlayer = Players.LocalPlayer
+			if localPlayer and localPlayer:GetAttribute("ZiplineActive") == true then
+				return
+			end
+			
 			if not self:_isNearWindowActive() then
 				return
 			end

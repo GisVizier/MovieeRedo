@@ -13,6 +13,7 @@ function MatchService:Init(_registry, net)
 	self._ready = {} -- [userId] = true
 	self._loadouts = {} -- [userId] = payload
 	self._started = false
+	self._pendingTrainingEntry = {} -- [userId] = { areaId, spawnPosition, spawnLookVector }
 
 	self._net:ConnectServer("SubmitLoadout", function(player, payload)
 		self:_onSubmitLoadout(player, payload)
@@ -22,16 +23,38 @@ function MatchService:Init(_registry, net)
 		local userId = player.UserId
 		self._ready[userId] = nil
 		self._loadouts[userId] = nil
+		self._pendingTrainingEntry[userId] = nil
 	end)
+end
+
+-- Called by AreaTeleport when player needs to pick loadout before entering training
+function MatchService:SetPendingTrainingEntry(player, entryData)
+	if not player then return end
+	self._pendingTrainingEntry[player.UserId] = entryData
+end
+
+function MatchService:GetPendingTrainingEntry(player)
+	if not player then return nil end
+	return self._pendingTrainingEntry[player.UserId]
+end
+
+function MatchService:ClearPendingTrainingEntry(player)
+	if not player then return end
+	self._pendingTrainingEntry[player.UserId] = nil
+end
+
+-- Called when player exits training to reset their state for re-entry
+function MatchService:ClearPlayerState(player)
+	if not player then return end
+	local userId = player.UserId
+	self._ready[userId] = nil
+	self._loadouts[userId] = nil
+	self._pendingTrainingEntry[userId] = nil
 end
 
 function MatchService:Start() end
 
 function MatchService:_onSubmitLoadout(player, payload)
-	if self._started then
-		return
-	end
-
 	if typeof(payload) ~= "table" then
 		return
 	end
@@ -48,7 +71,31 @@ function MatchService:_onSubmitLoadout(player, payload)
 		player:SetAttribute("SelectedLoadout", HttpService:JSONEncode(payload))
 	end)
 
-	local loadout = payload.loadout
+	-- Check if this player was entering training mode
+	local pendingEntry = self._pendingTrainingEntry[userId]
+	if pendingEntry then
+		self._pendingTrainingEntry[userId] = nil
+		
+		-- Add player to training match
+		local roundService = self._registry:TryGet("RoundService")
+		if roundService then
+			roundService:AddPlayer(player)
+		end
+		
+		-- Fire training entry confirmed (player already teleported via gadget)
+		self._net:FireClient("TrainingLoadoutConfirmed", player, {
+			areaId = pendingEntry.areaId,
+		})
+		
+		-- Set player state to Training
+		player:SetAttribute("PlayerState", "Training")
+		return
+	end
+
+	-- Regular competitive match flow
+	if self._started then
+		return
+	end
 
 	self:_tryStartMatch()
 end

@@ -61,6 +61,101 @@ Dialogue.Dialogues = {
 		},
 	},
 
+	Aki = {
+		RoundStart = {
+			Default = {
+				Aki_Start_1 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 119619711171777,
+							DialogueText = "Just do the job. Then we go home.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_2 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 133525796453138,
+							DialogueText = "If this gets messy... it's not my fault.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_3 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 125486624351386,
+							DialogueText = "Stay sharp. I don't want surprises.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_4 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 128495599593912,
+							DialogueText = "I hate fighting before breakfast.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_5 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 74754199386203,
+							DialogueText = "If I look tired, it's because I am.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_6 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 71787323235599,
+							DialogueText = "I'm calm. That's... new.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_7 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 99732162500154,
+							DialogueText = "If this goes wrong, pretend you don't know me.",
+							Speaker = true,
+						},
+					},
+				},
+				Aki_Start_8 = {
+					CharactersNeeded = {"Aki"},
+					Dialogue = {
+						{
+							Character = "Aki",
+							SoundInstance = 85122330176177,
+							DialogueText = "I don't have time for this.",
+							Speaker = true,
+						},
+					},
+				},
+			},
+		},
+	},
+
 	ExampleCharacter = {
 		RoundStart = {
 			Win = {

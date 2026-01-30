@@ -123,10 +123,22 @@ local function resolveSound(soundRef: any, soundFolder: Instance?): Sound?
 		end
 		return nil
 	end
-	if typeof(soundRef) == "string" and soundFolder then
-		local found = soundFolder:FindFirstChild(soundRef, true)
-		if found and found:IsA("Sound") then
-			return found
+	if typeof(soundRef) == "number" then
+		local sound = Instance.new("Sound")
+		sound.SoundId = "rbxassetid://" .. tostring(soundRef)
+		return sound
+	end
+	if typeof(soundRef) == "string" then
+		if string.match(soundRef, "^rbxassetid://") then
+			local sound = Instance.new("Sound")
+			sound.SoundId = soundRef
+			return sound
+		end
+		if soundFolder then
+			local found = soundFolder:FindFirstChild(soundRef, true)
+			if found and found:IsA("Sound") then
+				return found
+			end
 		end
 	end
 	return nil

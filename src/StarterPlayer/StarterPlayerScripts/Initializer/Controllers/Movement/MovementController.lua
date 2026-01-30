@@ -130,6 +130,54 @@ function CharacterController:Start()
 	self:ConnectToInputs(inputController, cameraController)
 end
 
+-- Teleport the character to a position cleanly without physics fighting
+function CharacterController:Teleport(position, lookVector)
+	if not self.PrimaryPart then
+		return false
+	end
+
+	-- Pause physics updates
+	self._teleporting = true
+
+	-- Build destination CFrame
+	local destCFrame
+	if lookVector then
+		destCFrame = CFrame.lookAt(position, position + lookVector)
+	else
+		destCFrame = CFrame.new(position)
+	end
+
+	-- Reset all physics state
+	self.PrimaryPart.Anchored = true
+	self.PrimaryPart.AssemblyLinearVelocity = Vector3.zero
+	self.PrimaryPart.AssemblyAngularVelocity = Vector3.zero
+
+	-- Reset movement state
+	self.Velocity = Vector3.zero
+	self.IsGrounded = false
+	self.FloatDecayStartTime = nil
+	self.SmoothedGravityMultiplier = nil
+	self.StepUpRemaining = 0
+
+	-- Reset input state
+	if self.InputManager then
+		self.InputManager:ResetInputState()
+	end
+
+	-- Set position
+	self.PrimaryPart.CFrame = destCFrame
+
+	-- Resume after physics settles
+	task.delay(0.1, function()
+		if self.PrimaryPart then
+			self.PrimaryPart.Anchored = false
+			self._teleporting = false
+		end
+	end)
+
+	return true
+end
+
 function CharacterController:OnLocalCharacterReady(character)
 	if not character then
 		return
@@ -391,6 +439,11 @@ end
 -- =============================================================================
 
 function CharacterController:UpdateMovement(deltaTime)
+	-- Skip updates while teleporting
+	if self._teleporting then
+		return
+	end
+
 	if self.Character then
 		if not self._missingRootLogged and not CharacterLocations:GetRoot(self.Character) then
 			self._missingRootLogged = true

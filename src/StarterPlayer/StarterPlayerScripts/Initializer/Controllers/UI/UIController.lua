@@ -1,5 +1,10 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider = game:GetService("ContentProvider")
+local HttpService = game:GetService("HttpService")
+
+local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
+local DialogueConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DialogueConfig"))
 
 local UIController = {}
 
@@ -16,9 +21,54 @@ local function safeCall(fn, ...)
 	return ok, err
 end
 
+-- Preload all dialogue sounds for smoother playback
+local function preloadDialogueSounds()
+	local soundIds = {}
+	
+	-- Recursively collect all sound IDs from dialogue config
+	local function collectSounds(tbl)
+		if type(tbl) ~= "table" then return end
+		for key, value in pairs(tbl) do
+			if key == "SoundInstance" and value then
+				if type(value) == "number" then
+					table.insert(soundIds, "rbxassetid://" .. tostring(value))
+				elseif type(value) == "string" and string.match(value, "^rbxassetid://") then
+					table.insert(soundIds, value)
+				end
+			elseif type(value) == "table" then
+				collectSounds(value)
+			end
+		end
+	end
+	
+	collectSounds(DialogueConfig.Dialogues)
+	
+	-- Preload all collected sounds
+	if #soundIds > 0 then
+		task.spawn(function()
+			local assets = {}
+			for _, id in ipairs(soundIds) do
+				local sound = Instance.new("Sound")
+				sound.SoundId = id
+				table.insert(assets, sound)
+			end
+			pcall(function()
+				ContentProvider:PreloadAsync(assets)
+			end)
+			-- Clean up temporary sound instances
+			for _, sound in ipairs(assets) do
+				sound:Destroy()
+			end
+		end)
+	end
+end
+
 function UIController:Init(registry, net)
 	self._registry = registry
 	self._net = net
+
+	-- Preload dialogue sounds in background
+	preloadDialogueSounds()
 
 	-- Lobby state flag (used by camera/emotes to block first person)
 	local player = Players.LocalPlayer
@@ -49,6 +99,26 @@ function UIController:Init(registry, net)
 	self._net:ConnectClient("ReturnToLobby", function(data)
 		self:_onReturnToLobby(data)
 	end)
+
+	-- Training mode entry flow
+	self._net:ConnectClient("ShowTrainingLoadout", function(data)
+		self:_onShowTrainingLoadout(data)
+	end)
+
+	self._net:ConnectClient("TrainingLoadoutConfirmed", function(data)
+		self:_onTrainingLoadoutConfirmed(data)
+	end)
+
+	-- Listen for client-side trigger from AreaTeleport gadget
+	if player then
+		player:GetAttributeChangedSignal("_showTrainingLoadout"):Connect(function()
+			local areaId = player:GetAttribute("_showTrainingLoadout")
+			if areaId and areaId ~= "" then
+				player:SetAttribute("_showTrainingLoadout", nil) -- Clear immediately
+				self:_onShowTrainingLoadout({ areaId = areaId })
+			end
+		end)
+	end
 
 	task.spawn(function()
 		self:_bootstrapUi()
@@ -313,6 +383,7 @@ function UIController:_onReturnToLobby(data)
 	local player = Players.LocalPlayer
 	if player then
 		player:SetAttribute("InLobby", true)
+		player:SetAttribute("PlayerState", "Lobby")
 	end
 
 	-- Hide all match UI
@@ -323,10 +394,109 @@ function UIController:_onReturnToLobby(data)
 		self._coreUi:hide("Loadout")
 	end)
 
-	-- Show lobby/start UI
+	-- Force third person (Orbit) camera for lobby
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("Orbit")
+	end
+
+	-- Lobby: No blocking UI - gameplay is enabled by default
+end
+
+-- Training mode entry: show loadout UI after teleporting to training area
+function UIController:_onShowTrainingLoadout(data)
+	if not self._coreUi then
+		return
+	end
+
+	-- Store pending training entry area
+	self._pendingTrainingAreaId = data and data.areaId or nil
+
+	-- Set TrainingMode flag to unlock all weapons/kits in loadout UI
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("TrainingMode", true)
+	end
+
+	-- Set up loadout module with TrainingGrounds map
+	local loadoutModule = self._coreUi:getModule("Loadout")
+	if loadoutModule and loadoutModule.setRoundData then
+		pcall(function()
+			loadoutModule:setRoundData({
+				players = { player.UserId },
+				mapId = "TrainingGrounds",
+				gamemodeId = "Training",
+				timeStarted = os.clock(),
+			})
+		end)
+	end
+
+	-- Show loadout UI
 	safeCall(function()
-		self._coreUi:show("Start", true)
+		self._coreUi:show("Loadout", true)
 	end)
+end
+
+-- Training mode entry confirmed: show HUD and force first person
+function UIController:_onTrainingLoadoutConfirmed(data)
+	if not self._coreUi then
+		return
+	end
+
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("InLobby", false)
+		player:SetAttribute("PlayerState", "Training")
+		player:SetAttribute("TrainingMode", nil) -- Clear training mode flag
+	end
+
+	-- Hide loadout UI
+	safeCall(function()
+		self._coreUi:hide("Loadout")
+	end)
+
+	-- Show HUD for training with correct data
+	safeCall(function()
+		self._coreUi:show("HUD", true)
+	end)
+
+	-- Update HUD with training round data
+	local hudModule = self._coreUi:getModule("HUD")
+	if hudModule and hudModule.setRoundData then
+		pcall(function()
+			hudModule:setRoundData({
+				players = { player.UserId },
+				mapId = "TrainingGrounds",
+				gamemodeId = "Training",
+				timeStarted = os.clock(),
+			})
+		end)
+	end
+
+	-- Play kit dialogue (RoundStart lines) for local player only
+	if player then
+		local selectedLoadout = player:GetAttribute("SelectedLoadout")
+		if selectedLoadout then
+			local ok, decoded = pcall(function()
+				return HttpService:JSONDecode(selectedLoadout)
+			end)
+			if ok and decoded and decoded.loadout and decoded.loadout.Kit then
+				local kitId = decoded.loadout.Kit
+				-- Small delay to let UI settle, then play random RoundStart dialogue
+				task.delay(0.3, function()
+					Dialogue.generate(kitId, "RoundStart", "Default")
+				end)
+			end
+		end
+	end
+
+	-- Force first person camera for training
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("FirstPerson")
+	end
+
+	self._pendingTrainingAreaId = nil
 end
 
 return UIController

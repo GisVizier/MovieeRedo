@@ -91,6 +91,10 @@ local Remotes = {
 	{ name = "PlayerJoinedMatch", description = "Player joined match (training mode)" },
 	{ name = "PlayerLeftMatch", description = "Player left match" },
 	{ name = "PlayerRespawned", description = "Player respawned (training mode)" },
+
+	-- Training entry flow
+	{ name = "ShowTrainingLoadout", description = "Server tells client to show loadout UI for training entry" },
+	{ name = "TrainingLoadoutConfirmed", description = "Server confirms loadout and sends spawn data for training" },
 }
 
 return Remotes
