@@ -87,6 +87,11 @@ local function resolveModuleInfo(moduleInfo)
 end
 
 function VFXRep:Init(net, isServer)
+	-- Prevent double-initialization (VFXRep is now initialized early in Initializer.client.lua)
+	if self._initialized then
+		return
+	end
+	self._initialized = true
 	self._net = net
 
 	if isServer then
