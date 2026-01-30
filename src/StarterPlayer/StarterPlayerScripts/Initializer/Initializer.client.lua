@@ -79,14 +79,10 @@ local entries = {
 Loader:Load(entries, registry, Net)
 
 -- Signal server we can receive replication
-print("[INIT] Loader complete, signaling ClientReplicationReady")
 Net:FireServer("ClientReplicationReady")
 local localPlayer = game:GetService("Players").LocalPlayer
 if localPlayer then
 	localPlayer:SetAttribute("ClientReplicationReady", true)
-	print("[INIT] ClientReplicationReady attribute set")
-else
-	warn("[INIT] LocalPlayer missing when setting ready")
 end
 
 -- Initialize EmoteService early so replication listener is active

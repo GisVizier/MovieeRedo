@@ -119,13 +119,9 @@ function VFXRep:Init(net, isServer)
 				table.insert(targets, player)
 			end
 
+			-- Send to all targets - clients now initialize VFXRep early so OnClientEvent is always connected
 			for _, target in ipairs(targets) do
-				if target:GetAttribute("ClientReplicationReady") then
-					print("[VFXRep] send ->", target.Name, moduleName, functionName)
-					self._net:FireClient("VFXRep", target, player.UserId, moduleName, functionName, data)
-				else
-					print("[VFXRep] drop(not ready) ->", target.Name, moduleName, functionName)
-				end
+				self._net:FireClient("VFXRep", target, player.UserId, moduleName, functionName, data)
 			end
 		end)
 	else
@@ -138,7 +134,6 @@ function VFXRep:Init(net, isServer)
 		waitForLocalPlayerLoaded()
 		loadModules()
 		self._net:ConnectClient("VFXRep", function(originUserId, moduleName, functionName, data)
-			print("[VFXRep] recv", originUserId, moduleName, functionName)
 			local mod = getModule(moduleName)
 			if mod and type(mod[functionName]) == "function" then
 				mod[functionName](mod, originUserId, data)
