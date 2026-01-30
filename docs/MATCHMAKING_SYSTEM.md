@@ -1,13 +1,30 @@
 # Matchmaking System
 
-A simple, modular matchmaking system for queue-based matches. Supports 1v1 through NvN with zero code changes.
+A simple, modular matchmaking and round system. Supports both **Training** (infinite) and **Competitive** (lives) modes in a single service.
 
 ## Quick Start
 
-1. **Place queue pads** in your lobby
-2. **Tag them** with `QueuePad` and set `Team` attribute
-3. **Tag arena spawns** with `ArenaSpawn_Team1` / `ArenaSpawn_Team2`
-4. **Done** - players step on pads, countdown starts, match begins
+### Competitive Mode (Duel, 2v2, etc.)
+1. Place queue pads in lobby with tag `QueuePad` and `Team` attribute
+2. Tag arena spawns with `ArenaSpawn_Team1` / `ArenaSpawn_Team2`
+3. Players step on pads → countdown → match starts
+
+### Training Mode
+1. Tag training spawns with `TrainingSpawn`
+2. Call `RoundService:StartMatch({ mode = "Training" })`
+3. Players can join/leave anytime, respawn forever
+
+---
+
+## Modes
+
+| Mode | Teams | Scoring | Join Midway | Win Condition |
+|------|-------|---------|-------------|---------------|
+| **Training** | No | No | Yes | None (infinite) |
+| **Duel** | 1v1 | Yes | No | First to 5 |
+| **TwoVTwo** | 2v2 | Yes | No | First to 10 |
+| **ThreeVThree** | 3v3 | Yes | No | First to 15 |
+| **FourVFour** | 4v4 | Yes | No | First to 20 |
 
 ---
 
@@ -16,122 +33,93 @@ A simple, modular matchmaking system for queue-based matches. Supports 1v1 throu
 All settings in `ReplicatedStorage/Configs/MatchmakingConfig.lua`:
 
 ```lua
--- Queue
-MatchmakingConfig.Queue.CountdownDuration = 5       -- Seconds before match
-MatchmakingConfig.Queue.PadTag = "QueuePad"         -- CollectionService tag
-
--- Match
-MatchmakingConfig.Match.ScoreToWin = 5              -- First to X wins
-MatchmakingConfig.Match.LoadoutSelectionTime = 15   -- Between rounds
-
--- Gamemodes (add as many as you want)
-MatchmakingConfig.Gamemodes = {
-    Duel = { playersPerTeam = 1, scoreToWin = 5 },
-    TwoVTwo = { playersPerTeam = 2, scoreToWin = 10 },
+-- Mode configuration
+MatchmakingConfig.Modes = {
+    Training = {
+        hasTeams = false,
+        hasScoring = false,
+        allowJoinMidway = true,
+        respawnDelay = 2,
+    },
+    Duel = {
+        hasTeams = true,
+        hasScoring = true,
+        playersPerTeam = 1,
+        scoreToWin = 5,
+        loadoutSelectionTime = 15,
+    },
+    -- Add custom modes here
 }
-```
 
----
+-- Queue settings (competitive)
+MatchmakingConfig.Queue.CountdownDuration = 5
+MatchmakingConfig.Queue.PadTag = "QueuePad"
 
-## Workspace Setup
-
-### Queue Pads
-
-| Property | Value | Description |
-|----------|-------|-------------|
-| Tag | `QueuePad` | CollectionService tag |
-| Attribute: `Team` | `"Team1"` or `"Team2"` | Which team this pad queues for |
-| Attribute: `ZoneSize` | `Vector3` (optional) | Detection zone size, default 8x10x8 |
-
-**Example naming:** `QueuePad_Team1`, `QueuePad_Team2`
-
-### Arena Spawns
-
-| Property | Value | Description |
-|----------|-------|-------------|
-| Tag | `ArenaSpawn_Team1` | Team 1 spawn points |
-| Tag | `ArenaSpawn_Team2` | Team 2 spawn points |
-| Attribute: `MapId` | `"ApexArena"` etc | Links spawn to specific map |
-
-**Example naming:** `ArenaSpawn_Team1_1`, `ArenaSpawn_Team2_1`
-
-### Lobby Return
-
-| Property | Value |
-|----------|-------|
-| Tag | `LobbySpawn` |
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                         SERVER                                │
-│                                                               │
-│   QueueService              RoundService                      │
-│   ├── Zone detection        ├── Score tracking                │
-│   ├── Countdown logic       ├── Round loop                    │
-│   └── Match creation        └── Spawn management              │
-│                                                               │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                         Network Events
-                              │
-┌──────────────────────────────────────────────────────────────┐
-│                         CLIENT                                │
-│                                                               │
-│   QueueController                                             │
-│   ├── Countdown UI                                            │
-│   ├── Pad visuals                                             │
-│   └── Event handling                                          │
-│                                                               │
-└──────────────────────────────────────────────────────────────┘
+-- Spawn tags
+MatchmakingConfig.Spawns.Team1Tag = "ArenaSpawn_Team1"
+MatchmakingConfig.Spawns.Team2Tag = "ArenaSpawn_Team2"
+MatchmakingConfig.Spawns.TrainingTag = "TrainingSpawn"
+MatchmakingConfig.Spawns.LobbyTag = "LobbySpawn"
 ```
 
 ---
 
 ## API Reference
 
-### QueueService (Server)
-
-```lua
--- Get queued players
-local queued = QueueService:GetQueuedPlayers()
--- Returns: { Team1 = { player1 }, Team2 = { player2 } }
-
--- Check if player is in queue
-local inQueue = QueueService:IsPlayerQueued(player)
-
--- Force start (admin/debug)
-QueueService:ForceStartMatch()
-```
-
 ### RoundService (Server)
 
 ```lua
--- Get current match
-local match = RoundService:GetActiveMatch()
+-- Start a match
+RoundService:StartMatch({
+    mode = "Training",      -- or "Duel", "TwoVTwo", etc.
+    mapId = "ApexArena",    -- optional
+    -- For competitive modes:
+    team1 = { userId1 },
+    team2 = { userId2 },
+    -- For training mode:
+    players = { userId1, userId2 },  -- optional, can join later
+})
 
--- Get scores
-local scores = RoundService:GetScores()
--- Returns: { Team1 = 3, Team2 = 2 }
+-- End current match
+RoundService:EndMatch()
 
--- Hook into kills (call from CombatService)
+-- Manual round control
+RoundService:StartRound()
+RoundService:EndRound()
+
+-- Player management (training mode)
+RoundService:AddPlayer(player)      -- Join midway
+RoundService:RemovePlayer(player)   -- Leave match
+
+-- Kill handling (call from CombatService)
 RoundService:OnPlayerKilled(killerPlayer, victimPlayer)
 
--- Force end match
-RoundService:EndMatch("forfeit")
+-- Queries
+RoundService:GetActiveMatch()       -- Current match data
+RoundService:GetScores()            -- { Team1 = n, Team2 = n } or nil
+RoundService:GetPlayers()           -- All players in match
+RoundService:GetMode()              -- Current mode ID
+RoundService:GetPlayerTeam(player)  -- "Team1", "Team2", or nil
+RoundService:IsPlayerInMatch(player)
+```
+
+### QueueService (Server)
+
+```lua
+-- Query queue state
+QueueService:GetQueuedPlayers()     -- { Team1 = {}, Team2 = {} }
+QueueService:IsPlayerQueued(player) -- boolean
+
+-- Admin controls
+QueueService:ForceStartMatch()      -- Skip countdown
+QueueService:SetGamemode(gamemodeId)
 ```
 
 ### QueueController (Client)
 
 ```lua
--- Check queue status
-local inQueue = QueueController:IsInQueue()
-
--- Get countdown
-local remaining = QueueController:GetCountdownRemaining()
+QueueController:IsInQueue()             -- boolean
+QueueController:GetCountdownRemaining() -- number or nil
 ```
 
 ---
@@ -145,97 +133,160 @@ local remaining = QueueController:GetCountdownRemaining()
 | `QueuePadUpdate` | `{ padId, team, occupied, playerId }` | Pad state changed |
 | `QueueCountdownStart` | `{ duration }` | Countdown began |
 | `QueueCountdownTick` | `{ remaining }` | Countdown update |
-| `QueueCountdownCancel` | `{ }` | Player left, reset |
+| `QueueCountdownCancel` | `{ }` | Countdown cancelled |
 | `QueueMatchReady` | `{ team1, team2 }` | Match starting |
 
 ### Round Events
 
 | Event | Data | Description |
 |-------|------|-------------|
+| `MatchStart` | `{ mode, mapId }` | Match started |
 | `RoundStart` | `{ roundNumber, scores }` | Round began |
 | `RoundKill` | `{ killerId, victimId }` | Kill occurred |
 | `ScoreUpdate` | `{ team1Score, team2Score }` | Score changed |
 | `ShowRoundLoadout` | `{ duration, scores }` | Show loadout UI |
 | `MatchEnd` | `{ winnerId, winnerTeam, finalScores }` | Match complete |
-| `ReturnToLobby` | `{ }` | Go back to lobby |
+| `ReturnToLobby` | `{ }` | Return to lobby |
+| `PlayerJoinedMatch` | `{ playerId }` | Player joined (training) |
+| `PlayerLeftMatch` | `{ playerId }` | Player left |
+| `PlayerRespawned` | `{ }` | Player respawned |
 
 ---
 
-## Scaling to NvN
+## Workspace Setup
 
-### Add a new gamemode:
-
-```lua
-MatchmakingConfig.Gamemodes.FourVFour = {
-    name = "4v4",
-    playersPerTeam = 4,
-    scoreToWin = 20,
-}
-```
-
-### Add pads (4 per team for 4v4):
+### Queue Pads (Competitive)
 
 ```
 Lobby/
-  QueuePad_Team1_1  (Tag: QueuePad, Team: "Team1")
-  QueuePad_Team1_2
-  QueuePad_Team1_3
-  QueuePad_Team1_4
-  QueuePad_Team2_1  (Tag: QueuePad, Team: "Team2")
-  QueuePad_Team2_2
-  QueuePad_Team2_3
-  QueuePad_Team2_4
+  QueuePad_Team1  (Tag: "QueuePad", Attr: Team="Team1")
+  QueuePad_Team2  (Tag: "QueuePad", Attr: Team="Team2")
 ```
 
-### Add spawns (4 per team):
+### Arena Spawns (Competitive)
 
 ```
-Map/
-  ArenaSpawn_Team1_1  (Tag: ArenaSpawn_Team1)
-  ArenaSpawn_Team1_2
-  ArenaSpawn_Team1_3
-  ArenaSpawn_Team1_4
-  ArenaSpawn_Team2_1  (Tag: ArenaSpawn_Team2)
-  ...
+Maps/ApexArena/
+  ArenaSpawn_Team1  (Tag: "ArenaSpawn_Team1", Attr: MapId="ApexArena")
+  ArenaSpawn_Team2  (Tag: "ArenaSpawn_Team2", Attr: MapId="ApexArena")
 ```
 
-**That's it.** Zero code changes needed.
+### Training Spawns
+
+```
+TrainingArea/
+  TrainingSpawn_1  (Tag: "TrainingSpawn")
+  TrainingSpawn_2
+  TrainingSpawn_3
+```
+
+### Lobby Return
+
+```
+Lobby/
+  LobbySpawn  (Tag: "LobbySpawn")
+```
 
 ---
 
-## Match Flow
+## Mode Behaviors
+
+### Training Mode
 
 ```
-1. Players step on pads
-   └── Pad turns green
+Player joins → Spawn at random TrainingSpawn
+Player dies  → Respawn after 2s at random spawn
+              → Can open loadout UI anytime
+              → No scoring, no rounds
+Player leaves → Just removed from match
+Match ends   → Only via RoundService:EndMatch()
+```
 
-2. Both teams full
-   └── 5 second countdown starts
-   └── Countdown GUI shows
+### Competitive Mode (Duel, 2v2, etc.)
 
-3. Player steps off
-   └── Countdown cancels
-   └── GUI hides
+```
+Queue fills  → 5 second countdown
+Countdown    → Map select → Loadout → Match starts
+Player kills → Killer's team +1 score
+              → Both players reset to spawns
+              → Loadout UI for 15s
+              → Next round starts
+Score = target → Match ends → Victory screen
+              → Return to lobby after 5s
+```
 
-4. Countdown completes
-   └── Map selection UI shows
+---
 
-5. Map selected
-   └── Loadout UI shows (30s)
+## Usage Examples
 
-6. Loadout complete
-   └── Players teleport to arena
-   └── HUD shows, round starts
+### Start Training Match
 
-7. Player killed
-   └── Killer's team +1 score
-   └── Both players reset to spawns
-   └── Loadout UI shows (15s)
+```lua
+local RoundService = registry:Get("Round")
 
-8. Score reaches target
-   └── Match ends
-   └── Victory screen
-   └── Return to lobby
+RoundService:StartMatch({
+    mode = "Training",
+    mapId = "ApexArena",
+})
+```
+
+### Start Competitive Match
+
+```lua
+RoundService:StartMatch({
+    mode = "Duel",
+    mapId = "ApexArena",
+    team1 = { player1.UserId },
+    team2 = { player2.UserId },
+})
+```
+
+### Join Training Midway
+
+```lua
+-- Player walks into training zone, call:
+RoundService:AddPlayer(player)
+```
+
+### Handle Kill in Combat
+
+```lua
+-- In your CombatService when a player dies:
+local RoundService = registry:Get("Round")
+if RoundService:GetActiveMatch() then
+    RoundService:OnPlayerKilled(killerPlayer, victimPlayer)
+end
+```
+
+---
+
+## Adding Custom Modes
+
+```lua
+-- In MatchmakingConfig.lua
+MatchmakingConfig.Modes.CustomMode = {
+    name = "Custom Mode",
+    hasTeams = true,
+    hasScoring = true,
+    playersPerTeam = 3,
+    scoreToWin = 7,
+    allowJoinMidway = false,
+    roundResetDelay = 3,
+    loadoutSelectionTime = 10,
+    showLoadoutOnRoundReset = true,
+    lobbyReturnDelay = 5,
+    returnToLobbyOnEnd = true,
+}
+```
+
+Then use it:
+
+```lua
+RoundService:StartMatch({
+    mode = "CustomMode",
+    team1 = { ... },
+    team2 = { ... },
+})
 ```
 
 ---
@@ -246,49 +297,20 @@ Map/
 src/
 ├── ReplicatedStorage/
 │   └── Configs/
-│       └── MatchmakingConfig.lua
+│       └── MatchmakingConfig.lua       # All mode & queue settings
 │
 ├── ServerScriptService/
 │   └── Server/
 │       └── Services/
 │           ├── Queue/
-│           │   └── QueueService.lua
+│           │   └── QueueService.lua    # Queue pads & countdown
 │           └── Round/
-│               └── RoundService.lua
+│               └── RoundService.lua    # Match & round management
 │
 └── StarterPlayer/
     └── StarterPlayerScripts/
         └── Initializer/
             └── Controllers/
                 └── Queue/
-                    └── QueueController.lua
-```
-
----
-
-## Integration with Combat
-
-In your `CombatService` or wherever you handle player death:
-
-```lua
--- When a player is killed
-local RoundService = registry:Get("Round")
-if RoundService:GetActiveMatch() then
-    RoundService:OnPlayerKilled(killerPlayer, victimPlayer)
-end
-```
-
----
-
-## Debug Commands (Optional)
-
-```lua
--- Force start with current players
-QueueService:ForceStartMatch()
-
--- End current match
-RoundService:EndMatch("admin")
-
--- Get queue state
-print(QueueService:GetQueuedPlayers())
+                    └── QueueController.lua  # Client UI
 ```

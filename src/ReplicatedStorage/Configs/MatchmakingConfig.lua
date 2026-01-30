@@ -2,13 +2,13 @@
 	MatchmakingConfig
 	
 	Central configuration for the matchmaking and round system.
-	Modify these values to tune queue behavior, match rules, and gamemodes.
+	Supports both Training (infinite) and Competitive (lives) modes.
 ]]
 
 local MatchmakingConfig = {}
 
 --------------------------------------------------------------------------------
--- QUEUE SETTINGS
+-- QUEUE SETTINGS (for competitive modes)
 --------------------------------------------------------------------------------
 
 MatchmakingConfig.Queue = {
@@ -44,94 +44,134 @@ MatchmakingConfig.PadVisuals = {
 }
 
 --------------------------------------------------------------------------------
--- MATCH / ROUND SETTINGS
---------------------------------------------------------------------------------
-
-MatchmakingConfig.Match = {
-	-- Score needed to win the match
-	ScoreToWin = 5,
-
-	-- Delay after a kill before showing loadout UI (seconds)
-	RoundResetDelay = 2,
-
-	-- Time for loadout selection between rounds (seconds)
-	LoadoutSelectionTime = 15,
-
-	-- Time on victory screen before returning to lobby (seconds)
-	LobbyReturnDelay = 5,
-
-	-- Whether to show loadout UI between rounds
-	ShowLoadoutOnRoundReset = true,
-}
-
---------------------------------------------------------------------------------
 -- SPAWN TAGS
 --------------------------------------------------------------------------------
 
 MatchmakingConfig.Spawns = {
-	-- Tag for Team 1 arena spawn points
+	-- Tag for Team 1 arena spawn points (competitive)
 	Team1Tag = "ArenaSpawn_Team1",
 
-	-- Tag for Team 2 arena spawn points
+	-- Tag for Team 2 arena spawn points (competitive)
 	Team2Tag = "ArenaSpawn_Team2",
+
+	-- Tag for training spawn points
+	TrainingTag = "TrainingSpawn",
 
 	-- Tag for lobby return spawn point
 	LobbyTag = "LobbySpawn",
 }
 
 --------------------------------------------------------------------------------
--- GAMEMODES
+-- MODES
+-- Each mode defines how the round system behaves
 --------------------------------------------------------------------------------
 
-MatchmakingConfig.Gamemodes = {
+MatchmakingConfig.Modes = {
+	-- Training: No teams, no scoring, respawn forever, join anytime
+	Training = {
+		name = "Training",
+		hasTeams = false,
+		hasScoring = false,
+		allowJoinMidway = true,
+		allowLoadoutReselect = true,
+		respawnDelay = 2,
+		returnToLobbyOnEnd = false,
+	},
+
+	-- Duel: 1v1, first to X wins
 	Duel = {
 		name = "1v1 Duel",
+		hasTeams = true,
+		hasScoring = true,
 		playersPerTeam = 1,
-		teamCount = 2,
 		scoreToWin = 5,
+		allowJoinMidway = false,
+		allowLoadoutReselect = false,
+		roundResetDelay = 2,
+		loadoutSelectionTime = 15,
+		showLoadoutOnRoundReset = true,
+		lobbyReturnDelay = 5,
+		returnToLobbyOnEnd = true,
 	},
 
+	-- 2v2
 	TwoVTwo = {
 		name = "2v2",
+		hasTeams = true,
+		hasScoring = true,
 		playersPerTeam = 2,
-		teamCount = 2,
 		scoreToWin = 10,
+		allowJoinMidway = false,
+		allowLoadoutReselect = false,
+		roundResetDelay = 2,
+		loadoutSelectionTime = 15,
+		showLoadoutOnRoundReset = true,
+		lobbyReturnDelay = 5,
+		returnToLobbyOnEnd = true,
 	},
 
+	-- 3v3
 	ThreeVThree = {
 		name = "3v3",
+		hasTeams = true,
+		hasScoring = true,
 		playersPerTeam = 3,
-		teamCount = 2,
 		scoreToWin = 15,
+		allowJoinMidway = false,
+		allowLoadoutReselect = false,
+		roundResetDelay = 2,
+		loadoutSelectionTime = 15,
+		showLoadoutOnRoundReset = true,
+		lobbyReturnDelay = 5,
+		returnToLobbyOnEnd = true,
 	},
 
+	-- 4v4
 	FourVFour = {
 		name = "4v4",
+		hasTeams = true,
+		hasScoring = true,
 		playersPerTeam = 4,
-		teamCount = 2,
 		scoreToWin = 20,
+		allowJoinMidway = false,
+		allowLoadoutReselect = false,
+		roundResetDelay = 2,
+		loadoutSelectionTime = 15,
+		showLoadoutOnRoundReset = true,
+		lobbyReturnDelay = 5,
+		returnToLobbyOnEnd = true,
 	},
 }
 
--- Default gamemode when no specific one is selected
-MatchmakingConfig.DefaultGamemode = "Duel"
+-- Default mode
+MatchmakingConfig.DefaultMode = "Duel"
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
 
-function MatchmakingConfig.getGamemode(gamemodeId)
-	return MatchmakingConfig.Gamemodes[gamemodeId or MatchmakingConfig.DefaultGamemode]
+function MatchmakingConfig.getMode(modeId)
+	return MatchmakingConfig.Modes[modeId or MatchmakingConfig.DefaultMode]
 end
 
-function MatchmakingConfig.getScoreToWin(gamemodeId)
-	local gamemode = MatchmakingConfig.getGamemode(gamemodeId)
-	return gamemode and gamemode.scoreToWin or MatchmakingConfig.Match.ScoreToWin
+function MatchmakingConfig.isTrainingMode(modeId)
+	local mode = MatchmakingConfig.getMode(modeId)
+	return mode and not mode.hasScoring
 end
 
-function MatchmakingConfig.getPlayersPerTeam(gamemodeId)
-	local gamemode = MatchmakingConfig.getGamemode(gamemodeId)
-	return gamemode and gamemode.playersPerTeam or 1
+function MatchmakingConfig.isCompetitiveMode(modeId)
+	local mode = MatchmakingConfig.getMode(modeId)
+	return mode and mode.hasScoring
+end
+
+function MatchmakingConfig.getScoreToWin(modeId)
+	local mode = MatchmakingConfig.getMode(modeId)
+	return mode and mode.scoreToWin or 5
+end
+
+function MatchmakingConfig.getPlayersPerTeam(modeId)
+	local mode = MatchmakingConfig.getMode(modeId)
+	return mode and mode.playersPerTeam or 1
 end
 
 return MatchmakingConfig

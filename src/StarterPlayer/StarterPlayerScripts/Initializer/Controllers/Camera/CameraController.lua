@@ -88,12 +88,12 @@ function CameraController:_clampPositionAboveGround(pos: Vector3, clearance: num
 	local dir = Vector3.new(0, -CAMERA_GROUND_CLAMP_RAY_DOWN, 0)
 
 	local result = workspace:Raycast(origin, dir, self:_getEnvironmentRaycastParams())
-	
+
 	-- DEBUG: Log ALL ground clamp hits
 	if result then
 		warn("[CAMERA GROUNDCLAMP] HIT:", result.Instance:GetFullName())
 	end
-	
+
 	if not result then
 		return pos
 	end
@@ -122,8 +122,8 @@ CameraController.InputBeganConnection = nil
 CameraController.InputEndedConnection = nil
 
 -- Camera angles (yaw/pitch)
-CameraController.AngleX = 0       -- Pitch (vertical)
-CameraController.AngleY = 0       -- Yaw (horizontal)
+CameraController.AngleX = 0 -- Pitch (vertical)
+CameraController.AngleY = 0 -- Yaw (horizontal)
 CameraController.TargetAngleX = 0
 CameraController.TargetAngleY = 0
 
@@ -179,10 +179,10 @@ CameraController._LastRenderCompareLogT = 0
 function CameraController:Init(registry, net)
 	self._registry = registry
 	self._net = net
-	
+
 	local camera = getCurrentCamera()
 	local cameraConfig = Config.Camera
-	
+
 	-- Set initial mode from config
 	self.CurrentMode = cameraConfig.DefaultMode or "Orbit"
 	self.CurrentModeIndex = 1
@@ -192,9 +192,9 @@ function CameraController:Init(registry, net)
 			break
 		end
 	end
-	
+
 	debugPrint("Initializing CameraController, DefaultMode:", self.CurrentMode)
-	
+
 	-- Set camera to scriptable
 	if camera then
 		camera.CameraType = Enum.CameraType.Scriptable
@@ -202,23 +202,23 @@ function CameraController:Init(registry, net)
 		debugPrint("Camera set to Scriptable, FOV:", cameraConfig.FOV.Base)
 		self._LastSeenCameraType = camera.CameraType
 	end
-	
+
 	-- Initialize FOVController
 	if FOVController.Init then
 		FOVController:Init()
 	end
-	
+
 	-- Initialize ScreenShakeController
 	if ScreenShakeController and ScreenShakeController.Init then
 		ScreenShakeController:Init()
 	end
-	
+
 	self:SetupInput()
 	self:StartCameraLoop()
-	
+
 	-- Apply initial mode settings
 	self:ApplyCameraModeSettings()
-	
+
 	-- Connect to character events
 	local localPlayer = Players.LocalPlayer
 	if localPlayer then
@@ -235,19 +235,19 @@ function CameraController:Init(registry, net)
 		localPlayer.CharacterAdded:Connect(function(character)
 			self:OnCharacterSpawned(character)
 		end)
-		
+
 		localPlayer.CharacterRemoving:Connect(function(character)
 			self:OnCharacterRemoving(character)
 		end)
-		
+
 		if localPlayer.Character then
 			self:OnCharacterSpawned(localPlayer.Character)
 		end
 	end
-	
+
 	-- Register with ServiceRegistry so other modules can access CameraController
 	ServiceRegistry:RegisterController("CameraController", self)
-	
+
 	debugPrint("CameraController initialized successfully")
 
 	-- Detect if some other script overrides Camera.CFrame after we set it (often on RenderStepped)
@@ -281,42 +281,42 @@ function CameraController:OnCharacterSpawned(character)
 	if character.Name ~= Players.LocalPlayer.Name then
 		return
 	end
-	
+
 	debugPrint("Character spawned:", character.Name)
 	self.Character = character
-	
+
 	local function waitForCharacterParts()
 		self.PrimaryPart = CharacterLocations:GetRoot(character)
 		self.Head = CharacterLocations:GetHumanoidHead(character)
 		self.Rig = CharacterLocations:GetRig(character)
-		
+
 		debugPrint("Looking for rig... Found:", self.Rig ~= nil)
-		
+
 		if self.Rig then
 			self.RigHead = self.Rig:FindFirstChild("Head")
 			debugPrint("Rig head found:", self.RigHead ~= nil)
 		end
-		
+
 		if self.PrimaryPart and self.Head then
 			debugPrint("Character parts ready - PrimaryPart:", self.PrimaryPart.Name, "Head:", self.Head.Name)
-			
+
 			-- Reset crouch state
 			self.IsCrouching = false
 			self.LastCrouchState = false
 			self.CurrentCrouchOffset = 0
 			self.IsTransitioning = false
-			
+
 			self:InitializeCameraAngles()
 			self:ApplyCameraModeSettings()
 			self:ApplyRigVisibility()
-			self:HideColliderParts()  -- Hide the bean/collider parts
+			self:HideColliderParts() -- Hide the bean/collider parts
 			return
 		end
-		
+
 		task.wait(0.1)
 		waitForCharacterParts()
 	end
-	
+
 	waitForCharacterParts()
 end
 
@@ -324,25 +324,25 @@ function CameraController:OnCharacterRemoving(character)
 	if self.Character ~= character then
 		return
 	end
-	
+
 	debugPrint("Character removing")
 
 	-- Stop camera loop
 	pcall(function()
 		RunService:UnbindFromRenderStep("MovieeV2CameraController")
 	end)
-	
+
 	self.Character = nil
 	self.PrimaryPart = nil
 	self.Head = nil
 	self.Rig = nil
 	self.RigHead = nil
-	
+
 	self.IsCrouching = false
 	self.LastCrouchState = false
 	self.CurrentCrouchOffset = 0
 	self.IsTransitioning = false
-	
+
 	self.MobileCameraX = 0
 	self.MobileCameraY = 0
 end
@@ -352,72 +352,63 @@ end
 -- =============================================================================
 function CameraController:SetupInput()
 	local cameraConfig = Config.Camera
-	
+
 	-- Mouse movement and scroll
 	self.InputConnection = UserInputService.InputChanged:Connect(function(inputObject, gameProcessed)
 		if gameProcessed then
 			return
 		end
-		
+
 		-- Mouse movement for camera rotation
 		if inputObject.UserInputType == Enum.UserInputType.MouseMovement then
 			local delta = inputObject.Delta
 			local sensitivity = cameraConfig.Sensitivity.Mouse
-			
+
 			-- For Orbit mode, only rotate when right mouse is held
 			if self.CurrentMode == "Orbit" then
 				if self.IsOrbitDragging then
 					local targetX = self.TargetAngleX - delta.Y * sensitivity
-					self.TargetAngleX = clamp(
-						targetX,
-						cameraConfig.AngleLimits.MinVertical,
-						cameraConfig.AngleLimits.MaxVertical
-					)
+					self.TargetAngleX =
+						clamp(targetX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
 					self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
 				end
 			else
 				-- Shoulder and FirstPerson modes: always rotate
 				local targetX = self.TargetAngleX - delta.Y * sensitivity
-				self.TargetAngleX = clamp(
-					targetX,
-					cameraConfig.AngleLimits.MinVertical,
-					cameraConfig.AngleLimits.MaxVertical
-				)
+				self.TargetAngleX =
+					clamp(targetX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
 				self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
 			end
 		end
-		
+
 		-- Controller stick
 		if inputObject.KeyCode == Enum.KeyCode.Thumbstick2 then
 			self.RightStickX = inputObject.Position.X
 			self.RightStickY = inputObject.Position.Y
-			
+
 			-- Update aim assist gamepad eligibility
 			self:_updateAimAssistGamepadInput(inputObject.KeyCode, inputObject.Position)
 		end
-		
+
 		-- Mouse wheel for zoom (all modes)
 		if inputObject.UserInputType == Enum.UserInputType.MouseWheel then
 			local zoomDelta = -inputObject.Position.Z * 2
-			
+
 			if self.CurrentMode == "Orbit" then
 				local orbitConfig = cameraConfig.Orbit
-				self.OrbitTargetDistance = clamp(
-					self.OrbitTargetDistance + zoomDelta,
-					orbitConfig.MinDistance,
-					orbitConfig.MaxDistance
-				)
+				self.OrbitTargetDistance =
+					clamp(self.OrbitTargetDistance + zoomDelta, orbitConfig.MinDistance, orbitConfig.MaxDistance)
 				debugPrint("Orbit zoom:", self.OrbitTargetDistance)
 			end
 		end
 	end)
-	
+
 	-- Mouse button press/release
 	self.InputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
-		
+
 		-- Right mouse button for orbit dragging
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			if self.CurrentMode == "Orbit" then
@@ -425,14 +416,19 @@ function CameraController:SetupInput()
 				UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
 			end
 		end
+<<<<<<< HEAD
 		
 		-- T key to cycle camera modes (disabled in lobby)
+=======
+
+		-- T key to cycle camera modes
+>>>>>>> 6e4120d (emote + lobby fix)
 		if input.KeyCode == Config.Controls.Input.ToggleCameraMode then
 			if self._cameraModeKeybindEnabled then
 				self:CycleCameraMode()
 			end
 		end
-		
+
 		-- G key to toggle ragdoll (test)
 		if input.KeyCode == Config.Controls.Input.ToggleRagdollTest then
 			if self._net then
@@ -440,7 +436,7 @@ function CameraController:SetupInput()
 			end
 		end
 	end)
-	
+
 	self.InputEndedConnection = UserInputService.InputEnded:Connect(function(input)
 		-- Right mouse button release
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
@@ -449,14 +445,14 @@ function CameraController:SetupInput()
 				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			end
 		end
-		
+
 		-- Controller stick release
 		if input.KeyCode == Enum.KeyCode.Thumbstick2 then
 			self.RightStickX = 0
 			self.RightStickY = 0
 		end
 	end)
-	
+
 	self:SetupTouchCamera()
 end
 
@@ -464,52 +460,49 @@ function CameraController:SetupTouchCamera()
 	if not UserInputService.TouchEnabled then
 		return
 	end
-	
+
 	local starterScripts = Locations.Services.StarterPlayerScripts
 	local uiFolder = starterScripts and starterScripts:FindFirstChild("UI")
 	if not uiFolder then
 		return
 	end
-	
+
 	local success, mobileControlsModule = pcall(function()
 		return require(uiFolder:WaitForChild("MobileControls"))
 	end)
-	
+
 	if not success then
 		return
 	end
-	
+
 	mobileControlsModule:ConnectToInput("Camera", function(cameraVector)
 		self.MobileCameraX = cameraVector.X
 		self.MobileCameraY = cameraVector.Y
 	end)
-	
+
 	local cameraTouches = {}
 	local cameraConfig = Config.Camera
-	
+
 	UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if gameProcessed or input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-		
+
 		if mobileControlsModule:IsTouchClaimed(input) then
 			cameraTouches[input] = nil
 			return
 		end
-		
+
 		local delta = input.Delta
 		if delta.Magnitude > 0 then
 			local lastPosition = cameraTouches[input]
 			if lastPosition then
 				local sensitivity = cameraConfig.Sensitivity.Touch
 				local targetX = self.TargetAngleX - delta.Y * sensitivity
-				self.TargetAngleX = clamp(
-					targetX,
-					cameraConfig.AngleLimits.MinVertical,
-					cameraConfig.AngleLimits.MaxVertical
-				)
+				self.TargetAngleX =
+					clamp(targetX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
 				self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
-				
+
 				-- Update aim assist touch eligibility
 				self:_updateAimAssistTouchInput()
 			else
@@ -518,7 +511,7 @@ function CameraController:SetupTouchCamera()
 			end
 		end
 	end)
-	
+
 	UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch then
 			cameraTouches[input] = nil
@@ -533,18 +526,28 @@ end
 function CameraController:CycleCameraMode()
 	local cameraConfig = Config.Camera
 	local cycleOrder = cameraConfig.CycleOrder
-	
-	self.CurrentModeIndex = self.CurrentModeIndex + 1
-	if self.CurrentModeIndex > #cycleOrder then
-		self.CurrentModeIndex = 1
+
+	local function isLobby()
+		local player = Players.LocalPlayer
+		return player and player:GetAttribute("InLobby") == true
 	end
-	
-	self.CurrentMode = cycleOrder[self.CurrentModeIndex]
+
+	-- Advance to next allowed mode (skip FirstPerson in lobby)
+	local tries = 0
+	repeat
+		self.CurrentModeIndex = self.CurrentModeIndex + 1
+		if self.CurrentModeIndex > #cycleOrder then
+			self.CurrentModeIndex = 1
+		end
+		self.CurrentMode = cycleOrder[self.CurrentModeIndex]
+		tries += 1
+	until not (isLobby() and self.CurrentMode == "FirstPerson") or tries >= #cycleOrder
+
 	self:ApplyCameraModeSettings()
 	self:ApplyRigVisibility()
 	self:HideColliderParts()
 	self:_startModeTransition()
-	
+
 	debugPrint("=== CAMERA MODE CHANGED ===")
 	debugPrint("New mode:", self.CurrentMode, "Index:", self.CurrentModeIndex)
 	debugPrint("ShouldRotateCharacter:", self.ShouldRotateCharacter)
@@ -557,24 +560,22 @@ end
 
 function CameraController:ApplyCameraModeSettings()
 	local cameraConfig = Config.Camera
-	
+
 	debugPrint("Applying settings for mode:", self.CurrentMode)
-	
+
 	if self.CurrentMode == "Orbit" then
 		-- Orbit mode: Free cursor, right-click drag to rotate
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		self.ShouldRotateCharacter = false  -- Character rotates to movement, NOT camera
+		self.ShouldRotateCharacter = false -- Character rotates to movement, NOT camera
 		self.OrbitDistance = cameraConfig.Orbit.Distance
 		self.OrbitTargetDistance = cameraConfig.Orbit.Distance
 		self.IsOrbitDragging = false
 		debugPrint("Orbit mode - MouseBehavior: Default, ShouldRotateCharacter: false")
-		
 	elseif self.CurrentMode == "Shoulder" then
 		-- Shoulder mode: Locked cursor, character faces camera
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 		self.ShouldRotateCharacter = true
 		debugPrint("Shoulder mode - MouseBehavior: LockCenter, ShouldRotateCharacter: true")
-		
 	elseif self.CurrentMode == "FirstPerson" then
 		-- First person mode: Locked cursor, character faces camera
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
@@ -602,6 +603,15 @@ function CameraController:GetCurrentMode()
 end
 
 function CameraController:SetMode(modeName)
+	local function isLobby()
+		local player = Players.LocalPlayer
+		return player and player:GetAttribute("InLobby") == true
+	end
+
+	if modeName == "FirstPerson" and isLobby() then
+		modeName = "Orbit"
+	end
+
 	local cameraConfig = Config.Camera
 	for i, mode in ipairs(cameraConfig.CycleOrder) do
 		if mode == modeName then
@@ -677,14 +687,14 @@ function CameraController:ApplyRigVisibility()
 	debugPrint("=== APPLYING RIG VISIBILITY ===")
 	debugPrint("CurrentMode:", self.CurrentMode)
 	debugPrint("Rig exists:", self.Rig ~= nil)
-	
+
 	if not self.Rig then
 		debugPrint("No rig found - skipping visibility")
 		return
 	end
-	
+
 	local isFirstPerson = (self.CurrentMode == "FirstPerson")
-	
+
 	if isFirstPerson then
 		-- First person: Use v1 transparency logic (called every frame in UpdateFirstPersonCamera)
 		-- Just call it once here for mode switch
@@ -701,14 +711,14 @@ function CameraController:ShowEntireRig()
 	if not self.Rig then
 		return
 	end
-	
+
 	-- Show all rig parts
 	for _, part in ipairs(self.Rig:GetDescendants()) do
 		if part:IsA("BasePart") then
 			part.LocalTransparencyModifier = 0
 		end
 	end
-	
+
 	-- Show accessories
 	local rigHumanoid = self.Rig:FindFirstChildOfClass("Humanoid")
 	if rigHumanoid then
@@ -719,7 +729,7 @@ function CameraController:ShowEntireRig()
 			end
 		end
 	end
-	
+
 	debugPrint("Rig visibility set to VISIBLE (transparency = 0)")
 end
 
@@ -730,13 +740,13 @@ function CameraController:HideColliderParts()
 	if not self.Character then
 		return
 	end
-	
+
 	local collider = self.Character:FindFirstChild("Collider")
 	if not collider then
 		debugPrint("No Collider found on character")
 		return
 	end
-	
+
 	-- Hide ALL parts in Collider (Default, Crouch, UncrouchCheck folders)
 	local hiddenCount = 0
 	for _, descendant in ipairs(collider:GetDescendants()) do
@@ -758,24 +768,21 @@ function CameraController:InitializeCameraAngles()
 	if not camera then
 		return
 	end
-	
+
 	local cameraConfig = Config.Camera
 	local lookVector = camera.CFrame.LookVector
-	
+
 	self.TargetAngleY = math.deg(math.atan2(-lookVector.X, -lookVector.Z))
 	self.TargetAngleX = math.deg(math.asin(lookVector.Y))
-	
-	self.TargetAngleX = clamp(
-		self.TargetAngleX,
-		cameraConfig.AngleLimits.MinVertical,
-		cameraConfig.AngleLimits.MaxVertical
-	)
-	
+
+	self.TargetAngleX =
+		clamp(self.TargetAngleX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
+
 	self.AngleX = self.TargetAngleX
 	self.AngleY = self.TargetAngleY
-	
+
 	self.LastFrameTime = tick()
-	
+
 	debugPrint("Camera angles initialized - AngleX:", self.AngleX, "AngleY:", self.AngleY)
 end
 
@@ -810,7 +817,7 @@ function CameraController:UpdateCamera()
 	if not self.Character or not self.Character.Parent then
 		return
 	end
-	
+
 	local camera = getCurrentCamera()
 	if not camera then
 		return
@@ -821,7 +828,7 @@ function CameraController:UpdateCamera()
 		local prevType = camera.CameraType
 		camera.CameraType = Enum.CameraType.Scriptable
 	end
-	
+
 	-- Auto-initialize camera if character parts become available
 	if not self.PrimaryPart or not self.Head then
 		self.PrimaryPart = CharacterLocations:GetRoot(self.Character)
@@ -841,55 +848,47 @@ function CameraController:UpdateCamera()
 			return
 		end
 	end
-	
+
 	local cameraConfig = Config.Camera
-	
+
 	-- Update crouch state
 	self.IsCrouching = self:GetCrouchState()
-	
+
 	-- Calculate delta time
 	local currentTime = tick()
 	local deltaTime = currentTime - self.LastFrameTime
 	self.LastFrameTime = currentTime
-	
+
 	-- Process controller input (works in all modes)
 	if math.abs(self.RightStickX) > 0.1 or math.abs(self.RightStickY) > 0.1 then
 		local horizontalInput = -self.RightStickX * cameraConfig.Sensitivity.ControllerX * deltaTime * 60
 		local verticalInput = self.RightStickY * cameraConfig.Sensitivity.ControllerY * deltaTime * 60
-		
+
 		self.TargetAngleY = self.TargetAngleY + horizontalInput
 		local newAngleX = self.TargetAngleX + verticalInput
-		self.TargetAngleX = clamp(
-			newAngleX,
-			cameraConfig.AngleLimits.MinVertical,
-			cameraConfig.AngleLimits.MaxVertical
-		)
+		self.TargetAngleX = clamp(newAngleX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
 	end
-	
+
 	-- Process mobile input
 	if math.abs(self.MobileCameraX) > 0.05 or math.abs(self.MobileCameraY) > 0.05 then
 		local horizontalInput = self.MobileCameraX * cameraConfig.Sensitivity.MobileHorizontal * deltaTime * 60
 		local verticalInput = self.MobileCameraY * cameraConfig.Sensitivity.MobileVertical * deltaTime * 60
-		
+
 		self.TargetAngleY = self.TargetAngleY + horizontalInput
 		local newAngleX = self.TargetAngleX + verticalInput
-		self.TargetAngleX = clamp(
-			newAngleX,
-			cameraConfig.AngleLimits.MinVertical,
-			cameraConfig.AngleLimits.MaxVertical
-		)
+		self.TargetAngleX = clamp(newAngleX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
 	end
-	
+
 	-- Smooth camera angles
 	local angleSmoothness = cameraConfig.Smoothing.AngleSmoothness
 	local smoothFactor = math.exp(-angleSmoothness * deltaTime)
-	
+
 	self.AngleX = lerp(self.TargetAngleX, self.AngleX, smoothFactor)
 	self.AngleY = lerp(self.TargetAngleY, self.AngleY, smoothFactor)
-	
+
 	-- Update crouch offset
 	self:UpdateCrouchOffset(deltaTime)
-	
+
 	-- Update camera based on current mode
 	local desiredCFrame = nil
 	local desiredFocus = nil
@@ -934,7 +933,7 @@ function CameraController:UpdateCamera()
 	if (tick() - (self._LastAgentUpdateLogT or 0)) > 0.75 then
 		self._LastAgentUpdateLogT = tick()
 	end
-	
+
 	-- Update FOV based on velocity
 	self:UpdateFOV()
 end
@@ -945,10 +944,10 @@ end
 function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	local cameraConfig = Config.Camera
 	local orbitConfig = cameraConfig.Orbit
-	
+
 	-- Smooth zoom
 	self.OrbitDistance = lerp(self.OrbitDistance, self.OrbitTargetDistance, deltaTime * 10)
-	
+
 	-- Get pivot point - use ragdoll subject if active, otherwise character position
 	local basePivot
 	if self.IsRagdollActive and self.RagdollSubject and self.RagdollSubject.Parent then
@@ -958,22 +957,22 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	else
 		return -- No valid pivot
 	end
-	
+
 	local pivotPosition = basePivot + Vector3.new(0, orbitConfig.Height + self.CurrentCrouchOffset, 0)
-	
+
 	-- Calculate camera position based on angles
 	local wrappedAngleY = self.AngleY % 360
 	local yawCF = CFrame.Angles(0, math.rad(wrappedAngleY), 0)
 	local pitchCF = CFrame.Angles(math.rad(self.AngleX), 0, 0)
-	
+
 	-- Camera orbits around pivot
 	local orbitCF = CFrame.new(pivotPosition) * yawCF * pitchCF
 	local desiredPosition = orbitCF * CFrame.new(0, 0, self.OrbitDistance)
-	
+
 	-- Collision detection
 	local rayOrigin = pivotPosition
 	local rayDirection = desiredPosition.Position - rayOrigin
-	
+
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = { self.Character }
@@ -1002,7 +1001,7 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 	end
 
 	local spherecastResult = workspace:Spherecast(rayOrigin, orbitConfig.CollisionRadius, rayDirection, raycastParams)
-	
+
 	-- DEBUG: Log camera collision results (throttled)
 	if spherecastResult then
 		local now = os.clock()
@@ -1012,7 +1011,7 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 			warn("[CAMERA ORBIT] HIT:", spherecastResult.Instance:GetFullName())
 		end
 	end
-	
+
 	local finalPosition
 	if spherecastResult then
 		local hitDistance = (spherecastResult.Position - rayOrigin).Magnitude
@@ -1024,7 +1023,7 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 
 	-- Keep camera above ground (prevents crouch/slide dip under terrain)
 	--finalPosition = self:_clampPositionAboveGround(finalPosition)
-	
+
 	-- Look at pivot point
 	local desiredCFrame = CFrame.lookAt(finalPosition, pivotPosition)
 	local desiredFocus = CFrame.new(pivotPosition)
@@ -1037,42 +1036,42 @@ end
 function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	local cameraConfig = Config.Camera
 	local shoulderConfig = cameraConfig.Shoulder
-	
+
 	-- V1 USES HEAD POSITION, NOT PRIMARY PART
 	if not self.Head then
 		debugPrint("Shoulder: No head found!")
 		return
 	end
-	
+
 	-- POSITION AT HEAD (same as v1)
 	local baseHeadPosition = self.Head.Position
 	local headCFrame = CFrame.new(baseHeadPosition + Vector3.new(0, self.CurrentCrouchOffset, 0))
-	
+
 	local wrappedAngleY = self.AngleY % 360
-	
+
 	-- V1 config values
 	local distance = shoulderConfig.Distance
 	local height = shoulderConfig.Height
 	local shoulderX = shoulderConfig.ShoulderOffsetX
 	local shoulderY = shoulderConfig.ShoulderOffsetY
-	
+
 	-- Base pivot near head (plus crouch offset) and height
 	local pivotCF = headCFrame + Vector3.new(0, height, 0)
-	
+
 	-- Build aim rotation from yaw + pitch (v1: yaw then pitch)
 	local yawCF = CFrame.Angles(0, math.rad(wrappedAngleY), 0)
 	local pitchCF = CFrame.Angles(math.rad(self.AngleX), 0, 0)
 	local aimCF = pivotCF * yawCF * pitchCF
-	
+
 	-- Camera offset in aim space:
 	-- +X = right shoulder, +Y = up, +Z = backwards
 	local desiredCameraCF = aimCF * CFrame.new(shoulderX, shoulderY, distance)
 	local desiredCameraPosition = desiredCameraCF.Position
-	
+
 	-- Spherecast collision from pivot to desired camera position
 	local rayOrigin = pivotCF.Position
 	local rayDirection = desiredCameraPosition - rayOrigin
-	
+
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = { self.Character }
@@ -1097,12 +1096,12 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 
 	local cameraRadius = shoulderConfig.CollisionRadius or 0.5
 	local spherecastResult = workspace:Spherecast(rayOrigin, cameraRadius, rayDirection, raycastParams)
-	
+
 	-- DEBUG: Log ALL camera collision results
 	if spherecastResult then
 		warn("[CAMERA SHOULDER] HIT:", spherecastResult.Instance:GetFullName())
 	end
-	
+
 	local finalCameraPosition
 	if spherecastResult then
 		local hitDistance = (spherecastResult.Position - rayOrigin).Magnitude
@@ -1114,11 +1113,11 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 
 	-- Keep camera above ground (prevents crouch/slide dip under terrain)
 	--finalCameraPosition = self:_clampPositionAboveGround(finalCameraPosition)
-	
+
 	-- Look forward along aim direction (NOT at the head)
 	local lookDir = aimCF.LookVector
 	local desiredCFrame = CFrame.lookAt(finalCameraPosition, finalCameraPosition + lookDir)
-	
+
 	-- Distance-based transparency
 	local isRagdolled = self.Character and self.Character:GetAttribute("RagdollActive")
 	if not isRagdolled and self.PrimaryPart then
@@ -1126,7 +1125,7 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 		local cameraDistance = (finalCameraPosition - characterBodyPosition).Magnitude
 		self:UpdateDistanceBasedTransparency(cameraDistance)
 	end
-	
+
 	-- CRITICAL: Update Camera.Focus
 	local desiredFocus = CFrame.new(baseHeadPosition)
 	return desiredCFrame, desiredFocus
@@ -1138,7 +1137,7 @@ end
 function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	local cameraConfig = Config.Camera
 	local fpConfig = cameraConfig.FirstPerson
-	
+
 	-- Use humanoid head as the base (v1 behavior)
 	if not self.Head then
 		debugPrint("FirstPerson: No head found!")
@@ -1147,49 +1146,46 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 
 	local rigHeadName = self.RigHead and self.RigHead.Name or "nil"
 	local humanoidHeadName = self.Head and self.Head.Name or "nil"
-	
+
 	-- POSITION AT HEAD (with crouch offset)
 	-- v2 option: follow the visual Rig's Head (requested), otherwise fall back to v1 humanoid-head base.
 	local followRigHead = fpConfig.FollowHead == true and self.RigHead ~= nil
 	local baseHeadPosition = (followRigHead and self.RigHead.Position or self.Head.Position)
 	local headCFrame = CFrame.new(baseHeadPosition + Vector3.new(0, self.CurrentCrouchOffset, 0))
-	
+
 	-- Apply horizontal rotation (character facing direction) to position the offset correctly
 	-- Wrap AngleY to 0-360 range for rendering
 	local wrappedAngleY = self.AngleY % 360
-	
+
 	-- FIRST PERSON: v1 behavior, but optionally pivoting from Rig.Head (for "in front of rig head part")
 	local characterRotation = headCFrame * CFrame.Angles(0, math.rad(wrappedAngleY), 0)
 	local cameraOffset = followRigHead and (fpConfig.HeadOffset or fpConfig.Offset) or fpConfig.Offset
 	local rotOffset = fpConfig.HeadRotationOffset or Vector3.zero
-	
+
 	-- Debug: Print offset being used (remove after testing)
 	if not self._fpOffsetPrinted then
 		print("[CameraController] FirstPerson offset:", cameraOffset, "FollowHead:", followRigHead)
 		self._fpOffsetPrinted = true
 	end
-	
+
 	-- Apply offset in character's local space (so it moves with character facing)
 	local offsetPosition = characterRotation * CFrame.new(cameraOffset)
 	if followRigHead and rotOffset.Magnitude > 0.0001 then
 		offsetPosition = offsetPosition
 			* CFrame.Angles(math.rad(rotOffset.X), math.rad(rotOffset.Y), math.rad(rotOffset.Z))
 	end
-	
+
 	-- Apply screen shake offset if active
 	if ScreenShakeController then
 		local shakeOffset = ScreenShakeController:GetOffset()
 		local shakeRotation = ScreenShakeController:GetRotation()
 		if shakeOffset.Magnitude > 0.001 then
 			offsetPosition = offsetPosition * CFrame.new(shakeOffset)
-			offsetPosition = offsetPosition * CFrame.Angles(
-				math.rad(shakeRotation.X),
-				math.rad(shakeRotation.Y),
-				math.rad(shakeRotation.Z)
-			)
+			offsetPosition = offsetPosition
+				* CFrame.Angles(math.rad(shakeRotation.X), math.rad(shakeRotation.Y), math.rad(shakeRotation.Z))
 		end
 	end
-	
+
 	-- Camera looks around from this offset position (apply vertical rotation)
 	local desiredCF = offsetPosition * CFrame.Angles(math.rad(self.AngleX), 0, 0)
 
@@ -1200,14 +1196,14 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	--if not fpConfig.DisableGroundClamp then
 	--	clampedPos = self:_clampPositionAboveGround(desiredPos)
 	--end
-	
+
 	local desiredCFrame = CFrame.new(clampedPos) * desiredCF.Rotation
-	
+
 	-- CRITICAL: Update Camera.Focus to tell Roblox where to prioritize rendering
 	-- This controls shadow distance, LOD, dynamic lighting, and other rendering optimizations
 	-- Without this, rendering is centered at world origin (0,0,0) instead of the player
 	local desiredFocus = CFrame.new(baseHeadPosition)
-	
+
 	-- Apply first person transparency (hide rig)
 	-- Skip transparency updates if character is ragdolled
 	local isRagdolled = self.Character and self.Character:GetAttribute("RagdollActive")
@@ -1314,28 +1310,28 @@ function CameraController:GetCrouchState()
 	if not self.Character then
 		return false
 	end
-	
+
 	local normalHead = CharacterLocations:GetHead(self.Character)
 	local crouchHead = CharacterLocations:GetCrouchHead(self.Character)
-	
+
 	if not normalHead or not crouchHead then
 		return false
 	end
-	
+
 	local normalHeadVisible = normalHead.Transparency < 1
 	local crouchHeadVisible = crouchHead.Transparency < 1
-	
+
 	if crouchHeadVisible and not normalHeadVisible then
 		return true
 	end
-	
+
 	return false
 end
 
 function CameraController:UpdateCrouchOffset(deltaTime)
 	local cameraConfig = Config.Camera
 	local crouchReduction = Config.Gameplay.Character.CrouchHeightReduction
-	
+
 	if self.IsCrouching ~= self.LastCrouchState then
 		if cameraConfig.Smoothing.EnableCrouchTransition then
 			self.IsTransitioning = true
@@ -1345,7 +1341,7 @@ function CameraController:UpdateCrouchOffset(deltaTime)
 		end
 		self.LastCrouchState = self.IsCrouching
 	end
-	
+
 	if cameraConfig.Smoothing.EnableCrouchTransition then
 		local targetOffset = self.IsCrouching and -crouchReduction or 0
 		self.CurrentCrouchOffset = lerp(
@@ -1353,7 +1349,7 @@ function CameraController:UpdateCrouchOffset(deltaTime)
 			targetOffset,
 			clamp(cameraConfig.Smoothing.CrouchTransitionSpeed * deltaTime, 0, 1)
 		)
-		
+
 		local offsetDifference = math.abs(self.CurrentCrouchOffset - targetOffset)
 		if offsetDifference < 0.05 then
 			self.IsTransitioning = false
@@ -1370,12 +1366,12 @@ function CameraController:UpdateFOV()
 	if not self.PrimaryPart then
 		return
 	end
-	
+
 	local velocity = self.PrimaryPart.AssemblyLinearVelocity
 	local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-	local verticalSpeed = math.abs(velocity.Y) * 0.5  -- 50% vertical contribution
+	local verticalSpeed = math.abs(velocity.Y) * 0.5 -- 50% vertical contribution
 	local effectiveSpeed = math.sqrt(horizontalSpeed * horizontalSpeed + verticalSpeed * verticalSpeed)
-	
+
 	FOVController:UpdateMomentum(effectiveSpeed)
 end
 
@@ -1416,33 +1412,33 @@ function CameraController:Cleanup()
 		self.Connection:Disconnect()
 		self.Connection = nil
 	end
-	
+
 	if self.InputConnection then
 		self.InputConnection:Disconnect()
 		self.InputConnection = nil
 	end
-	
+
 	if self.InputBeganConnection then
 		self.InputBeganConnection:Disconnect()
 		self.InputBeganConnection = nil
 	end
-	
+
 	if self.InputEndedConnection then
 		self.InputEndedConnection:Disconnect()
 		self.InputEndedConnection = nil
 	end
-	
+
 	self.Character = nil
 	self.PrimaryPart = nil
 	self.Head = nil
 	self.Rig = nil
 	self.RigHead = nil
-	
+
 	self.IsCrouching = false
 	self.LastCrouchState = false
 	self.CurrentCrouchOffset = 0
 	self.IsTransitioning = false
-	
+
 	self.MobileCameraX = 0
 	self.MobileCameraY = 0
 end

@@ -66,8 +66,35 @@ local Remotes = {
 	{ name = "GadgetInitRequest", description = "Client requests gadget init" },
 	{ name = "GadgetInit", description = "Server sends all gadgets to client" },
 	{ name = "GadgetUseRequest", description = "Client requests gadget use" },
+<<<<<<< HEAD
 	{ name = "GadgetUseResponse", description = "Server responds to gadget use" },
 	{ name = "GadgetAreaLoaded", description = "Server sends area gadgets to client" },
+=======
+	{ name = "GadgetUseResponse", description = "Server responds to gadget use request" },
+
+	-- Knockback system
+	{ name = "KnockbackRequest", description = "Client requests knockback on another player" },
+	{ name = "Knockback", description = "Server sends knockback to target client" },
+
+	-- Queue system
+	{ name = "QueuePadUpdate", description = "Server updates pad occupancy state" },
+	{ name = "QueueCountdownStart", description = "Server starts queue countdown" },
+	{ name = "QueueCountdownTick", description = "Server sends countdown tick" },
+	{ name = "QueueCountdownCancel", description = "Server cancels queue countdown" },
+	{ name = "QueueMatchReady", description = "Queue complete, transitioning to match" },
+
+	-- Round system
+	{ name = "MatchStart", description = "Match has started" },
+	{ name = "RoundStart", description = "New round beginning" },
+	{ name = "RoundKill", description = "Kill occurred during round" },
+	{ name = "ScoreUpdate", description = "Match score changed" },
+	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
+	{ name = "MatchEnd", description = "Match complete, winner declared" },
+	{ name = "ReturnToLobby", description = "Teleport players back to lobby" },
+	{ name = "PlayerJoinedMatch", description = "Player joined match (training mode)" },
+	{ name = "PlayerLeftMatch", description = "Player left match" },
+	{ name = "PlayerRespawned", description = "Player respawned (training mode)" },
+>>>>>>> 6e4120d (emote + lobby fix)
 }
 
 return Remotes

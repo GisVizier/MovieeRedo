@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PhysicsService = game:GetService("PhysicsService")
+local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
@@ -19,7 +20,7 @@ local function setupCollisionGroups()
 	pcall(function()
 		PhysicsService:RegisterCollisionGroup("Ragdolls")
 	end)
-	
+
 	-- Ragdolls should not collide with Players (character physics body)
 	pcall(function()
 		PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Players", false)
@@ -53,8 +54,16 @@ function CharacterService:Start()
 			self._net:FireClient("ServerReady", player)
 		end)
 
-			self:_sendExistingCharacters(player)
+		self:_sendExistingCharacters(player)
 	end)
+
+	-- Handle players who are already connected (Studio testing)
+	for _, player in Players:GetPlayers() do
+		task.spawn(function()
+			task.wait(0.5)
+			self._net:FireClient("ServerReady", player)
+		end)
+	end
 end
 
 function CharacterService:_cacheTemplate()
@@ -226,6 +235,7 @@ function CharacterService:RemoveCharacter(player)
 end
 
 function CharacterService:_getSpawnPosition()
+<<<<<<< HEAD
 	-- Primary: Use World/Spawn part
 	local world = workspace:FindFirstChild("World")
 	if world then
@@ -245,6 +255,20 @@ function CharacterService:_getSpawnPosition()
 	local spawnLocation = workspace:FindFirstChildOfClass("SpawnLocation")
 	if spawnLocation then
 		return spawnLocation.Position + Vector3.new(0, 3, 0)
+=======
+	-- Look for tagged lobby spawns first
+	local lobbySpawns = CollectionService:GetTagged("LobbySpawn")
+	if #lobbySpawns > 0 then
+		local spawn = lobbySpawns[math.random(1, #lobbySpawns)]
+		return spawn.Position + Vector3.new(0, 3, 0)
+	end
+
+	-- Fallback: search for any SpawnLocation in workspace
+	for _, descendant in workspace:GetDescendants() do
+		if descendant:IsA("SpawnLocation") then
+			return descendant.Position + Vector3.new(0, 3, 0)
+		end
+>>>>>>> 6e4120d (emote + lobby fix)
 	end
 
 	return Vector3.new(0, 5, 0)

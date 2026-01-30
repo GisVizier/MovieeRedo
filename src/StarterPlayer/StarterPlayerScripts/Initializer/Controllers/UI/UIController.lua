@@ -20,8 +20,19 @@ function UIController:Init(registry, net)
 	self._registry = registry
 	self._net = net
 
+<<<<<<< HEAD
 	-- Gameplay enabled by default for lobby mode
 	-- Will be disabled when entering match/loadout screens
+=======
+	-- Default: allow movement in lobby on spawn.
+	self:SetGameplayEnabled(true)
+
+	-- Lobby state flag (used by camera/emotes to block first person)
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("InLobby", true)
+	end
+>>>>>>> 6e4120d (emote + lobby fix)
 
 	-- Current match data
 	self._currentMapId = nil
@@ -81,6 +92,8 @@ function UIController:_bootstrapUi()
 	local screenGui = playerGui:WaitForChild("Gui", 30)
 	if not screenGui then
 		warn("[UIController] Gui ScreenGui not found in PlayerGui")
+		-- Safety: allow movement even if UI fails to load.
+		self:SetGameplayEnabled(true)
 		return
 	end
 
@@ -140,7 +153,13 @@ function UIController:_bootstrapUi()
 	-- Emote wheel input wiring
 	self:_setupEmoteWheelInput(ui)
 
+<<<<<<< HEAD
 	-- No UI shown on init - gameplay is enabled after character loads
+=======
+	-- Initial UI: Show lobby/start screen and enable free movement
+	self:SetGameplayEnabled(true)
+	ui:show("Start", true)
+>>>>>>> 6e4120d (emote + lobby fix)
 end
 
 function UIController:_onLoadoutComplete(data)
@@ -214,6 +233,10 @@ function UIController:_setupEmoteWheelInput(ui)
 end
 
 function UIController:_onStartMatch(matchData)
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("InLobby", false)
+	end
 	self:SetGameplayEnabled(true)
 
 	if not self._coreUi then
@@ -288,6 +311,11 @@ function UIController:_onRoundStart(data)
 		return
 	end
 
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("InLobby", false)
+	end
+
 	-- Re-enable gameplay
 	self:SetGameplayEnabled(true)
 
@@ -325,8 +353,18 @@ function UIController:_onReturnToLobby(data)
 	-- Reset state
 	self._currentMapId = nil
 
+<<<<<<< HEAD
 	-- Enable gameplay for lobby (players can walk around, use gadgets, etc.)
 	self:SetGameplayEnabled(true)
+=======
+	-- Lobby mode: allow movement
+	self:SetGameplayEnabled(true)
+
+	local player = Players.LocalPlayer
+	if player then
+		player:SetAttribute("InLobby", true)
+	end
+>>>>>>> 6e4120d (emote + lobby fix)
 
 	-- Hide all match UI
 	safeCall(function()

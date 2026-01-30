@@ -12,6 +12,7 @@
 	- QueueService:GetQueuedPlayers() -> { Team1 = {}, Team2 = {} }
 	- QueueService:IsPlayerQueued(player) -> boolean
 	- QueueService:ForceStartMatch() -> void
+	- QueueService:SetMode(modeId) -> void
 ]]
 
 local Players = game:GetService("Players")
@@ -41,8 +42,8 @@ function QueueService:Init(registry, net)
 	self._countdownThread = nil
 	self._countdownRemaining = 0
 
-	-- Current gamemode
-	self._currentGamemode = MatchmakingConfig.DefaultGamemode
+	-- Current mode (Duel, TwoVTwo, etc.)
+	self._currentMode = MatchmakingConfig.DefaultMode
 
 	-- Zone check connection
 	self._zoneCheckConnection = nil
@@ -83,9 +84,9 @@ function QueueService:ForceStartMatch()
 	self:_startMatch()
 end
 
-function QueueService:SetGamemode(gamemodeId)
-	if MatchmakingConfig.Gamemodes[gamemodeId] then
-		self._currentGamemode = gamemodeId
+function QueueService:SetMode(modeId)
+	if MatchmakingConfig.Modes[modeId] then
+		self._currentMode = modeId
 	end
 end
 
@@ -295,8 +296,12 @@ end
 --------------------------------------------------------------------------------
 
 function QueueService:_checkQueueReady()
-	local gamemode = MatchmakingConfig.getGamemode(self._currentGamemode)
-	local required = gamemode.playersPerTeam
+	local mode = MatchmakingConfig.getMode(self._currentMode)
+	if not mode or not mode.hasTeams then
+		return -- Training mode doesn't use queue
+	end
+
+	local required = mode.playersPerTeam or 1
 
 	local team1Count = #self._queuedPlayers.Team1
 	local team2Count = #self._queuedPlayers.Team2
@@ -400,8 +405,13 @@ end
 --------------------------------------------------------------------------------
 
 function QueueService:_startMatch()
-	local gamemode = MatchmakingConfig.getGamemode(self._currentGamemode)
-	local required = gamemode.playersPerTeam
+	local mode = MatchmakingConfig.getMode(self._currentMode)
+	if not mode then
+		warn("[QueueService] Invalid mode:", self._currentMode)
+		return
+	end
+
+	local required = mode.playersPerTeam or 1
 
 	-- Get the players for each team (up to required count)
 	local team1 = {}
@@ -421,16 +431,16 @@ function QueueService:_startMatch()
 	self._net:FireAllClients("QueueMatchReady", {
 		team1 = team1,
 		team2 = team2,
-		gamemodeId = self._currentGamemode,
+		mode = self._currentMode,
 	})
 
 	-- Hand off to RoundService
 	local roundService = self._registry:TryGet("Round")
 	if roundService then
-		roundService:CreateMatch({
+		roundService:StartMatch({
+			mode = self._currentMode,
 			team1 = team1,
 			team2 = team2,
-			gamemodeId = self._currentGamemode,
 		})
 	end
 

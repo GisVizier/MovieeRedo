@@ -1,21 +1,21 @@
 --[[
 	RoundService
 	
-	Server-side service for managing match rounds and scoring.
-	
-	Features:
-	- Round loop management (first to X kills)
-	- Score tracking per team
-	- Player spawning at arena spawn points
-	- Loadout selection between rounds
-	- Match end and lobby return
+	Server-side service for managing matches and rounds.
+	Supports both Training (infinite) and Competitive (lives) modes.
 	
 	API:
-	- RoundService:CreateMatch(matchData) -> void
-	- RoundService:GetActiveMatch() -> matchData or nil
-	- RoundService:GetScores() -> { Team1 = n, Team2 = n }
+	- RoundService:StartMatch(options) -> void
+	- RoundService:EndMatch() -> void
+	- RoundService:StartRound() -> void
+	- RoundService:EndRound() -> void
+	- RoundService:AddPlayer(player) -> void (training mode)
+	- RoundService:RemovePlayer(player) -> void
 	- RoundService:OnPlayerKilled(killer, victim) -> void
-	- RoundService:EndMatch(reason) -> void
+	- RoundService:GetActiveMatch() -> matchData or nil
+	- RoundService:GetScores() -> { Team1 = n, Team2 = n } or nil
+	- RoundService:GetPlayers() -> { player1, player2, ... }
+	- RoundService:GetMode() -> modeId or nil
 ]]
 
 local Players = game:GetService("Players")
@@ -33,8 +33,8 @@ function RoundService:Init(registry, net)
 	-- Active match state
 	self._activeMatch = nil
 
-	-- Listen for player death events
-	self:_setupDeathListener()
+	-- Setup listeners
+	self:_setupPlayerRemoving()
 end
 
 function RoundService:Start() end
@@ -43,32 +43,228 @@ function RoundService:Start() end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function RoundService:CreateMatch(matchData)
+--[[
+	StartMatch - Begin a new match
+	
+	Options:
+	- mode: string ("Training", "Duel", "TwoVTwo", etc.)
+	- mapId: string (optional)
+	- team1: { userId, ... } (required for competitive modes)
+	- team2: { userId, ... } (required for competitive modes)
+	- players: { userId, ... } (for training mode, optional)
+]]
+function RoundService:StartMatch(options)
 	if self._activeMatch then
-		warn("[RoundService] Match already in progress, cannot create new match")
+		warn("[RoundService] Match already in progress")
 		return
 	end
 
-	local gamemodeId = matchData.gamemodeId or MatchmakingConfig.DefaultGamemode
-	local gamemode = MatchmakingConfig.getGamemode(gamemodeId)
+	local modeId = options.mode or MatchmakingConfig.DefaultMode
+	local modeConfig = MatchmakingConfig.getMode(modeId)
+
+	if not modeConfig then
+		warn("[RoundService] Invalid mode:", modeId)
+		return
+	end
 
 	self._activeMatch = {
-		team1 = matchData.team1, -- { userId1, userId2, ... }
-		team2 = matchData.team2,
-		gamemodeId = gamemodeId,
-		scoreToWin = gamemode.scoreToWin,
+		mode = modeId,
+		modeConfig = modeConfig,
+		mapId = options.mapId,
+		state = "playing", -- "playing", "loadout", "ended"
+		currentRound = 1,
+
+		-- Players (for training mode - no teams)
+		players = {},
+
+		-- Teams (for competitive modes)
+		team1 = options.team1 or {},
+		team2 = options.team2 or {},
+
+		-- Scores (only for competitive)
 		scores = {
 			Team1 = 0,
 			Team2 = 0,
 		},
-		currentRound = 0,
-		mapId = nil, -- Set after map selection
-		state = "mapSelect", -- mapSelect, loadout, playing, ended
 	}
 
-	-- Map selection happens via existing UI flow
-	-- The client will fire SubmitLoadout which includes mapId
-	-- For now, we wait for loadout completion to start the round
+	-- For training mode, add initial players
+	if not modeConfig.hasTeams then
+		if options.players then
+			for _, userId in options.players do
+				table.insert(self._activeMatch.players, userId)
+			end
+		end
+	end
+
+	-- Teleport players to arena/training area
+	self:_teleportAllPlayers()
+
+	-- Fire match start
+	self:_fireMatchStart()
+end
+
+function RoundService:EndMatch()
+	if not self._activeMatch then
+		return
+	end
+
+	local modeConfig = self._activeMatch.modeConfig
+	self._activeMatch.state = "ended"
+
+	-- Fire match end event
+	self._net:FireAllClients("MatchEnd", {
+		mode = self._activeMatch.mode,
+		finalScores = modeConfig.hasScoring and {
+			Team1 = self._activeMatch.scores.Team1,
+			Team2 = self._activeMatch.scores.Team2,
+		} or nil,
+	})
+
+	-- Return to lobby if configured
+	if modeConfig.returnToLobbyOnEnd then
+		local delay = modeConfig.lobbyReturnDelay or 5
+		task.delay(delay, function()
+			self:_returnPlayersToLobby()
+			self._activeMatch = nil
+		end)
+	else
+		self._activeMatch = nil
+	end
+end
+
+function RoundService:StartRound()
+	if not self._activeMatch then
+		return
+	end
+
+	self._activeMatch.state = "playing"
+	self:_fireRoundStart()
+end
+
+function RoundService:EndRound()
+	if not self._activeMatch then
+		return
+	end
+
+	local modeConfig = self._activeMatch.modeConfig
+
+	if modeConfig.hasScoring then
+		-- Competitive: check win condition
+		if self:_checkWinCondition() then
+			self:_endMatchWithWinner()
+		else
+			self:_resetRound()
+		end
+	end
+	-- Training mode: rounds don't really end, just continue
+end
+
+-- Add player to training match (join midway)
+function RoundService:AddPlayer(player)
+	if not self._activeMatch then
+		return false
+	end
+
+	local modeConfig = self._activeMatch.modeConfig
+	if not modeConfig.allowJoinMidway then
+		return false
+	end
+
+	local userId = player.UserId
+
+	-- Check if already in match
+	if table.find(self._activeMatch.players, userId) then
+		return false
+	end
+
+	table.insert(self._activeMatch.players, userId)
+
+	-- Teleport to training spawn
+	self:_teleportPlayerToSpawn(player)
+
+	-- Notify
+	self._net:FireAllClients("PlayerJoinedMatch", {
+		playerId = userId,
+	})
+
+	return true
+end
+
+function RoundService:RemovePlayer(player)
+	if not self._activeMatch then
+		return
+	end
+
+	local userId = player.UserId
+	local modeConfig = self._activeMatch.modeConfig
+
+	if modeConfig.hasTeams then
+		-- Remove from teams
+		local index1 = table.find(self._activeMatch.team1, userId)
+		if index1 then
+			table.remove(self._activeMatch.team1, index1)
+		end
+
+		local index2 = table.find(self._activeMatch.team2, userId)
+		if index2 then
+			table.remove(self._activeMatch.team2, index2)
+		end
+	else
+		-- Remove from players list
+		local index = table.find(self._activeMatch.players, userId)
+		if index then
+			table.remove(self._activeMatch.players, index)
+		end
+	end
+
+	self._net:FireAllClients("PlayerLeftMatch", {
+		playerId = userId,
+	})
+end
+
+function RoundService:OnPlayerKilled(killerPlayer, victimPlayer)
+	if not self._activeMatch or self._activeMatch.state ~= "playing" then
+		return
+	end
+
+	local modeConfig = self._activeMatch.modeConfig
+
+	-- Fire kill event
+	self._net:FireAllClients("RoundKill", {
+		killerId = killerPlayer and killerPlayer.UserId or nil,
+		victimId = victimPlayer.UserId,
+	})
+
+	if modeConfig.hasScoring then
+		-- Competitive mode: score point, reset round
+		local killerTeam = self:GetPlayerTeam(killerPlayer)
+
+		if killerTeam then
+			self._activeMatch.scores[killerTeam] = self._activeMatch.scores[killerTeam] + 1
+
+			-- Fire score update
+			self._net:FireAllClients("ScoreUpdate", {
+				team1Score = self._activeMatch.scores.Team1,
+				team2Score = self._activeMatch.scores.Team2,
+			})
+
+			-- Check win or reset
+			if self:_checkWinCondition() then
+				self:_endMatchWithWinner()
+			else
+				self:_resetRound()
+			end
+		end
+	else
+		-- Training mode: just respawn the victim
+		local respawnDelay = modeConfig.respawnDelay or 2
+		task.delay(respawnDelay, function()
+			if self._activeMatch and victimPlayer and victimPlayer.Parent then
+				self:_respawnPlayer(victimPlayer)
+			end
+		end)
+	end
 end
 
 function RoundService:GetActiveMatch()
@@ -79,23 +275,64 @@ function RoundService:GetScores()
 	if not self._activeMatch then
 		return nil
 	end
+
+	local modeConfig = self._activeMatch.modeConfig
+	if not modeConfig.hasScoring then
+		return nil
+	end
+
 	return {
 		Team1 = self._activeMatch.scores.Team1,
 		Team2 = self._activeMatch.scores.Team2,
 	}
 end
 
-function RoundService:IsPlayerInMatch(player)
+function RoundService:GetPlayers()
 	if not self._activeMatch then
-		return false
+		return {}
 	end
 
-	local userId = player.UserId
-	return table.find(self._activeMatch.team1, userId) ~= nil or table.find(self._activeMatch.team2, userId) ~= nil
+	local modeConfig = self._activeMatch.modeConfig
+	local result = {}
+
+	if modeConfig.hasTeams then
+		for _, userId in self._activeMatch.team1 do
+			local player = Players:GetPlayerByUserId(userId)
+			if player then
+				table.insert(result, player)
+			end
+		end
+		for _, userId in self._activeMatch.team2 do
+			local player = Players:GetPlayerByUserId(userId)
+			if player then
+				table.insert(result, player)
+			end
+		end
+	else
+		for _, userId in self._activeMatch.players do
+			local player = Players:GetPlayerByUserId(userId)
+			if player then
+				table.insert(result, player)
+			end
+		end
+	end
+
+	return result
+end
+
+function RoundService:GetMode()
+	if not self._activeMatch then
+		return nil
+	end
+	return self._activeMatch.mode
 end
 
 function RoundService:GetPlayerTeam(player)
 	if not self._activeMatch then
+		return nil
+	end
+
+	if not player then
 		return nil
 	end
 
@@ -110,117 +347,63 @@ function RoundService:GetPlayerTeam(player)
 	return nil
 end
 
---------------------------------------------------------------------------------
--- MATCH FLOW
---------------------------------------------------------------------------------
-
-function RoundService:StartMatch(mapId)
+function RoundService:IsPlayerInMatch(player)
 	if not self._activeMatch then
-		return
+		return false
 	end
 
-	self._activeMatch.mapId = mapId
-	self._activeMatch.state = "playing"
-	self._activeMatch.currentRound = 1
+	local userId = player.UserId
+	local modeConfig = self._activeMatch.modeConfig
 
-	-- Teleport players to arena
-	self:_teleportPlayersToArena()
+	if modeConfig.hasTeams then
+		return table.find(self._activeMatch.team1, userId) ~= nil or table.find(self._activeMatch.team2, userId) ~= nil
+	else
+		return table.find(self._activeMatch.players, userId) ~= nil
+	end
+end
 
-	-- Fire round start
+--------------------------------------------------------------------------------
+-- INTERNAL: ROUND MANAGEMENT
+--------------------------------------------------------------------------------
+
+function RoundService:_fireMatchStart()
+	self._net:FireAllClients("MatchStart", {
+		mode = self._activeMatch.mode,
+		mapId = self._activeMatch.mapId,
+	})
+
 	self:_fireRoundStart()
 end
-
-function RoundService:OnPlayerKilled(killerPlayer, victimPlayer)
-	if not self._activeMatch or self._activeMatch.state ~= "playing" then
-		return
-	end
-
-	-- Determine teams
-	local killerTeam = self:GetPlayerTeam(killerPlayer)
-	local victimTeam = self:GetPlayerTeam(victimPlayer)
-
-	if not killerTeam or not victimTeam then
-		return -- Players not in this match
-	end
-
-	-- Increment killer's team score
-	self._activeMatch.scores[killerTeam] = self._activeMatch.scores[killerTeam] + 1
-
-	-- Fire kill event
-	self._net:FireAllClients("RoundKill", {
-		killerId = killerPlayer.UserId,
-		victimId = victimPlayer.UserId,
-		killerTeam = killerTeam,
-	})
-
-	-- Fire score update
-	self._net:FireAllClients("ScoreUpdate", {
-		team1Score = self._activeMatch.scores.Team1,
-		team2Score = self._activeMatch.scores.Team2,
-	})
-
-	-- Check win condition
-	if self:_checkWinCondition() then
-		self:_endMatchWithWinner()
-	else
-		self:_resetRound()
-	end
-end
-
-function RoundService:EndMatch(reason)
-	if not self._activeMatch then
-		return
-	end
-
-	self._activeMatch.state = "ended"
-
-	-- Fire match end event
-	self._net:FireAllClients("MatchEnd", {
-		reason = reason or "manual",
-		finalScores = {
-			Team1 = self._activeMatch.scores.Team1,
-			Team2 = self._activeMatch.scores.Team2,
-		},
-	})
-
-	-- Return players to lobby after delay
-	task.delay(MatchmakingConfig.Match.LobbyReturnDelay, function()
-		self:_returnPlayersToLobby()
-		self._activeMatch = nil
-	end)
-end
-
---------------------------------------------------------------------------------
--- ROUND MANAGEMENT
---------------------------------------------------------------------------------
 
 function RoundService:_fireRoundStart()
 	self._net:FireAllClients("RoundStart", {
 		roundNumber = self._activeMatch.currentRound,
-		scores = {
+		scores = self._activeMatch.modeConfig.hasScoring and {
 			Team1 = self._activeMatch.scores.Team1,
 			Team2 = self._activeMatch.scores.Team2,
-		},
+		} or nil,
 	})
 end
 
 function RoundService:_resetRound()
+	local modeConfig = self._activeMatch.modeConfig
 	self._activeMatch.state = "loadout"
 	self._activeMatch.currentRound = self._activeMatch.currentRound + 1
 
 	-- Wait for reset delay
-	task.delay(MatchmakingConfig.Match.RoundResetDelay, function()
+	local resetDelay = modeConfig.roundResetDelay or 2
+	task.delay(resetDelay, function()
 		if not self._activeMatch or self._activeMatch.state ~= "loadout" then
 			return
 		end
 
 		-- Teleport players to spawns
-		self:_teleportPlayersToArena()
+		self:_teleportAllPlayers()
 
 		-- Show loadout UI if configured
-		if MatchmakingConfig.Match.ShowLoadoutOnRoundReset then
+		if modeConfig.showLoadoutOnRoundReset then
 			self._net:FireAllClients("ShowRoundLoadout", {
-				duration = MatchmakingConfig.Match.LoadoutSelectionTime,
+				duration = modeConfig.loadoutSelectionTime or 15,
 				scores = {
 					Team1 = self._activeMatch.scores.Team1,
 					Team2 = self._activeMatch.scores.Team2,
@@ -229,7 +412,8 @@ function RoundService:_resetRound()
 			})
 
 			-- Wait for loadout time, then start round
-			task.delay(MatchmakingConfig.Match.LoadoutSelectionTime, function()
+			local loadoutTime = modeConfig.loadoutSelectionTime or 15
+			task.delay(loadoutTime, function()
 				if self._activeMatch and self._activeMatch.state == "loadout" then
 					self._activeMatch.state = "playing"
 					self:_fireRoundStart()
@@ -248,7 +432,12 @@ function RoundService:_checkWinCondition()
 		return false
 	end
 
-	local scoreToWin = self._activeMatch.scoreToWin
+	local modeConfig = self._activeMatch.modeConfig
+	if not modeConfig.hasScoring then
+		return false
+	end
+
+	local scoreToWin = modeConfig.scoreToWin or 5
 
 	return self._activeMatch.scores.Team1 >= scoreToWin or self._activeMatch.scores.Team2 >= scoreToWin
 end
@@ -258,12 +447,13 @@ function RoundService:_endMatchWithWinner()
 		return
 	end
 
+	local modeConfig = self._activeMatch.modeConfig
 	self._activeMatch.state = "ended"
 
 	local winnerTeam
 	local winnerId
 
-	if self._activeMatch.scores.Team1 >= self._activeMatch.scoreToWin then
+	if self._activeMatch.scores.Team1 >= (modeConfig.scoreToWin or 5) then
 		winnerTeam = "Team1"
 		winnerId = self._activeMatch.team1[1]
 	else
@@ -282,72 +472,117 @@ function RoundService:_endMatchWithWinner()
 	})
 
 	-- Return players to lobby after delay
-	task.delay(MatchmakingConfig.Match.LobbyReturnDelay, function()
+	local delay = modeConfig.lobbyReturnDelay or 5
+	task.delay(delay, function()
 		self:_returnPlayersToLobby()
 		self._activeMatch = nil
 	end)
 end
 
 --------------------------------------------------------------------------------
--- SPAWNING
+-- INTERNAL: SPAWNING
 --------------------------------------------------------------------------------
 
-function RoundService:_teleportPlayersToArena()
+function RoundService:_teleportAllPlayers()
 	if not self._activeMatch then
 		return
 	end
 
-	local mapId = self._activeMatch.mapId
+	local modeConfig = self._activeMatch.modeConfig
 
-	-- Get spawn points
-	local team1Spawns = self:_getSpawnsForTeam("Team1", mapId)
-	local team2Spawns = self:_getSpawnsForTeam("Team2", mapId)
+	if modeConfig.hasTeams then
+		-- Competitive: spawn teams at team spawns
+		local team1Spawns = self:_getSpawns(MatchmakingConfig.Spawns.Team1Tag)
+		local team2Spawns = self:_getSpawns(MatchmakingConfig.Spawns.Team2Tag)
 
-	-- Teleport Team 1
-	self:_teleportTeamToSpawns(self._activeMatch.team1, team1Spawns)
-
-	-- Teleport Team 2
-	self:_teleportTeamToSpawns(self._activeMatch.team2, team2Spawns)
+		self:_teleportTeamToSpawns(self._activeMatch.team1, team1Spawns)
+		self:_teleportTeamToSpawns(self._activeMatch.team2, team2Spawns)
+	else
+		-- Training: spawn everyone at training spawns
+		local spawns = self:_getSpawns(MatchmakingConfig.Spawns.TrainingTag)
+		self:_teleportTeamToSpawns(self._activeMatch.players, spawns)
+	end
 end
 
-function RoundService:_getSpawnsForTeam(team, mapId)
-	local tag = team == "Team1" and MatchmakingConfig.Spawns.Team1Tag or MatchmakingConfig.Spawns.Team2Tag
-
-	local allSpawns = CollectionService:GetTagged(tag)
-	local filteredSpawns = {}
-
-	for _, spawn in allSpawns do
-		local spawnMapId = spawn:GetAttribute("MapId")
-
-		-- Include if mapId matches or if no mapId filter
-		if not mapId or not spawnMapId or spawnMapId == mapId then
-			-- Also check if spawn is under a model named mapId
-			if not spawnMapId and mapId then
-				local ancestor = spawn:FindFirstAncestor(mapId)
-				if ancestor or not mapId then
-					table.insert(filteredSpawns, spawn)
-				end
-			else
-				table.insert(filteredSpawns, spawn)
-			end
-		end
-	end
-
-	-- If no filtered spawns found, use all spawns
-	if #filteredSpawns == 0 then
-		filteredSpawns = allSpawns
-	end
-
-	return filteredSpawns
-end
-
-function RoundService:_teleportTeamToSpawns(teamUserIds, spawns)
-	if #spawns == 0 then
-		warn("[RoundService] No spawns found for team")
+function RoundService:_teleportPlayerToSpawn(player)
+	if not self._activeMatch then
 		return
 	end
 
-	for i, userId in teamUserIds do
+	local modeConfig = self._activeMatch.modeConfig
+	local spawnTag
+
+	if modeConfig.hasTeams then
+		local team = self:GetPlayerTeam(player)
+		if team == "Team1" then
+			spawnTag = MatchmakingConfig.Spawns.Team1Tag
+		else
+			spawnTag = MatchmakingConfig.Spawns.Team2Tag
+		end
+	else
+		spawnTag = MatchmakingConfig.Spawns.TrainingTag
+	end
+
+	local spawns = self:_getSpawns(spawnTag)
+	if #spawns == 0 then
+		return
+	end
+
+	local spawn = spawns[math.random(1, #spawns)]
+	local character = player.Character
+
+	if character then
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			character:PivotTo(spawn.CFrame + Vector3.new(0, 3, 0))
+			rootPart.AssemblyLinearVelocity = Vector3.zero
+			rootPart.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+end
+
+function RoundService:_respawnPlayer(player)
+	-- Respawn character and teleport to spawn
+	local character = player.Character
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Health = humanoid.MaxHealth
+		end
+	end
+
+	self:_teleportPlayerToSpawn(player)
+
+	self._net:FireClient(player, "PlayerRespawned", {})
+end
+
+function RoundService:_getSpawns(tag)
+	local spawns = CollectionService:GetTagged(tag)
+	local mapId = self._activeMatch and self._activeMatch.mapId
+
+	if not mapId then
+		return spawns
+	end
+
+	-- Filter by map if mapId is set
+	local filtered = {}
+	for _, spawn in spawns do
+		local spawnMapId = spawn:GetAttribute("MapId")
+		if not spawnMapId or spawnMapId == mapId then
+			table.insert(filtered, spawn)
+		end
+	end
+
+	return #filtered > 0 and filtered or spawns
+end
+
+function RoundService:_teleportTeamToSpawns(userIds, spawns)
+	if #spawns == 0 then
+		warn("[RoundService] No spawns found")
+		return
+	end
+
+	for i, userId in userIds do
 		local player = Players:GetPlayerByUserId(userId)
 		if not player then
 			continue
@@ -367,21 +602,13 @@ function RoundService:_teleportTeamToSpawns(teamUserIds, spawns)
 		local spawnIndex = ((i - 1) % #spawns) + 1
 		local spawn = spawns[spawnIndex]
 
-		-- Teleport slightly above spawn
-		local spawnCFrame = spawn.CFrame + Vector3.new(0, 3, 0)
-		character:PivotTo(spawnCFrame)
-
-		-- Reset velocity
+		character:PivotTo(spawn.CFrame + Vector3.new(0, 3, 0))
 		rootPart.AssemblyLinearVelocity = Vector3.zero
 		rootPart.AssemblyAngularVelocity = Vector3.zero
 	end
 end
 
 function RoundService:_returnPlayersToLobby()
-	if not self._activeMatch then
-		return
-	end
-
 	local lobbySpawns = CollectionService:GetTagged(MatchmakingConfig.Spawns.LobbyTag)
 
 	if #lobbySpawns == 0 then
@@ -389,37 +616,35 @@ function RoundService:_returnPlayersToLobby()
 		return
 	end
 
-	-- Notify clients
 	self._net:FireAllClients("ReturnToLobby", {})
 
-	-- Teleport all match players
-	local allPlayers = {}
-	for _, userId in self._activeMatch.team1 do
-		table.insert(allPlayers, userId)
-	end
-	for _, userId in self._activeMatch.team2 do
-		table.insert(allPlayers, userId)
+	-- Get all players in match
+	local allUserIds = {}
+	if self._activeMatch then
+		if self._activeMatch.modeConfig.hasTeams then
+			for _, userId in self._activeMatch.team1 do
+				table.insert(allUserIds, userId)
+			end
+			for _, userId in self._activeMatch.team2 do
+				table.insert(allUserIds, userId)
+			end
+		else
+			for _, userId in self._activeMatch.players do
+				table.insert(allUserIds, userId)
+			end
+		end
 	end
 
-	self:_teleportTeamToSpawns(allPlayers, lobbySpawns)
+	self:_teleportTeamToSpawns(allUserIds, lobbySpawns)
 end
 
 --------------------------------------------------------------------------------
--- DEATH LISTENER
+-- INTERNAL: PLAYER HANDLING
 --------------------------------------------------------------------------------
 
-function RoundService:_setupDeathListener()
-	-- Listen to the PlayerKilled event from combat system
-	self._net:ConnectServer("PlayerKilled", function(player, data)
-		-- This is a broadcast, not a request, so we check if we should handle it
-		if self._activeMatch and data and data.killerId and data.victimId then
-			local killer = Players:GetPlayerByUserId(data.killerId)
-			local victim = Players:GetPlayerByUserId(data.victimId)
-
-			if killer and victim then
-				self:OnPlayerKilled(killer, victim)
-			end
-		end
+function RoundService:_setupPlayerRemoving()
+	Players.PlayerRemoving:Connect(function(player)
+		self:RemovePlayer(player)
 	end)
 end
 
