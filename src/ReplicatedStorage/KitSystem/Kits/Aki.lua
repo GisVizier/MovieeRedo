@@ -103,22 +103,23 @@ end
 
 local function validateTargetPosition(player, character, targetPos)
 	if not character then
-		log("Validation failed: No character")
+		warn("[Aki Server] Validation failed: No character")
 		return false, "NoCharacter"
 	end
 
-	local root = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+	-- Use Root (physics body) first, then fallback to HumanoidRootPart/PrimaryPart
+	local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
 	if not root then
-		log("Validation failed: No root part")
+		warn("[Aki Server] Validation failed: No root part")
 		return false, "NoRootPart"
 	end
 
 	-- Check range
 	local distance = (targetPos - root.Position).Magnitude
-	log(string.format("Distance check: %.1f studs (max: %d)", distance, MAX_RANGE))
+	warn(string.format("[Aki Server] Distance check: %.1f studs (max: %d) using %s", distance, MAX_RANGE, root.Name))
 	
 	if distance > MAX_RANGE then
-		log("Validation failed: Out of range")
+		warn("[Aki Server] Validation failed: Out of range")
 		return false, "OutOfRange"
 	end
 
