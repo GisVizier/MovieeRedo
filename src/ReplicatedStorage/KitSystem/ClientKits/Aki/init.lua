@@ -217,10 +217,13 @@ function Aki.Ability:OnStart(abilityRequest)
 	end
 
 	-- Check cooldown
+	local cooldownRemaining = abilityRequest.GetCooldownRemaining()
+	log("Cooldown check - IsOnCooldown:", abilityRequest.IsOnCooldown(), "remaining:", cooldownRemaining)
 	if abilityRequest.IsOnCooldown() then
-		log("Ability on cooldown, remaining:", abilityRequest.GetCooldownRemaining())
+		log("BLOCKED - Ability on cooldown, remaining:", cooldownRemaining)
 		return
 	end
+	log("Cooldown check PASSED")
 
 	-- Get target location via raycast
 	local targetCFrame = getTargetLocation(character, MAX_RANGE)

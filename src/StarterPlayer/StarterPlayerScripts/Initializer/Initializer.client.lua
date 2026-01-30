@@ -65,6 +65,10 @@ local entries = {
 		name = "GadgetController",
 		module = controllersFolder:WaitForChild("Gadgets"):WaitForChild("GadgetController"),
 	},
+	{
+		name = "Knockback",
+		module = controllersFolder:WaitForChild("Knockback"):WaitForChild("KnockbackController"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

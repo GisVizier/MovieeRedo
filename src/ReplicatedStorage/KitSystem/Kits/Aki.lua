@@ -148,18 +148,30 @@ end
 --------------------------------------------------------------------------------
 
 function Kit:OnAbility(inputState, clientData)
-	log("========== OnAbility ==========")
-	log("inputState:", tostring(inputState))
-	logTable("clientData", clientData or {})
+	warn("========== [Aki Server] OnAbility CALLED ==========")
+	warn("[Aki Server] inputState:", tostring(inputState))
+	warn("[Aki Server] clientData type:", type(clientData))
+	warn("[Aki Server] self._ctx exists:", self._ctx ~= nil)
+	warn("[Aki Server] self._ctx.service exists:", self._ctx and self._ctx.service ~= nil)
+	warn("[Aki Server] self._ctx.player:", self._ctx and self._ctx.player and self._ctx.player.Name or "nil")
+	
+	if clientData then
+		warn("[Aki Server] clientData.action:", clientData.action or "nil")
+		logTable("clientData", clientData)
+	else
+		warn("[Aki Server] clientData is NIL!")
+	end
 
 	if inputState ~= Enum.UserInputState.Begin then
-		log("Ignoring non-Begin input state")
+		warn("[Aki Server] Ignoring non-Begin input state")
 		return false
 	end
 
 	local player = self._ctx.player
 	local character = self._ctx.character or player.Character
 	local service = self._ctx.service
+	
+	warn("[Aki Server] service check:", service ~= nil)
 
 	if not character then
 		warn("[Aki Server] No character for player:", player.Name)
@@ -169,13 +181,13 @@ function Kit:OnAbility(inputState, clientData)
 	clientData = clientData or {}
 	local action = clientData.action
 
-	log("Action:", action or "none")
+	warn("[Aki Server] Action:", action or "none")
 
 	--------------------------------------------------------------------------------
 	-- Action: Request Kon Spawn
 	--------------------------------------------------------------------------------
 	if action == "requestKonSpawn" then
-		log("Processing requestKonSpawn")
+		warn("[Aki Server] >>> Processing requestKonSpawn <<<")
 
 		local targetPosData = clientData.targetPosition
 		if not targetPosData then
@@ -189,7 +201,7 @@ function Kit:OnAbility(inputState, clientData)
 			targetPosData.Z or 0
 		)
 
-		log("Target position:", targetPos)
+		warn("[Aki Server] Target position:", targetPos)
 
 		-- Validate target position
 		local valid, reason = validateTargetPosition(player, character, targetPos)
@@ -200,9 +212,13 @@ function Kit:OnAbility(inputState, clientData)
 		end
 
 		-- Start cooldown
+		warn("[Aki Server] About to start cooldown, service:", service ~= nil)
 		if service then
-			log("Starting cooldown")
+			warn("[Aki Server] STARTING COOLDOWN NOW!")
 			service:StartCooldown(player)
+			warn("[Aki Server] Cooldown started successfully")
+		else
+			warn("[Aki Server] SERVICE IS NIL - CANNOT START COOLDOWN!")
 		end
 
 		-- Store pending spawn for bite validation
