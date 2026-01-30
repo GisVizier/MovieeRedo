@@ -71,7 +71,7 @@ ViewmodelController._attrConn = nil
 ViewmodelController._ziplineAttrConn = nil
 ViewmodelController._equipKeysConn = nil
 
-ViewmodelController._gameplayEnabled = false
+ViewmodelController._gameplayEnabled = true
 
 ViewmodelController._rigStorage = nil
 ViewmodelController._storedRigs = nil

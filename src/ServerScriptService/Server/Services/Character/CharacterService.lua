@@ -182,6 +182,9 @@ function CharacterService:SpawnCharacter(player)
 	self.ActiveCharacters[player] = character
 	self.IsClientSetupComplete[player.UserId] = false
 
+	-- Set player state to Lobby (will be changed when match starts)
+	player:SetAttribute("PlayerState", "Lobby")
+
 	-- Initialize combat resources for this player
 	local combatService = self._registry and self._registry:TryGet("CombatService")
 	if combatService then
@@ -223,6 +226,22 @@ function CharacterService:RemoveCharacter(player)
 end
 
 function CharacterService:_getSpawnPosition()
+	-- Primary: Use World/Spawn part
+	local world = workspace:FindFirstChild("World")
+	if world then
+		local spawnPart = world:FindFirstChild("Spawn")
+		if spawnPart and spawnPart:IsA("BasePart") then
+			local size = spawnPart.Size
+			local offset = Vector3.new(
+				(math.random() - 0.5) * size.X,
+				3, -- Height above spawn
+				(math.random() - 0.5) * size.Z
+			)
+			return spawnPart.Position + offset
+		end
+	end
+
+	-- Fallback: SpawnLocation
 	local spawnLocation = workspace:FindFirstChildOfClass("SpawnLocation")
 	if spawnLocation then
 		return spawnLocation.Position + Vector3.new(0, 3, 0)

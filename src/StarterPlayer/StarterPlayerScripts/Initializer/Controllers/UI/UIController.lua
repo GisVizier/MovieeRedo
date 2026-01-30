@@ -20,8 +20,8 @@ function UIController:Init(registry, net)
 	self._registry = registry
 	self._net = net
 
-	-- Default: gameplay is gated until StartMatch from server.
-	self:SetGameplayEnabled(false)
+	-- Gameplay enabled by default for lobby mode
+	-- Will be disabled when entering match/loadout screens
 
 	-- Current match data
 	self._currentMapId = nil
@@ -140,27 +140,7 @@ function UIController:_bootstrapUi()
 	-- Emote wheel input wiring
 	self:_setupEmoteWheelInput(ui)
 
-	-- Initial UI: Loadout only (RojoUiReference testing flow).
-	do
-		local loadoutModule = ui:getModule("Loadout")
-		if loadoutModule and loadoutModule.setRoundData then
-			local userIds = {}
-			for _, p in ipairs(Players:GetPlayers()) do
-				table.insert(userIds, p.UserId)
-			end
-
-			pcall(function()
-				loadoutModule:setRoundData({
-					players = userIds,
-					mapId = "ApexArena",
-					gamemodeId = "Duels",
-					timeStarted = os.clock(),
-				})
-			end)
-		end
-	end
-
-	ui:show("Loadout", true)
+	-- No UI shown on init - gameplay is enabled after character loads
 end
 
 function UIController:_onLoadoutComplete(data)
@@ -345,8 +325,8 @@ function UIController:_onReturnToLobby(data)
 	-- Reset state
 	self._currentMapId = nil
 
-	-- Disable gameplay (lobby mode)
-	self:SetGameplayEnabled(false)
+	-- Enable gameplay for lobby (players can walk around, use gadgets, etc.)
+	self:SetGameplayEnabled(true)
 
 	-- Hide all match UI
 	safeCall(function()

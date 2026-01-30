@@ -401,6 +401,7 @@ function CharacterController:_setupLocalCharacter(player, character)
 
 		publishHealth()
 	end
+
 end
 
 function CharacterController:_setupRemoteCharacter(player, character)

@@ -613,15 +613,16 @@ function EmoteService.stop(): boolean
 	end
 	
 	-- =========================================================================
-	-- RESTORE CAMERA MODE - Back to FirstPerson (with isLobby placeholder)
+	-- RESTORE CAMERA MODE - Back to saved mode in lobby, FirstPerson otherwise
 	-- =========================================================================
 	local cameraController = ServiceRegistry:GetController("CameraController")
 	if cameraController then
-		-- isLobby placeholder - will be important later for lobby logic
-		local isLobby = false
+		-- Check if player is in lobby (has "Lobby" state attribute)
+		local playerState = LocalPlayer:GetAttribute("PlayerState")
+		local isLobby = playerState == "Lobby"
 		
 		if isLobby then
-			-- In lobby, restore to saved mode
+			-- In lobby, restore to saved mode (don't force first person)
 			if EmoteService._savedCameraMode then
 				cameraController:SetMode(EmoteService._savedCameraMode)
 			end

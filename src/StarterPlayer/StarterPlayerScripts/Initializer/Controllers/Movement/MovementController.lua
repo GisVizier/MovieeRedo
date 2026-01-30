@@ -77,7 +77,7 @@ CharacterController.LastUpdateTime = 0
 CharacterController.MinFrameTime = 0
 CharacterController.Connection = nil
 
-CharacterController.GameplayEnabled = false
+CharacterController.GameplayEnabled = true
 
 -- Respawn / reset reliability
 CharacterController.RespawnRequested = false

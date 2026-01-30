@@ -1,7 +1,14 @@
 local CameraController = {}
 
+-- Lobby state: camera mode switching is disabled
+CameraController._cameraModeKeybindEnabled = false
+
 function CameraController:SetGameplayEnabled(_enabled: boolean)
 	-- No-op; UpdateCamera checks InputController.Manager.GameplayEnabled.
+end
+
+function CameraController:SetCameraModeKeybindEnabled(enabled)
+	self._cameraModeKeybindEnabled = enabled
 end
 
 -- Services
@@ -419,9 +426,11 @@ function CameraController:SetupInput()
 			end
 		end
 		
-		-- T key to cycle camera modes
+		-- T key to cycle camera modes (disabled in lobby)
 		if input.KeyCode == Config.Controls.Input.ToggleCameraMode then
-			self:CycleCameraMode()
+			if self._cameraModeKeybindEnabled then
+				self:CycleCameraMode()
+			end
 		end
 		
 		-- G key to toggle ragdoll (test)

@@ -27,6 +27,8 @@ function GadgetUtils:_normalizeTypeName(name)
 	local aliases = {
 		JumpPads = "JumpPad",
 		Ziplines = "Zipline",
+		Exits = "Exit",
+		["ShootingRange"] = "AreaTeleport",
 	}
 	return aliases[name] or name
 end

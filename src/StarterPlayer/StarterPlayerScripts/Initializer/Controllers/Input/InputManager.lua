@@ -19,7 +19,7 @@ InputManager.IsCrouching = false
 InputManager.IsMenuOpen = false
 InputManager.IsChatFocused = false
 InputManager.IsSettingsOpen = false
-InputManager.GameplayEnabled = false
+InputManager.GameplayEnabled = true  -- Enabled by default for lobby
 
 InputManager.KeyStates = {
 	W = false,

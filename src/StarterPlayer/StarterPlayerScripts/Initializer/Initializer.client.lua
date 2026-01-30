@@ -34,6 +34,10 @@ local entries = {
 		module = controllersFolder:WaitForChild("Character"):WaitForChild("AnimationController"),
 	},
 	{
+		name = "Ping",
+		module = controllersFolder:WaitForChild("Network"):WaitForChild("PingController"),
+	},
+	{
 		name = "Replication",
 		module = controllersFolder:WaitForChild("Replication"):WaitForChild("ReplicationController"),
 	},
@@ -50,10 +54,6 @@ local entries = {
 		module = controllersFolder:WaitForChild("KitVFX"):WaitForChild("KitVFXController"),
 	},
 	{
-		name = "Gadgets",
-		module = controllersFolder:WaitForChild("Gadgets"):WaitForChild("GadgetController"),
-	},
-	{
 		name = "Weapon",
 		module = controllersFolder:WaitForChild("Weapon"):WaitForChild("WeaponController"),
 	},
@@ -62,16 +62,8 @@ local entries = {
 		module = controllersFolder:WaitForChild("Combat"):WaitForChild("CombatController"),
 	},
 	{
-		name = "Ping",
-		module = controllersFolder:WaitForChild("Network"):WaitForChild("PingController"),
-	},
-	{
-		name = "Knockback",
-		module = controllersFolder:WaitForChild("Knockback"):WaitForChild("KnockbackController"),
-	},
-	{
-		name = "Queue",
-		module = controllersFolder:WaitForChild("Queue"):WaitForChild("QueueController"),
+		name = "GadgetController",
+		module = controllersFolder:WaitForChild("Gadgets"):WaitForChild("GadgetController"),
 	},
 }
 

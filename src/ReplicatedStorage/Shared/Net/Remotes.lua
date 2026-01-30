@@ -21,6 +21,7 @@ local Remotes = {
 	{ name = "CharacterStateReplicated", description = "Server broadcast state batch", unreliable = true },
 	{ name = "ServerCorrection", description = "Server correction to client" },
 	{ name = "RequestInitialStates", description = "Client requests initial states" },
+	{ name = "ClientReplicationReady", description = "Client signals ready to receive replication" },
 
 	-- Match / loadout gating
 	{ name = "SubmitLoadout", description = "Client submits selected loadout and ready" },
@@ -60,31 +61,13 @@ local Remotes = {
 	-- Ping measurement (for lag compensation)
 	{ name = "PingRequest", description = "Server sends ping challenge", unreliable = true },
 	{ name = "PingResponse", description = "Client responds to ping challenge", unreliable = true },
-	{ name = "PingReady", description = "Client ready to receive ping requests" },
 
-	{ name = "GadgetInitRequest", description = "Client requests gadget init data" },
-	{ name = "GadgetInit", description = "Server sends gadget init data" },
+	-- Gadget system
+	{ name = "GadgetInitRequest", description = "Client requests gadget init" },
+	{ name = "GadgetInit", description = "Server sends all gadgets to client" },
 	{ name = "GadgetUseRequest", description = "Client requests gadget use" },
-	{ name = "GadgetUseResponse", description = "Server responds to gadget use request" },
-
-	-- Knockback system
-	{ name = "KnockbackRequest", description = "Client requests knockback on another player" },
-	{ name = "Knockback", description = "Server sends knockback to target client" },
-
-	-- Queue system
-	{ name = "QueuePadUpdate", description = "Server updates pad occupancy state" },
-	{ name = "QueueCountdownStart", description = "Server starts queue countdown" },
-	{ name = "QueueCountdownTick", description = "Server sends countdown tick" },
-	{ name = "QueueCountdownCancel", description = "Server cancels queue countdown" },
-	{ name = "QueueMatchReady", description = "Queue complete, transitioning to match" },
-
-	-- Round system
-	{ name = "RoundStart", description = "New round beginning" },
-	{ name = "RoundKill", description = "Kill occurred during round" },
-	{ name = "ScoreUpdate", description = "Match score changed" },
-	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
-	{ name = "MatchEnd", description = "Match complete, winner declared" },
-	{ name = "ReturnToLobby", description = "Teleport players back to lobby" },
+	{ name = "GadgetUseResponse", description = "Server responds to gadget use" },
+	{ name = "GadgetAreaLoaded", description = "Server sends area gadgets to client" },
 }
 
 return Remotes

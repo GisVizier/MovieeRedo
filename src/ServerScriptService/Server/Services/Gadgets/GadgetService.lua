@@ -6,6 +6,8 @@ local Gadgets = require(Locations.Game:WaitForChild("Gadgets"))
 local GadgetBase = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("GadgetBase"))
 local JumpPad = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("JumpPad"))
 local Zipline = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Zipline"))
+local AreaTeleport = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("AreaTeleport"))
+local Exit = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Exit"))
 
 local GadgetService = {}
 
@@ -16,9 +18,13 @@ function GadgetService:Init(registry, net)
 	self._gadgetSystem:setFallbackClass(GadgetBase)
 	self._gadgetsByMap = {}
 	self._mapByGadgetId = {}
+	self._loadedAreas = {} -- Track which areas have been scanned
+	self._areaFolders = {} -- Map areaId -> folder instance
 
 	self:Register("JumpPad", JumpPad)
 	self:Register("Zipline", Zipline)
+	self:Register("AreaTeleport", AreaTeleport)
+	self:Register("Exit", Exit)
 
 	self._net:ConnectServer("GadgetInitRequest", function(player)
 		self:SendInitToPlayer(player)
@@ -38,9 +44,38 @@ function GadgetService:Start()
 	if not world then
 		world = workspace:WaitForChild("World", 10)
 	end
+	if not world then
+		warn("[GadgetService] World not found")
+		return
+	end
 
-	if world then
-		self:CreateForMap(world, nil)
+	local mapFolder = world:FindFirstChild("Map")
+	if not mapFolder then
+		warn("[GadgetService] World/Map not found")
+		return
+	end
+
+	-- Load Lobby gadgets at startup
+	local lobby = mapFolder:FindFirstChild("Lobby")
+	if lobby then
+		self._areaFolders["Lobby"] = lobby
+		self:CreateForMap(lobby, nil)
+		self._loadedAreas["Lobby"] = true
+		print("[GadgetService] Loaded Lobby gadgets")
+	else
+		warn("[GadgetService] Lobby folder not found")
+	end
+
+	-- Register TrainingArea folder (but don't load gadgets yet)
+	local trainingArea = mapFolder:FindFirstChild("TrainingArea")
+	if trainingArea then
+		self._areaFolders["TrainingArea"] = trainingArea
+		
+		-- Set streaming mode to Atomic so gadgets are always loaded when player is nearby
+		if trainingArea:IsA("Model") then
+			trainingArea.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+			print("[GadgetService] Set TrainingArea ModelStreamingMode to Atomic")
+		end
 	end
 end
 
@@ -98,6 +133,53 @@ function GadgetService:ClearForMap(mapInstance)
 	end
 
 	self._gadgetsByMap[mapInstance] = nil
+end
+
+function GadgetService:GetAreaFolder(areaId)
+	return self._areaFolders[areaId]
+end
+
+function GadgetService:LoadAreaForPlayer(player, areaId)
+	if not player or type(areaId) ~= "string" then
+		return
+	end
+
+	local areaFolder = self._areaFolders[areaId]
+	if not areaFolder then
+		warn("[GadgetService] Area folder not registered: " .. areaId)
+		return
+	end
+
+	-- Scan area if not already done (server-side gadgets)
+	if not self._loadedAreas[areaId] then
+		self:CreateForMap(areaFolder, nil)
+		self._loadedAreas[areaId] = true
+		print("[GadgetService] Loaded server gadgets for area: " .. areaId)
+	end
+
+	-- Send only this area's gadgets to the player
+	local payload = self:_buildPayloadForMap(areaFolder)
+	self._net:FireClient("GadgetAreaLoaded", player, areaId, payload)
+end
+
+function GadgetService:_buildPayloadForMap(mapInstance)
+	local payload = {}
+	local gadgets = self._gadgetsByMap[mapInstance] or {}
+
+	for _, gadget in ipairs(gadgets) do
+		local model = gadget:getModel()
+		local typeName = gadget:getTypeName()
+		local id = gadget:getId()
+		if model and model.Parent and type(typeName) == "string" then
+			table.insert(payload, {
+				id = id,
+				typeName = typeName,
+				model = model,
+			})
+		end
+	end
+
+	return payload
 end
 
 function GadgetService:SendInitToPlayer(player)
