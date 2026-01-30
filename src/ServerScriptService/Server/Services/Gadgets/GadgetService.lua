@@ -45,13 +45,11 @@ function GadgetService:Start()
 		world = workspace:WaitForChild("World", 10)
 	end
 	if not world then
-		warn("[GadgetService] World not found")
 		return
 	end
 
 	local mapFolder = world:FindFirstChild("Map")
 	if not mapFolder then
-		warn("[GadgetService] World/Map not found")
 		return
 	end
 
@@ -61,9 +59,7 @@ function GadgetService:Start()
 		self._areaFolders["Lobby"] = lobby
 		self:CreateForMap(lobby, nil)
 		self._loadedAreas["Lobby"] = true
-		print("[GadgetService] Loaded Lobby gadgets")
 	else
-		warn("[GadgetService] Lobby folder not found")
 	end
 
 	-- Register TrainingArea folder (but don't load gadgets yet)
@@ -74,7 +70,6 @@ function GadgetService:Start()
 		-- Set streaming mode to Atomic so gadgets are always loaded when player is nearby
 		if trainingArea:IsA("Model") then
 			trainingArea.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
-			print("[GadgetService] Set TrainingArea ModelStreamingMode to Atomic")
 		end
 	end
 end
@@ -94,12 +89,10 @@ function GadgetService:CreateForMap(mapInstance, dataByType)
 	})
 	self._gadgetsByMap[mapInstance] = created
 
-	print(string.format("[GadgetService] Scanned map '%s' -> %d gadgets", mapInstance.Name, #created))
 	for _, gadget in ipairs(created) do
 		local model = gadget.getModel and gadget:getModel() or gadget.model
 		local typeName = gadget.getTypeName and gadget:getTypeName() or gadget.typeName
 		if model and typeName then
-			print(string.format("[GadgetService] Gadget '%s' type='%s'", model.Name, tostring(typeName)))
 		end
 	end
 
@@ -146,7 +139,6 @@ function GadgetService:LoadAreaForPlayer(player, areaId)
 
 	local areaFolder = self._areaFolders[areaId]
 	if not areaFolder then
-		warn("[GadgetService] Area folder not registered: " .. areaId)
 		return
 	end
 
@@ -154,7 +146,6 @@ function GadgetService:LoadAreaForPlayer(player, areaId)
 	if not self._loadedAreas[areaId] then
 		self:CreateForMap(areaFolder, nil)
 		self._loadedAreas[areaId] = true
-		print("[GadgetService] Loaded server gadgets for area: " .. areaId)
 	end
 
 	-- Send only this area's gadgets to the player

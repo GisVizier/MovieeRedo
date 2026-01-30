@@ -29,6 +29,7 @@ function GadgetUtils:_normalizeTypeName(name)
 		Ziplines = "Zipline",
 		Exits = "Exit",
 		["ShootingRange"] = "AreaTeleport",
+		["Teleports"] = "AreaTeleport",
 	}
 	return aliases[name] or name
 end

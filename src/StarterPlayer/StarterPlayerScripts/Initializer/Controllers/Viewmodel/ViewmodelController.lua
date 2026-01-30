@@ -71,8 +71,6 @@ ViewmodelController._attrConn = nil
 ViewmodelController._ziplineAttrConn = nil
 ViewmodelController._equipKeysConn = nil
 
-ViewmodelController._gameplayEnabled = true
-
 ViewmodelController._rigStorage = nil
 ViewmodelController._storedRigs = nil
 ViewmodelController._equippedSkins = nil
@@ -199,7 +197,6 @@ function ViewmodelController:Init(registry, net)
 
 	if self._net and self._net.ConnectClient then
 		self._startMatchConn = self._net:ConnectClient("StartMatch", function(_matchData)
-			self._gameplayEnabled = true
 			self:SetActiveSlot("Primary")
 		end)
 
@@ -264,7 +261,6 @@ function ViewmodelController:Init(registry, net)
 					manager.IsMenuOpen
 					or manager.IsChatFocused
 					or manager.IsSettingsOpen
-					or not manager.GameplayEnabled
 				then
 					return
 				end

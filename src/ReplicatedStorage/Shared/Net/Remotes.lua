@@ -66,11 +66,8 @@ local Remotes = {
 	{ name = "GadgetInitRequest", description = "Client requests gadget init" },
 	{ name = "GadgetInit", description = "Server sends all gadgets to client" },
 	{ name = "GadgetUseRequest", description = "Client requests gadget use" },
-<<<<<<< HEAD
 	{ name = "GadgetUseResponse", description = "Server responds to gadget use" },
 	{ name = "GadgetAreaLoaded", description = "Server sends area gadgets to client" },
-=======
-	{ name = "GadgetUseResponse", description = "Server responds to gadget use request" },
 
 	-- Knockback system
 	{ name = "KnockbackRequest", description = "Client requests knockback on another player" },
@@ -94,7 +91,6 @@ local Remotes = {
 	{ name = "PlayerJoinedMatch", description = "Player joined match (training mode)" },
 	{ name = "PlayerLeftMatch", description = "Player left match" },
 	{ name = "PlayerRespawned", description = "Player respawned (training mode)" },
->>>>>>> 6e4120d (emote + lobby fix)
 }
 
 return Remotes

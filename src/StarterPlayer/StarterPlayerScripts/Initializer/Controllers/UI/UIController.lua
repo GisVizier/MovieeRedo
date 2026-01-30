@@ -20,19 +20,11 @@ function UIController:Init(registry, net)
 	self._registry = registry
 	self._net = net
 
-<<<<<<< HEAD
-	-- Gameplay enabled by default for lobby mode
-	-- Will be disabled when entering match/loadout screens
-=======
-	-- Default: allow movement in lobby on spawn.
-	self:SetGameplayEnabled(true)
-
 	-- Lobby state flag (used by camera/emotes to block first person)
 	local player = Players.LocalPlayer
 	if player then
 		player:SetAttribute("InLobby", true)
 	end
->>>>>>> 6e4120d (emote + lobby fix)
 
 	-- Current match data
 	self._currentMapId = nil
@@ -65,23 +57,6 @@ end
 
 function UIController:Start() end
 
-function UIController:SetGameplayEnabled(enabled: boolean)
-	local inputController = self._registry and self._registry:TryGet("Input")
-	if inputController and inputController.SetGameplayEnabled then
-		inputController:SetGameplayEnabled(enabled)
-	end
-
-	local movementController = self._registry and self._registry:TryGet("Movement")
-	if movementController and movementController.SetGameplayEnabled then
-		movementController:SetGameplayEnabled(enabled)
-	end
-
-	local cameraController = self._registry and self._registry:TryGet("Camera")
-	if cameraController and cameraController.SetGameplayEnabled then
-		cameraController:SetGameplayEnabled(enabled)
-	end
-end
-
 function UIController:_bootstrapUi()
 	local player = Players.LocalPlayer
 	if not player then
@@ -92,8 +67,6 @@ function UIController:_bootstrapUi()
 	local screenGui = playerGui:WaitForChild("Gui", 30)
 	if not screenGui then
 		warn("[UIController] Gui ScreenGui not found in PlayerGui")
-		-- Safety: allow movement even if UI fails to load.
-		self:SetGameplayEnabled(true)
 		return
 	end
 
@@ -153,13 +126,7 @@ function UIController:_bootstrapUi()
 	-- Emote wheel input wiring
 	self:_setupEmoteWheelInput(ui)
 
-<<<<<<< HEAD
-	-- No UI shown on init - gameplay is enabled after character loads
-=======
-	-- Initial UI: Show lobby/start screen and enable free movement
-	self:SetGameplayEnabled(true)
-	ui:show("Start", true)
->>>>>>> 6e4120d (emote + lobby fix)
+	-- No UI shown on init - gameplay is enabled by default
 end
 
 function UIController:_onLoadoutComplete(data)
@@ -237,7 +204,6 @@ function UIController:_onStartMatch(matchData)
 	if player then
 		player:SetAttribute("InLobby", false)
 	end
-	self:SetGameplayEnabled(true)
 
 	if not self._coreUi then
 		return
@@ -278,9 +244,6 @@ function UIController:_onShowRoundLoadout(data)
 		return
 	end
 
-	-- Disable gameplay while selecting loadout
-	self:SetGameplayEnabled(false)
-
 	-- Hide HUD temporarily
 	safeCall(function()
 		self._coreUi:hide("HUD")
@@ -316,9 +279,6 @@ function UIController:_onRoundStart(data)
 		player:SetAttribute("InLobby", false)
 	end
 
-	-- Re-enable gameplay
-	self:SetGameplayEnabled(true)
-
 	-- Hide loadout if visible
 	safeCall(function()
 		self._coreUi:hide("Loadout")
@@ -335,9 +295,6 @@ function UIController:_onMatchEnd(data)
 		return
 	end
 
-	-- Disable gameplay
-	self:SetGameplayEnabled(false)
-
 	-- Could show victory/defeat screen here
 	-- For now, just hide HUD
 	safeCall(function()
@@ -353,18 +310,10 @@ function UIController:_onReturnToLobby(data)
 	-- Reset state
 	self._currentMapId = nil
 
-<<<<<<< HEAD
-	-- Enable gameplay for lobby (players can walk around, use gadgets, etc.)
-	self:SetGameplayEnabled(true)
-=======
-	-- Lobby mode: allow movement
-	self:SetGameplayEnabled(true)
-
 	local player = Players.LocalPlayer
 	if player then
 		player:SetAttribute("InLobby", true)
 	end
->>>>>>> 6e4120d (emote + lobby fix)
 
 	-- Hide all match UI
 	safeCall(function()

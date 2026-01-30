@@ -19,7 +19,6 @@ InputManager.IsCrouching = false
 InputManager.IsMenuOpen = false
 InputManager.IsChatFocused = false
 InputManager.IsSettingsOpen = false
-InputManager.GameplayEnabled = true  -- Enabled by default for lobby
 
 InputManager.KeyStates = {
 	W = false,
@@ -54,13 +53,6 @@ InputManager.Callbacks = {
 	Settings = {},
 	Emotes = {},
 }
-
-function InputManager:SetGameplayEnabled(enabled: boolean)
-	self.GameplayEnabled = enabled == true
-	if not self.GameplayEnabled then
-		self:StopAllInputs()
-	end
-end
 
 local function CheckKeybindMatch(input, keybind)
 	if not keybind then
@@ -243,7 +235,6 @@ function InputManager:SetupKeyboardMouse()
 			or self.IsMenuOpen
 			or self.IsChatFocused
 			or self.IsSettingsOpen
-			or not self.GameplayEnabled
 		then
 			return
 		end
@@ -308,7 +299,6 @@ function InputManager:SetupKeyboardMouse()
 			or self.IsMenuOpen
 			or self.IsChatFocused
 			or self.IsSettingsOpen
-			or not self.GameplayEnabled
 		then
 			return
 		end
@@ -371,7 +361,6 @@ function InputManager:SetupKeyboardMouse()
 			or self.IsMenuOpen
 			or self.IsChatFocused
 			or self.IsSettingsOpen
-			or not self.GameplayEnabled
 		then
 			return
 		end

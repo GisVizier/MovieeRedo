@@ -3,9 +3,6 @@ local CameraController = {}
 -- Lobby state: camera mode switching is disabled
 CameraController._cameraModeKeybindEnabled = false
 
-function CameraController:SetGameplayEnabled(_enabled: boolean)
-	-- No-op; UpdateCamera checks InputController.Manager.GameplayEnabled.
-end
 
 function CameraController:SetCameraModeKeybindEnabled(enabled)
 	self._cameraModeKeybindEnabled = enabled
@@ -416,13 +413,8 @@ function CameraController:SetupInput()
 				UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
 			end
 		end
-<<<<<<< HEAD
-		
-		-- T key to cycle camera modes (disabled in lobby)
-=======
 
-		-- T key to cycle camera modes
->>>>>>> 6e4120d (emote + lobby fix)
+		-- T key to cycle camera modes (disabled in lobby via _cameraModeKeybindEnabled)
 		if input.KeyCode == Config.Controls.Input.ToggleCameraMode then
 			if self._cameraModeKeybindEnabled then
 				self:CycleCameraMode()
@@ -806,13 +798,6 @@ function CameraController:StartCameraLoop()
 end
 
 function CameraController:UpdateCamera()
-	-- Gameplay gating: UI flow disables gameplay until StartMatch.
-	if self._registry then
-		local inputController = self._registry:TryGet("Input")
-		if inputController and inputController.Manager and inputController.Manager.GameplayEnabled == false then
-			return
-		end
-	end
 
 	if not self.Character or not self.Character.Parent then
 		return

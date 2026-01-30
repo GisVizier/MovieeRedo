@@ -77,24 +77,12 @@ CharacterController.LastUpdateTime = 0
 CharacterController.MinFrameTime = 0
 CharacterController.Connection = nil
 
-CharacterController.GameplayEnabled = true
-
 -- Respawn / reset reliability
 CharacterController.RespawnRequested = false
 CharacterController.StepUpRemaining = 0
 CharacterController.LastStepUpTime = 0
 CharacterController.StepUpBoostTime = 0
 CharacterController.StepUpRequiredVelocity = 0
-
-function CharacterController:SetGameplayEnabled(enabled: boolean)
-	self.GameplayEnabled = enabled == true
-	if not self.GameplayEnabled then
-		-- Clear any residual input so the character won't drift.
-		if self.InputManager then
-			self.InputManager:ResetInputState()
-		end
-	end
-end
 
 function CharacterController:Init(registry, net)
 	self._registry = registry
@@ -387,6 +375,10 @@ function CharacterController:StartMovementLoop()
 		local currentTime = tick()
 		local deltaTime = currentTime - self.LastUpdateTime
 
+		-- Clamp deltaTime to prevent physics explosion on first frame
+		-- (LastUpdateTime starts at 0, so first deltaTime would be huge)
+		deltaTime = math.min(deltaTime, 0.1)
+
 		if deltaTime >= self.MinFrameTime then
 			self.LastUpdateTime = currentTime
 			self:UpdateMovement(deltaTime)
@@ -399,11 +391,6 @@ end
 -- =============================================================================
 
 function CharacterController:UpdateMovement(deltaTime)
-	-- Gameplay gating: do not run movement simulation until StartMatch.
-	if self.GameplayEnabled == false then
-		return
-	end
-
 	if self.Character then
 		if not self._missingRootLogged and not CharacterLocations:GetRoot(self.Character) then
 			self._missingRootLogged = true

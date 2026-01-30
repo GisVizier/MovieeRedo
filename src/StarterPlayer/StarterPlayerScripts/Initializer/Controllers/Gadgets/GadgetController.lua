@@ -121,8 +121,6 @@ function GadgetController:_onAreaLoaded(areaId, payload)
 			end
 		end
 	end
-
-	print("[GadgetController] Loaded area: " .. areaId .. " (" .. #self._loadedAreas[areaId] .. " gadgets)")
 end
 
 function GadgetController:UnloadArea(areaId)
@@ -136,7 +134,6 @@ function GadgetController:UnloadArea(areaId)
 	end
 
 	self._loadedAreas[areaId] = nil
-	print("[GadgetController] Unloaded area: " .. areaId)
 end
 
 return GadgetController

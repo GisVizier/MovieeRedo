@@ -34,7 +34,6 @@ function AreaTeleport:onClientCreated()
 
 	local entrance = model:FindFirstChild("Entrance") or model:FindFirstChild("Enter")
 	if not entrance or not entrance:IsA("BasePart") then
-		warn("[AreaTeleport] No Entrance part found in " .. model.Name)
 		return
 	end
 
@@ -87,7 +86,6 @@ function AreaTeleport:onUseRequest(player, _payload)
 
 	local destAreaId = model:GetAttribute("DestinationArea")
 	if not destAreaId or destAreaId == "" then
-		warn("[AreaTeleport] No DestinationArea attribute on " .. model.Name)
 		return { approved = false }
 	end
 
@@ -105,26 +103,30 @@ function AreaTeleport:onUseRequest(player, _payload)
 	local registry = self.context and self.context.registry
 	local gadgetService = registry and registry:TryGet("GadgetService")
 	if not gadgetService then
-		warn("[AreaTeleport] GadgetService not found")
 		return { approved = false }
 	end
 
 	-- Get destination area folder
 	local destFolder = gadgetService:GetAreaFolder(destAreaId)
 	if not destFolder then
-		warn("[AreaTeleport] Destination area not found: " .. destAreaId)
 		return { approved = false }
 	end
 
 	-- Find spawn point in destination
 	local spawnCFrame = self:_findSpawnInArea(destFolder)
 	if not spawnCFrame then
-		warn("[AreaTeleport] No spawn found in destination: " .. destAreaId)
 		return { approved = false }
 	end
 
-	-- Teleport player
+	-- Teleport player (anchor briefly to prevent physics fighting)
+	local wasAnchored = root.Anchored
+	root.Anchored = true
 	root.CFrame = spawnCFrame
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	task.defer(function()
+		root.Anchored = wasAnchored
+	end)
 
 	-- Load destination area gadgets for this player
 	gadgetService:LoadAreaForPlayer(player, destAreaId)
@@ -175,9 +177,6 @@ end
 
 function AreaTeleport:onUseResponse(approved, responseData)
 	-- Client-side: Handle response (teleport already happened server-side)
-	if approved and responseData and responseData.areaId then
-		print("[AreaTeleport] Teleported to: " .. responseData.areaId)
-	end
 end
 
 function AreaTeleport:destroy()
