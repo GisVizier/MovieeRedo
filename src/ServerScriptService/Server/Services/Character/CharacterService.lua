@@ -235,7 +235,13 @@ function CharacterService:RemoveCharacter(player)
 end
 
 function CharacterService:_getSpawnPosition()
-<<<<<<< HEAD
+	-- Look for tagged lobby spawns first
+	local lobbySpawns = CollectionService:GetTagged("LobbySpawn")
+	if #lobbySpawns > 0 then
+		local spawn = lobbySpawns[math.random(1, #lobbySpawns)]
+		return spawn.Position + Vector3.new(0, 3, 0)
+	end
+
 	-- Primary: Use World/Spawn part
 	local world = workspace:FindFirstChild("World")
 	if world then
@@ -251,24 +257,11 @@ function CharacterService:_getSpawnPosition()
 		end
 	end
 
-	-- Fallback: SpawnLocation
-	local spawnLocation = workspace:FindFirstChildOfClass("SpawnLocation")
-	if spawnLocation then
-		return spawnLocation.Position + Vector3.new(0, 3, 0)
-=======
-	-- Look for tagged lobby spawns first
-	local lobbySpawns = CollectionService:GetTagged("LobbySpawn")
-	if #lobbySpawns > 0 then
-		local spawn = lobbySpawns[math.random(1, #lobbySpawns)]
-		return spawn.Position + Vector3.new(0, 3, 0)
-	end
-
 	-- Fallback: search for any SpawnLocation in workspace
 	for _, descendant in workspace:GetDescendants() do
 		if descendant:IsA("SpawnLocation") then
 			return descendant.Position + Vector3.new(0, 3, 0)
 		end
->>>>>>> 6e4120d (emote + lobby fix)
 	end
 
 	return Vector3.new(0, 5, 0)
