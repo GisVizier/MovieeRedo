@@ -14,6 +14,7 @@ local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 MovementInputProcessor.JumpPressed = false
 MovementInputProcessor.JumpExecuted = false
 MovementInputProcessor.LastJumpTime = 0
+MovementInputProcessor.LastWallJumpTime = 0
 MovementInputProcessor.WasGroundedLastFrame = false
 
 MovementInputProcessor.CharacterController = nil
@@ -271,6 +272,7 @@ function MovementInputProcessor:HandleWallJump()
 
 	if wallJumpSucceeded then
 		self:MarkJumpExecuted()
+		self.LastWallJumpTime = self.LastJumpTime
 
 		if TestMode.Logging.LogSlidingSystem then
 			LogService:Info("INPUT", "Wall jump executed successfully", {
@@ -279,10 +281,12 @@ function MovementInputProcessor:HandleWallJump()
 			})
 		end
 	else
-		self:MarkJumpExecuted()
+		-- Only mark as consumed so it won't retry, but don't set LastJumpTime
+		-- so the jump sound doesn't play for a failed attempt
+		self.JumpExecuted = true
 
 		if TestMode.Logging.LogSlidingSystem then
-			LogService:Debug("INPUT", "Wall jump failed - no wall detected, marking as executed")
+			LogService:Debug("INPUT", "Wall jump failed - no wall detected, marking as consumed")
 		end
 	end
 end

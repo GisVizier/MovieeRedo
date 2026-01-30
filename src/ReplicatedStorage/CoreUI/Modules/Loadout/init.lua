@@ -202,17 +202,14 @@ local function resolveSkinImage(weaponId, weaponData)
 		end
 	end
 
+	-- Only show skins that are explicitly equipped (no fallback to first owned)
 	if not skinId or skinId == "" then
-		ownedSkins = ownedSkins or {}
-		if #ownedSkins > 0 then
-			skinId = ownedSkins[1]
-			log("skinFallback", weaponId, skinId)
-		end
+		log("skinSkipped", weaponId, "no equipped skin")
+		return nil
 	end
 
 	if
-		skinId
-		and ((hasSkinApi and PlayerDataTable.isSkinOwned(weaponId, skinId)) or (not hasSkinApi and table.find(
+		((hasSkinApi and PlayerDataTable.isSkinOwned(weaponId, skinId)) or (not hasSkinApi and table.find(
 			ownedSkins or {},
 			skinId
 		)))

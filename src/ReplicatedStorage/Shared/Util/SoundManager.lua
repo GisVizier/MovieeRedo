@@ -2,6 +2,7 @@ local SoundManager = {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -20,6 +21,34 @@ function SoundManager:Init()
 			group.Name = groupName
 			group.Volume = groupConfig.Volume or 1
 			group.Parent = SoundService
+		end
+	end
+
+	-- Preload all sound assets so they play instantly
+	self:PreloadSounds()
+end
+
+function SoundManager:PreloadSounds()
+	local soundsConfig = Config.Audio and Config.Audio.Sounds
+	if not soundsConfig then
+		return
+	end
+
+	local preloadItems = {}
+	for _, categoryConfig in pairs(soundsConfig) do
+		for _, definition in pairs(categoryConfig) do
+			if definition.Id and typeof(definition.Id) == "string" and definition.Id ~= "" then
+				local preloadSound = Instance.new("Sound")
+				preloadSound.SoundId = definition.Id
+				table.insert(preloadItems, preloadSound)
+			end
+		end
+	end
+
+	if #preloadItems > 0 then
+		ContentProvider:PreloadAsync(preloadItems)
+		for _, item in ipairs(preloadItems) do
+			item:Destroy()
 		end
 	end
 end
@@ -78,7 +107,9 @@ function SoundManager:PlaySound(category, name, parent, pitch)
 	end
 
 	sound:Play()
-	Debris:AddItem(sound, sound.TimeLength + 0.5)
+	-- TimeLength is 0 for sounds that haven't loaded yet; use a safe minimum
+	local cleanupTime = math.max(sound.TimeLength, 3) + 0.5
+	Debris:AddItem(sound, cleanupTime)
 end
 
 function SoundManager:RequestSoundReplication(category, name, _position, pitch)

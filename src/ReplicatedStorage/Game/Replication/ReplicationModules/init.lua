@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local VFXRep = {}
 
@@ -32,6 +33,13 @@ local function getModule(name)
 		end
 	end
 	return VFXRep.Modules[name]
+end
+
+local function waitForLocalPlayerLoaded()
+	if Players.LocalPlayer then
+		return
+	end
+	Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
 end
 
 local function getTargets(sender: Player, targetSpec)
@@ -110,6 +118,13 @@ function VFXRep:Init(net, isServer)
 			end
 		end)
 	else
+		-- Wait for assets that MovementFX modules depend on (StreamingEnabled-safe).
+		local assets = ReplicatedStorage:WaitForChild("Assets", 10)
+		if assets then
+			assets:WaitForChild("MovementFX", 10)
+		end
+
+		waitForLocalPlayerLoaded()
 		loadModules()
 		self._net:ConnectClient("VFXRep", function(originUserId, moduleName, functionName, data)
 			local mod = getModule(moduleName)

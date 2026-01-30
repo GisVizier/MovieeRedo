@@ -3,6 +3,7 @@ local CharacterController = {}
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
@@ -60,7 +61,7 @@ CharacterController.LastDeltaTime = 1 / 60
 
 CharacterController.LastFootstepTime = 0
 CharacterController.LastJumpSoundTime = 0
-CharacterController.FallSoundPlayed = false
+CharacterController.FallSound = nil
 CharacterController.LastGroundDebugTime = 0
 CharacterController.LastMovementDebugTime = 0
 
@@ -190,11 +191,19 @@ function CharacterController:OnLocalCharacterReady(character)
 
 	self:StartMovementLoop()
 
+	-- Pre-create looped sounds so they play instantly
+	self:EnsureFallSound()
 end
 
 function CharacterController:OnLocalCharacterRemoving()
 	self:StopUncrouchChecking()
 	SlidingSystem:Cleanup()
+
+	if self.FallSound then
+		self.FallSound:Stop()
+		self.FallSound:Destroy()
+		self.FallSound = nil
+	end
 
 	self.Character = nil
 	self.PrimaryPart = nil
@@ -1290,14 +1299,12 @@ function CharacterController:GetCurrentSpeed()
 	return Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 end
 
-function CharacterController:PlayMovementSound(soundName, position, pitch)
+function CharacterController:PlayMovementSound(soundName, _position, pitch)
 	if not soundName then
 		return
 	end
 
-	local parent = self.PrimaryPart
-	SoundManager:PlaySound("Movement", soundName, parent, pitch)
-	SoundManager:RequestSoundReplication("Movement", soundName, position, pitch)
+	SoundManager:PlaySound("Movement", soundName, self.PrimaryPart, pitch)
 end
 
 function CharacterController:UpdateFootsteps()
@@ -1369,24 +1376,123 @@ function CharacterController:UpdateMovementAudio()
 		return
 	end
 
+	-- Jump / SlideLaunch / WallJump sound
 	local lastJumpTime = self.MovementInputProcessor and self.MovementInputProcessor.LastJumpTime or 0
 	if lastJumpTime > self.LastJumpSoundTime then
 		self.LastJumpSoundTime = lastJumpTime
-		self.FallSoundPlayed = false
-		self:PlayMovementSound("Jump", self.PrimaryPart.Position, movementSounds.Jump and movementSounds.Jump.Pitch)
+
+		local isSlideLaunch = math.abs(lastJumpTime - SlidingSystem.LastJumpCancelTime) < 0.05
+		local lastWallJumpTime = self.MovementInputProcessor.LastWallJumpTime or 0
+		local isWallJump = math.abs(lastJumpTime - lastWallJumpTime) < 0.05
+
+		if isSlideLaunch then
+			self:PlayMovementSound("SlideLaunch", self.PrimaryPart.Position, movementSounds.SlideLaunch and movementSounds.SlideLaunch.Pitch)
+			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "SlideLaunch", pitch = movementSounds.SlideLaunch and movementSounds.SlideLaunch.Pitch })
+		elseif isWallJump then
+			self:PlayMovementSound("WallJump", self.PrimaryPart.Position, movementSounds.WallJump and movementSounds.WallJump.Pitch)
+			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "WallJump", pitch = movementSounds.WallJump and movementSounds.WallJump.Pitch })
+		else
+			self:PlayMovementSound("Jump", self.PrimaryPart.Position, movementSounds.Jump and movementSounds.Jump.Pitch)
+			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Jump", pitch = movementSounds.Jump and movementSounds.Jump.Pitch })
+		end
 	end
 
+	-- Falling looped sound
 	local velocity = self.PrimaryPart.AssemblyLinearVelocity
 	if not self.IsGrounded then
-		if not self.FallSoundPlayed and velocity.Y < -35 then
-			self.FallSoundPlayed = true
-			self:PlayMovementSound("Fall", self.PrimaryPart.Position, movementSounds.Fall and movementSounds.Fall.Pitch)
+		if velocity.Y < -80 then
+			if not self.FallSound or not self.FallSound.IsPlaying then
+				self:StartFallSound()
+			end
 		end
 	else
-		if not self.WasGrounded and math.abs(velocity.Y) >= 35 then
-			self:PlayMovementSound("Land", self.PrimaryPart.Position, movementSounds.Land and movementSounds.Land.Pitch)
+		if self.FallSound and self.FallSound.IsPlaying then
+			self:StopFallSound()
 		end
-		self.FallSoundPlayed = false
+	end
+
+	-- Landing: play footstep for the material you land on
+	if self.IsGrounded and not self.WasGrounded then
+		-- Stop fall sound immediately on landing
+		if self.FallSound and self.FallSound.IsPlaying then
+			self:StopFallSound()
+		end
+
+		local footstepConfig = Config.Audio and Config.Audio.Footsteps
+		if footstepConfig then
+			local _, materialName = MovementUtils:CheckGroundedWithMaterial(
+				self.Character,
+				self.PrimaryPart,
+				self.RaycastParams
+			)
+			local soundName = (materialName and footstepConfig.MaterialMap and footstepConfig.MaterialMap[materialName])
+				or footstepConfig.DefaultSound
+				or "FootstepConcrete"
+			local pitch = 0.9 + math.random() * 0.2
+			self:PlayMovementSound(soundName, self.PrimaryPart.Position, pitch)
+			VFXRep:Fire("Others", { Module = "Sound" }, { sound = soundName, pitch = pitch })
+		end
+	end
+end
+
+function CharacterController:EnsureFallSound()
+	if self.FallSound and self.FallSound.Parent then
+		return self.FallSound
+	end
+
+	if not self.PrimaryPart then
+		return nil
+	end
+
+	local definition = Config.Audio and Config.Audio.Sounds and Config.Audio.Sounds.Movement
+		and Config.Audio.Sounds.Movement.Falling
+	if not definition or not definition.Id then
+		return nil
+	end
+
+	local sound = Instance.new("Sound")
+	sound.Name = "FallLoop"
+	sound.SoundId = definition.Id
+	sound.Volume = 0
+	sound.PlaybackSpeed = definition.Pitch or 1.0
+	sound.RollOffMode = definition.RollOffMode or Enum.RollOffMode.Linear
+	sound.EmitterSize = definition.EmitterSize or 10
+	sound.MinDistance = definition.MinDistance or 5
+	sound.MaxDistance = definition.MaxDistance or 30
+	sound.Looped = true
+
+	local soundGroup = game:GetService("SoundService"):FindFirstChild("Movement")
+	if soundGroup and soundGroup:IsA("SoundGroup") then
+		sound.SoundGroup = soundGroup
+	end
+
+	sound.Parent = self.PrimaryPart
+	self.FallSound = sound
+	self.FallSoundTargetVolume = definition.Volume or 0.6
+	return sound
+end
+
+function CharacterController:StartFallSound()
+	local sound = self:EnsureFallSound()
+	if not sound then
+		return
+	end
+
+	if not sound.IsPlaying then
+		sound.Volume = 0
+		sound:Play()
+		TweenService:Create(sound, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Volume = self.FallSoundTargetVolume or 0.6,
+		}):Play()
+		VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Falling", action = "start" })
+	end
+end
+
+function CharacterController:StopFallSound()
+	if self.FallSound and self.FallSound.IsPlaying then
+		self.FallSound:Stop()
+		self.FallSound.Volume = 0
+		VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Falling", action = "stop" })
 	end
 end
 
@@ -1430,7 +1536,9 @@ function CharacterController:HandleCrouch(isCrouching)
 		CrouchUtils:Crouch(self.Character)
 		local movementSounds = Config.Audio and Config.Audio.Sounds and Config.Audio.Sounds.Movement
 		if movementSounds and movementSounds.Crouch and self.PrimaryPart then
-			self:PlayMovementSound("Crouch", self.PrimaryPart.Position, movementSounds.Crouch.Pitch)
+			local pitch = movementSounds.Crouch.Pitch
+			self:PlayMovementSound("Crouch", self.PrimaryPart.Position, pitch)
+			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Crouch", pitch = pitch })
 		end
 		MovementStateManager:TransitionTo(MovementStateManager.States.Crouching)
 	else

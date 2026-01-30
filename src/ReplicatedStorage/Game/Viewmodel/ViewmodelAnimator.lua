@@ -39,7 +39,7 @@ local function isValidAnimId(animId: any): boolean
 	return type(animId) == "string" and animId ~= "" and animId ~= "rbxassetid://0"
 end
 
-local function getAnimationInstance(weaponId: string, animName: string): Animation?
+local function getAnimationInstance(weaponId: string, animName: string, skinId: string?): Animation?
 	-- Try to load from Assets/Animations/ViewModel/{WeaponId}/{AnimName}
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if not assets then
@@ -61,6 +61,18 @@ local function getAnimationInstance(weaponId: string, animName: string): Animati
 		return nil
 	end
 
+	-- Check skin-specific animations first
+	if skinId then
+		local skinFolder = weaponFolder:FindFirstChild(skinId)
+		if skinFolder then
+			local animInstance = skinFolder:FindFirstChild(animName)
+			if animInstance and animInstance:IsA("Animation") then
+				return animInstance
+			end
+		end
+	end
+
+	-- Fall back to default Viewmodel folder
 	local viewmodelFolder = weaponFolder:FindFirstChild("Viewmodel")
 	if not viewmodelFolder then
 		return nil
@@ -74,22 +86,51 @@ local function getAnimationInstance(weaponId: string, animName: string): Animati
 	return nil
 end
 
-local function resolveViewmodelAnimations(weaponId: string?)
-	local cfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
-	return (cfg and cfg.Animations) or {}
+local function resolveViewmodelAnimations(weaponId: string?, skinId: string?)
+	local baseAnims = {}
+	local skinAnims = {}
+
+	-- Get base weapon animations
+	local baseCfg = ViewmodelConfig.Weapons[weaponId or ""] or ViewmodelConfig.Weapons.Fists
+	if baseCfg and baseCfg.Animations then
+		for name, animRef in pairs(baseCfg.Animations) do
+			baseAnims[name] = animRef
+		end
+	end
+
+	-- Get skin-specific animation overrides
+	if skinId and ViewmodelConfig.Skins then
+		local weaponSkins = ViewmodelConfig.Skins[weaponId]
+		if weaponSkins and weaponSkins[skinId] and weaponSkins[skinId].Animations then
+			for name, animRef in pairs(weaponSkins[skinId].Animations) do
+				skinAnims[name] = animRef
+			end
+		end
+	end
+
+	-- Merge: skin animations override base animations
+	local merged = {}
+	for name, animRef in pairs(baseAnims) do
+		merged[name] = animRef
+	end
+	for name, animRef in pairs(skinAnims) do
+		merged[name] = animRef
+	end
+
+	return merged
 end
 
-local function buildTracks(animator: Animator, weaponId: string?)
+local function buildTracks(animator: Animator, weaponId: string?, skinId: string?)
 	local tracks = {}
 	local trackSettings = {}
-	local anims = resolveViewmodelAnimations(weaponId)
+	local anims = resolveViewmodelAnimations(weaponId, skinId)
 
 	for name, animRef in pairs(anims) do
 		local animInstance = nil
 
-		-- Try to load as Animation instance first
+		-- Try to load as Animation instance first (check skin folder, then base)
 		if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
-			animInstance = getAnimationInstance(weaponId, animRef)
+			animInstance = getAnimationInstance(weaponId, animRef, skinId)
 			if animInstance then
 				
 			else
@@ -201,19 +242,20 @@ function ViewmodelAnimator.PreloadKitAnimations()
 		return PreloadedKitAnimations
 	end
 	
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	-- StreamingEnabled-safe: wait briefly for Assets/Animations to exist.
+	local assets = ReplicatedStorage:FindFirstChild("Assets") or ReplicatedStorage:WaitForChild("Assets", 10)
 	if not assets then
 	
 		return PreloadedKitAnimations
 	end
 	
-	local animations = assets:FindFirstChild("Animations")
+	local animations = assets:FindFirstChild("Animations") or assets:WaitForChild("Animations", 10)
 	if not animations then
 		warn("[ViewmodelAnimator] Animations folder not found")
 		return PreloadedKitAnimations
 	end
 	
-	local viewModel = animations:FindFirstChild("ViewModel")
+	local viewModel = animations:FindFirstChild("ViewModel") or animations:WaitForChild("ViewModel", 10)
 	if not viewModel then
 		warn("[ViewmodelAnimator] ViewModel folder not found in Animations")
 		return PreloadedKitAnimations
@@ -275,7 +317,7 @@ function ViewmodelAnimator.GetKitAnimation(animIdOrName: string): Animation?
 	return PreloadedKitAnimations[animIdOrName]
 end
 
-function ViewmodelAnimator:BindRig(rig, weaponId: string?)
+function ViewmodelAnimator:BindRig(rig, weaponId: string?, skinId: string?)
 	self:Unbind()
 
 	self._rig = rig
@@ -283,6 +325,8 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	self._currentMove = nil
 	self._initialized = false
 	self._smoothedSpeed = 0
+	self._weaponId = weaponId
+	self._skinId = skinId or (rig and rig._skinId) -- Use rig's stored skinId as fallback
 	
 	-- Store original Motor6D transforms (bind pose) for reset
 	self._bindPose = {}
@@ -306,7 +350,7 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 		self._tracks = rig._preloadedTracks
 		self._trackSettings = rig._preloadedSettings or {}
 	else
-		self._tracks, self._trackSettings = buildTracks(rig.Animator, weaponId)
+		self._tracks, self._trackSettings = buildTracks(rig.Animator, weaponId, self._skinId)
 	end
 
 	-- Pre-load all movement animations by playing and immediately stopping them
@@ -333,12 +377,15 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?)
 	end)
 end
 
-function ViewmodelAnimator:PreloadRig(rig, weaponId: string?)
+function ViewmodelAnimator:PreloadRig(rig, weaponId: string?, skinId: string?)
 	if not rig or not rig.Animator then
 		return
 	end
 
-	local tracks, trackSettings = buildTracks(rig.Animator, weaponId)
+	-- Store skinId on rig for later use in BindRig
+	rig._skinId = skinId
+
+	local tracks, trackSettings = buildTracks(rig.Animator, weaponId, skinId)
 	rig._preloadedTracks = tracks
 	rig._preloadedSettings = trackSettings
 

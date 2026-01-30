@@ -75,13 +75,13 @@ ViewmodelController._gameplayEnabled = false
 
 ViewmodelController._rigStorage = nil
 ViewmodelController._storedRigs = nil
+ViewmodelController._equippedSkins = nil
 ViewmodelController._cachedKitTracks = nil
 
 ViewmodelController._adsActive = false
 ViewmodelController._adsBlend = 0
 ViewmodelController._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
 ViewmodelController._ziplineActive = false
-ViewmodelController._ziplineArmCache = {}
 
 local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
 
@@ -159,55 +159,6 @@ local function axisAngleToCFrame(vec: Vector3): CFrame
 		return CFrame.new()
 	end
 	return CFrame.fromAxisAngle(vec / angle, angle)
-end
-
-function ViewmodelController:_getZiplineLeftArmMotors(rig)
-	if not rig or not rig.Model then
-		return {}
-	end
-	local rigKey = rig.Model and rig.Model:GetFullName() or tostring(rig)
-	local cached = self._ziplineArmCache[rigKey]
-	if cached then
-		local stillValid = true
-		for _, motor in ipairs(cached) do
-			if not motor or not motor.Parent then
-				stillValid = false
-				break
-			end
-		end
-		if stillValid then
-			return cached
-		end
-	end
-	local motors = {}
-	local root = rig.Model:FindFirstChild("HumanoidRootPart", true)
-	if root then
-		local motor = root:FindFirstChild("Left Arm")
-		if motor and motor:IsA("Motor6D") then
-			table.insert(motors, motor)
-		end
-	end
-	self._ziplineArmCache[rigKey] = motors
-	return motors
-end
-
-function ViewmodelController:_applyZiplineArmPose(rig)
-	local motors = self:_getZiplineLeftArmMotors(rig)
-	if not motors or #motors == 0 then
-		return
-	end
-	if self._ziplineActive and isFirstPerson(self) then
-		local transform = CFrame.Angles(-math.rad(90), 0, 0)
-		for _, motor in ipairs(motors) do
-			motor.Transform = transform
-		end
-	else
-		for _, motor in ipairs(motors) do
-			if motor.Transform ~= CFrame.new() then
-				motor.Transform = CFrame.new()
-			end
-		end
-	end
 end
 
 function ViewmodelController:Init(registry, net)
@@ -373,18 +324,37 @@ end
 function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any })
 	local storage = self:_ensureRigStorage()
 	self._storedRigs = {}
+	self._equippedSkins = {} -- Track equipped skins for animation lookups
 
 	local toPreload = {}
 
-	local function getModelPath(weaponId: string): string?
+	-- Get equipped skin for a weapon from PlayerDataTable
+	local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
+	local function getEquippedSkin(weaponId: string): string?
+		local success, skinId = pcall(function()
+			return PlayerDataTable.getEquippedSkin(weaponId)
+		end)
+		return success and skinId or nil
+	end
+
+	local function getModelPath(weaponId: string, skinId: string?): string?
 		if weaponId == "Fists" then
 			local fistsCfg = ViewmodelConfig.Weapons.Fists
 			return fistsCfg and fistsCfg.ModelPath or ViewmodelConfig.Models.Fists
-		else
-			local weaponCfg = ViewmodelConfig.Weapons[weaponId]
-			return weaponCfg and weaponCfg.ModelPath
-				or (ViewmodelConfig.Models.ByWeaponId and ViewmodelConfig.Models.ByWeaponId[weaponId])
 		end
+
+		-- Check for skin-specific model path first
+		if skinId and ViewmodelConfig.Skins then
+			local weaponSkins = ViewmodelConfig.Skins[weaponId]
+			if weaponSkins and weaponSkins[skinId] and weaponSkins[skinId].ModelPath then
+				return weaponSkins[skinId].ModelPath
+			end
+		end
+
+		-- Fall back to base weapon model path
+		local weaponCfg = ViewmodelConfig.Weapons[weaponId]
+		return weaponCfg and weaponCfg.ModelPath
+			or (ViewmodelConfig.Models.ByWeaponId and ViewmodelConfig.Models.ByWeaponId[weaponId])
 	end
 
 	local function resolveModelTemplate(modelPath: string): Model?
@@ -408,16 +378,26 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		return nil
 	end
 
-	local function createRig(weaponId: string, slotName: string)
-		local modelPath = getModelPath(weaponId)
+	local function createRig(weaponId: string, slotName: string, skinId: string?)
+		local modelPath = getModelPath(weaponId, skinId)
 		if type(modelPath) ~= "string" or modelPath == "" then
 			return nil
 		end
 
 		local template = resolveModelTemplate(modelPath)
 		if not template then
-			LogService:Warn("VIEWMODEL", "Missing viewmodel template", { WeaponId = weaponId, Path = modelPath })
-			return nil
+			-- If skin model not found, fall back to base weapon model
+			if skinId then
+				LogService:Info("VIEWMODEL", "Skin model not found, falling back to base", { WeaponId = weaponId, SkinId = skinId })
+				modelPath = getModelPath(weaponId, nil)
+				if type(modelPath) == "string" and modelPath ~= "" then
+					template = resolveModelTemplate(modelPath)
+				end
+			end
+			if not template then
+				LogService:Warn("VIEWMODEL", "Missing viewmodel template", { WeaponId = weaponId, Path = modelPath })
+				return nil
+			end
 		end
 
 		local clone = template:Clone()
@@ -426,6 +406,7 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		clone.Parent = storage
 
 		local rig = ViewmodelRig.new(clone, slotName)
+		rig._skinId = skinId -- Store skin ID for animation lookups
 		if LocalPlayer then
 			rig:AddCleanup(ViewmodelAppearance.BindShirtToLocalRig(LocalPlayer, clone))
 		end
@@ -440,12 +421,12 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 		return rig
 	end
 
-	local fistsRig = createRig("Fists", "Fists")
+	local fistsRig = createRig("Fists", "Fists", nil)
 	if fistsRig then
 		self._storedRigs.Fists = fistsRig
 
 		if self._animator then
-			self._animator:PreloadRig(fistsRig, "Fists")
+			self._animator:PreloadRig(fistsRig, "Fists", nil)
 		end
 
 		self:_preloadKitAnimations(fistsRig)
@@ -453,33 +434,39 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 
 	local primaryId = loadout and loadout.Primary
 	if type(primaryId) == "string" and primaryId ~= "" then
-		local rig = createRig(primaryId, "Primary")
+		local primarySkin = getEquippedSkin(primaryId)
+		self._equippedSkins.Primary = primarySkin
+		local rig = createRig(primaryId, "Primary", primarySkin)
 		if rig then
 			self._storedRigs.Primary = rig
 			if self._animator then
-				self._animator:PreloadRig(rig, primaryId)
+				self._animator:PreloadRig(rig, primaryId, primarySkin)
 			end
 		end
 	end
 
 	local secondaryId = loadout and loadout.Secondary
 	if type(secondaryId) == "string" and secondaryId ~= "" then
-		local rig = createRig(secondaryId, "Secondary")
+		local secondarySkin = getEquippedSkin(secondaryId)
+		self._equippedSkins.Secondary = secondarySkin
+		local rig = createRig(secondaryId, "Secondary", secondarySkin)
 		if rig then
 			self._storedRigs.Secondary = rig
 			if self._animator then
-				self._animator:PreloadRig(rig, secondaryId)
+				self._animator:PreloadRig(rig, secondaryId, secondarySkin)
 			end
 		end
 	end
 
 	local meleeId = loadout and loadout.Melee
 	if type(meleeId) == "string" and meleeId ~= "" then
-		local rig = createRig(meleeId, "Melee")
+		local meleeSkin = getEquippedSkin(meleeId)
+		self._equippedSkins.Melee = meleeSkin
+		local rig = createRig(meleeId, "Melee", meleeSkin)
 		if rig then
 			self._storedRigs.Melee = rig
 			if self._animator then
-				self._animator:PreloadRig(rig, meleeId)
+				self._animator:PreloadRig(rig, meleeId, meleeSkin)
 			end
 		end
 	end
@@ -677,12 +664,14 @@ function ViewmodelController:SetActiveSlot(slot: string)
 	do
 		local rig = getRigForSlot(self, slot)
 		local weaponId = nil
+		local skinId = nil
 		if slot == "Fists" then
 			weaponId = "Fists"
 		elseif self._loadout and type(self._loadout[slot]) == "string" then
 			weaponId = self._loadout[slot]
+			skinId = self._equippedSkins and self._equippedSkins[slot]
 		end
-		self._animator:BindRig(rig, weaponId)
+		self._animator:BindRig(rig, weaponId, skinId)
 	end
 
 	if self._animator then
@@ -736,21 +725,7 @@ function ViewmodelController:_setZiplineActive(active: boolean)
 				end
 			end
 			local rig = getRigForSlot(self, self._activeSlot)
-			if rig and rig.Model then
-				local motors = {}
-				for _, desc in ipairs(rig.Model:GetDescendants()) do
-					if desc:IsA("Motor6D") then
-						table.insert(motors, {
-							name = desc.Name,
-							part1 = desc.Part1 and desc.Part1.Name or "",
-							fullName = desc:GetFullName(),
-						})
-					end
-				end
-				print("[ZiplineVM] Active rig:", rig.Model:GetFullName(), "motors:", motors)
-			else
-				print("[ZiplineVM] No active rig when zipline active")
-			end
+			-- zipline animation only
 		end
 	else
 		if self._animator then
@@ -758,7 +733,6 @@ function ViewmodelController:_setZiplineActive(active: boolean)
 			self._animator:Stop("ZiplineHookUp", 0)
 			self._animator:Stop("ZiplineFastHookUp", 0)
 		end
-		self:_applyZiplineArmPose(getRigForSlot(self, self._activeSlot))
 	end
 end
 
@@ -943,8 +917,6 @@ function ViewmodelController:_render(dt: number)
 	if not rig or not rig.Model or not rig.Anchor then
 		return
 	end
-	self:_applyZiplineArmPose(rig)
-
 	local springs = self._springs
 	if not springs then
 		return

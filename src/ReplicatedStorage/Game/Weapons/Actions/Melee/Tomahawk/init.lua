@@ -1,20 +1,20 @@
 --[[
-	Knife.lua (Client Actions)
+	Tomahawk.lua (Client Actions)
 
-	Main module for Knife client-side action helpers.
+	Main module for Tomahawk client-side action helpers.
 	Basic melee weapon with cooldown-based attacks.
 ]]
 
-local Knife = {}
+local Tomahawk = {}
 
-Knife.Cancels = {
+Tomahawk.Cancels = {
 	FireCancelsSpecial = false,
 	SpecialCancelsFire = false,
 	ReloadCancelsSpecial = false,
 	SpecialCancelsReload = false,
 }
 
-function Knife.Initialize(weaponInstance)
+function Tomahawk.Initialize(weaponInstance)
 	if not weaponInstance or not weaponInstance.State then
 		return
 	end
@@ -23,7 +23,7 @@ function Knife.Initialize(weaponInstance)
 	weaponInstance.State.Equipped = weaponInstance.State.Equipped ~= false
 end
 
-function Knife.OnEquip(weaponInstance)
+function Tomahawk.OnEquip(weaponInstance)
 	if not weaponInstance then
 		return
 	end
@@ -33,7 +33,7 @@ function Knife.OnEquip(weaponInstance)
 	end
 end
 
-function Knife.OnUnequip(weaponInstance)
+function Tomahawk.OnUnequip(weaponInstance)
 	if not weaponInstance then
 		return
 	end
@@ -44,7 +44,7 @@ function Knife.OnUnequip(weaponInstance)
 	end
 end
 
-function Knife.CanFire(weaponInstance)
+function Tomahawk.CanFire(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false
 	end
@@ -57,12 +57,12 @@ function Knife.CanFire(weaponInstance)
 	return timeSinceLastAttack >= cooldown
 end
 
-function Knife.CanReload(_weaponInstance)
+function Tomahawk.CanReload(_weaponInstance)
 	-- Melee weapons don't reload
 	return false
 end
 
-function Knife.CanSpecial(weaponInstance)
+function Tomahawk.CanSpecial(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false
 	end
@@ -70,11 +70,11 @@ function Knife.CanSpecial(weaponInstance)
 	local config = weaponInstance.Config
 	local cooldownService = weaponInstance.Cooldown
 	
-	if cooldownService and cooldownService:IsOnCooldown("KnifeSpecial") then
+	if cooldownService and cooldownService:IsOnCooldown("TomahawkSpecial") then
 		return false
 	end
 
 	return true
 end
 
-return Knife
+return Tomahawk

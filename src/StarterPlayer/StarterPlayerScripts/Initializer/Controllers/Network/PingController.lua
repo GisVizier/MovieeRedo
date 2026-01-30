@@ -22,6 +22,9 @@ function PingController:Init(registry, net)
 		-- Echo back immediately - no processing delay
 		net:FireServer("PingResponse", token)
 	end)
+
+	-- Tell server we're ready to receive ping requests
+	net:FireServer("PingReady")
 end
 
 function PingController:Start()

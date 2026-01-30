@@ -45,6 +45,7 @@ LatencyTracker.Players = {}
 LatencyTracker._net = nil
 LatencyTracker._pendingPings = {}
 LatencyTracker._heartbeatConnection = nil
+LatencyTracker._ready = {}
 
 -- =============================================================================
 -- INITIALIZATION
@@ -56,6 +57,11 @@ function LatencyTracker:Init(net)
 	-- Listen for ping responses
 	net:ConnectServer("PingResponse", function(player, token)
 		self:_onPingResponse(player, token)
+	end)
+
+	-- Client tells us when it's ready to receive PingRequest
+	net:ConnectServer("PingReady", function(player)
+		self._ready[player] = true
 	end)
 	
 	-- Initialize existing players
@@ -95,11 +101,13 @@ function LatencyTracker:_initPlayer(player)
 		LastPingTime = 0,
 		OneWayLatency = CONFIG.DefaultPingMs / 2,
 	}
+	self._ready[player] = false
 end
 
 function LatencyTracker:_removePlayer(player)
 	self.Players[player] = nil
 	self._pendingPings[player] = nil
+	self._ready[player] = nil
 end
 
 -- =============================================================================
@@ -111,6 +119,9 @@ function LatencyTracker:_pingLoop()
 	
 	for player, data in pairs(self.Players) do
 		if player.Parent then -- Player still in game
+			if not self._ready[player] then
+				continue
+			end
 			if now - data.LastPingTime >= CONFIG.PingIntervalSeconds then
 				self:_sendPing(player, now)
 			end

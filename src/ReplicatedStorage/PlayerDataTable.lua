@@ -39,18 +39,19 @@ function PlayerDataTable.init()
 			OWNED_KITS = {"WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne"},
 			OWNED_PRIMARY = {"Shotgun", "Sniper"},
 			OWNED_SECONDARY = {"Revolver"},
-			OWNED_MELEE = {"Knife", "ExecutionerBlade"},
+			OWNED_MELEE = {"Tomahawk", "ExecutionerBlade"},
 		},
 
 		EQUIPPED = {
 			Kit = nil,
 			Primary = "Shotgun",
 			Secondary = "Revolver",
-			Melee = "Knife",
+			Melee = "Tomahawk",
 		},
 
 		EQUIPPED_SKINS = {
-			Revolver = "Energy",
+			-- Revolver = "Energy",
+			-- Shotgun = "OGPump",
 		},
 
 		EQUIPPED_EMOTES = {
@@ -66,6 +67,7 @@ function PlayerDataTable.init()
 
 		OWNED_SKINS = {
 			Revolver = {"Energy"},
+			Shotgun = {"OGPump"},
 		},
 
 		-- Per-weapon customization data (kill effects, etc.)

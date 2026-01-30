@@ -1,7 +1,7 @@
 --[[
-	Special.lua (Knife)
+	Special.lua (Tomahawk)
 
-	Knife special ability - quick stab/lunge.
+	Tomahawk special ability - quick stab/lunge.
 	Uses cooldown system.
 ]]
 
@@ -22,7 +22,7 @@ function Special.Execute(weaponInstance, isPressed)
 	local cooldownService = weaponInstance.Cooldown
 
 	-- Check cooldown
-	if cooldownService and cooldownService:IsOnCooldown("KnifeSpecial") then
+	if cooldownService and cooldownService:IsOnCooldown("TomahawkSpecial") then
 		return false, "Cooldown"
 	end
 
@@ -36,7 +36,7 @@ function Special.Execute(weaponInstance, isPressed)
 	-- Start cooldown
 	local specialCooldown = config and config.specialCooldown or 3.0
 	if cooldownService then
-		cooldownService:StartCooldown("KnifeSpecial", specialCooldown)
+		cooldownService:StartCooldown("TomahawkSpecial", specialCooldown)
 	end
 
 	-- Perform special attack raycast

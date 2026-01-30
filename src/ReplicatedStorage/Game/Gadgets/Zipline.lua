@@ -59,6 +59,28 @@ local ziplineAttributes = {
 	"JumpDetachMoveSpeed",
 }
 
+local function hasRequiredAttachments(model: Instance)
+	if not model then
+		return false
+	end
+	local base1 = model:FindFirstChild("Base1")
+	if not base1 or not base1:IsA("BasePart") then
+		return false
+	end
+	local base2 = model:FindFirstChild("Base2")
+	if not base2 or not base2:IsA("BasePart") then
+		return false
+	end
+	local start = base1:FindFirstChild("Start")
+	if not start or not start:IsA("Attachment") then
+		return false
+	end
+	local finish = base2:FindFirstChild("End")
+	if not finish or not finish:IsA("Attachment") then
+		return false
+	end
+	return true
+end
 function Zipline.new(params)
 	local self = GadgetBase.new(params)
 	setmetatable(self, Zipline)
@@ -927,6 +949,11 @@ function Zipline:_beginRide(directionSign, startDistance, speed)
 			self._lastForward = forward
 			local targetCFrame = CFrame.lookAt(position + attachOffset, position + attachOffset + forward)
 			self:_applyRideCFrame(targetCFrame)
+
+			local localPlayer = Players.LocalPlayer
+			if localPlayer then
+				localPlayer:SetAttribute("ZiplineGripWorldCF", targetCFrame)
+			end
 		end
 
 		-- Buffer movement input continuously so we have latest input when jumping off
@@ -1046,6 +1073,10 @@ function Zipline:_endRide()
 		FOVController:RemoveEffect("Zipline")
 		self._ziplineFovActive = nil
 	end
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		localPlayer:SetAttribute("ZiplineGripWorldCF", nil)
+	end
 end
 
 function Zipline:RequestDetach(reason)
@@ -1119,11 +1150,50 @@ function Zipline:onUseResponse(approved, responseData)
 end
 
 function Zipline:onClientCreated()
-	local points = self:_buildPathPoints()
-	if points then
-		self._pathPoints = points
-		self._pathLengths, self._pathTotalLength = self:_buildPathLengths(points)
+	local function rebuildPath()
+		local points = self:_buildPathPoints()
+		if points then
+			self._pathPoints = points
+			self._pathLengths, self._pathTotalLength = self:_buildPathLengths(points)
+			return true
+		end
+		return false
 	end
+
+	if hasRequiredAttachments(self.model) then
+		rebuildPath()
+	end
+
+	-- With StreamingEnabled, attachments may not be present immediately.
+	-- Retry for a short window and also listen for descendants streaming in.
+	if self._attachRetryConn then
+		self._attachRetryConn:Disconnect()
+		self._attachRetryConn = nil
+	end
+
+	local deadline = os.clock() + 5
+	task.spawn(function()
+		while os.clock() < deadline do
+			if hasRequiredAttachments(self.model) then
+				if rebuildPath() then
+					return
+				end
+			end
+			task.wait(0.1)
+		end
+	end)
+
+	self._attachRetryConn = self.model and self.model.DescendantAdded:Connect(function(desc)
+		if not desc then
+			return
+		end
+		if desc.Name ~= "Start" and desc.Name ~= "End" then
+			return
+		end
+		if hasRequiredAttachments(self.model) then
+			rebuildPath()
+		end
+	end)
 
 	local context = self:getContext()
 	local registry = context and context.registry
@@ -1210,6 +1280,10 @@ function Zipline:destroy()
 	self:_disconnectInputConnections()
 	self:_stopZiplineAnimations()
 	self:_endRide()
+	if self._attachRetryConn then
+		self._attachRetryConn:Disconnect()
+		self._attachRetryConn = nil
+	end
 	GadgetBase.destroy(self)
 end
 

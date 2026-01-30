@@ -3,6 +3,7 @@ local SlidingSystem = {}
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
@@ -212,6 +213,9 @@ function SlidingSystem:SetupCharacter(character, primaryPart, _vectorForce, alig
 	self.PrimaryPart = primaryPart
 	self.AlignOrientation = alignOrientation
 	self.RaycastParams = raycastParams
+
+	-- Pre-create the slide sound so it plays instantly
+	self:PreCreateSlideSound()
 end
 
 function SlidingSystem:SetCameraController(cameraController)
@@ -264,7 +268,30 @@ local function ensureSlideSound(self)
 	sound.Parent = self.PrimaryPart
 
 	self.SlideSound = sound
+	self.SlideSoundTargetVolume = definition.Volume or 0.6
 	return sound
+end
+
+function SlidingSystem:PreCreateSlideSound()
+	ensureSlideSound(self)
+end
+
+local function fadeOutSlideSound(self)
+	local sound = self.SlideSound
+	if not sound or not sound.IsPlaying then
+		return
+	end
+
+	local tween = TweenService:Create(sound, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Volume = 0,
+	})
+	tween.Completed:Once(function()
+		if sound.IsPlaying then
+			sound:Stop()
+		end
+	end)
+	tween:Play()
+	VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Slide", action = "stop" })
 end
 
 local function updateSlideSound(self, isGrounded)
@@ -275,11 +302,13 @@ local function updateSlideSound(self, isGrounded)
 
 	if isGrounded then
 		if not sound.IsPlaying then
+			sound.Volume = self.SlideSoundTargetVolume or 0.6
 			sound:Play()
+			VFXRep:Fire("Others", { Module = "Sound" }, { sound = "Slide", action = "start" })
 		end
 	else
 		if sound.IsPlaying then
-			sound:Stop()
+			fadeOutSlideSound(self)
 		end
 	end
 end
@@ -519,10 +548,8 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 	self.AirbornePeakY = 0
 	self.WasAirborneLastFrame = false
 
-	if self.SlideSound then
-		self.SlideSound:Stop()
-		self.SlideSound:Destroy()
-		self.SlideSound = nil
+	if self.SlideSound and self.SlideSound.IsPlaying then
+		fadeOutSlideSound(self)
 	end
 
 	RigRotationUtils:ResetRigRotation(self.Character, self.PrimaryPart, true)
@@ -847,6 +874,12 @@ function SlidingSystem:Cleanup()
 	self.LastSlideStopTime = 0
 	self.SlideStopDirection = Vector3.new(0, 0, 0)
 	self.SlideStopVelocity = 0
+
+	if self.SlideSound then
+		self.SlideSound:Stop()
+		self.SlideSound:Destroy()
+		self.SlideSound = nil
+	end
 
 	if self.Character then
 		RigRotationUtils:Cleanup(self.Character)

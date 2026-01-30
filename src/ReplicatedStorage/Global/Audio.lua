@@ -1,11 +1,13 @@
 local Audio = {}
 
 Audio.SoundIds = {
-	Jump = "rbxassetid://98842894180480",
-	Fall = "rbxasset://sounds/action_falling.ogg",
-	Land = "rrbxasset://sounds/action_jump_land.mp3",
-	Crouch = "rbxassetid://0",
-	Slide = "rbxassetid://124754503461240",
+	Jump = "rbxassetid://78776477559246",
+	Land = "rbxassetid://81823741300483",
+	Falling = "rbxassetid://76517117304992",
+	Crouch = "rbxassetid://98414795058042",
+	Slide = "rbxassetid://102823249876612",
+	SlideLaunch = "rbxassetid://92797238261614",
+	WallJump = "rbxassetid://92914028303623",
 
 	FootstepPlastic = "rbxassetid://7326203155",
 	FootstepGrass = "rbxassetid://507863105",
@@ -19,11 +21,13 @@ Audio.SoundIds = {
 
 Audio.Sounds = {
 	Movement = {
-		Jump = { Id = Audio.SoundIds.Jump, Volume = 0.6, Pitch = 1.0 },
-		Fall = { Id = Audio.SoundIds.Fall, Volume = 0.6, Pitch = 1.0 },
+		Jump = { Id = Audio.SoundIds.Jump, Volume = 0.3, Pitch = 1.0 },
 		Land = { Id = Audio.SoundIds.Land, Volume = 0.6, Pitch = 1.0 },
+		Falling = { Id = Audio.SoundIds.Falling, Volume = 0.6, Pitch = 1.0 },
 		Crouch = { Id = Audio.SoundIds.Crouch, Volume = 0.5, Pitch = 1.0 },
 		Slide = { Id = Audio.SoundIds.Slide, Volume = 0.6, Pitch = 1.0 },
+		SlideLaunch = { Id = Audio.SoundIds.SlideLaunch, Volume = 0.6, Pitch = 1.0 },
+		WallJump = { Id = Audio.SoundIds.WallJump, Volume = 0.6, Pitch = 1.0 },
 
 		FootstepPlastic = { Id = Audio.SoundIds.FootstepPlastic, Volume = 0.5, Pitch = 1.0 },
 		FootstepGrass = { Id = Audio.SoundIds.FootstepGrass, Volume = 0.5, Pitch = 1.0 },

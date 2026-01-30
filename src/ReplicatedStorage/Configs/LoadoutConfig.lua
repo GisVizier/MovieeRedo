@@ -128,7 +128,16 @@ LoadoutConfig.Weapons = {
 		weaponType = "Primary",
 		rarity = "Common",
 		instance = nil,
-		skins = {},
+		skins = {
+			OGPump = {
+				id = "OGPump",
+				name = "OG Pump",
+				description = "The legendary pump that started it all. One shot, one elimination. Where we droppin'?",
+				imageId = "rbxassetid://114063003316618",
+				rarity = "Legendary",
+				instance = nil,
+			},
+		},
 		actions = {
 			canQuickUseMelee = true,
 			canQuickUseAblility = true,
@@ -437,11 +446,11 @@ LoadoutConfig.Weapons = {
 		},
 	},
 
-	Knife = {
-		id = "Knife",
-		name = "Knife",
-		description = "Swift melee weapon for close encounters.",
-		imageId = "rbxassetid://117216368976984",
+	Tomahawk = {
+		id = "Tomahawk",
+		name = "Tomahawk",
+		description = "A razor-sharp throwing axe that cuts through the air and your enemies. Lethal at close range, devastating from a distance.",
+		imageId = "rbxassetid://75818313709174",
 		weaponType = "Melee",
 		rarity = "Common",
 		instance = nil,
@@ -466,7 +475,7 @@ LoadoutConfig.Weapons = {
 			recoilMultiplier = 0.3,
 		},
 
-		-- Aim Assist settings (knife: light melee assist, no snap)
+		-- Aim Assist settings (tomahawk: light melee assist, no snap)
 		aimAssist = {
 			enabled = true,
 			range = 15,                -- Melee range only
@@ -486,7 +495,7 @@ LoadoutConfig.Weapons = {
 		id = "ExecutionerBlade",
 		name = "Executioner's Blade",
 		description = "A devastating blade forged for swift judgment.",
-		imageId = "rbxassetid://117216368976984", -- Using knife image temporarily
+		imageId = "rbxassetid://113442675830701", -- Using knife image temporarily
 		weaponType = "Melee",
 		rarity = "Rare",
 		instance = nil,

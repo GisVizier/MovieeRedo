@@ -1,5 +1,5 @@
 --[[
-	Inspect.lua (Knife)
+	Inspect.lua (Tomahawk)
 
 	Client-side inspect - animation only, no viewmodel offset.
 ]]

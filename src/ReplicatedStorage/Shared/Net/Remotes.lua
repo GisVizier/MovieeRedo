@@ -60,6 +60,7 @@ local Remotes = {
 	-- Ping measurement (for lag compensation)
 	{ name = "PingRequest", description = "Server sends ping challenge", unreliable = true },
 	{ name = "PingResponse", description = "Client responds to ping challenge", unreliable = true },
+	{ name = "PingReady", description = "Client ready to receive ping requests" },
 
 	{ name = "GadgetInitRequest", description = "Client requests gadget init data" },
 	{ name = "GadgetInit", description = "Server sends gadget init data" },

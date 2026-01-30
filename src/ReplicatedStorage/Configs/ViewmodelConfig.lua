@@ -24,7 +24,7 @@ ViewmodelConfig.Models = {
 		Revolver = "Revolver/Revolver_Default",
 
 		-- Melee (add when model exists)
-		Knife = "Melee/Knife_Default",
+		Tomahawk = "Melee/Tomahawk_Default", -- Uses knife model/animations
 		ExecutionerBlade = "Melee/ExecutionerBlade_Default",
 	},
 }
@@ -159,8 +159,8 @@ ViewmodelConfig.Weapons = {
 		},
 	},
 
-	Knife = {
-		ModelPath = ViewmodelConfig.Models.ByWeaponId.Knife,
+	Tomahawk = {
+		ModelPath = ViewmodelConfig.Models.ByWeaponId.Tomahawk,
 		Offset = CFrame.new(0, 0, 0),
 		Animations = {
 			Idle = "Idle",
@@ -201,6 +201,38 @@ ViewmodelConfig.Kits = {
 		},
 		Ultimate = {
 			Activate = "rbxassetid://116014965112574",
+		},
+	},
+}
+
+--[[
+	Skin overrides for viewmodels.
+	Skins can override ModelPath and Animations from the base weapon config.
+	Only specify properties that change - rest inherited from base weapon.
+
+	Animation lookup order:
+	1. ViewmodelConfig.Skins[WeaponId][SkinId].Animations[AnimName] (if defined)
+	2. Assets/Animations/ViewModel/{WeaponId}/{SkinId}/{AnimName} (skin folder)
+	3. ViewmodelConfig.Weapons[WeaponId].Animations[AnimName] (base weapon config)
+	4. Assets/Animations/ViewModel/{WeaponId}/Viewmodel/{AnimName} (base folder)
+
+	This allows skins to:
+	- Use custom models with default animations (just set ModelPath)
+	- Use custom animations with default model (just set Animations)
+	- Use both custom model and animations (set both)
+	- Only override specific animations (partial Animations table)
+]]
+ViewmodelConfig.Skins = {
+	Shotgun = {
+		OGPump = {
+			-- OG Pump model under Shotguns folder
+			ModelPath = "Shotguns/OGPump",
+			-- Animations: If the OGPump folder has animations, they'll be auto-detected.
+			-- You can also override specific animations here:
+			-- Animations = {
+			--     Fire = "OGPumpFire", -- Looks in Assets/Animations/ViewModel/Shotgun/OGPump/OGPumpFire
+			--     Reload = "OGPumpReload",
+			-- },
 		},
 	},
 }

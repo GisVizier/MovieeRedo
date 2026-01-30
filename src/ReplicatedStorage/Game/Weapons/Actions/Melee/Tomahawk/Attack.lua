@@ -1,5 +1,5 @@
 --[[
-	Attack.lua (Knife)
+	Attack.lua (Tomahawk)
 
 	Client-side melee attack.
 	Cooldown-based, no ammo.
