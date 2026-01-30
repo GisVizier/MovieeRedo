@@ -75,6 +75,14 @@ local entries = {
 		name = "KnockbackService",
 		module = servicesFolder:WaitForChild("Knockback"):WaitForChild("KnockbackService"),
 	},
+	{
+		name = "Queue",
+		module = servicesFolder:WaitForChild("Queue"):WaitForChild("QueueService"),
+	},
+	{
+		name = "Round",
+		module = servicesFolder:WaitForChild("Round"):WaitForChild("RoundService"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

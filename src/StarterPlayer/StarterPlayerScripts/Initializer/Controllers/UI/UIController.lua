@@ -23,8 +23,28 @@ function UIController:Init(registry, net)
 	-- Default: gameplay is gated until StartMatch from server.
 	self:SetGameplayEnabled(false)
 
+	-- Current match data
+	self._currentMapId = nil
+
 	self._net:ConnectClient("StartMatch", function(matchData)
 		self:_onStartMatch(matchData)
+	end)
+
+	-- Round system events
+	self._net:ConnectClient("ShowRoundLoadout", function(data)
+		self:_onShowRoundLoadout(data)
+	end)
+
+	self._net:ConnectClient("RoundStart", function(data)
+		self:_onRoundStart(data)
+	end)
+
+	self._net:ConnectClient("MatchEnd", function(data)
+		self:_onMatchEnd(data)
+	end)
+
+	self._net:ConnectClient("ReturnToLobby", function(data)
+		self:_onReturnToLobby(data)
 	end)
 
 	task.spawn(function()
@@ -70,7 +90,21 @@ function UIController:_bootstrapUi()
 	self._coreUi = ui
 
 	-- Force-hide any UI that might be Visible by default in Studio.
-	for _, name in ipairs({ "Start", "Actions", "Catgory", "Kits", "Party", "Settings", "Map", "Loadout", "Black", "TallFade", "HUD", "Emotes", "Dialogue" }) do
+	for _, name in ipairs({
+		"Start",
+		"Actions",
+		"Catgory",
+		"Kits",
+		"Party",
+		"Settings",
+		"Map",
+		"Loadout",
+		"Black",
+		"TallFade",
+		"HUD",
+		"Emotes",
+		"Dialogue",
+	}) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then
 			inst.Visible = false
@@ -85,9 +119,10 @@ function UIController:_bootstrapUi()
 		kitController:init()
 		self._kitController = kitController
 		ui._kitController = kitController
-		
+
 		-- Register in ServiceRegistry so other systems can access it
-		local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
+		local ServiceRegistry =
+			require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 		ServiceRegistry:RegisterController("Kit", kitController)
 	end
 
@@ -155,7 +190,7 @@ function UIController:_setupEmoteWheelInput(ui)
 	end
 
 	local emoteWheelOpen = false
-	
+
 	-- Helper to get current mode setting
 	local function isHoldMode()
 		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
@@ -166,7 +201,7 @@ function UIController:_setupEmoteWheelInput(ui)
 
 	inputController:ConnectToInput("Emotes", function(isPressed)
 		local holdMode = isHoldMode()
-		
+
 		if isPressed then
 			if not emoteWheelOpen then
 				-- Open the wheel
@@ -191,7 +226,7 @@ function UIController:_setupEmoteWheelInput(ui)
 			end
 		end
 	end)
-	
+
 	-- Listen for when emote is selected (closes wheel in both modes)
 	ui:on("EmoteSelected", function()
 		emoteWheelOpen = false
@@ -203,6 +238,11 @@ function UIController:_onStartMatch(matchData)
 
 	if not self._coreUi then
 		return
+	end
+
+	-- Store map ID for round loadout
+	if typeof(matchData) == "table" and matchData.mapId then
+		self._currentMapId = matchData.mapId
 	end
 
 	-- Hide any lobby/map UI. We intentionally do NOT show HUD (Rojo UI test flow).
@@ -230,5 +270,96 @@ function UIController:_onStartMatch(matchData)
 	end
 end
 
-return UIController
+function UIController:_onShowRoundLoadout(data)
+	if not self._coreUi then
+		return
+	end
 
+	-- Disable gameplay while selecting loadout
+	self:SetGameplayEnabled(false)
+
+	-- Hide HUD temporarily
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+
+	-- Set up loadout module with round data
+	local loadoutModule = self._coreUi:getModule("Loadout")
+	if loadoutModule and loadoutModule.setRoundData then
+		local player = Players.LocalPlayer
+		pcall(function()
+			loadoutModule:setRoundData({
+				players = { player.UserId },
+				mapId = self._currentMapId or "ApexArena",
+				gamemodeId = "Duel",
+				timeStarted = os.clock(),
+			})
+		end)
+	end
+
+	-- Show loadout UI
+	safeCall(function()
+		self._coreUi:show("Loadout", true)
+	end)
+end
+
+function UIController:_onRoundStart(data)
+	if not self._coreUi then
+		return
+	end
+
+	-- Re-enable gameplay
+	self:SetGameplayEnabled(true)
+
+	-- Hide loadout if visible
+	safeCall(function()
+		self._coreUi:hide("Loadout")
+	end)
+
+	-- Show HUD
+	safeCall(function()
+		self._coreUi:show("HUD", true)
+	end)
+end
+
+function UIController:_onMatchEnd(data)
+	if not self._coreUi then
+		return
+	end
+
+	-- Disable gameplay
+	self:SetGameplayEnabled(false)
+
+	-- Could show victory/defeat screen here
+	-- For now, just hide HUD
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+end
+
+function UIController:_onReturnToLobby(data)
+	if not self._coreUi then
+		return
+	end
+
+	-- Reset state
+	self._currentMapId = nil
+
+	-- Disable gameplay (lobby mode)
+	self:SetGameplayEnabled(false)
+
+	-- Hide all match UI
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Loadout")
+	end)
+
+	-- Show lobby/start UI
+	safeCall(function()
+		self._coreUi:show("Start", true)
+	end)
+end
+
+return UIController

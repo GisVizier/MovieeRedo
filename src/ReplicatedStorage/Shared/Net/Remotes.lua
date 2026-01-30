@@ -70,6 +70,21 @@ local Remotes = {
 	-- Knockback system
 	{ name = "KnockbackRequest", description = "Client requests knockback on another player" },
 	{ name = "Knockback", description = "Server sends knockback to target client" },
+
+	-- Queue system
+	{ name = "QueuePadUpdate", description = "Server updates pad occupancy state" },
+	{ name = "QueueCountdownStart", description = "Server starts queue countdown" },
+	{ name = "QueueCountdownTick", description = "Server sends countdown tick" },
+	{ name = "QueueCountdownCancel", description = "Server cancels queue countdown" },
+	{ name = "QueueMatchReady", description = "Queue complete, transitioning to match" },
+
+	-- Round system
+	{ name = "RoundStart", description = "New round beginning" },
+	{ name = "RoundKill", description = "Kill occurred during round" },
+	{ name = "ScoreUpdate", description = "Match score changed" },
+	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
+	{ name = "MatchEnd", description = "Match complete, winner declared" },
+	{ name = "ReturnToLobby", description = "Teleport players back to lobby" },
 }
 
 return Remotes
