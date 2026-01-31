@@ -24,9 +24,9 @@ local function getCharacterFromPart(part)
 	if not part then
 		return nil
 	end
-	
+
 	local current = part.Parent
-	
+
 	-- Handle new Hitbox structure: Character/Collider/Hitbox/Standing|Crouching/Part
 	if current and (current.Name == "Standing" or current.Name == "Crouching") then
 		local hitboxFolder = current.Parent
@@ -52,14 +52,19 @@ local function getCharacterFromPart(part)
 				end
 				-- Fallback to parent of Collider (should be the character model)
 				local characterModel = colliderFolder.Parent
-				if characterModel and characterModel:IsA("Model") and characterModel:FindFirstChildOfClass("Humanoid") then
+				-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+				if
+					characterModel
+					and characterModel:IsA("Model")
+					and characterModel:FindFirstChildWhichIsA("Humanoid", true)
+				then
 					return characterModel
 				end
 				current = characterModel
 			end
 		end
 	end
-	
+
 	-- Handle legacy Collider structure: Character/Collider/Default|Crouch/Part
 	if current and (current.Name == "Default" or current.Name == "Crouch") then
 		local colliderFolder = current.Parent
@@ -80,32 +85,37 @@ local function getCharacterFromPart(part)
 				end
 			end
 			local characterModel = colliderFolder.Parent
-			if characterModel and characterModel:IsA("Model") and characterModel:FindFirstChildOfClass("Humanoid") then
+			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+			if
+				characterModel
+				and characterModel:IsA("Model")
+				and characterModel:FindFirstChildWhichIsA("Humanoid", true)
+			then
 				return characterModel
 			end
 			current = characterModel
 		end
 	end
-	
+
 	-- Handle Hitbox folder: Character/Hitbox/Part
 	if current and current.Name == "Hitbox" and current:IsA("Folder") then
 		current = current.Parent
 	end
-	
+
 	-- Handle Root folder (dummies): Dummy/Root/Part
 	if current and current.Name == "Root" then
 		current = current.Parent
 	end
-	
+
 	-- Search up for a character model (has Humanoid)
 	local searchCurrent = current
 	while searchCurrent and searchCurrent ~= Workspace do
 		if searchCurrent:IsA("Model") then
-			-- Check if it's a character (has Humanoid)
-			if searchCurrent:FindFirstChildOfClass("Humanoid") then
+			-- Check if it's a character (has Humanoid) - use recursive search for nested Humanoids
+			if searchCurrent:FindFirstChildWhichIsA("Humanoid", true) then
 				return searchCurrent
 			end
-			
+
 			-- Check if it's a Rig or Collider (has OwnerUserId attribute)
 			local ownerUserId = searchCurrent:GetAttribute("OwnerUserId")
 			if ownerUserId then
@@ -117,7 +127,7 @@ local function getCharacterFromPart(part)
 		end
 		searchCurrent = searchCurrent.Parent
 	end
-	
+
 	return nil
 end
 
@@ -129,7 +139,7 @@ local function isHeadshotPart(part)
 	if not part then
 		return false
 	end
-	
+
 	local name = part.Name
 	return name == "Head" or name == "CrouchHead" or name == "HitboxHead"
 end
@@ -232,7 +242,12 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 					end
 					if not hitCharacter then
 						local characterModel = colliderFolder.Parent
-						if characterModel and characterModel:IsA("Model") and characterModel:FindFirstChildOfClass("Humanoid") then
+						-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+						if
+							characterModel
+							and characterModel:IsA("Model")
+							and characterModel:FindFirstChildWhichIsA("Humanoid", true)
+						then
 							hitCharacter = characterModel
 						end
 					end
@@ -257,7 +272,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 				end
 			end
 		end
-		
+
 		-- Get player from character
 		local hitPlayer = nil
 		if hitCharacter then
@@ -272,7 +287,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 				end
 			end
 		end
-		
+
 		-- Check for headshot (handles hitbox head parts)
 		local isHeadshot = isHeadshotPart(result.Instance)
 
@@ -281,7 +296,9 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 			local targetName = hitPlayer and hitPlayer.Name or (hitCharacter and hitCharacter.Name or "Unknown")
 			print(string.format("[WeaponRaycast DEBUG] HIT DETECTED:"))
 			print(string.format("  Target: %s | Part: %s", targetName, result.Instance.Name))
-			print(string.format("  HitPos: (%.1f, %.1f, %.1f)", result.Position.X, result.Position.Y, result.Position.Z))
+			print(
+				string.format("  HitPos: (%.1f, %.1f, %.1f)", result.Position.X, result.Position.Y, result.Position.Z)
+			)
 			print(string.format("  Origin: (%.1f, %.1f, %.1f)", origin.X, origin.Y, origin.Z))
 			print(string.format("  Headshot: %s | Timestamp: %.3f", tostring(isHeadshot), workspace:GetServerTimeNow()))
 		end
@@ -301,7 +318,14 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 
 	-- Debug logging for misses
 	if DEBUG_LOGGING then
-		print(string.format("[WeaponRaycast DEBUG] MISS - No target hit at (%.1f, %.1f, %.1f)", targetPosition.X, targetPosition.Y, targetPosition.Z))
+		print(
+			string.format(
+				"[WeaponRaycast DEBUG] MISS - No target hit at (%.1f, %.1f, %.1f)",
+				targetPosition.X,
+				targetPosition.Y,
+				targetPosition.Z
+			)
+		)
 	end
 
 	return {

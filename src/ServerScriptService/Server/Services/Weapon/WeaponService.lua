@@ -20,7 +20,8 @@ local ProjectilePacketUtils = require(Locations.Shared.Util:WaitForChild("Projec
 local function getCharacterFromPart(part)
 	local current = part
 	while current and current ~= workspace do
-		if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
+		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+		if current:IsA("Model") and current:FindFirstChildWhichIsA("Humanoid", true) then
 			return current
 		end
 		current = current.Parent
@@ -34,7 +35,7 @@ function WeaponService:Init(registry, net)
 
 	-- Initialize HitValidator with network for ping tracking
 	HitValidator:Init(net)
-	
+
 	-- Initialize ProjectileAPI with HitDetectionAPI reference
 	local HitDetectionAPI = require(script.Parent.Parent.AntiCheat.HitDetectionAPI)
 	ProjectileAPI:Init(net, HitDetectionAPI)
@@ -43,12 +44,12 @@ function WeaponService:Init(registry, net)
 	net:ConnectServer("WeaponFired", function(player, shotData)
 		self:OnWeaponFired(player, shotData)
 	end)
-	
+
 	-- Listen for projectile events
 	net:ConnectServer("ProjectileSpawned", function(player, data)
 		self:OnProjectileSpawned(player, data)
 	end)
-	
+
 	net:ConnectServer("ProjectileHit", function(player, data)
 		self:OnProjectileHit(player, data)
 	end)
@@ -67,7 +68,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 	-- Parse the hit packet (new buffer format) or use legacy table format
 	local hitData
 	local weaponId = shotData.weaponId
-	
+
 	if shotData.packet then
 		-- New buffer-based packet format
 		hitData = HitPacketUtils:ParsePacket(shotData.packet)
@@ -89,7 +90,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 			weaponName = weaponId,
 		}
 	end
-	
+
 	if not weaponId then
 		warn("[WeaponService] No weapon ID from", player.Name)
 		return
@@ -124,7 +125,8 @@ function WeaponService:OnWeaponFired(player, shotData)
 			return
 		end
 
-		local victimPlayer = pelletResult.hitCharacter and Players:GetPlayerFromCharacter(pelletResult.hitCharacter) or nil
+		local victimPlayer = pelletResult.hitCharacter and Players:GetPlayerFromCharacter(pelletResult.hitCharacter)
+			or nil
 
 		-- Broadcast validated hit to all clients for VFX
 		self._net:FireAllClients("HitConfirmed", {
@@ -140,26 +142,27 @@ function WeaponService:OnWeaponFired(player, shotData)
 
 		if DEBUG_LOGGING then
 			if victimPlayer then
-				print(string.format(
-					"[WeaponService] %s hit player %s with pellets for %d damage (headshots: %d)",
-					player.Name,
-					victimPlayer.Name,
-					pelletResult.damageTotal,
-					pelletResult.headshotCount
-				))
+				print(
+					string.format(
+						"[WeaponService] %s hit player %s with pellets for %d damage (headshots: %d)",
+						player.Name,
+						victimPlayer.Name,
+						pelletResult.damageTotal,
+						pelletResult.headshotCount
+					)
+				)
 			elseif pelletResult.hitCharacter then
-				print(string.format(
-					"[WeaponService] %s hit dummy/rig '%s' with pellets for %d damage (headshots: %d)",
-					player.Name,
-					pelletResult.hitCharacter.Name,
-					pelletResult.damageTotal,
-					pelletResult.headshotCount
-				))
+				print(
+					string.format(
+						"[WeaponService] %s hit dummy/rig '%s' with pellets for %d damage (headshots: %d)",
+						player.Name,
+						pelletResult.hitCharacter.Name,
+						pelletResult.damageTotal,
+						pelletResult.headshotCount
+					)
+				)
 			else
-				print(string.format(
-					"[WeaponService] %s fired pellets (no target hit)",
-					player.Name
-				))
+				print(string.format("[WeaponService] %s fired pellets (no target hit)", player.Name))
 			end
 		end
 
@@ -181,10 +184,11 @@ function WeaponService:OnWeaponFired(player, shotData)
 	local victimPlayer = hitData.hitPlayer
 	local hitCharacter = nil
 	local hitCharacterName = nil
-	
+
 	if victimPlayer then
 		hitCharacter = victimPlayer.Character
-		if hitCharacter and hitCharacter:FindFirstChildOfClass("Humanoid") then
+		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+		if hitCharacter and hitCharacter:FindFirstChildWhichIsA("Humanoid", true) then
 			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId)
 			hitCharacterName = hitCharacter.Name
 		end
@@ -205,27 +209,33 @@ function WeaponService:OnWeaponFired(player, shotData)
 	-- Log successful hit
 	if DEBUG_LOGGING then
 		if victimPlayer then
-			print(string.format(
-				"[WeaponService] %s hit player %s for %d damage (headshot: %s)",
-				player.Name,
-				victimPlayer.Name,
-				damage,
-				tostring(hitData.isHeadshot)
-			))
+			print(
+				string.format(
+					"[WeaponService] %s hit player %s for %d damage (headshot: %s)",
+					player.Name,
+					victimPlayer.Name,
+					damage,
+					tostring(hitData.isHeadshot)
+				)
+			)
 		elseif hitCharacterName then
-			print(string.format(
-				"[WeaponService] %s hit dummy/rig '%s' for %d damage (headshot: %s)",
-				player.Name,
-				hitCharacterName,
-				damage,
-				tostring(hitData.isHeadshot)
-			))
+			print(
+				string.format(
+					"[WeaponService] %s hit dummy/rig '%s' for %d damage (headshot: %s)",
+					player.Name,
+					hitCharacterName,
+					damage,
+					tostring(hitData.isHeadshot)
+				)
+			)
 		else
-			print(string.format(
-				"[WeaponService] %s shot at position %s (no target hit)",
-				player.Name,
-				tostring(hitData.hitPosition)
-			))
+			print(
+				string.format(
+					"[WeaponService] %s shot at position %s (no target hit)",
+					player.Name,
+					tostring(hitData.hitPosition)
+				)
+			)
 		end
 	end
 end
@@ -287,7 +297,8 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 
 			-- Traverse up to find character (handles nested colliders like Dummy/Root/Head)
 			local character = getCharacterFromPart(result.Instance)
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+			local humanoid = character and character:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid then
 				if not firstHitCharacter then
 					firstHitCharacter = character
@@ -306,7 +317,13 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 	for character, damage in pairs(damageByCharacter) do
 		totalDamage = totalDamage + damage
 		totalHeadshots = totalHeadshots + (headshotByCharacter[character] or 0)
-		self:ApplyDamageToCharacter(character, damage, player, (headshotByCharacter[character] or 0) > 0, shotData.weaponId)
+		self:ApplyDamageToCharacter(
+			character,
+			damage,
+			player,
+			(headshotByCharacter[character] or 0) > 0,
+			shotData.weaponId
+		)
 	end
 
 	-- If no hits, pick a fallback position for VFX
@@ -360,7 +377,8 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 		return
 	end
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
+	local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
 		return
 	end
@@ -384,12 +402,14 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 		})
 
 		if result and result.killed and DEBUG_LOGGING then
-			print(string.format(
-				"[WeaponService] %s killed %s (headshot: %s)",
-				shooter.Name,
-				character.Name,
-				tostring(isHeadshot)
-			))
+			print(
+				string.format(
+					"[WeaponService] %s killed %s (headshot: %s)",
+					shooter.Name,
+					character.Name,
+					tostring(isHeadshot)
+				)
+			)
 		end
 		return
 	end
@@ -403,12 +423,14 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 
 	-- Check if killed
 	if humanoid.Health <= 0 and DEBUG_LOGGING then
-		print(string.format(
-			"[WeaponService] %s killed %s (headshot: %s)",
-			shooter.Name,
-			character.Name,
-			tostring(isHeadshot)
-		))
+		print(
+			string.format(
+				"[WeaponService] %s killed %s (headshot: %s)",
+				shooter.Name,
+				character.Name,
+				tostring(isHeadshot)
+			)
+		)
 	end
 end
 
@@ -425,14 +447,14 @@ function WeaponService:OnProjectileSpawned(player, data)
 		warn("[WeaponService] Invalid projectile spawn data from", player and player.Name or "unknown")
 		return
 	end
-	
+
 	-- Parse spawn packet
 	local spawnData = ProjectilePacketUtils:ParseSpawnPacket(data.packet)
 	if not spawnData then
 		warn("[WeaponService] Failed to parse projectile spawn packet from", player.Name)
 		return
 	end
-	
+
 	-- Get weapon config
 	local weaponId = data.weaponId or spawnData.weaponName
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
@@ -440,14 +462,14 @@ function WeaponService:OnProjectileSpawned(player, data)
 		warn("[WeaponService] Invalid weapon for projectile:", weaponId, "from", player.Name)
 		return
 	end
-	
+
 	-- Validate spawn
 	local isValid, reason = ProjectileAPI:ValidateSpawn(player, spawnData, weaponConfig)
 	if not isValid then
 		warn("[WeaponService] Invalid projectile spawn from", player.Name, "Reason:", reason)
 		return
 	end
-	
+
 	-- Create replicate packet for other clients
 	local replicatePacket = ProjectilePacketUtils:CreateReplicatePacket({
 		shooterUserId = player.UserId,
@@ -457,22 +479,24 @@ function WeaponService:OnProjectileSpawned(player, data)
 		projectileId = spawnData.projectileId,
 		chargePercent = spawnData.chargePercent,
 	}, weaponId)
-	
+
 	if replicatePacket then
 		-- Broadcast to all clients except shooter
 		self._net:FireAllClientsExcept(player, "ProjectileReplicate", {
 			packet = replicatePacket,
 		})
 	end
-	
+
 	if DEBUG_LOGGING then
-		print(string.format(
-			"[WeaponService] %s spawned projectile %d (%s) at %.0f studs/sec",
-			player.Name,
-			spawnData.projectileId,
-			weaponId,
-			spawnData.speed
-		))
+		print(
+			string.format(
+				"[WeaponService] %s spawned projectile %d (%s) at %.0f studs/sec",
+				player.Name,
+				spawnData.projectileId,
+				weaponId,
+				spawnData.speed
+			)
+		)
 	end
 end
 
@@ -485,14 +509,14 @@ function WeaponService:OnProjectileHit(player, data)
 		warn("[WeaponService] Invalid projectile hit data from", player and player.Name or "unknown")
 		return
 	end
-	
+
 	-- Parse hit packet
 	local hitData = ProjectilePacketUtils:ParseHitPacket(data.packet)
 	if not hitData then
 		warn("[WeaponService] Failed to parse projectile hit packet from", player.Name)
 		return
 	end
-	
+
 	-- Get weapon config
 	local weaponId = data.weaponId or hitData.weaponName
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
@@ -500,11 +524,11 @@ function WeaponService:OnProjectileHit(player, data)
 		warn("[WeaponService] Invalid weapon for projectile hit:", weaponId, "from", player.Name)
 		return
 	end
-	
+
 	-- Validate hit (skip validation for rigs - they don't have position history)
 	local victimPlayer = hitData.hitPlayer
 	local isRig = data.rigName and not victimPlayer
-	
+
 	if not isRig then
 		local isValid, reason = ProjectileAPI:ValidateHit(player, hitData, weaponConfig)
 		if not isValid then
@@ -512,18 +536,19 @@ function WeaponService:OnProjectileHit(player, data)
 			return
 		end
 	end
-	
+
 	-- Calculate damage
 	local damage = self:CalculateProjectileDamage(hitData, weaponConfig, data)
-	
+
 	-- Apply damage
 	local hitCharacter = nil
 	local hitCharacterName = nil
-	
+
 	if victimPlayer then
 		-- Hit a player
 		hitCharacter = victimPlayer.Character
-		if hitCharacter and hitCharacter:FindFirstChildOfClass("Humanoid") then
+		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+		if hitCharacter and hitCharacter:FindFirstChildWhichIsA("Humanoid", true) then
 			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId)
 			hitCharacterName = hitCharacter.Name
 		end
@@ -537,10 +562,10 @@ function WeaponService:OnProjectileHit(player, data)
 			warn("[WeaponService] Could not find rig:", data.rigName)
 		end
 	end
-	
+
 	-- Remove projectile from tracking
 	ProjectileAPI:RemoveProjectile(player, hitData.projectileId)
-	
+
 	-- Broadcast validated hit to all clients for VFX
 	self._net:FireAllClients("ProjectileHitConfirmed", {
 		shooter = player.UserId,
@@ -555,33 +580,39 @@ function WeaponService:OnProjectileHit(player, data)
 		pierceCount = hitData.pierceCount,
 		bounceCount = hitData.bounceCount,
 	})
-	
+
 	-- Log successful hit
 	if DEBUG_LOGGING then
 		if victimPlayer then
-			print(string.format(
-				"[WeaponService] %s projectile hit player %s for %d damage (headshot: %s, pierce: %d, bounce: %d)",
-				player.Name,
-				victimPlayer.Name,
-				damage,
-				tostring(hitData.isHeadshot),
-				hitData.pierceCount or 0,
-				hitData.bounceCount or 0
-			))
+			print(
+				string.format(
+					"[WeaponService] %s projectile hit player %s for %d damage (headshot: %s, pierce: %d, bounce: %d)",
+					player.Name,
+					victimPlayer.Name,
+					damage,
+					tostring(hitData.isHeadshot),
+					hitData.pierceCount or 0,
+					hitData.bounceCount or 0
+				)
+			)
 		elseif hitCharacterName then
-			print(string.format(
-				"[WeaponService] %s projectile hit rig '%s' for %d damage (headshot: %s)",
-				player.Name,
-				hitCharacterName,
-				damage,
-				tostring(hitData.isHeadshot)
-			))
+			print(
+				string.format(
+					"[WeaponService] %s projectile hit rig '%s' for %d damage (headshot: %s)",
+					player.Name,
+					hitCharacterName,
+					damage,
+					tostring(hitData.isHeadshot)
+				)
+			)
 		else
-			print(string.format(
-				"[WeaponService] %s projectile hit environment at %s",
-				player.Name,
-				tostring(hitData.hitPosition)
-			))
+			print(
+				string.format(
+					"[WeaponService] %s projectile hit environment at %s",
+					player.Name,
+					tostring(hitData.hitPosition)
+				)
+			)
 		end
 	end
 end
@@ -594,10 +625,10 @@ function WeaponService:_findRigByName(rigName, hitPosition)
 	if hitPosition then
 		local closest = nil
 		local closestDist = 15 -- Max distance to consider (studs)
-		
-		-- Search all descendants with humanoids
+
+		-- Search all descendants with humanoids (use recursive search for nested Humanoids)
 		for _, descendant in ipairs(workspace:GetDescendants()) do
-			if descendant:IsA("Model") and descendant:FindFirstChildOfClass("Humanoid") then
+			if descendant:IsA("Model") and descendant:FindFirstChildWhichIsA("Humanoid", true) then
 				-- Skip player characters
 				local isPlayerChar = false
 				for _, player in ipairs(Players:GetPlayers()) do
@@ -606,12 +637,12 @@ function WeaponService:_findRigByName(rigName, hitPosition)
 						break
 					end
 				end
-				
+
 				if not isPlayerChar then
-					local hrp = descendant:FindFirstChild("HumanoidRootPart") 
+					local hrp = descendant:FindFirstChild("HumanoidRootPart")
 						or descendant:FindFirstChild("Torso")
 						or descendant.PrimaryPart
-					
+
 					if hrp then
 						local dist = (hrp.Position - hitPosition).Magnitude
 						if dist < closestDist then
@@ -622,18 +653,19 @@ function WeaponService:_findRigByName(rigName, hitPosition)
 				end
 			end
 		end
-		
+
 		if closest then
 			return closest
 		end
 	end
-	
+
 	-- Fallback: search by name
 	local candidates = {}
-	
+
 	for _, descendant in ipairs(workspace:GetDescendants()) do
 		if descendant:IsA("Model") and descendant.Name == rigName then
-			local humanoid = descendant:FindFirstChildOfClass("Humanoid")
+			-- Use recursive search for nested Humanoids (e.g., inside Rig subfolder)
+			local humanoid = descendant:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid then
 				-- Skip player characters
 				local isPlayerChar = false
@@ -643,24 +675,24 @@ function WeaponService:_findRigByName(rigName, hitPosition)
 						break
 					end
 				end
-				
+
 				if not isPlayerChar then
 					table.insert(candidates, descendant)
 				end
 			end
 		end
 	end
-	
+
 	-- If only one candidate, return it
 	if #candidates == 1 then
 		return candidates[1]
 	end
-	
+
 	-- If multiple, return first (or could do proximity again)
 	if #candidates > 0 then
 		return candidates[1]
 	end
-	
+
 	return nil
 end
 
@@ -671,43 +703,43 @@ end
 function WeaponService:CalculateProjectileDamage(hitData, weaponConfig, extraData)
 	local baseDamage = weaponConfig.damage or 10
 	local projectileConfig = weaponConfig.projectile or {}
-	
+
 	-- Headshot multiplier
 	if hitData.isHeadshot then
 		baseDamage = baseDamage * (weaponConfig.headshotMultiplier or 1.5)
 	end
-	
+
 	-- Pierce damage reduction
 	local pierceCount = hitData.pierceCount or 0
 	if pierceCount > 0 then
 		local pierceDamageMult = projectileConfig.pierceDamageMult or 0.8
 		baseDamage = baseDamage * math.pow(pierceDamageMult, pierceCount)
 	end
-	
+
 	-- Bounce damage reduction
 	local bounceCount = hitData.bounceCount or 0
 	if bounceCount > 0 then
 		local bounceDamageMult = projectileConfig.ricochetDamageMult or 0.7
 		baseDamage = baseDamage * math.pow(bounceDamageMult, bounceCount)
 	end
-	
+
 	-- AoE falloff (if applicable)
 	if extraData and extraData.isAoE and projectileConfig.aoe then
 		local aoeConfig = projectileConfig.aoe
 		local distance = extraData.aoeDistance or 0
 		local radius = extraData.aoeRadius or aoeConfig.radius or 15
-		
+
 		if aoeConfig.falloff then
 			local falloffMin = aoeConfig.falloffMin or 0.25
 			local falloffFactor = 1 - (distance / radius) * (1 - falloffMin)
 			baseDamage = baseDamage * math.max(falloffFactor, falloffMin)
 		end
 	end
-	
+
 	-- Charge scaling (based on chargePercent stored in projectile tracking)
 	-- Note: This would need to be passed from client or stored during spawn
 	-- For now, we trust the damage is already scaled client-side
-	
+
 	return math.floor(baseDamage + 0.5) -- Round to nearest integer
 end
 

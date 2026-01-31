@@ -27,10 +27,10 @@ DummyService.__index = DummyService
 local _initialized = false
 local _registry = nil
 local _template = nil
-local _spawnPositions = {}  -- { { position = Vector3, cframe = CFrame } }
-local _activeDummies = {}   -- { [dummy] = { spawnIndex, pseudoPlayer, emote } }
-local _dummyIdCounter = 0   -- For generating unique negative IDs
-local _emoteClasses = {}    -- { { class = table, id = string } }
+local _spawnPositions = {} -- { { position = Vector3, cframe = CFrame } }
+local _activeDummies = {} -- { [dummy] = { spawnIndex, pseudoPlayer, emote } }
+local _dummyIdCounter = 0 -- For generating unique negative IDs
+local _emoteClasses = {} -- { { class = table, id = string } }
 
 --------------------------------------------------
 -- Private Functions
@@ -49,13 +49,13 @@ local function cacheTemplate()
 		warn("[DummyService] ServerStorage.Models folder not found")
 		return false
 	end
-	
+
 	_template = modelsFolder:FindFirstChild("Dummy")
 	if not _template then
 		warn("[DummyService] ServerStorage.Models.Dummy template not found")
 		return false
 	end
-	
+
 	return true
 end
 
@@ -65,7 +65,7 @@ local function cacheEmoteModules()
 	local emotesScript = ReplicatedStorage:FindFirstChild("Game")
 	emotesScript = emotesScript and emotesScript:FindFirstChild("Emotes")
 	local emotesFolder = emotesScript and emotesScript:FindFirstChild("Emotes")
-	
+
 	if emotesFolder then
 		for _, moduleScript in emotesFolder:GetChildren() do
 			if moduleScript:IsA("ModuleScript") then
@@ -80,13 +80,13 @@ local function cacheEmoteModules()
 			end
 		end
 	end
-	
+
 	-- Fallback: scan Assets/Animations/Emotes for emote IDs (if no modules found)
 	if #_emoteClasses == 0 then
 		local assets = ReplicatedStorage:FindFirstChild("Assets")
 		local animations = assets and assets:FindFirstChild("Animations")
 		local emotes = animations and animations:FindFirstChild("Emotes")
-		
+
 		if emotes then
 			for _, emoteFolder in emotes:GetChildren() do
 				if emoteFolder:IsA("Folder") then
@@ -94,7 +94,7 @@ local function cacheEmoteModules()
 					local isLoopable = string.find(string.lower(emoteFolder.Name), "loop") ~= nil
 						or string.find(string.lower(emoteFolder.Name), "idle") ~= nil
 						or string.find(string.lower(emoteFolder.Name), "dance") ~= nil
-					
+
 					table.insert(_emoteClasses, {
 						class = { Id = emoteFolder.Name, Loopable = isLoopable },
 						id = emoteFolder.Name,
@@ -103,7 +103,6 @@ local function cacheEmoteModules()
 			end
 		end
 	end
-	
 end
 
 -- Scan for spawn markers and record their positions
@@ -113,18 +112,18 @@ local function scanSpawnMarkers()
 		warn("[DummyService] workspace.World not found")
 		return
 	end
-	
+
 	local spawnFolder = world:FindFirstChild("DummySpawns")
 	if not spawnFolder then
 		warn("[DummyService] workspace.World.DummySpawns not found")
 		return
 	end
-	
+
 	-- Find all DummySpawn markers
 	for _, child in spawnFolder:GetChildren() do
 		if child.Name == DummyConfig.MarkerName then
 			local spawnCFrame
-			
+
 			if child:IsA("Model") then
 				spawnCFrame = child:GetPivot()
 			elseif child:IsA("BasePart") then
@@ -132,17 +131,16 @@ local function scanSpawnMarkers()
 			else
 				continue
 			end
-			
+
 			table.insert(_spawnPositions, {
 				position = spawnCFrame.Position,
 				cframe = spawnCFrame,
 			})
-			
+
 			-- Destroy the marker
 			child:Destroy()
 		end
 	end
-	
 end
 
 -- Set up the dummy's physics and welds
@@ -152,24 +150,24 @@ local function setupDummyPhysics(dummy)
 		warn("[DummyService] No Root part found in dummy")
 		return false
 	end
-	
+
 	-- Set Root as PrimaryPart (the physics bean)
 	dummy.PrimaryPart = root
-	
+
 	-- Root physics setup
 	root.Anchored = false
 	root.CanCollide = true
 	root.Massless = false
-	
+
 	-- Make dummy heavy and grippy (hard to push)
 	root.CustomPhysicalProperties = PhysicalProperties.new(
-		50,    -- Density (high = heavy, default ~0.7)
-		2,     -- Friction (high = grippy)
-		0,     -- Elasticity (no bounce)
-		100,   -- FrictionWeight
-		0      -- ElasticityWeight
+		50, -- Density (high = heavy, default ~0.7)
+		2, -- Friction (high = grippy)
+		0, -- Elasticity (no bounce)
+		100, -- FrictionWeight
+		0 -- ElasticityWeight
 	)
-	
+
 	-- Keep dummy upright with AlignOrientation
 	local attachment = root:FindFirstChild("YAttachment")
 	if not attachment then
@@ -177,21 +175,22 @@ local function setupDummyPhysics(dummy)
 		attachment.Name = "YAttachment"
 		attachment.Parent = root
 	end
-	
+
 	local alignOrientation = Instance.new("AlignOrientation")
 	alignOrientation.Name = "StayUpright"
 	alignOrientation.Attachment0 = attachment
 	alignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	alignOrientation.CFrame = CFrame.new() -- World upright
-	alignOrientation.MaxTorque = 100000    -- Strong torque to stay upright
-	alignOrientation.Responsiveness = 50   -- Fast correction
+	alignOrientation.MaxTorque = 100000 -- Strong torque to stay upright
+	alignOrientation.Responsiveness = 50 -- Fast correction
 	alignOrientation.RigidityEnabled = false
 	alignOrientation.Parent = root
-	
+
 	-- Parts that should be welded to Root (inside Root folder)
-	local colliderParts = {"Body", "Feet", "Head", "CrouchBody", "CrouchHead", "CollisionBody", "CollisionHead", "HumanoidRootPart"}
+	local colliderParts =
+		{ "Body", "Feet", "Head", "CrouchBody", "CrouchHead", "CollisionBody", "CollisionHead", "HumanoidRootPart" }
 	local weldedCount = 0
-	
+
 	for _, partName in colliderParts do
 		local part = root:FindFirstChild(partName)
 		if part and part:IsA("BasePart") then
@@ -199,9 +198,9 @@ local function setupDummyPhysics(dummy)
 			part.Anchored = false
 			part.Massless = true
 			part.CanCollide = false
-			part.CanQuery = true  -- Can be hit by raycasts
+			part.CanQuery = true -- Can be hit by raycasts
 			part.CanTouch = false
-			
+
 			-- Check if already welded
 			local existingWeld = false
 			for _, child in part:GetChildren() do
@@ -210,19 +209,18 @@ local function setupDummyPhysics(dummy)
 					break
 				end
 			end
-			
+
 			if not existingWeld then
 				local weld = Instance.new("WeldConstraint")
 				weld.Part0 = root
 				weld.Part1 = part
 				weld.Parent = part
 			end
-			
+
 			weldedCount = weldedCount + 1
 		end
 	end
-	
-	
+
 	-- Setup Rig (visual only)
 	local rig = dummy:FindFirstChild("Rig")
 	if rig then
@@ -234,7 +232,7 @@ local function setupDummyPhysics(dummy)
 			rigHRP.CanQuery = false
 			rigHRP.CanTouch = false
 			rigHRP.Massless = true
-			
+
 			-- Check if already welded
 			local existingWeld = false
 			for _, child in rigHRP:GetChildren() do
@@ -245,16 +243,15 @@ local function setupDummyPhysics(dummy)
 					end
 				end
 			end
-			
+
 			if not existingWeld then
 				local weld = Instance.new("WeldConstraint")
 				weld.Part0 = root
 				weld.Part1 = rigHRP
 				weld.Parent = rigHRP
 			end
-
 		end
-		
+
 		-- Make all rig parts non-collidable
 		for _, part in rig:GetDescendants() do
 			if part:IsA("BasePart") then
@@ -268,7 +265,7 @@ local function setupDummyPhysics(dummy)
 			end
 		end
 	end
-	
+
 	-- Setup Collider folder parts
 	local collider = dummy:FindFirstChild("Collider")
 	if collider then
@@ -277,9 +274,9 @@ local function setupDummyPhysics(dummy)
 				descendant.Anchored = false
 				descendant.Massless = true
 				descendant.CanCollide = false
-				descendant.CanQuery = true  -- Hitboxes
+				descendant.CanQuery = true -- Hitboxes
 				descendant.CanTouch = false
-				
+
 				-- Weld to Root if not already
 				local hasWeld = false
 				for _, child in descendant:GetChildren() do
@@ -288,7 +285,7 @@ local function setupDummyPhysics(dummy)
 						break
 					end
 				end
-				
+
 				if not hasWeld then
 					local weld = Instance.new("WeldConstraint")
 					weld.Part0 = root
@@ -298,7 +295,7 @@ local function setupDummyPhysics(dummy)
 			end
 		end
 	end
-	
+
 	return true
 end
 
@@ -306,7 +303,7 @@ end
 local function fireEmoteToNearbyPlayers(dummyPosition, emoteId, action, rig)
 	local replicateDistance = DummyConfig.SpawnEmote.ReplicateDistance or 150
 	local playerCount = 0
-	
+
 	for _, player in Players:GetPlayers() do
 		local char = player.Character
 		if char and char.PrimaryPart then
@@ -319,7 +316,7 @@ local function fireEmoteToNearbyPlayers(dummyPosition, emoteId, action, rig)
 			end
 		end
 	end
-	
+
 	return playerCount
 end
 
@@ -328,18 +325,18 @@ local function playSpawnEmote(dummy)
 	if not DummyConfig.SpawnEmote.Enabled then
 		return nil
 	end
-	
+
 	if #_emoteClasses == 0 then
 		return nil
 	end
-	
+
 	-- Get the Rig (this is where animations play on client)
 	local rig = dummy:FindFirstChild("Rig")
 	if not rig then
 		warn("[DummyService] No Rig found in dummy, cannot play emote")
 		return nil
 	end
-	
+
 	-- Pick random emote (skip "Template" emote if it exists)
 	local validEmotes = {}
 	for _, entry in _emoteClasses do
@@ -347,21 +344,21 @@ local function playSpawnEmote(dummy)
 			table.insert(validEmotes, entry)
 		end
 	end
-	
+
 	if #validEmotes == 0 then
 		return nil
 	end
-	
+
 	local emoteEntry = validEmotes[math.random(#validEmotes)]
 	local emoteClass = emoteEntry.class
 	local isLoopable = emoteClass.Loopable or false
-	
+
 	-- Get dummy position for distance check
 	local dummyPosition = dummy.PrimaryPart and dummy.PrimaryPart.Position or dummy:GetPivot().Position
-	
+
 	-- Fire to nearby players
 	local playerCount = fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "play", rig)
-	
+
 	-- Store emote info for stopping later
 	local emoteInfo = {
 		id = emoteEntry.id,
@@ -369,16 +366,15 @@ local function playSpawnEmote(dummy)
 		loopable = isLoopable,
 		dummyPosition = dummyPosition,
 	}
-	
+
 	-- If loopable, stop after configured duration
 	if isLoopable then
 		task.delay(DummyConfig.SpawnEmote.LoopDuration, function()
 			-- Fire stop to nearby players
 			local stopCount = fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "stop", rig)
-		
 		end)
 	end
-	
+
 	return emoteInfo
 end
 
@@ -399,7 +395,7 @@ local function initializeCombat(dummy, pseudoPlayer)
 	if not DummyConfig.CombatEnabled then
 		return
 	end
-	
+
 	local combatService = _registry and _registry:TryGet("CombatService")
 	if combatService then
 		combatService:InitializePlayer(pseudoPlayer)
@@ -411,7 +407,7 @@ local function cleanupCombat(pseudoPlayer)
 	if not DummyConfig.CombatEnabled then
 		return
 	end
-	
+
 	local combatService = _registry and _registry:TryGet("CombatService")
 	if combatService and combatService.CleanupPlayer then
 		combatService:CleanupPlayer(pseudoPlayer)
@@ -424,40 +420,39 @@ local function spawnDummy(spawnIndex)
 		warn("[DummyService] No template cached")
 		return nil
 	end
-	
+
 	local spawnData = _spawnPositions[spawnIndex]
 	if not spawnData then
 		warn("[DummyService] Invalid spawn index:", spawnIndex)
 		return nil
 	end
-	
+
 	-- Clone template
 	local dummy = _template:Clone()
 	dummy.Name = "Dummy_" .. spawnIndex
-	
-	
+
 	-- Set up physics and welds BEFORE parenting
 	setupDummyPhysics(dummy)
-	
+
 	-- Parent to workspace
 	local world = workspace:FindFirstChild("World")
 	local spawnFolder = world and world:FindFirstChild("DummySpawns")
 	dummy.Parent = spawnFolder or workspace
-	
+
 	-- Position at spawn AFTER parenting
 	if dummy.PrimaryPart then
 		dummy:PivotTo(spawnData.cframe)
 	end
-	
+
 	-- Apply collision groups (same as players)
 	local collisionGroupService = _registry and _registry:TryGet("CollisionGroupService")
 	if collisionGroupService then
 		collisionGroupService:SetCharacterCollisionGroup(dummy)
 	end
-	
+
 	-- Tag dummy for Aim Assist targeting
 	CollectionService:AddTag(dummy, "AimAssistTarget")
-	
+
 	-- Tag specific bones for better aim assist targeting
 	local rig = dummy:FindFirstChild("Rig")
 	if rig then
@@ -474,14 +469,14 @@ local function spawnDummy(spawnIndex)
 			CollectionService:AddTag(torso, "Torso")
 		end
 	end
-	
-	-- Get humanoid and set health
-	local humanoid = dummy:FindFirstChildOfClass("Humanoid")
+
+	-- Get humanoid and set health (use recursive search for nested Humanoid in Rig subfolder)
+	local humanoid = dummy:FindFirstChildWhichIsA("Humanoid", true)
 	if humanoid then
 		humanoid.MaxHealth = DummyConfig.MaxHealth
 		humanoid.Health = DummyConfig.Health
 	end
-	
+
 	-- Create pseudo-player for combat system
 	local pseudoPlayer = {
 		UserId = getNextDummyId(),
@@ -495,57 +490,56 @@ local function spawnDummy(spawnIndex)
 			dummy:SetAttribute(name, value)
 		end,
 	}
-	
+
 	-- Store dummy info
 	_activeDummies[dummy] = {
 		spawnIndex = spawnIndex,
 		pseudoPlayer = pseudoPlayer,
 		emote = nil,
 	}
-	
+
 	-- Initialize combat
 	initializeCombat(dummy, pseudoPlayer)
-	
+
 	-- Play spawn emote (after dummy exists and is parented)
 	local emote = playSpawnEmote(dummy)
 	if emote then
 		_activeDummies[dummy].emote = emote
 	end
-	
+
 	-- Connect death handler (fires once)
 	if humanoid then
 		humanoid.Died:Once(function()
-
 			local dummyInfo = _activeDummies[dummy]
 			if not dummyInfo then
 				return
 			end
-			
+
 			local savedSpawnIndex = dummyInfo.spawnIndex
 			local savedPseudoPlayer = dummyInfo.pseudoPlayer
-			
+
 			-- Stop any playing emote
 			stopEmote(dummy)
-			
+
 			-- Cleanup combat
 			cleanupCombat(savedPseudoPlayer)
-			
+
 			-- Remove from active
 			_activeDummies[dummy] = nil
-			
+
 			-- Respawn after delay
 			task.delay(DummyConfig.RespawnDelay, function()
 				-- Destroy old dummy
 				if dummy and dummy.Parent then
 					dummy:Destroy()
 				end
-				
+
 				-- Spawn new dummy at same position
 				spawnDummy(savedSpawnIndex)
 			end)
 		end)
 	end
-	
+
 	return dummy
 end
 
@@ -554,7 +548,6 @@ local function spawnAllDummies()
 	for i = 1, #_spawnPositions do
 		spawnDummy(i)
 	end
-
 end
 
 --------------------------------------------------
@@ -567,29 +560,25 @@ function DummyService:Init(registry, net)
 	end
 	_initialized = true
 	_registry = registry
-	
-	
+
 	-- Cache template
 	if not cacheTemplate() then
 		warn("[DummyService] Failed to cache template - dummies will not spawn")
 		return
 	end
-	
+
 	-- Cache emote modules
 	cacheEmoteModules()
-
 end
 
 function DummyService:Start()
-
 	-- Scan for spawn markers (destroys them after recording)
 	scanSpawnMarkers()
-	
+
 	-- Spawn dummies at all positions
 	if #_spawnPositions > 0 then
 		spawnAllDummies()
 	else
-	
 	end
 end
 
@@ -616,14 +605,14 @@ function DummyService:SpawnAt(position)
 	if not _template then
 		return nil
 	end
-	
+
 	-- Add new spawn position
 	local newIndex = #_spawnPositions + 1
 	_spawnPositions[newIndex] = {
 		position = position,
 		cframe = CFrame.new(position),
 	}
-	
+
 	return spawnDummy(newIndex)
 end
 
@@ -632,24 +621,23 @@ function DummyService:DestroyAll()
 	for dummy, info in _activeDummies do
 		-- Stop emote
 		stopEmote(dummy)
-		
+
 		-- Cleanup combat
 		cleanupCombat(info.pseudoPlayer)
-		
+
 		-- Destroy
 		if dummy and dummy.Parent then
 			dummy:Destroy()
 		end
 	end
-	
-	_activeDummies = {}
 
+	_activeDummies = {}
 end
 
 -- Respawn all dummies
 function DummyService:RespawnAll()
 	self:DestroyAll()
-	task.wait(0.1)  -- Brief delay for cleanup
+	task.wait(0.1) -- Brief delay for cleanup
 	spawnAllDummies()
 end
 
