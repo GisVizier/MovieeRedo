@@ -6,13 +6,13 @@
 	Flow:
 	1. Player presses E
 	2. Client raycasts for target location
-	3. Client sends location to server for validation
-	4. Server validates, broadcasts spawn to all clients
-	5. On bite timing: Client does hitbox, applies knockback, sends hits to server
-	6. Server applies damage
-	7. Cleanup
-	
-	DEBUG MODE: All logging enabled, hitbox visualization on
+	3. Client plays viewmodel animation + VFXRep for caster effects
+	4. Client sends location to server for validation
+	5. Server validates, starts cooldown
+	6. Client fires VFXRep to spawn Kon for ALL clients
+	7. On bite timing: Caster does hitbox, applies knockback, sends hits to server
+	8. Server applies damage
+	9. Cleanup
 ]]
 
 local Players = game:GetService("Players")
@@ -22,6 +22,7 @@ local Workspace = game:GetService("Workspace")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -58,13 +59,33 @@ local function logTable(label, tbl)
 end
 
 --------------------------------------------------------------------------------
--- Constants
+-- TIMING CONSTANTS (Adjust these to match your animations)
+--------------------------------------------------------------------------------
+
+local TIMING = {
+	-- Time from ability start until Kon spawns at target location
+	KON_SPAWN_DELAY = 0.5,
+	
+	-- Time from Kon spawn until bite hitbox activates
+	BITE_DELAY = 0.8,
+	
+	-- Time to keep Kon visible after bite before starting despawn
+	LINGER_AFTER_BITE = 0.5,
+	
+	-- Total time before cleanup and weapon restore
+	TOTAL_ABILITY_DURATION = 2.5,
+}
+
+--------------------------------------------------------------------------------
+-- ABILITY CONSTANTS
 --------------------------------------------------------------------------------
 
 local MAX_RANGE = 125
 local BITE_RADIUS = 12
-local BITE_DELAY = 1.5  -- Seconds after spawn when bite happens (placeholder)
 local BITE_KNOCKBACK_PRESET = "Blast"
+
+-- Viewmodel animation name
+local VM_ANIM_NAME = "Kon"
 
 --------------------------------------------------------------------------------
 -- Raycast Setup
@@ -245,6 +266,30 @@ function Aki.Ability:OnStart(abilityRequest)
 	abilityState.targetCFrame = targetCFrame
 	Aki._activeAbility = abilityState
 
+	-- Play viewmodel animation
+	local viewmodelAnimator = ctx.viewmodelAnimator
+	local viewmodelController = abilityRequest.viewmodelController
+	local Viewmodelrig = viewmodelController and viewmodelController:GetActiveRig()
+	local vmAnimation = nil
+	
+	if viewmodelAnimator then
+		vmAnimation = viewmodelAnimator:PlayKitAnimation(VM_ANIM_NAME, {
+			priority = Enum.AnimationPriority.Action4,
+			stopOthers = true,
+		})
+		if vmAnimation then
+			log("Viewmodel animation started:", VM_ANIM_NAME)
+		else
+			log("Viewmodel animation not found:", VM_ANIM_NAME)
+		end
+	end
+
+	-- Fire VFXRep for caster viewmodel effects
+	VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+		ViewModel = Viewmodelrig,
+		forceAction = "start",
+	})
+
 	-- Send target location to server for validation
 	log("Sending to server for validation...")
 	logTable("Sending data", {
@@ -259,56 +304,61 @@ function Aki.Ability:OnStart(abilityRequest)
 		targetLookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
 	})
 
-	-- For now, simulate server validation with a small delay
-	-- TODO: Replace with actual server response handling
+	-- Main ability sequence using task.delay
 	task.spawn(function()
-		task.wait(0.1)  -- Simulate network delay
+		local startTime = os.clock()
+		
+		----------------------------------------------------------------
+		-- Phase 1: Wait for Kon spawn timing
+		----------------------------------------------------------------
+		task.wait(TIMING.KON_SPAWN_DELAY)
 		
 		if not abilityState.active or abilityState.cancelled then
-			log("Ability was cancelled before server response")
+			log("Ability was cancelled before Kon spawn")
+			unlock()
 			return
 		end
 
-		log("========== KON SPAWN (simulated server validation) ==========")
+		log("========== KON SPAWN ==========")
 		log("Spawning Kon at:", targetCFrame.Position)
 		abilityState.konSpawned = true
-
-		-- TODO: Spawn actual Kon model here
-		-- For now, just visualize the spawn point
-		local spawnViz = Instance.new("Part")
-		spawnViz.Name = "KonSpawnPoint_DEBUG"
-		spawnViz.Size = Vector3.new(3, 3, 3)
-		spawnViz.CFrame = targetCFrame
-		spawnViz.Anchored = true
-		spawnViz.CanCollide = false
-		spawnViz.CanQuery = false
-		spawnViz.Transparency = 0.5
-		spawnViz.Color = Color3.fromRGB(255, 0, 100)
-		spawnViz.Shape = Enum.PartType.Ball
-		spawnViz.Parent = Workspace:FindFirstChild("Effects") or Workspace
 		
-		log("Created debug spawn point visualization")
+		-- Fire VFXRep to spawn Kon for ALL clients
+		VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
+			position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
+			lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
+		})
 
-		-- Schedule bite after delay
-		task.wait(BITE_DELAY)
-
+		----------------------------------------------------------------
+		-- Phase 2: Wait for bite timing
+		----------------------------------------------------------------
+		task.wait(TIMING.BITE_DELAY)
+		
 		if not abilityState.active or abilityState.cancelled then
 			log("Ability was cancelled before bite")
-			spawnViz:Destroy()
+			-- Destroy Kon early
+			VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
+			unlock()
 			return
 		end
 
 		log("========== BITE EXECUTION ==========")
 		abilityState.biteExecuted = true
 
-		-- Get hitbox at Kon's position
+		-- Fire VFXRep for caster bite screen effects
+		VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+			ViewModel = Viewmodelrig,
+			forceAction = "bite",
+		})
+
+		-- Get hitbox at Kon's position (CASTER ONLY)
 		local bitePosition = targetCFrame.Position
 		log(string.format("Performing hitbox at (%.1f, %.1f, %.1f) radius %d",
 			bitePosition.X, bitePosition.Y, bitePosition.Z, BITE_RADIUS))
 
 		local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
 			Exclude = abilityRequest.player,
-			Visualize = true,
+			Visualize = DEBUG,
 			VisualizeDuration = 1.0,
 			VisualizeColor = Color3.fromRGB(255, 50, 50),
 		})
@@ -318,7 +368,7 @@ function Aki.Ability:OnStart(abilityRequest)
 			log(string.format("  [%d] %s", i, char.Name))
 		end
 
-		-- Apply knockback to each target
+		-- Apply knockback to each target (CASTER ONLY)
 		local knockbackController = ServiceRegistry:GetController("Knockback")
 		local hitList = {}
 
@@ -350,13 +400,31 @@ function Aki.Ability:OnStart(abilityRequest)
 			bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
 		})
 
-		-- Cleanup after bite
-		task.wait(1.0)
+		----------------------------------------------------------------
+		-- Phase 3: Wait for total duration, then cleanup
+		----------------------------------------------------------------
+		local elapsedTime = os.clock() - startTime
+		local remainingTime = TIMING.TOTAL_ABILITY_DURATION - elapsedTime
+		
+		if remainingTime > 0 then
+			task.wait(remainingTime)
+		end
+
 		log("========== CLEANUP ==========")
 		
-		spawnViz:Destroy()
+		-- Fire VFXRep for caster stop effects
+		VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+			ViewModel = Viewmodelrig,
+			forceAction = "stop",
+		})
+		
 		abilityState.active = false
 		Aki._activeAbility = nil
+
+		-- Stop viewmodel animation if still playing
+		if vmAnimation and vmAnimation.IsPlaying then
+			vmAnimation:Stop(0.2)
+		end
 
 		-- Unlock weapon switch and restore weapon
 		unlock()
@@ -377,8 +445,12 @@ function Aki.Ability:OnInterrupt(abilityRequest, reason)
 	if Aki._activeAbility then
 		Aki._activeAbility.cancelled = true
 		Aki._activeAbility.active = false
+		
+		-- Destroy Kon via VFXRep
+		VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
+		
 		Aki._activeAbility = nil
-		log("Active ability cancelled")
+		log("Active ability cancelled and cleaned up")
 	end
 end
 
@@ -423,10 +495,22 @@ end
 function Aki:OnUnequip(reason)
 	log("OnUnequip called, reason:", reason)
 	
+	-- Disconnect all connections
+	for key, conn in pairs(self._connections) do
+		if typeof(conn) == "RBXScriptConnection" then
+			conn:Disconnect()
+		end
+		self._connections[key] = nil
+	end
+	
 	-- Cancel any active ability
 	if Aki._activeAbility then
 		Aki._activeAbility.cancelled = true
 		Aki._activeAbility.active = false
+		
+		-- Destroy Kon via VFXRep
+		VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
+		
 		Aki._activeAbility = nil
 	end
 end
