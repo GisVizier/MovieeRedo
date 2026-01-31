@@ -110,26 +110,26 @@ local function buildSurfaceCFrame(position, lookVector, surfaceNormal)
 	-- Project lookVector onto the surface plane
 	-- Remove the component of lookVector that's parallel to the normal
 	local projectedLook = lookVector - surfaceNormal * lookVector:Dot(surfaceNormal)
-	
+
 	-- If projected vector is too small (looking directly at/away from surface), pick a fallback
 	if projectedLook.Magnitude < 0.01 then
 		-- Use world forward projected onto surface
 		local worldForward = Vector3.new(0, 0, 1)
 		projectedLook = worldForward - surfaceNormal * worldForward:Dot(surfaceNormal)
-		
+
 		-- If still too small (surface is horizontal), use world right
 		if projectedLook.Magnitude < 0.01 then
 			local worldRight = Vector3.new(1, 0, 0)
 			projectedLook = worldRight - surfaceNormal * worldRight:Dot(surfaceNormal)
 		end
 	end
-	
+
 	projectedLook = projectedLook.Unit
-	
+
 	-- Build CFrame: UpVector = surface normal, LookVector = projected direction
 	-- CFrame.lookAt uses the 3rd param as the UpVector hint
 	local baseCFrame = CFrame.lookAt(position, position + projectedLook, surfaceNormal)
-	
+
 	-- Rotate to align Kon's model orientation
 	return baseCFrame * CFrame.Angles(math.rad(90), 0, 0)
 end
@@ -219,7 +219,7 @@ function Kon:User(originUserId, data)
 		-- Screen shake on bite impact
 		print("[Kon VFX] User: bite screen effects")
 		-- TODO: Add camera shake for impact
-		
+
 	elseif action == "stop" then
 		-- Cleanup viewmodel effects
 		print("[Kon VFX] User: stop effects")
@@ -290,7 +290,7 @@ function Kon:createKon(originUserId, data)
 	task.delay(TIMING.BITE_DELAY, function()
 		if not konModel or not konModel.Parent then return end
 		if self._activeKons[originUserId] ~= konModel then return end
-		
+
 		playBiteVFX(konModel, targetCFrame)
 	end)
 
@@ -300,7 +300,7 @@ function Kon:createKon(originUserId, data)
 	task.delay(TIMING.SMOKE_DELAY, function()
 		if not konModel or not konModel.Parent then return end
 		if self._activeKons[originUserId] ~= konModel then return end
-		
+
 		playSmokeVFX(konModel, targetCFrame)
 	end)
 
