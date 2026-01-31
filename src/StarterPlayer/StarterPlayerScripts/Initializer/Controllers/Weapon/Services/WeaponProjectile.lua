@@ -36,7 +36,7 @@ local LocalPlayer = Players.LocalPlayer
 local CONFIG = {
 	-- Debug (set to true to see hit markers and logs)
 	DebugVisualization = true,
-	DebugLogging = false,
+	DebugLogging = true,
 
 	-- Simulation
 	PhysicsTickRate = 1 / 60, -- 60 Hz physics
@@ -536,6 +536,17 @@ function WeaponProjectile:_simulateProjectile(projectile, dt)
 
 	-- Handle collision
 	if hitResult then
+		if CONFIG.DebugLogging then
+			print(
+				string.format(
+					"[WeaponProjectile] Collision detected: Part=%s, Parent=%s, FullName=%s",
+					hitResult.Instance.Name,
+					hitResult.Instance.Parent and hitResult.Instance.Parent.Name or "nil",
+					hitResult.Instance:GetFullName()
+				)
+			)
+		end
+
 		local shouldContinue, reason = self:_handleCollision(projectile, hitResult)
 
 		if not shouldContinue then
@@ -879,26 +890,80 @@ function WeaponProjectile:_getPlayerFromHit(hitInstance)
 
 	local rigContainer = workspace:FindFirstChild("Rigs")
 	if rigContainer and hitInstance:IsDescendantOf(rigContainer) then
+		if CONFIG.DebugLogging then
+			print("[WeaponProjectile] _getPlayerFromHit: Ignoring Rigs container hit")
+		end
 		return nil, nil, false
 	end
 
 	-- Check for humanoid in ancestors (players and rigs/dummies)
-	local character = hitInstance:FindFirstAncestorOfClass("Model")
-	if character then
-		-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
-		local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
-		if humanoid then
-			local isHeadshot = hitInstance.Name == "Head"
+	-- Use same logic as server's getCharacterFromPart for consistency
+	local current = hitInstance.Parent
 
-			-- Check if it's a player
-			local player = Players:GetPlayerFromCharacter(character)
-			if player then
-				return nil, nil, false
-			end
-
-			-- It's a rig/dummy - return nil player but valid character
-			return nil, character, isHeadshot
+	-- Handle Root folder (dummies): Dummy/Root/Part
+	-- The dummy structure has hitbox parts inside a "Root" BasePart
+	if current and current.Name == "Root" and current:IsA("BasePart") then
+		if CONFIG.DebugLogging then
+			print(
+				string.format(
+					"[WeaponProjectile] _getPlayerFromHit: Detected Root structure, moving up from '%s'",
+					current.Name
+				)
+			)
 		end
+		current = current.Parent
+	end
+
+	-- Search up for a character model (has Humanoid)
+	while current and current ~= workspace do
+		if current:IsA("Model") then
+			-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
+			local humanoid = current:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid then
+				local isHeadshot = hitInstance.Name == "Head"
+					or hitInstance.Name == "CrouchHead"
+					or hitInstance.Name == "HitboxHead"
+
+				-- Check if it's a player character
+				local player = Players:GetPlayerFromCharacter(current)
+				if player then
+					if CONFIG.DebugLogging then
+						print(
+							string.format(
+								"[WeaponProjectile] _getPlayerFromHit: Found player '%s' (hit via Model, not Collider)",
+								player.Name
+							)
+						)
+					end
+					-- Return nil for player here - players should be detected via Collider system above
+					-- This prevents double-hits on players
+					return nil, nil, false
+				end
+
+				-- It's a rig/dummy - return nil player but valid character
+				if CONFIG.DebugLogging then
+					print(
+						string.format(
+							"[WeaponProjectile] _getPlayerFromHit: Found dummy/rig '%s' (Humanoid at %s)",
+							current.Name,
+							humanoid:GetFullName()
+						)
+					)
+				end
+				return nil, current, isHeadshot
+			end
+		end
+		current = current.Parent
+	end
+
+	if CONFIG.DebugLogging then
+		print(
+			string.format(
+				"[WeaponProjectile] _getPlayerFromHit: No character found for '%s' (parent: %s)",
+				hitInstance.Name,
+				hitInstance.Parent and hitInstance.Parent.Name or "nil"
+			)
+		)
 	end
 
 	return nil, nil, false
