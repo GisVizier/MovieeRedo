@@ -191,6 +191,32 @@ function Aki.Ability:OnStart(abilityRequest)
 				surfaceNormal = { X = surfaceNormal.X, Y = surfaceNormal.Y, Z = surfaceNormal.Z },
 			})
 			
+
+			local targets = Hitbox.GetCharactersInSphere(targetCFrame.Position, BITE_RADIUS, {
+				Exclude = abilityRequest.player,
+			})
+
+			-- Knockback
+			local knockbackController = ServiceRegistry:GetController("Knockback")
+			local hitList = {}
+			for _, targetChar in ipairs(targets) do
+				if knockbackController then
+					knockbackController:ApplyKnockback(targetChar, {
+						upwardVelocity = 100,
+						outwardVelocity = 30,
+						preserveMomentum = -1.0,
+					}, targetCFrame.Position)
+
+				end
+
+				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+				table.insert(hitList, {
+					characterName = targetChar.Name,
+					playerId = targetPlayer and targetPlayer.UserId or nil,
+					isDummy = targetPlayer == nil,
+				})
+			end
+			
 			task.spawn(function()
 				task.wait(.6)
 				
@@ -211,7 +237,13 @@ function Aki.Ability:OnStart(abilityRequest)
 
 				for _, targetChar in ipairs(targets) do
 					if knockbackController then
-						knockbackController:ApplyKnockbackPreset(targetChar, `FlingHuge`, bitePosition)
+						knockbackController:ApplyKnockback(targetChar, {
+							upwardVelocity = 150,       -- Good lift (slightly less than jump pad)
+							outwardVelocity = 180,     -- Strong horizontal push away
+							preserveMomentum = 0.25,
+						}, targetCFrame.Position)
+
+						--knockbackController:ApplyKnockbackPreset(targetChar, `FlingHuge`, bitePosition)
 					end
 
 					local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
