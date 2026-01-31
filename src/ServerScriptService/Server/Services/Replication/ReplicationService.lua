@@ -143,16 +143,6 @@ end
 
 -- Helper to send to only ready players (avoids race condition on join)
 function ReplicationService:_fireToReadyClients(eventName, data)
-	print(
-		"[Replication] ReadyPlayers count:",
-		(function()
-			local count = 0
-			for _ in pairs(self.ReadyPlayers) do
-				count += 1
-			end
-			return count
-		end)()
-	)
 	for player in pairs(self.ReadyPlayers) do
 		if player.Parent then
 			self._net:FireClient(eventName, player, data)
