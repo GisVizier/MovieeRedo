@@ -4,11 +4,9 @@
 	Ability: Kon - Summon devil that rushes to target location and bites
 	
 	Server responsibilities:
-	1. Validate spawn location (range)
+	1. Validate spawn location
 	2. Start cooldown
 	3. Validate hits and apply damage
-	
-	Note: VFX/model spawning is handled by client via VFXRep
 ]]
 
 local Players = game:GetService("Players")
@@ -17,7 +15,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 
--- HitDetectionAPI for authoritative position data (lazy-loaded since this runs on server)
+-- HitDetectionAPI for authoritative position data
 local HitDetectionAPI = nil
 local function getHitDetectionAPI()
 	if HitDetectionAPI then
@@ -43,44 +41,12 @@ local function getHitDetectionAPI()
 end
 
 --------------------------------------------------------------------------------
--- Debug Logging
---------------------------------------------------------------------------------
-
-local DEBUG = true
-
-local function log(...)
-	if DEBUG then
-		print("[Aki Server]", ...)
-	end
-end
-
-local function logTable(label, tbl)
-	if not DEBUG then return end
-	print("[Aki Server]", label, ":")
-	if type(tbl) ~= "table" then
-		print("  (not a table):", tbl)
-		return
-	end
-	for k, v in pairs(tbl) do
-		if typeof(v) == "Vector3" then
-			print(string.format("  %s = Vector3(%.2f, %.2f, %.2f)", tostring(k), v.X, v.Y, v.Z))
-		elseif typeof(v) == "CFrame" then
-			print(string.format("  %s = CFrame at (%.2f, %.2f, %.2f)", tostring(k), v.Position.X, v.Position.Y, v.Position.Z))
-		elseif typeof(v) == "Instance" then
-			print(string.format("  %s = %s (%s)", tostring(k), v.Name, v.ClassName))
-		else
-			print(string.format("  %s = %s", tostring(k), tostring(v)))
-		end
-	end
-end
-
---------------------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------------------
 
-local MAX_RANGE = 150  -- Slightly more than client for validation tolerance
+local MAX_RANGE = 150
 local BITE_DAMAGE = 35
-local MAX_HITS_PER_BITE = 5  -- Anti-cheat: max targets per bite
+local MAX_HITS_PER_BITE = 5
 
 --------------------------------------------------------------------------------
 -- Module
@@ -90,102 +56,74 @@ local Kit = {}
 Kit.__index = Kit
 
 function Kit.new(ctx)
-	log("Kit.new() called")
-	logTable("Context", {
-		player = ctx.player,
-		character = ctx.character,
-		kitId = ctx.kitId,
-	})
-	
 	local self = setmetatable({}, Kit)
 	self._ctx = ctx
-	self._pendingSpawn = nil  -- Track pending spawn validation
+	self._pendingSpawn = nil
 	return self
 end
 
 function Kit:SetCharacter(character)
-	log("SetCharacter called:", character and character.Name or "nil")
 	self._ctx.character = character
 end
 
 function Kit:Destroy()
-	log("Destroy called")
 	self._pendingSpawn = nil
 end
 
 function Kit:OnEquipped()
-	log("OnEquipped called for player:", self._ctx.player.Name)
 end
 
 function Kit:OnUnequipped()
-	log("OnUnequipped called for player:", self._ctx.player.Name)
 	self._pendingSpawn = nil
 end
 
 --------------------------------------------------------------------------------
--- Validation Helpers
+-- Validation
 --------------------------------------------------------------------------------
 
 local function validateTargetPosition(player, character, targetPos)
 	if not character then
-		warn("[Aki Server] Validation failed: No character")
 		return false, "NoCharacter"
 	end
 
-	-- Try to get authoritative position from HitDetectionAPI (replication system)
 	local playerPos = nil
-	local positionSource = "unknown"
 	
 	local api = getHitDetectionAPI()
 	if api then
 		local currentTime = workspace:GetServerTimeNow()
 		playerPos = api:GetPositionAtTime(player, currentTime)
-		if playerPos then
-			positionSource = "PositionHistory"
-		end
 	end
 	
-	-- Fallback to character parts if no position history
 	if not playerPos then
 		local root = character.PrimaryPart 
 			or character:FindFirstChild("Root") 
 			or character:FindFirstChild("HumanoidRootPart")
 		if root then
 			playerPos = root.Position
-			positionSource = root.Name
 		end
 	end
 	
 	if not playerPos then
-		warn("[Aki Server] Validation failed: No position data available")
 		return false, "NoPosition"
 	end
 
-	-- Check range
 	local distance = (targetPos - playerPos).Magnitude
-	log(string.format("Distance check: %.1f studs (max: %d) from %s", distance, MAX_RANGE, positionSource))
-	
 	if distance > MAX_RANGE then
-		warn("[Aki Server] Validation failed: Out of range")
 		return false, "OutOfRange"
 	end
 
-	log("Validation passed")
 	return true, nil
 end
 
 local function validateHitList(hits)
 	if type(hits) ~= "table" then
-		log("Validation failed: hits is not a table")
 		return false, "InvalidHits"
 	end
 
 	if #hits > MAX_HITS_PER_BITE then
-		log(string.format("Validation failed: Too many hits (%d > %d)", #hits, MAX_HITS_PER_BITE))
 		return false, "TooManyHits"
 	end
 
-	log(string.format("Hit list validated: %d hits", #hits))
 	return true, nil
 end
 
@@ -194,14 +132,6 @@ end
 --------------------------------------------------------------------------------
 
 function Kit:OnAbility(inputState, clientData)
-	log("========== OnAbility CALLED ==========")
-	log("inputState:", tostring(inputState))
-	
-	if clientData then
-		log("clientData.action:", clientData.action or "nil")
-		logTable("clientData", clientData)
-	end
-
 	if inputState ~= Enum.UserInputState.Begin then
 		return false
 	end
@@ -211,25 +141,16 @@ function Kit:OnAbility(inputState, clientData)
 	local service = self._ctx.service
 
 	if not character then
-		warn("[Aki Server] No character for player:", player.Name)
 		return false
 	end
 
 	clientData = clientData or {}
 	local action = clientData.action
 
-	log("Action:", action or "none")
-
-	--------------------------------------------------------------------------------
-	-- Action: Request Kon Spawn
-	--------------------------------------------------------------------------------
+	-- Request Kon Spawn
 	if action == "requestKonSpawn" then
-		log(">>> Processing requestKonSpawn <<<")
-
 		local targetPosData = clientData.targetPosition
-		
 		if not targetPosData then
-			warn("[Aki Server] No target position in request")
 			return false
 		end
 
@@ -239,47 +160,32 @@ function Kit:OnAbility(inputState, clientData)
 			targetPosData.Z or 0
 		)
 
-		log("Target position:", targetPos)
-
-		-- Validate target position
 		local valid, reason = validateTargetPosition(player, character, targetPos)
 		if not valid then
-			warn("[Aki Server] Spawn validation failed:", reason)
 			return false
 		end
 
 		-- Start cooldown
 		if service then
-			log("Starting cooldown")
 			service:StartCooldown(player)
-		else
-			warn("[Aki Server] Service is nil - cannot start cooldown!")
 		end
 
-		-- Store pending spawn for bite validation
+		-- Store for bite validation
 		self._pendingSpawn = {
 			position = targetPos,
 			time = os.clock(),
 		}
 
-		log("Spawn validated, pending spawn stored")
-
-		-- Client handles VFXRep to spawn Kon for all clients
-		return false  -- Don't end ability yet, wait for bite
+		return false
 	end
 
-	--------------------------------------------------------------------------------
-	-- Action: Kon Bite (damage phase)
-	--------------------------------------------------------------------------------
+	-- Kon Bite
 	if action == "konBite" then
-		log(">>> Processing konBite <<<")
-
 		local hits = clientData.hits
 		local bitePosData = clientData.bitePosition
 
 		if not hits or not bitePosData then
-			warn("[Aki Server] Missing hits or bitePosition in konBite")
-			return true  -- End ability anyway
+			return true
 		end
 
 		local bitePos = Vector3.new(
@@ -288,49 +194,29 @@ function Kit:OnAbility(inputState, clientData)
 			bitePosData.Z or 0
 		)
 
-		log("Bite position:", bitePos)
-		logTable("Hits received", hits)
-
-		-- Validate hit list
 		local valid, reason = validateHitList(hits)
 		if not valid then
-			warn("[Aki Server] Hit list validation failed:", reason)
 			return true
 		end
 
-		-- Validate bite position matches pending spawn (with tolerance)
+		-- Validate bite position
 		if self._pendingSpawn then
 			local spawnDist = (bitePos - self._pendingSpawn.position).Magnitude
-			log(string.format("Bite/spawn position diff: %.1f studs", spawnDist))
-			
 			if spawnDist > 20 then
-				warn("[Aki Server] Bite position too far from spawn position")
+				-- Position mismatch, but don't reject
 			end
-		else
-			log("Warning: No pending spawn found for bite validation")
 		end
 
-		-- Apply damage to each hit
-		log("========== APPLYING DAMAGE ==========")
-		
-		for i, hitData in ipairs(hits) do
-			log(string.format("Processing hit [%d]:", i))
-			logTable("  Hit data", hitData)
-
-			local targetPlayer = nil
+		-- Apply damage
+		for _, hitData in ipairs(hits) do
 			local targetCharacter = nil
 
 			if hitData.playerId then
-				-- Hit a player
-				targetPlayer = Players:GetPlayerByUserId(hitData.playerId)
+				local targetPlayer = Players:GetPlayerByUserId(hitData.playerId)
 				if targetPlayer then
 					targetCharacter = targetPlayer.Character
-					log("  Found player:", targetPlayer.Name)
-				else
-					log("  Player not found for ID:", hitData.playerId)
 				end
 			elseif hitData.isDummy and hitData.characterName then
-				-- Hit a dummy/NPC - find by name in workspace
 				local dummies = workspace:FindFirstChild("Dummies")
 				if dummies then
 					targetCharacter = dummies:FindFirstChild(hitData.characterName)
@@ -338,38 +224,21 @@ function Kit:OnAbility(inputState, clientData)
 				if not targetCharacter then
 					targetCharacter = workspace:FindFirstChild(hitData.characterName)
 				end
-				if targetCharacter then
-					log("  Found dummy:", hitData.characterName)
-				else
-					log("  Dummy not found:", hitData.characterName)
-				end
 			end
 
 			if targetCharacter then
-				-- Apply damage
 				local humanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
 				if humanoid and humanoid.Health > 0 then
-					log(string.format("  Dealing %d damage to %s", BITE_DAMAGE, targetCharacter.Name))
 					humanoid:TakeDamage(BITE_DAMAGE)
 				end
 			end
 		end
 
-		log("========== DAMAGE COMPLETE ==========")
-
-		-- Clear pending spawn
 		self._pendingSpawn = nil
-
-		-- End ability
-		log("Ability complete")
 		return true
 	end
 
-	--------------------------------------------------------------------------------
-	-- Unknown action or no action
-	--------------------------------------------------------------------------------
-	log("Unknown or missing action, starting cooldown and ending")
-	
+	-- Unknown action
 	if service then
 		service:StartCooldown(player)
 	end
@@ -378,18 +247,13 @@ function Kit:OnAbility(inputState, clientData)
 end
 
 --------------------------------------------------------------------------------
--- Ultimate (placeholder)
+-- Ultimate
 --------------------------------------------------------------------------------
 
 function Kit:OnUltimate(inputState, clientData)
-	log("OnUltimate called")
-	log("inputState:", tostring(inputState))
-	
 	if inputState ~= Enum.UserInputState.Begin then
 		return false
 	end
-
-	log("Ultimate not implemented yet")
 	return true
 end
 

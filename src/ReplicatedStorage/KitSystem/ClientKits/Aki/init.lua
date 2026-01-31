@@ -4,15 +4,15 @@
 	Ability: Kon - Summon devil that rushes to target location and bites
 	
 	Flow:
-	1. Player presses E
-	2. Client raycasts for target location
-	3. Client plays viewmodel animation + VFXRep for caster effects
-	4. Client sends location to server for validation
-	5. Server validates, starts cooldown
-	6. Client fires VFXRep to spawn Kon for ALL clients
-	7. On bite timing: Caster does hitbox, applies knockback, sends hits to server
-	8. Server applies damage
-	9. Cleanup
+	1. Press E → Play animation → Freezes at "freeze" marker
+	2. Hold → Animation frozen, player can aim
+	3. Release E → Animation continues, events trigger ability
+	
+	Animation Events:
+	- freeze: Pause animation (Speed = 0)
+	- spawn: Spawn Kon via VFXRep
+	- bite: Hitbox + knockback + send to server
+	- _finish: Cleanup and restore weapon
 ]]
 
 local Players = game:GetService("Players")
@@ -27,64 +27,12 @@ local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("
 local LocalPlayer = Players.LocalPlayer
 
 --------------------------------------------------------------------------------
--- Debug Logging
---------------------------------------------------------------------------------
-
-local DEBUG = true
-
-local function log(...)
-	if DEBUG then
-		print("[Aki Client]", ...)
-	end
-end
-
-local function logTable(label, tbl)
-	if not DEBUG then return end
-	print("[Aki Client]", label, ":")
-	if type(tbl) ~= "table" then
-		print("  (not a table):", tbl)
-		return
-	end
-	for k, v in pairs(tbl) do
-		if typeof(v) == "Vector3" then
-			print(string.format("  %s = Vector3(%.2f, %.2f, %.2f)", tostring(k), v.X, v.Y, v.Z))
-		elseif typeof(v) == "CFrame" then
-			print(string.format("  %s = CFrame at (%.2f, %.2f, %.2f)", tostring(k), v.Position.X, v.Position.Y, v.Position.Z))
-		elseif typeof(v) == "Instance" then
-			print(string.format("  %s = %s (%s)", tostring(k), v.Name, v.ClassName))
-		else
-			print(string.format("  %s = %s", tostring(k), tostring(v)))
-		end
-	end
-end
-
---------------------------------------------------------------------------------
--- TIMING CONSTANTS (Adjust these to match your animations)
---------------------------------------------------------------------------------
-
-local TIMING = {
-	-- Time from ability start until Kon spawns at target location
-	KON_SPAWN_DELAY = 0.5,
-	
-	-- Time from Kon spawn until bite hitbox activates
-	BITE_DELAY = 0.8,
-	
-	-- Time to keep Kon visible after bite before starting despawn
-	LINGER_AFTER_BITE = 0.5,
-	
-	-- Total time before cleanup and weapon restore
-	TOTAL_ABILITY_DURATION = 2.5,
-}
-
---------------------------------------------------------------------------------
--- ABILITY CONSTANTS
+-- Constants
 --------------------------------------------------------------------------------
 
 local MAX_RANGE = 125
 local BITE_RADIUS = 12
 local BITE_KNOCKBACK_PRESET = "Blast"
-
--- Viewmodel animation name
 local VM_ANIM_NAME = "Kon"
 
 --------------------------------------------------------------------------------
@@ -106,28 +54,18 @@ Aki.Ultimate = {}
 
 Aki._ctx = nil
 Aki._connections = {}
-Aki._activeAbility = nil  -- Track active ability for cancellation
+
+-- Active ability state
+Aki._abilityState = nil
 
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
 
-local function getCameraCF()
-	return Workspace.CurrentCamera.CFrame
-end
-
---[[
-	Raycast from camera to find target location for Kon spawn
-	Returns CFrame oriented to surface normal, or nil if no valid target
-]]
 local function getTargetLocation(character: Model, maxDistance: number): CFrame?
 	local root = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
-	if not root then 
-		log("getTargetLocation: No root part found")
-		return nil 
-	end
+	if not root then return nil end
 
-	-- Update raycast filter to exclude character and effects
 	local filterList = { character }
 	local effectsFolder = Workspace:FindFirstChild("Effects")
 	if effectsFolder then
@@ -135,76 +73,29 @@ local function getTargetLocation(character: Model, maxDistance: number): CFrame?
 	end
 	TargetParams.FilterDescendantsInstances = filterList
 
-	local camCF = getCameraCF()
-	local rayOrigin = camCF.Position
-	local rayDirection = camCF.LookVector * maxDistance
-
-	log(string.format("Raycasting from (%.1f, %.1f, %.1f) direction (%.2f, %.2f, %.2f) range %d",
-		rayOrigin.X, rayOrigin.Y, rayOrigin.Z,
-		camCF.LookVector.X, camCF.LookVector.Y, camCF.LookVector.Z,
-		maxDistance))
-
-	local result = Workspace:Raycast(rayOrigin, rayDirection, TargetParams)
-	local hitPos
+	local camCF = Workspace.CurrentCamera.CFrame
+	local result = Workspace:Raycast(camCF.Position, camCF.LookVector * maxDistance, TargetParams)
 
 	if result and result.Instance and result.Instance.Transparency ~= 1 then
-		hitPos = result.Position
-		log("Direct hit on:", result.Instance.Name, "at", hitPos)
-	else
-		-- No direct hit - try to find ground below max range point
-		hitPos = camCF.Position + camCF.LookVector * maxDistance
-		log("No direct hit, checking ground at max range:", hitPos)
-
-		result = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -100, TargetParams)
-		if result then
-			hitPos = result.Position
-			log("Found ground at:", hitPos)
-		else
-			log("No valid target location found")
-			return nil
-		end
-	end
-
-	-- Build CFrame oriented to surface
-	if result then
 		local hitPosition = result.Position
 		local normal = result.Normal
-		local isGround = normal.Y > 0.5
-
-		log(string.format("Surface normal: (%.2f, %.2f, %.2f) isGround: %s", 
-			normal.X, normal.Y, normal.Z, tostring(isGround)))
-
-		if isGround then
-			-- Ground hit: Orient Kon facing away from camera
+		
+		if normal.Y > 0.5 then
 			local camPos = Vector3.new(camCF.Position.X, hitPosition.Y, camCF.Position.Z)
 			local dirRelToCam = CFrame.lookAt(camPos, hitPosition).LookVector
-			local finalCF = CFrame.lookAt(hitPosition, hitPosition + dirRelToCam)
-			log("Ground spawn CFrame:", finalCF.Position)
-			return finalCF
+			return CFrame.lookAt(hitPosition, hitPosition + dirRelToCam)
 		else
-			-- Wall hit: Orient Kon facing out from wall
-			local finalCF = CFrame.new(hitPosition, hitPosition + normal)
-			log("Wall spawn CFrame:", finalCF.Position)
-			return finalCF
+			return CFrame.new(hitPosition, hitPosition + normal)
+		end
+	else
+		local hitPos = camCF.Position + camCF.LookVector * maxDistance
+		result = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -100, TargetParams)
+		if result then
+			return CFrame.lookAt(result.Position, result.Position + camCF.LookVector)
 		end
 	end
 
-	return CFrame.new(hitPos)
-end
-
---------------------------------------------------------------------------------
--- Ability State Management
---------------------------------------------------------------------------------
-
-local function createAbilityState()
-	return {
-		active = true,
-		cancelled = false,
-		konSpawned = false,
-		biteExecuted = false,
-		targetCFrame = nil,
-		startTime = os.clock(),
-	}
+	return nil
 end
 
 --------------------------------------------------------------------------------
@@ -212,246 +103,210 @@ end
 --------------------------------------------------------------------------------
 
 function Aki.Ability:OnStart(abilityRequest)
-	log("========== ABILITY START ==========")
-	logTable("abilityRequest", {
-		kitId = abilityRequest.kitId,
-		abilityType = abilityRequest.abilityType,
-		player = abilityRequest.player,
-		character = abilityRequest.character,
-		humanoidRootPart = abilityRequest.humanoidRootPart,
-		timestamp = abilityRequest.timestamp,
-	})
-
 	local hrp = abilityRequest.humanoidRootPart
 	local character = abilityRequest.character
-	if not hrp or not character then 
-		warn("[Aki Client] No HRP or character!")
-		return 
-	end
+	if not hrp or not character then return end
 
 	local kitController = ServiceRegistry:GetController("Kit")
 
-	-- Check if already using ability
-	if kitController:IsAbilityActive() then
-		log("Ability already active, ignoring")
-		return
-	end
+	if kitController:IsAbilityActive() then return end
+	if abilityRequest.IsOnCooldown() then return end
 
-	-- Check cooldown
-	local cooldownRemaining = abilityRequest.GetCooldownRemaining()
-	log("Cooldown check - IsOnCooldown:", abilityRequest.IsOnCooldown(), "remaining:", cooldownRemaining)
-	if abilityRequest.IsOnCooldown() then
-		log("BLOCKED - Ability on cooldown, remaining:", cooldownRemaining)
-		return
-	end
-	log("Cooldown check PASSED")
-
-	-- Get target location via raycast
-	local targetCFrame = getTargetLocation(character, MAX_RANGE)
-	if not targetCFrame then
-		warn("[Aki Client] Could not find valid target location!")
-		return
-	end
-
-	log("Target location found:", targetCFrame.Position)
-
-	-- Start ability (holsters weapon, switches to fists viewmodel)
+	-- Start ability
 	local ctx = abilityRequest.StartAbility()
 	local unlock = kitController:LockWeaponSwitch()
-
-	log("Ability started, weapon holstered")
-
-	-- Create ability state for tracking
-	local abilityState = createAbilityState()
-	abilityState.targetCFrame = targetCFrame
-	Aki._activeAbility = abilityState
 
 	-- Play viewmodel animation
 	local viewmodelAnimator = ctx.viewmodelAnimator
 	local viewmodelController = abilityRequest.viewmodelController
-	local Viewmodelrig = viewmodelController and viewmodelController:GetActiveRig()
-	local vmAnimation = nil
+	local viewmodelRig = viewmodelController and viewmodelController:GetActiveRig()
 	
-	if viewmodelAnimator then
-		vmAnimation = viewmodelAnimator:PlayKitAnimation(VM_ANIM_NAME, {
-			priority = Enum.AnimationPriority.Action4,
-			stopOthers = true,
-		})
-		if vmAnimation then
-			log("Viewmodel animation started:", VM_ANIM_NAME)
-		else
-			log("Viewmodel animation not found:", VM_ANIM_NAME)
-		end
-	end
-
-	-- Fire VFXRep for caster viewmodel effects
-	VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-		ViewModel = Viewmodelrig,
-		forceAction = "start",
+	local animation = viewmodelAnimator:PlayKitAnimation(VM_ANIM_NAME, {
+		priority = Enum.AnimationPriority.Action4,
+		stopOthers = true,
 	})
 
-	-- Send target location to server for validation
-	log("Sending to server for validation...")
-	logTable("Sending data", {
-		action = "requestKonSpawn",
-		targetPosition = targetCFrame.Position,
-		targetLookVector = targetCFrame.LookVector,
-	})
-
-	abilityRequest.Send({
-		action = "requestKonSpawn",
-		targetPosition = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
-		targetLookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
-	})
-
-	-- Main ability sequence using task.delay
-	task.spawn(function()
-		local startTime = os.clock()
-		
-		----------------------------------------------------------------
-		-- Phase 1: Wait for Kon spawn timing
-		----------------------------------------------------------------
-		task.wait(TIMING.KON_SPAWN_DELAY)
-		
-		if not abilityState.active or abilityState.cancelled then
-			log("Ability was cancelled before Kon spawn")
-			unlock()
-			return
-		end
-
-		log("========== KON SPAWN ==========")
-		log("Spawning Kon at:", targetCFrame.Position)
-		abilityState.konSpawned = true
-		
-		-- Fire VFXRep to spawn Kon for ALL clients
-		VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
-			position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
-			lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
-		})
-
-		----------------------------------------------------------------
-		-- Phase 2: Wait for bite timing
-		----------------------------------------------------------------
-		task.wait(TIMING.BITE_DELAY)
-		
-		if not abilityState.active or abilityState.cancelled then
-			log("Ability was cancelled before bite")
-			-- Destroy Kon early
-			VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
-			unlock()
-			return
-		end
-
-		log("========== BITE EXECUTION ==========")
-		abilityState.biteExecuted = true
-
-		-- Fire VFXRep for caster bite screen effects
-		VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-			ViewModel = Viewmodelrig,
-			forceAction = "bite",
-		})
-
-		-- Get hitbox at Kon's position (CASTER ONLY)
-		local bitePosition = targetCFrame.Position
-		log(string.format("Performing hitbox at (%.1f, %.1f, %.1f) radius %d",
-			bitePosition.X, bitePosition.Y, bitePosition.Z, BITE_RADIUS))
-
-		local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
-			Exclude = abilityRequest.player,
-			Visualize = DEBUG,
-			VisualizeDuration = 1.0,
-			VisualizeColor = Color3.fromRGB(255, 50, 50),
-		})
-
-		log("Hitbox found", #targets, "targets:")
-		for i, char in ipairs(targets) do
-			log(string.format("  [%d] %s", i, char.Name))
-		end
-
-		-- Apply knockback to each target (CASTER ONLY)
-		local knockbackController = ServiceRegistry:GetController("Knockback")
-		local hitList = {}
-
-		for _, targetChar in ipairs(targets) do
-			log("Applying knockback to:", targetChar.Name, "preset:", BITE_KNOCKBACK_PRESET)
-			
-			if knockbackController then
-				knockbackController:ApplyKnockbackPreset(targetChar, BITE_KNOCKBACK_PRESET, bitePosition)
-			else
-				warn("[Aki Client] KnockbackController not found!")
-			end
-
-			-- Build hit list for server
-			local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-			table.insert(hitList, {
-				characterName = targetChar.Name,
-				playerId = targetPlayer and targetPlayer.UserId or nil,
-				isDummy = targetPlayer == nil,
-			})
-		end
-
-		logTable("Hit list for server", hitList)
-
-		-- Send hits to server for damage
-		log("Sending", #hitList, "hits to server for damage validation")
-		abilityRequest.Send({
-			action = "konBite",
-			hits = hitList,
-			bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
-		})
-
-		----------------------------------------------------------------
-		-- Phase 3: Wait for total duration, then cleanup
-		----------------------------------------------------------------
-		local elapsedTime = os.clock() - startTime
-		local remainingTime = TIMING.TOTAL_ABILITY_DURATION - elapsedTime
-		
-		if remainingTime > 0 then
-			task.wait(remainingTime)
-		end
-
-		log("========== CLEANUP ==========")
-		
-		-- Fire VFXRep for caster stop effects
-		VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-			ViewModel = Viewmodelrig,
-			forceAction = "stop",
-		})
-		
-		abilityState.active = false
-		Aki._activeAbility = nil
-
-		-- Stop viewmodel animation if still playing
-		if vmAnimation and vmAnimation.IsPlaying then
-			vmAnimation:Stop(0.2)
-		end
-
-		-- Unlock weapon switch and restore weapon
+	if not animation then
 		unlock()
 		kitController:_unholsterWeapon()
-		
-		log("Ability complete, weapon restored")
-		log("========== ABILITY END ==========")
+		return
+	end
+
+	-- State tracking
+	local state = {
+		active = true,
+		released = false,
+		cancelled = false,
+		animation = animation,
+		unlock = unlock,
+		abilityRequest = abilityRequest,
+		character = character,
+		viewmodelRig = viewmodelRig,
+		connections = {},
+	}
+	Aki._abilityState = state
+
+	-- Animation event handlers
+	local Events = {
+		["freeze"] = function()
+			-- Pause animation until released
+			if state.active and not state.released then
+				animation:AdjustSpeed(0)
+			end
+		end,
+
+		["spawn"] = function()
+			if not state.active or state.cancelled then return end
+			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
+
+			-- Get target location at moment of spawn
+			local targetCFrame = getTargetLocation(character, MAX_RANGE)
+			if not targetCFrame then return end
+
+			state.targetCFrame = targetCFrame
+
+			-- Send to server for validation
+			abilityRequest.Send({
+				action = "requestKonSpawn",
+				targetPosition = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
+				targetLookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
+			})
+
+			-- Spawn Kon for ALL clients via VFXRep
+			VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
+				position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
+				lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
+			})
+
+			-- Caster viewmodel effects
+			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				forceAction = "start",
+			})
+		end,
+
+		["bite"] = function()
+			if not state.active or state.cancelled then return end
+			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
+			if not state.targetCFrame then return end
+
+			local bitePosition = state.targetCFrame.Position
+
+			-- Hitbox
+			local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
+				Exclude = abilityRequest.player,
+			})
+
+			-- Knockback
+			local knockbackController = ServiceRegistry:GetController("Knockback")
+			local hitList = {}
+
+			for _, targetChar in ipairs(targets) do
+				if knockbackController then
+					knockbackController:ApplyKnockbackPreset(targetChar, BITE_KNOCKBACK_PRESET, bitePosition)
+				end
+
+				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+				table.insert(hitList, {
+					characterName = targetChar.Name,
+					playerId = targetPlayer and targetPlayer.UserId or nil,
+					isDummy = targetPlayer == nil,
+				})
+			end
+
+			-- Send hits to server
+			abilityRequest.Send({
+				action = "konBite",
+				hits = hitList,
+				bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
+			})
+
+			-- Caster bite effects
+			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				forceAction = "bite",
+			})
+		end,
+
+		["_finish"] = function()
+			if not state.active then return end
+			
+			state.active = false
+			Aki._abilityState = nil
+
+			-- Cleanup connections
+			for _, conn in ipairs(state.connections) do
+				if typeof(conn) == "RBXScriptConnection" then
+					conn:Disconnect()
+				end
+			end
+
+			-- Restore weapon
+			state.unlock()
+			kitController:_unholsterWeapon()
+		end,
+	}
+
+	-- Connect to animation events
+	state.connections[#state.connections + 1] = animation:GetMarkerReachedSignal("Event"):Connect(function(event)
+		if Events[event] then
+			Events[event]()
+		end
+	end)
+
+	-- Handle animation end (safety cleanup)
+	state.connections[#state.connections + 1] = animation.Stopped:Once(function()
+		if state.active then
+			Events["_finish"]()
+		end
+	end)
+
+	state.connections[#state.connections + 1] = animation.Ended:Once(function()
+		if state.active then
+			Events["_finish"]()
+		end
 	end)
 end
 
 function Aki.Ability:OnEnded(abilityRequest)
-	log("Ability:OnEnded called")
+	local state = Aki._abilityState
+	if not state or not state.active then return end
+
+	-- Mark as released
+	state.released = true
+
+	-- Resume animation from freeze
+	if state.animation and state.animation.IsPlaying then
+		state.animation:AdjustSpeed(1)
+	end
 end
 
 function Aki.Ability:OnInterrupt(abilityRequest, reason)
-	log("Ability:OnInterrupt called, reason:", reason)
-	
-	if Aki._activeAbility then
-		Aki._activeAbility.cancelled = true
-		Aki._activeAbility.active = false
-		
-		-- Destroy Kon via VFXRep
-		VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
-		
-		Aki._activeAbility = nil
-		log("Active ability cancelled and cleaned up")
+	local state = Aki._abilityState
+	if not state or not state.active then return end
+
+	state.cancelled = true
+	state.active = false
+	Aki._abilityState = nil
+
+	-- Stop animation
+	if state.animation and state.animation.IsPlaying then
+		state.animation:Stop(0.1)
 	end
+
+	-- Destroy Kon if spawned
+	VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
+
+	-- Cleanup connections
+	for _, conn in ipairs(state.connections) do
+		if typeof(conn) == "RBXScriptConnection" then
+			conn:Disconnect()
+		end
+	end
+
+	-- Restore weapon
+	state.unlock()
+	ServiceRegistry:GetController("Kit"):_unholsterWeapon()
 end
 
 --------------------------------------------------------------------------------
@@ -459,16 +314,13 @@ end
 --------------------------------------------------------------------------------
 
 function Aki.Ultimate:OnStart(abilityRequest)
-	log("Ultimate:OnStart called (not implemented)")
 	abilityRequest.Send()
 end
 
 function Aki.Ultimate:OnEnded(abilityRequest)
-	log("Ultimate:OnEnded called")
 end
 
 function Aki.Ultimate:OnInterrupt(abilityRequest, reason)
-	log("Ultimate:OnInterrupt called, reason:", reason)
 end
 
 --------------------------------------------------------------------------------
@@ -476,9 +328,6 @@ end
 --------------------------------------------------------------------------------
 
 function Aki.new(ctx)
-	log("Aki.new() called")
-	logTable("Context", ctx)
-	
 	local self = setmetatable({}, Aki)
 	self._ctx = ctx
 	self._connections = {}
@@ -488,35 +337,24 @@ function Aki.new(ctx)
 end
 
 function Aki:OnEquip(ctx)
-	log("OnEquip called")
 	self._ctx = ctx
 end
 
 function Aki:OnUnequip(reason)
-	log("OnUnequip called, reason:", reason)
-	
-	-- Disconnect all connections
-	for key, conn in pairs(self._connections) do
+	for _, conn in pairs(self._connections) do
 		if typeof(conn) == "RBXScriptConnection" then
 			conn:Disconnect()
 		end
-		self._connections[key] = nil
 	end
-	
-	-- Cancel any active ability
-	if Aki._activeAbility then
-		Aki._activeAbility.cancelled = true
-		Aki._activeAbility.active = false
-		
-		-- Destroy Kon via VFXRep
-		VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
-		
-		Aki._activeAbility = nil
+	self._connections = {}
+
+	-- Cancel active ability
+	if Aki._abilityState and Aki._abilityState.active then
+		Aki.Ability:OnInterrupt(nil, "unequip")
 	end
 end
 
 function Aki:Destroy()
-	log("Destroy called")
 	self:OnUnequip("Destroy")
 end
 
