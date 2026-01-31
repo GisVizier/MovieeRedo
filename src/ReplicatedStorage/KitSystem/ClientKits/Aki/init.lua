@@ -32,7 +32,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local MAX_RANGE = 125
 local BITE_RADIUS = 12
-local BITE_KNOCKBACK_PRESET = "Blast"
+local BITE_KNOCKBACK_PRESET = "Fling"
 local VM_ANIM_NAME = "Kon"
 
 --------------------------------------------------------------------------------
@@ -62,9 +62,9 @@ Aki._abilityState = nil
 -- Helpers
 --------------------------------------------------------------------------------
 
-local function getTargetLocation(character: Model, maxDistance: number): CFrame?
+local function getTargetLocation(character: Model, maxDistance: number): (CFrame?, Vector3?)
 	local root = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
-	if not root then return nil end
+	if not root then return nil, nil end
 
 	local filterList = { character }
 	local effectsFolder = Workspace:FindFirstChild("Effects")
@@ -81,21 +81,23 @@ local function getTargetLocation(character: Model, maxDistance: number): CFrame?
 		local normal = result.Normal
 		
 		if normal.Y > 0.5 then
+			-- Floor: Kon stands upright, faces direction from camera
 			local camPos = Vector3.new(camCF.Position.X, hitPosition.Y, camCF.Position.Z)
 			local dirRelToCam = CFrame.lookAt(camPos, hitPosition).LookVector
-			return CFrame.lookAt(hitPosition, hitPosition + dirRelToCam)
+			return CFrame.lookAt(hitPosition, hitPosition + dirRelToCam), normal
 		else
-			return CFrame.new(hitPosition, hitPosition + normal)
+			-- Wall/ceiling: Kon faces outward from surface
+			return CFrame.new(hitPosition, hitPosition + normal), normal
 		end
 	else
 		local hitPos = camCF.Position + camCF.LookVector * maxDistance
 		result = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -100, TargetParams)
 		if result then
-			return CFrame.lookAt(result.Position, result.Position + camCF.LookVector)
+			return CFrame.lookAt(result.Position, result.Position + camCF.LookVector), result.Normal
 		end
 	end
 
-	return nil
+	return nil, nil
 end
 
 --------------------------------------------------------------------------------
@@ -155,13 +157,23 @@ function Aki.Ability:OnStart(abilityRequest)
 			end
 		end,
 
-		["spawn"] = function()
+		["shake"] = function()
+			-- Caster viewmodel effects
+			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				forceAction = "start",
+			})
+		end,
+
+		["place"] = function()
 			if not state.active or state.cancelled then return end
 			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
 
 			-- Get target location at moment of spawn
-			local targetCFrame = getTargetLocation(character, MAX_RANGE)
+			local targetCFrame, surfaceNormal = getTargetLocation(character, MAX_RANGE)
 			if not targetCFrame then return end
+			
+			surfaceNormal = surfaceNormal or Vector3.yAxis
 
 			state.targetCFrame = targetCFrame
 
@@ -176,56 +188,54 @@ function Aki.Ability:OnStart(abilityRequest)
 			VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
 				position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
 				lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
+				surfaceNormal = { X = surfaceNormal.X, Y = surfaceNormal.Y, Z = surfaceNormal.Z },
 			})
+			
+			task.spawn(function()
+				task.wait(.6)
+				
+				if not state.active or state.cancelled then return end
+				if viewmodelController:GetActiveSlot() ~= "Fists" then return end
+				if not state.targetCFrame then return end
 
-			-- Caster viewmodel effects
-			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-				ViewModel = viewmodelRig,
-				forceAction = "start",
-			})
-		end,
+				local bitePosition = state.targetCFrame.Position
 
-		["bite"] = function()
-			if not state.active or state.cancelled then return end
-			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
-			if not state.targetCFrame then return end
+				-- Hitbox
+				local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
+					Exclude = abilityRequest.player,
+				})
 
-			local bitePosition = state.targetCFrame.Position
+				-- Knockback
+				local knockbackController = ServiceRegistry:GetController("Knockback")
+				local hitList = {}
 
-			-- Hitbox
-			local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
-				Exclude = abilityRequest.player,
-			})
+				for _, targetChar in ipairs(targets) do
+					if knockbackController then
+						knockbackController:ApplyKnockbackPreset(targetChar, `FlingHuge`, bitePosition)
+					end
 
-			-- Knockback
-			local knockbackController = ServiceRegistry:GetController("Knockback")
-			local hitList = {}
-
-			for _, targetChar in ipairs(targets) do
-				if knockbackController then
-					knockbackController:ApplyKnockbackPreset(targetChar, BITE_KNOCKBACK_PRESET, bitePosition)
+					local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+					table.insert(hitList, {
+						characterName = targetChar.Name,
+						playerId = targetPlayer and targetPlayer.UserId or nil,
+						isDummy = targetPlayer == nil,
+					})
 				end
 
-				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-				table.insert(hitList, {
-					characterName = targetChar.Name,
-					playerId = targetPlayer and targetPlayer.UserId or nil,
-					isDummy = targetPlayer == nil,
+				-- Send hits to server
+				abilityRequest.Send({
+					action = "konBite",
+					hits = hitList,
+					bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
 				})
-			end
 
-			-- Send hits to server
-			abilityRequest.Send({
-				action = "konBite",
-				hits = hitList,
-				bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
-			})
+				-- Caster bite effects
+				VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+					ViewModel = viewmodelRig,
+					forceAction = "bite",
+				})
+			end)
 
-			-- Caster bite effects
-			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-				ViewModel = viewmodelRig,
-				forceAction = "bite",
-			})
 		end,
 
 		["_finish"] = function()

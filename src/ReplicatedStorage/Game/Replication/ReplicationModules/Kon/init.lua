@@ -85,6 +85,45 @@ local function parseLookVector(lookData)
 	return Vector3.new(0, 0, 1)
 end
 
+local function parseNormal(normalData)
+	if typeof(normalData) == "Vector3" then
+		return normalData.Unit
+	elseif typeof(normalData) == "table" then
+		return Vector3.new(normalData.X or 0, normalData.Y or 1, normalData.Z or 0).Unit
+	end
+	return Vector3.new(0, 1, 0)
+end
+
+-- Build a CFrame where Kon stands ON the surface (UpVector = surface normal)
+-- Works for floors, walls, ceilings, and slopes
+local function buildSurfaceCFrame(position, lookVector, surfaceNormal)
+	-- Project lookVector onto the surface plane
+	-- Remove the component of lookVector that's parallel to the normal
+	local projectedLook = lookVector - surfaceNormal * lookVector:Dot(surfaceNormal)
+	
+	-- If projected vector is too small (looking directly at/away from surface), pick a fallback
+	if projectedLook.Magnitude < 0.01 then
+		-- Use world forward projected onto surface
+		local worldForward = Vector3.new(0, 0, 1)
+		projectedLook = worldForward - surfaceNormal * worldForward:Dot(surfaceNormal)
+		
+		-- If still too small (surface is horizontal), use world right
+		if projectedLook.Magnitude < 0.01 then
+			local worldRight = Vector3.new(1, 0, 0)
+			projectedLook = worldRight - surfaceNormal * worldRight:Dot(surfaceNormal)
+		end
+	end
+	
+	projectedLook = projectedLook.Unit
+	
+	-- Build CFrame: UpVector = surface normal, LookVector = projected direction
+	-- CFrame.lookAt uses the 3rd param as the UpVector hint
+	local baseCFrame = CFrame.lookAt(position, position + projectedLook, surfaceNormal)
+	
+	-- Rotate to align Kon's model orientation
+	return baseCFrame * CFrame.Angles(math.rad(90), 0, 0)
+end
+
 --------------------------------------------------------------------------------
 -- VFX Helpers
 --------------------------------------------------------------------------------
@@ -151,12 +190,23 @@ function Kon:User(originUserId, data)
 	local ViewModel = data.ViewModel or (viewmodelController and viewmodelController:GetActiveRig())
 
 	local action = data.forceAction
+	local function ReplicateFX(module, action, fxData)
+		local clientsFolder = script:FindFirstChild("Clients")
+		if not clientsFolder then return end
+		local nmodule = clientsFolder:FindFirstChild(module)
+		if nmodule then
+			local mod = require(nmodule)
+			return mod[action](nil, fxData)
+		end
+	end
+
 
 	if action == "start" then
 		-- Screen shake, viewmodel particles on ability start
 		print("[Kon VFX] User: start effects")
+		ReplicateFX("kon", "shake", { Character = localPlayer.Character, ViewModel = ViewModel})
 		-- TODO: Add screen shake, particles, etc.
-		
+
 	elseif action == "bite" then
 		-- Screen shake on bite impact
 		print("[Kon VFX] User: bite screen effects")
@@ -182,7 +232,8 @@ function Kon:createKon(originUserId, data)
 	end
 
 	local lookVector = parseLookVector(data.lookVector)
-	local targetCFrame = CFrame.lookAt(position, position + lookVector)
+	local surfaceNormal = parseNormal(data.surfaceNormal)
+	local targetCFrame = buildSurfaceCFrame(position, lookVector, surfaceNormal)
 
 	-- Get template
 	local template = getKonTemplate()
@@ -214,7 +265,12 @@ function Kon:createKon(originUserId, data)
 	local konModel = template:Clone()
 	konModel.Name = "Kon_" .. originUserId
 
-	if konModel.PrimaryPart then
+	-- Offset so the "Center" part lands at target position
+	local centerPart = konModel:FindFirstChild("Center")
+	if centerPart then
+		local centerOffset = konModel:GetPivot():ToObjectSpace(centerPart:GetPivot())
+		konModel:PivotTo(targetCFrame * centerOffset:Inverse())
+	elseif konModel.PrimaryPart then
 		konModel:SetPrimaryPartCFrame(targetCFrame)
 	else
 		konModel:PivotTo(targetCFrame)
@@ -222,8 +278,6 @@ function Kon:createKon(originUserId, data)
 
 	konModel.Parent = getEffectsFolder()
 	self._activeKons[originUserId] = konModel
-
-	print("[Kon VFX] Spawned Kon for", originUserId, "at", position)
 
 	-- Play Kon animation
 	local konAnim = getKonAnimation()
