@@ -37,8 +37,8 @@ Kon._activeKons = {}
 --------------------------------------------------------------------------------
 
 local TIMING = {
-	BITE_DELAY = 0.8,       -- Time after spawn when bite VFX triggers
-	SMOKE_DELAY = 2.0,      -- Time after spawn when smoke starts
+	BITE_DELAY = 0.6,       -- Time after spawn when bite VFX triggers
+	SMOKE_DELAY = 1.9,      -- Time after spawn when smoke starts
 	KON_LIFETIME = 2.5,     -- Total time before Kon is destroyed
 	FADE_TIME = 0.3,        -- Fade out duration
 }
@@ -74,6 +74,16 @@ local function parsePosition(posData)
 		return Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
 	end
 	return nil
+end
+
+local function ReplicateFX(module, action, fxData)
+	local clientsFolder = script:FindFirstChild("Clients")
+	if not clientsFolder then return end
+	local nmodule = clientsFolder:FindFirstChild(module)
+	if nmodule then
+		local mod = require(nmodule)
+		return mod[action](nil, fxData)
+	end
 end
 
 local function parseLookVector(lookData)
@@ -127,6 +137,15 @@ end
 --------------------------------------------------------------------------------
 -- VFX Helpers
 --------------------------------------------------------------------------------
+local function playspawnVFX(konModel, position)
+
+	task.spawn(function()
+		ReplicateFX("kon", "spawn", { Character = game.Players.LocalPlayer.Character, Kon = konModel, Pivot = position})
+	end)
+
+
+	--print("[Kon VFX] Spawn VFX at", position)
+end
 
 local function playBiteVFX(konModel, position)
 	-- Bite impact particles/sound
@@ -136,8 +155,8 @@ local function playBiteVFX(konModel, position)
 	-- if biteEmitter and biteEmitter:IsA("ParticleEmitter") then
 	--     biteEmitter:Emit(20)
 	-- end
-	
-	print("[Kon VFX] Bite VFX at", position)
+	ReplicateFX("kon", "bite", { Character = game.Players.LocalPlayer.Character, Kon = konModel, Pivot = position})
+	--print("[Kon VFX] Bite VFX at", position)
 end
 
 local function playSmokeVFX(konModel, position)
@@ -148,8 +167,8 @@ local function playSmokeVFX(konModel, position)
 	-- if smokeEmitter and smokeEmitter:IsA("ParticleEmitter") then
 	--     smokeEmitter:Emit(30)
 	-- end
-	
-	print("[Kon VFX] Smoke VFX at", position)
+	ReplicateFX("kon", "smoke", { Character = game.Players.LocalPlayer.Character, Kon = konModel, Pivot = position})
+	--print("[Kon VFX] Smoke VFX at", position)
 end
 
 local function despawnKon(konModel, fadeTime)
@@ -190,17 +209,6 @@ function Kon:User(originUserId, data)
 	local ViewModel = data.ViewModel or (viewmodelController and viewmodelController:GetActiveRig())
 
 	local action = data.forceAction
-	local function ReplicateFX(module, action, fxData)
-		local clientsFolder = script:FindFirstChild("Clients")
-		if not clientsFolder then return end
-		local nmodule = clientsFolder:FindFirstChild(module)
-		if nmodule then
-			local mod = require(nmodule)
-			return mod[action](nil, fxData)
-		end
-	end
-
-
 	if action == "start" then
 		-- Screen shake, viewmodel particles on ability start
 		print("[Kon VFX] User: start effects")
@@ -237,29 +245,6 @@ function Kon:createKon(originUserId, data)
 
 	-- Get template
 	local template = getKonTemplate()
-	if not template then
-		warn("[Kon VFX] Kon model not found! Add it as a child of this script.")
-		-- Create debug placeholder
-		local placeholder = Instance.new("Part")
-		placeholder.Name = "Kon_DEBUG_" .. originUserId
-		placeholder.Size = Vector3.new(4, 4, 4)
-		placeholder.CFrame = targetCFrame
-		placeholder.Anchored = true
-		placeholder.CanCollide = false
-		placeholder.CanQuery = false
-		placeholder.Transparency = 0.3
-		placeholder.Color = Color3.fromRGB(255, 100, 0)
-		placeholder.Shape = Enum.PartType.Ball
-		placeholder.Parent = getEffectsFolder()
-		
-		-- Auto-cleanup placeholder
-		task.delay(TIMING.KON_LIFETIME, function()
-			if placeholder and placeholder.Parent then
-				placeholder:Destroy()
-			end
-		end)
-		return
-	end
 
 	-- Clone and position
 	local konModel = template:Clone()
@@ -278,6 +263,8 @@ function Kon:createKon(originUserId, data)
 
 	konModel.Parent = getEffectsFolder()
 	self._activeKons[originUserId] = konModel
+
+	playspawnVFX(konModel, targetCFrame)
 
 	-- Play Kon animation
 	local konAnim = getKonAnimation()
@@ -304,7 +291,7 @@ function Kon:createKon(originUserId, data)
 		if not konModel or not konModel.Parent then return end
 		if self._activeKons[originUserId] ~= konModel then return end
 		
-		playBiteVFX(konModel, position)
+		playBiteVFX(konModel, targetCFrame)
 	end)
 
 	----------------------------------------------------------------
@@ -314,7 +301,7 @@ function Kon:createKon(originUserId, data)
 		if not konModel or not konModel.Parent then return end
 		if self._activeKons[originUserId] ~= konModel then return end
 		
-		playSmokeVFX(konModel, position)
+		playSmokeVFX(konModel, targetCFrame)
 	end)
 
 	----------------------------------------------------------------
