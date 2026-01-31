@@ -33,12 +33,11 @@ local ASSIST_WINDOW = 10 -- Seconds to qualify for assist
 function CombatService:Init(registry, net)
 	self._registry = registry
 	self._net = net
-	
+
 	-- Tick status effects on heartbeat
 	RunService.Heartbeat:Connect(function(deltaTime)
 		self:_tickStatusEffects(deltaTime)
 	end)
-	
 end
 
 function CombatService:Start()
@@ -58,30 +57,37 @@ end
 	@param player Player
 	@param options table? - Optional overrides
 ]]
-function CombatService:InitializePlayer(player: Player, options: {
-	maxHealth: number?,
-	maxShield: number?,
-	maxUltimate: number?,
-}?)
+function CombatService:InitializePlayer(
+	player: Player,
+	options: {
+		maxHealth: number?,
+		maxShield: number?,
+		maxUltimate: number?,
+	}?
+)
 	-- Clean up existing resources
 	self:_cleanupPlayer(player)
-	
+
 	-- Create combat resource
 	local resource = CombatResource.new(player, options)
 	self._playerResources[player] = resource
-	
+
+	-- Debug: Log registration
+	local charName = player.Character and player.Character.Name or "no character"
+	print(string.format("[CombatService] InitializePlayer: Registered '%s' (Character: %s)", player.Name, charName))
+
 	-- Create status effect manager
 	local effectManager = StatusEffectManager.new(player, resource)
 	self._statusEffects[player] = effectManager
-	
+
 	-- Initialize assist tracking
 	self._assistTracking[player] = {}
-	
+
 	-- Connect death event
 	resource.OnDeath:connect(function(killer, weaponId)
 		self:_handleDeath(player, killer, weaponId)
 	end)
-	
+
 	-- Sync initial state to client
 	self:_syncCombatState(player)
 end
@@ -96,13 +102,13 @@ function CombatService:_cleanupPlayer(player: Player)
 		resource:Destroy()
 		self._playerResources[player] = nil
 	end
-	
+
 	local effectManager = self._statusEffects[player]
 	if effectManager then
 		effectManager:Destroy()
 		self._statusEffects[player] = nil
 	end
-	
+
 	self._assistTracking[player] = nil
 end
 
@@ -140,10 +146,27 @@ function CombatService:GetPlayerByCharacter(character)
 	end
 
 	-- Check all registered players/pseudo-players
+	local count = 0
 	for player, _ in self._playerResources do
-		if player.Character == character then
+		count = count + 1
+		local playerChar = player.Character
+		if playerChar == character then
+			print(string.format("[CombatService] GetPlayerByCharacter: Found '%s' for character '%s'", 
+				player.Name, character.Name))
 			return player
 		end
+	end
+
+	-- Debug: print registered characters if not found
+	print(string.format("[CombatService] GetPlayerByCharacter: Looking for '%s' (%s), checked %d registered players, not found",
+		character.Name, tostring(character), count))
+	
+	-- List all registered characters for debugging
+	print("[CombatService] Registered characters:")
+	for player, _ in self._playerResources do
+		local charName = player.Character and player.Character.Name or "nil"
+		local charRef = player.Character and tostring(player.Character) or "nil"
+		print(string.format("  - %s: Character=%s (%s)", player.Name, charName, charRef))
 	end
 
 	return nil
@@ -160,39 +183,43 @@ end
 	@param options DamageOptions? - Damage context
 	@return DamageResult?
 ]]
-function CombatService:ApplyDamage(targetPlayer: Player, damage: number, options: {
-	source: Player?,
-	isTrueDamage: boolean?,
-	isHeadshot: boolean?,
-	weaponId: string?,
-	damageType: string?,
-	skipIFrames: boolean?,
-}?)
+function CombatService:ApplyDamage(
+	targetPlayer: Player,
+	damage: number,
+	options: {
+		source: Player?,
+		isTrueDamage: boolean?,
+		isHeadshot: boolean?,
+		weaponId: string?,
+		damageType: string?,
+		skipIFrames: boolean?,
+	}?
+)
 	options = options or {}
-	
+
 	local resource = self._playerResources[targetPlayer]
 	if not resource or not resource:IsAlive() then
 		return nil
 	end
-	
+
 	-- Apply damage through resource
 	local result = resource:TakeDamage(damage, options)
-	
+
 	if result.blocked then
 		return result
 	end
-	
+
 	-- Notify status effects of damage (for effects like Frozen that break on damage)
 	local effectManager = self._statusEffects[targetPlayer]
 	if effectManager then
 		effectManager:NotifyDamage(result.healthDamage, options.source)
 	end
-	
+
 	-- Track assist
 	if options.source and options.source ~= targetPlayer then
 		self:_trackAssist(targetPlayer, options.source)
 	end
-	
+
 	-- Grant ultimate to attacker for damage dealt
 	if options.source and result.healthDamage > 0 then
 		local attackerResource = self._playerResources[options.source]
@@ -202,19 +229,19 @@ function CombatService:ApplyDamage(targetPlayer: Player, damage: number, options
 			self:_syncCombatState(options.source)
 		end
 	end
-	
+
 	-- Grant ultimate to victim for damage taken
 	if result.healthDamage > 0 then
 		local ultGain = result.healthDamage * CombatConfig.UltGain.DamageTaken
 		resource:AddUltimate(ultGain)
 	end
-	
+
 	-- Sync state to client
 	self:_syncCombatState(targetPlayer)
-	
+
 	-- Broadcast damage for damage numbers
 	self:_broadcastDamage(targetPlayer, damage, options)
-	
+
 	return result
 end
 
@@ -225,21 +252,21 @@ end
 	@param options HealOptions?
 	@return number - Actual amount healed
 ]]
-function CombatService:Heal(player: Player, amount: number, options: {source: Player?, healType: string?}?): number
+function CombatService:Heal(player: Player, amount: number, options: { source: Player?, healType: string? }?): number
 	local resource = self._playerResources[player]
 	if not resource then
 		return 0
 	end
-	
+
 	local healed = resource:Heal(amount, options)
-	
+
 	if healed > 0 then
 		self:_syncCombatState(player)
-		
+
 		-- Broadcast heal for damage numbers
 		self:_broadcastHeal(player, healed, options)
 	end
-	
+
 	return healed
 end
 
@@ -254,7 +281,7 @@ function CombatService:Kill(player: Player, killer: Player?, killEffect: string?
 	if not resource then
 		return
 	end
-	
+
 	resource:Kill(killer, killEffect)
 end
 
@@ -272,7 +299,7 @@ function CombatService:AddUltimate(player: Player, amount: number)
 	if not resource then
 		return
 	end
-	
+
 	resource:AddUltimate(amount)
 	self:_syncCombatState(player)
 end
@@ -288,12 +315,12 @@ function CombatService:SpendUltimate(player: Player, amount: number): boolean
 	if not resource then
 		return false
 	end
-	
+
 	local success = resource:SpendUltimate(amount)
 	if success then
 		self:_syncCombatState(player)
 	end
-	
+
 	return success
 end
 
@@ -311,7 +338,7 @@ function CombatService:GrantIFrames(player: Player, duration: number)
 	if not resource then
 		return
 	end
-	
+
 	resource:GrantIFrames(duration)
 end
 
@@ -325,7 +352,7 @@ function CombatService:SetInvulnerable(player: Player, invulnerable: boolean)
 	if not resource then
 		return
 	end
-	
+
 	resource:SetInvulnerable(invulnerable)
 end
 
@@ -339,7 +366,7 @@ function CombatService:IsInvulnerable(player: Player): boolean
 	if not resource then
 		return false
 	end
-	
+
 	return resource:IsInvulnerable()
 end
 
@@ -353,17 +380,21 @@ end
 	@param effectId string
 	@param settings StatusEffectSettings
 ]]
-function CombatService:ApplyStatusEffect(player: Player, effectId: string, settings: {
-	duration: number,
-	tickRate: number?,
-	source: Player?,
-	[string]: any,
-})
+function CombatService:ApplyStatusEffect(
+	player: Player,
+	effectId: string,
+	settings: {
+		duration: number,
+		tickRate: number?,
+		source: Player?,
+		[string]: any,
+	}
+)
 	local effectManager = self._statusEffects[player]
 	if not effectManager then
 		return
 	end
-	
+
 	effectManager:Apply(effectId, settings)
 	self:_syncStatusEffects(player)
 end
@@ -379,7 +410,7 @@ function CombatService:RemoveStatusEffect(player: Player, effectId: string, reas
 	if not effectManager then
 		return
 	end
-	
+
 	effectManager:Remove(effectId, reason)
 	self:_syncStatusEffects(player)
 end
@@ -394,7 +425,7 @@ function CombatService:RemoveAllStatusEffects(player: Player, reason: string?)
 	if not effectManager then
 		return
 	end
-	
+
 	effectManager:RemoveAll(reason)
 	self:_syncStatusEffects(player)
 end
@@ -422,7 +453,7 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 			self:_syncCombatState(killer)
 		end
 	end
-	
+
 	-- Grant ult to assists
 	local assists = self:_getAssists(victim, killer)
 	for _, assister in ipairs(assists) do
@@ -432,20 +463,20 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 			self:_syncCombatState(assister)
 		end
 	end
-	
+
 	-- Execute kill effect
 	local effectId = self:_getKillEffect(killer, weaponId)
 	KillEffects:Execute(effectId, victim, killer, weaponId)
-	
+
 	-- Clear status effects
 	local effectManager = self._statusEffects[victim]
 	if effectManager then
 		effectManager:RemoveAll("death")
 	end
-	
+
 	-- Clear assist tracking
 	self._assistTracking[victim] = {}
-	
+
 	-- Broadcast kill event
 	if self._net then
 		self._net:FireAllClients("PlayerKilled", {
@@ -455,7 +486,7 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 			killEffect = effectId,
 		})
 	end
-	
+
 	print("[CombatService]", killer and killer.Name or "Unknown", "killed", victim.Name)
 end
 
@@ -463,16 +494,16 @@ function CombatService:_getKillEffect(killer: Player?, weaponId: string?): strin
 	if not killer or not weaponId then
 		return CombatConfig.Death.DefaultKillEffect
 	end
-	
+
 	-- Try to get player's custom kill effect for this weapon
 	-- This would come from PlayerDataTable.WEAPON_DATA
 	local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 	local weaponData = PlayerDataTable.getWeaponData and PlayerDataTable.getWeaponData(weaponId)
-	
+
 	if weaponData and weaponData.killEffect then
 		return weaponData.killEffect
 	end
-	
+
 	return CombatConfig.Death.DefaultKillEffect
 end
 
@@ -485,19 +516,19 @@ function CombatService:_trackAssist(victim: Player, attacker: Player)
 	if not tracking then
 		return
 	end
-	
+
 	tracking[attacker.UserId] = os.clock()
 end
 
-function CombatService:_getAssists(victim: Player, killer: Player?): {Player}
+function CombatService:_getAssists(victim: Player, killer: Player?): { Player }
 	local tracking = self._assistTracking[victim]
 	if not tracking then
 		return {}
 	end
-	
+
 	local now = os.clock()
 	local assists = {}
-	
+
 	for userId, lastTime in pairs(tracking) do
 		if now - lastTime <= ASSIST_WINDOW then
 			local player = Players:GetPlayerByUserId(userId)
@@ -506,7 +537,7 @@ function CombatService:_getAssists(victim: Player, killer: Player?): {Player}
 			end
 		end
 	end
-	
+
 	return assists
 end
 
@@ -515,21 +546,25 @@ end
 -- =============================================================================
 
 function CombatService:_syncCombatState(player: Player)
-	if not self._net then return end
-	
+	if not self._net then
+		return
+	end
+
 	-- Skip firing to non-Player entities (like dummies)
 	if not (typeof(player) == "Instance" and player:IsA("Player")) then
 		return
 	end
-	
+
 	local resource = self._playerResources[player]
-	if not resource then return end
-	
+	if not resource then
+		return
+	end
+
 	local effectManager = self._statusEffects[player]
 	local statusEffects = effectManager and effectManager:GetActiveEffects() or {}
-	
+
 	local state = resource:GetState()
-	
+
 	self._net:FireClient("CombatStateUpdate", player, {
 		health = state.health,
 		maxHealth = state.maxHealth,
@@ -542,39 +577,51 @@ function CombatService:_syncCombatState(player: Player)
 end
 
 function CombatService:_syncStatusEffects(player: Player)
-	if not self._net then return end
-	
+	if not self._net then
+		return
+	end
+
 	-- Skip firing to non-Player entities (like dummies)
 	if not (typeof(player) == "Instance" and player:IsA("Player")) then
 		return
 	end
-	
+
 	local effectManager = self._statusEffects[player]
-	if not effectManager then return end
-	
+	if not effectManager then
+		return
+	end
+
 	self._net:FireClient("StatusEffectUpdate", player, effectManager:GetActiveEffects())
 end
 
-function CombatService:_broadcastDamage(target: Player, damage: number, options: {
-	source: Player?,
-	isHeadshot: boolean?,
-	isCritical: boolean?,
-	weaponId: string?,
-}?)
-	if not self._net then return end
-	
+function CombatService:_broadcastDamage(
+	target: Player,
+	damage: number,
+	options: {
+		source: Player?,
+		isHeadshot: boolean?,
+		isCritical: boolean?,
+		weaponId: string?,
+	}?
+)
+	if not self._net then
+		return
+	end
+
 	options = options or {}
-	
+
 	local character = target.Character
 	local position = character and character.PrimaryPart and character.PrimaryPart.Position
-	if not position then return end
-	
+	if not position then
+		return
+	end
+
 	-- Offset position upward for head
 	local head = character:FindFirstChild("Head")
 	if head then
 		position = head.Position + Vector3.new(0, 1, 0)
 	end
-	
+
 	self._net:FireAllClients("DamageDealt", {
 		targetUserId = target.UserId,
 		attackerUserId = options.source and options.source.UserId or nil,
@@ -585,15 +632,19 @@ function CombatService:_broadcastDamage(target: Player, damage: number, options:
 	})
 end
 
-function CombatService:_broadcastHeal(target: Player, amount: number, options: {source: Player?, healType: string?}?)
-	if not self._net then return end
-	
+function CombatService:_broadcastHeal(target: Player, amount: number, options: { source: Player?, healType: string? }?)
+	if not self._net then
+		return
+	end
+
 	options = options or {}
-	
+
 	local character = target.Character
 	local position = character and character.PrimaryPart and character.PrimaryPart.Position
-	if not position then return end
-	
+	if not position then
+		return
+	end
+
 	self._net:FireAllClients("DamageDealt", {
 		targetUserId = target.UserId,
 		attackerUserId = options.source and options.source.UserId or nil,

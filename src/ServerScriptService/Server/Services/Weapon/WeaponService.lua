@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 local workspace = game:GetService("Workspace")
 
 -- Debug logging toggle
-local DEBUG_LOGGING = false
+local DEBUG_LOGGING = true
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
@@ -18,13 +18,47 @@ local ProjectilePacketUtils = require(Locations.Shared.Util:WaitForChild("Projec
 
 -- Traverse up from a hit part to find the character model (has Humanoid)
 local function getCharacterFromPart(part)
-	local current = part
+	if not part then
+		return nil
+	end
+
+	local current = part.Parent
+
+	-- Handle Root folder (dummies): Dummy/Root/Part
+	-- The dummy structure has hitbox parts inside a "Root" BasePart
+	if current and current.Name == "Root" and current:IsA("BasePart") then
+		current = current.Parent
+	end
+
+	-- Search up for a character model (has Humanoid)
 	while current and current ~= workspace do
-		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
-		if current:IsA("Model") and current:FindFirstChildWhichIsA("Humanoid", true) then
-			return current
+		if current:IsA("Model") then
+			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+			local humanoid = current:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid then
+				if DEBUG_LOGGING then
+					print(
+						string.format(
+							"[WeaponService] getCharacterFromPart: Found character '%s' from part '%s'",
+							current.Name,
+							part.Name
+						)
+					)
+				end
+				return current
+			end
 		end
 		current = current.Parent
+	end
+
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] getCharacterFromPart: No character found from part '%s' (parent: %s)",
+				part.Name,
+				part.Parent and part.Parent.Name or "nil"
+			)
+		)
 	end
 	return nil
 end
@@ -192,6 +226,59 @@ function WeaponService:OnWeaponFired(player, shotData)
 			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId)
 			hitCharacterName = hitCharacter.Name
 		end
+	else
+		-- No real player hit - do server-side raycast to check for dummy/NPC hits
+		-- This handles the case where client detected a hit on a non-player target
+		if hitData.origin and hitData.hitPosition then
+			local direction = (hitData.hitPosition - hitData.origin)
+			local distance = direction.Magnitude
+
+			if distance > 0 and distance <= (weaponConfig.range or 1000) then
+				local raycastParams = RaycastParams.new()
+				raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+				local ignoreList = {}
+				if player.Character then
+					table.insert(ignoreList, player.Character)
+				end
+				raycastParams.FilterDescendantsInstances = ignoreList
+
+				-- Raycast to verify hit
+				local result = workspace:Raycast(hitData.origin, direction.Unit * (distance + 5), raycastParams)
+				if result then
+					local character = getCharacterFromPart(result.Instance)
+					if character then
+						local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
+						if humanoid then
+							-- Verify it's not a real player (handled above)
+							local isRealPlayer = Players:GetPlayerFromCharacter(character)
+							if not isRealPlayer then
+								-- It's a dummy/NPC - apply damage
+								hitCharacter = character
+								hitCharacterName = character.Name
+								local isHeadshot = result.Instance.Name == "Head"
+									or result.Instance.Name == "CrouchHead"
+									or result.Instance.Name == "HitboxHead"
+								self:ApplyDamageToCharacter(character, damage, player, isHeadshot, weaponId)
+
+								if DEBUG_LOGGING then
+									print(
+										string.format(
+											"[WeaponService] Server-verified dummy hit: %s on %s (part: %s, damage: %d)",
+											player.Name,
+											character.Name,
+											result.Instance.Name,
+											damage
+										)
+									)
+								end
+							end
+						end
+					end
+				elseif DEBUG_LOGGING then
+					print(string.format("[WeaponService] Server raycast found no target at client hit position"))
+				end
+			end
+		end
 	end
 
 	-- Broadcast validated hit to all clients for VFX
@@ -288,17 +375,52 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 	local firstHitPosition = nil
 	local firstHitCharacter = nil
 
-	for _, dir in ipairs(shotData.pelletDirections) do
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] _processPellets: %s firing %d pellets from %s",
+				player.Name,
+				#shotData.pelletDirections,
+				tostring(origin)
+			)
+		)
+	end
+
+	for i, dir in ipairs(shotData.pelletDirections) do
 		local result = workspace:Raycast(origin, dir * range, raycastParams)
 		if result then
 			if not firstHitPosition then
 				firstHitPosition = result.Position
 			end
 
+			if DEBUG_LOGGING then
+				print(
+					string.format(
+						"[WeaponService] Pellet %d hit: %s (parent: %s, fullname: %s)",
+						i,
+						result.Instance.Name,
+						result.Instance.Parent and result.Instance.Parent.Name or "nil",
+						result.Instance:GetFullName()
+					)
+				)
+			end
+
 			-- Traverse up to find character (handles nested colliders like Dummy/Root/Head)
 			local character = getCharacterFromPart(result.Instance)
 			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
 			local humanoid = character and character:FindFirstChildWhichIsA("Humanoid", true)
+
+			if DEBUG_LOGGING then
+				print(
+					string.format(
+						"[WeaponService] Pellet %d: character=%s, humanoid=%s",
+						i,
+						character and character.Name or "nil",
+						humanoid and "found" or "nil"
+					)
+				)
+			end
+
 			if humanoid then
 				if not firstHitCharacter then
 					firstHitCharacter = character
@@ -314,15 +436,39 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 
 	local totalDamage = 0
 	local totalHeadshots = 0
+	local damageCount = 0
 	for character, damage in pairs(damageByCharacter) do
+		damageCount = damageCount + 1
 		totalDamage = totalDamage + damage
 		totalHeadshots = totalHeadshots + (headshotByCharacter[character] or 0)
+
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] _processPellets: Applying %d damage to '%s' (headshots: %d)",
+					damage,
+					character.Name,
+					headshotByCharacter[character] or 0
+				)
+			)
+		end
+
 		self:ApplyDamageToCharacter(
 			character,
 			damage,
 			player,
 			(headshotByCharacter[character] or 0) > 0,
 			shotData.weaponId
+		)
+	end
+
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] _processPellets: Total %d characters damaged, %d total damage",
+				damageCount,
+				totalDamage
+			)
 		)
 	end
 
@@ -374,12 +520,25 @@ end
 
 function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot, weaponId)
 	if not character or not character.Parent then
+		if DEBUG_LOGGING then
+			print("[WeaponService] ApplyDamageToCharacter: character is nil or has no parent")
+		end
 		return
 	end
 
 	-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
 	local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] ApplyDamageToCharacter: %s - humanoid=%s, health=%s",
+					character.Name,
+					humanoid and "found" or "nil",
+					humanoid and tostring(humanoid.Health) or "N/A"
+				)
+			)
+		end
 		return
 	end
 
@@ -391,6 +550,27 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	-- If not a real player, check for pseudo-player (dummies)
 	if not victimPlayer and combatService then
 		victimPlayer = combatService:GetPlayerByCharacter(character)
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] ApplyDamageToCharacter: %s - checked CombatService, victimPlayer=%s",
+					character.Name,
+					victimPlayer and victimPlayer.Name or "nil"
+				)
+			)
+		end
+	end
+
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] ApplyDamageToCharacter: %s - damage=%d, victimPlayer=%s, combatService=%s",
+				character.Name,
+				damage,
+				victimPlayer and victimPlayer.Name or "nil",
+				combatService and "found" or "nil"
+			)
+		)
 	end
 
 	-- Route through CombatService for players and dummies
@@ -400,6 +580,26 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 			isHeadshot = isHeadshot,
 			weaponId = weaponId or self._currentWeaponId,
 		})
+
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] CombatService:ApplyDamage result for %s: %s",
+					character.Name,
+					result and "success" or "nil"
+				)
+			)
+			if result then
+				print(
+					string.format(
+						"  - blocked=%s, healthDamage=%s, killed=%s",
+						tostring(result.blocked),
+						tostring(result.healthDamage),
+						tostring(result.killed)
+					)
+				)
+			end
+		end
 
 		if result and result.killed and DEBUG_LOGGING then
 			print(
@@ -415,6 +615,9 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	end
 
 	-- Fallback for unregistered NPCs - direct humanoid damage
+	if DEBUG_LOGGING then
+		print(string.format("[WeaponService] Fallback: humanoid:TakeDamage(%d) for %s", damage, character.Name))
+	end
 	humanoid:TakeDamage(damage)
 
 	-- Set last damage dealer (useful for kill attribution)
@@ -529,6 +732,17 @@ function WeaponService:OnProjectileHit(player, data)
 	local victimPlayer = hitData.hitPlayer
 	local isRig = data.rigName and not victimPlayer
 
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] OnProjectileHit: rigName=%s, victimPlayer=%s, isRig=%s",
+				tostring(data.rigName),
+				victimPlayer and victimPlayer.Name or "nil",
+				tostring(isRig)
+			)
+		)
+	end
+
 	if not isRig then
 		local isValid, reason = ProjectileAPI:ValidateHit(player, hitData, weaponConfig)
 		if not isValid then
@@ -554,12 +768,34 @@ function WeaponService:OnProjectileHit(player, data)
 		end
 	elseif isRig then
 		-- Hit a rig/dummy - find it in workspace
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] OnProjectileHit: Looking for rig '%s' near position %s",
+					data.rigName,
+					tostring(hitData.hitPosition)
+				)
+			)
+		end
 		hitCharacter = self:_findRigByName(data.rigName, hitData.hitPosition)
 		if hitCharacter then
+			if DEBUG_LOGGING then
+				print(
+					string.format(
+						"[WeaponService] OnProjectileHit: Found rig '%s', applying %d damage",
+						hitCharacter.Name,
+						damage
+					)
+				)
+			end
 			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId)
 			hitCharacterName = hitCharacter.Name
 		else
 			warn("[WeaponService] Could not find rig:", data.rigName)
+		end
+	else
+		if DEBUG_LOGGING then
+			print("[WeaponService] OnProjectileHit: No target (neither player nor rig)")
 		end
 	end
 
