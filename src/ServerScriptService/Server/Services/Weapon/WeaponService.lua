@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 local workspace = game:GetService("Workspace")
 
 -- Debug logging toggle
-local DEBUG_LOGGING = false
+local DEBUG_LOGGING = true
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
@@ -18,13 +18,47 @@ local ProjectilePacketUtils = require(Locations.Shared.Util:WaitForChild("Projec
 
 -- Traverse up from a hit part to find the character model (has Humanoid)
 local function getCharacterFromPart(part)
-	local current = part
+	if not part then
+		return nil
+	end
+
+	local current = part.Parent
+
+	-- Handle Root folder (dummies): Dummy/Root/Part
+	-- The dummy structure has hitbox parts inside a "Root" BasePart
+	if current and current.Name == "Root" and current:IsA("BasePart") then
+		current = current.Parent
+	end
+
+	-- Search up for a character model (has Humanoid)
 	while current and current ~= workspace do
-		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
-		if current:IsA("Model") and current:FindFirstChildWhichIsA("Humanoid", true) then
-			return current
+		if current:IsA("Model") then
+			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
+			local humanoid = current:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid then
+				if DEBUG_LOGGING then
+					print(
+						string.format(
+							"[WeaponService] getCharacterFromPart: Found character '%s' from part '%s'",
+							current.Name,
+							part.Name
+						)
+					)
+				end
+				return current
+			end
 		end
 		current = current.Parent
+	end
+
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] getCharacterFromPart: No character found from part '%s' (parent: %s)",
+				part.Name,
+				part.Parent and part.Parent.Name or "nil"
+			)
+		)
 	end
 	return nil
 end
@@ -288,17 +322,52 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 	local firstHitPosition = nil
 	local firstHitCharacter = nil
 
-	for _, dir in ipairs(shotData.pelletDirections) do
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] _processPellets: %s firing %d pellets from %s",
+				player.Name,
+				#shotData.pelletDirections,
+				tostring(origin)
+			)
+		)
+	end
+
+	for i, dir in ipairs(shotData.pelletDirections) do
 		local result = workspace:Raycast(origin, dir * range, raycastParams)
 		if result then
 			if not firstHitPosition then
 				firstHitPosition = result.Position
 			end
 
+			if DEBUG_LOGGING then
+				print(
+					string.format(
+						"[WeaponService] Pellet %d hit: %s (parent: %s, fullname: %s)",
+						i,
+						result.Instance.Name,
+						result.Instance.Parent and result.Instance.Parent.Name or "nil",
+						result.Instance:GetFullName()
+					)
+				)
+			end
+
 			-- Traverse up to find character (handles nested colliders like Dummy/Root/Head)
 			local character = getCharacterFromPart(result.Instance)
 			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
 			local humanoid = character and character:FindFirstChildWhichIsA("Humanoid", true)
+
+			if DEBUG_LOGGING then
+				print(
+					string.format(
+						"[WeaponService] Pellet %d: character=%s, humanoid=%s",
+						i,
+						character and character.Name or "nil",
+						humanoid and "found" or "nil"
+					)
+				)
+			end
+
 			if humanoid then
 				if not firstHitCharacter then
 					firstHitCharacter = character
@@ -374,12 +443,25 @@ end
 
 function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot, weaponId)
 	if not character or not character.Parent then
+		if DEBUG_LOGGING then
+			print("[WeaponService] ApplyDamageToCharacter: character is nil or has no parent")
+		end
 		return
 	end
 
 	-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
 	local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] ApplyDamageToCharacter: %s - humanoid=%s, health=%s",
+					character.Name,
+					humanoid and "found" or "nil",
+					humanoid and tostring(humanoid.Health) or "N/A"
+				)
+			)
+		end
 		return
 	end
 
@@ -391,6 +473,27 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	-- If not a real player, check for pseudo-player (dummies)
 	if not victimPlayer and combatService then
 		victimPlayer = combatService:GetPlayerByCharacter(character)
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] ApplyDamageToCharacter: %s - checked CombatService, victimPlayer=%s",
+					character.Name,
+					victimPlayer and victimPlayer.Name or "nil"
+				)
+			)
+		end
+	end
+
+	if DEBUG_LOGGING then
+		print(
+			string.format(
+				"[WeaponService] ApplyDamageToCharacter: %s - damage=%d, victimPlayer=%s, combatService=%s",
+				character.Name,
+				damage,
+				victimPlayer and victimPlayer.Name or "nil",
+				combatService and "found" or "nil"
+			)
+		)
 	end
 
 	-- Route through CombatService for players and dummies
@@ -400,6 +503,26 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 			isHeadshot = isHeadshot,
 			weaponId = weaponId or self._currentWeaponId,
 		})
+
+		if DEBUG_LOGGING then
+			print(
+				string.format(
+					"[WeaponService] CombatService:ApplyDamage result for %s: %s",
+					character.Name,
+					result and "success" or "nil"
+				)
+			)
+			if result then
+				print(
+					string.format(
+						"  - blocked=%s, healthDamage=%s, killed=%s",
+						tostring(result.blocked),
+						tostring(result.healthDamage),
+						tostring(result.killed)
+					)
+				)
+			end
+		end
 
 		if result and result.killed and DEBUG_LOGGING then
 			print(
@@ -415,6 +538,9 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	end
 
 	-- Fallback for unregistered NPCs - direct humanoid damage
+	if DEBUG_LOGGING then
+		print(string.format("[WeaponService] Fallback: humanoid:TakeDamage(%d) for %s", damage, character.Name))
+	end
 	humanoid:TakeDamage(damage)
 
 	-- Set last damage dealer (useful for kill attribution)

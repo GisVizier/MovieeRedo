@@ -393,12 +393,17 @@ end
 -- Initialize combat for a dummy
 local function initializeCombat(dummy, pseudoPlayer)
 	if not DummyConfig.CombatEnabled then
+		warn("[DummyService] Combat disabled in config, skipping combat init for", dummy.Name)
 		return
 	end
 
 	local combatService = _registry and _registry:TryGet("CombatService")
 	if combatService then
+		print(string.format("[DummyService] Registering %s with CombatService (Character: %s)", 
+			pseudoPlayer.Name, pseudoPlayer.Character and pseudoPlayer.Character.Name or "nil"))
 		combatService:InitializePlayer(pseudoPlayer)
+	else
+		warn("[DummyService] CombatService not found! Registry:", _registry and "exists" or "nil")
 	end
 end
 
@@ -475,6 +480,10 @@ local function spawnDummy(spawnIndex)
 	if humanoid then
 		humanoid.MaxHealth = DummyConfig.MaxHealth
 		humanoid.Health = DummyConfig.Health
+		print(string.format("[DummyService] %s: Found Humanoid at %s, set health to %d/%d", 
+			dummy.Name, humanoid:GetFullName(), humanoid.Health, humanoid.MaxHealth))
+	else
+		warn(string.format("[DummyService] %s: NO HUMANOID FOUND! This will break combat.", dummy.Name))
 	end
 
 	-- Create pseudo-player for combat system
