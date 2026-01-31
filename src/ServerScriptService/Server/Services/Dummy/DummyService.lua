@@ -399,8 +399,13 @@ local function initializeCombat(dummy, pseudoPlayer)
 
 	local combatService = _registry and _registry:TryGet("CombatService")
 	if combatService then
-		print(string.format("[DummyService] Registering %s with CombatService (Character: %s)", 
-			pseudoPlayer.Name, pseudoPlayer.Character and pseudoPlayer.Character.Name or "nil"))
+		print(
+			string.format(
+				"[DummyService] Registering %s with CombatService (Character: %s)",
+				pseudoPlayer.Name,
+				pseudoPlayer.Character and pseudoPlayer.Character.Name or "nil"
+			)
+		)
 		combatService:InitializePlayer(pseudoPlayer)
 	else
 		warn("[DummyService] CombatService not found! Registry:", _registry and "exists" or "nil")
@@ -480,8 +485,15 @@ local function spawnDummy(spawnIndex)
 	if humanoid then
 		humanoid.MaxHealth = DummyConfig.MaxHealth
 		humanoid.Health = DummyConfig.Health
-		print(string.format("[DummyService] %s: Found Humanoid at %s, set health to %d/%d", 
-			dummy.Name, humanoid:GetFullName(), humanoid.Health, humanoid.MaxHealth))
+		print(
+			string.format(
+				"[DummyService] %s: Found Humanoid at %s, set health to %d/%d",
+				dummy.Name,
+				humanoid:GetFullName(),
+				humanoid.Health,
+				humanoid.MaxHealth
+			)
+		)
 	else
 		warn(string.format("[DummyService] %s: NO HUMANOID FOUND! This will break combat.", dummy.Name))
 	end
@@ -516,9 +528,13 @@ local function spawnDummy(spawnIndex)
 		_activeDummies[dummy].emote = emote
 	end
 
-	-- Connect death handler (fires once)
-	if humanoid then
-		humanoid.Died:Once(function()
+	-- Connect death handler via CombatResource.OnDeath (fires when internal health reaches 0)
+	-- This is more reliable than humanoid.Died since CombatService tracks health separately
+	local combatService = _registry and _registry:TryGet("CombatService")
+	local resource = combatService and combatService:GetResource(pseudoPlayer)
+
+	if resource then
+		resource.OnDeath:once(function(killer, weaponId)
 			local dummyInfo = _activeDummies[dummy]
 			if not dummyInfo then
 				return
@@ -547,6 +563,39 @@ local function spawnDummy(spawnIndex)
 				spawnDummy(savedSpawnIndex)
 			end)
 		end)
+	else
+		-- Fallback to humanoid.Died if CombatService not available
+		if humanoid then
+			humanoid.Died:Once(function()
+				local dummyInfo = _activeDummies[dummy]
+				if not dummyInfo then
+					return
+				end
+
+				local savedSpawnIndex = dummyInfo.spawnIndex
+				local savedPseudoPlayer = dummyInfo.pseudoPlayer
+
+				-- Stop any playing emote
+				stopEmote(dummy)
+
+				-- Cleanup combat
+				cleanupCombat(savedPseudoPlayer)
+
+				-- Remove from active
+				_activeDummies[dummy] = nil
+
+				-- Respawn after delay
+				task.delay(DummyConfig.RespawnDelay, function()
+					-- Destroy old dummy
+					if dummy and dummy.Parent then
+						dummy:Destroy()
+					end
+
+					-- Spawn new dummy at same position
+					spawnDummy(savedSpawnIndex)
+				end)
+			end)
+		end
 	end
 
 	return dummy
