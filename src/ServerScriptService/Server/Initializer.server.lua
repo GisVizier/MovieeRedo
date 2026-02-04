@@ -68,6 +68,10 @@ local entries = {
 		module = servicesFolder:WaitForChild("Dummy"):WaitForChild("DummyService"),
 	},
 	{
+		name = "PracticeDummyService",
+		module = servicesFolder:WaitForChild("PracticeDummyService"),
+	},
+	{
 		name = "KnockbackService",
 		module = servicesFolder:WaitForChild("Knockback"):WaitForChild("KnockbackService"),
 	},
@@ -78,6 +82,14 @@ local entries = {
 	{
 		name = "Round",
 		module = servicesFolder:WaitForChild("Round"):WaitForChild("RoundService"),
+	},
+	{
+		name = "MapLoader",
+		module = servicesFolder:WaitForChild("Map"):WaitForChild("MapLoaderService"),
+	},
+	{
+		name = "MatchManager",
+		module = servicesFolder:WaitForChild("Match"):WaitForChild("MatchManager"),
 	},
 }
 

@@ -77,7 +77,7 @@ function MatchService:_onSubmitLoadout(player, payload)
 		self._pendingTrainingEntry[userId] = nil
 		
 		-- Add player to training match
-		local roundService = self._registry:TryGet("RoundService")
+		local roundService = self._registry:TryGet("Round")
 		if roundService then
 			roundService:AddPlayer(player)
 		end

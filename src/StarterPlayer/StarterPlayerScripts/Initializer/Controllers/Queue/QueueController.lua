@@ -6,6 +6,7 @@
 	Features:
 	- Countdown GUI display
 	- Pad visual updates (color changes)
+	- Board display updates (player avatars, queue count)
 	- Match transition handling
 	
 	API:
@@ -18,9 +19,21 @@ local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local RunService = game:GetService("RunService")
+
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 
 local QueueController = {}
+
+-- DEBUG: Client-side position logging
+local DEBUG_ENABLED = false
+local DEBUG_INTERVAL = 3
+
+local function debugPrint(...)
+	if DEBUG_ENABLED then
+		print("[QueueController DEBUG]", ...)
+	end
+end
 
 function QueueController:Init(registry, net)
 	self._registry = registry
@@ -31,20 +44,74 @@ function QueueController:Init(registry, net)
 	self._countdownActive = false
 	self._countdownRemaining = nil
 	self._myTeam = nil
+	self._currentPadName = nil
 
 	-- Pad cache for quick lookup
 	self._pads = {}
 
+	-- Board display cache: { [padName] = { leftSide, rightSide, counter, leftImage, rightImage } }
+	self._boards = {}
+
+	-- Track queue state per pad: { [padName] = { Team1 = playerId or nil, Team2 = playerId or nil } }
+	self._queueState = {}
+
 	-- GUI references (created dynamically)
 	self._countdownGui = nil
 	self._countdownLabel = nil
+	
+	-- Debug timing
+	self._lastDebugPrint = 0
 
 	self:_cachePads()
 	self:_setupNetworkListeners()
+	
+	debugPrint("=== QueueController:Init() CALLED ===")
 end
 
 function QueueController:Start()
 	self:_createCountdownGui()
+	self:_startClientDebugLoop()
+	debugPrint("=== QueueController:Start() COMPLETE ===")
+end
+
+function QueueController:_startClientDebugLoop()
+	if not DEBUG_ENABLED then return end
+	
+	RunService.Heartbeat:Connect(function()
+		local now = tick()
+		if now - self._lastDebugPrint >= DEBUG_INTERVAL then
+			self._lastDebugPrint = now
+			self:_printClientDebugSummary()
+		end
+	end)
+end
+
+function QueueController:_printClientDebugSummary()
+	local player = Players.LocalPlayer
+	local character = player.Character
+	
+	print("=== [QueueController] CLIENT DEBUG SUMMARY ===")
+	print("  Pads cached:", (function()
+		local count = 0
+		for _ in self._pads do count = count + 1 end
+		return count
+	end)())
+	
+	if character then
+		local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+		if rootPart then
+			print("  CLIENT position:", rootPart.Position)
+		else
+			print("  NO rootPart found!")
+			print("  Character children:")
+			for _, child in character:GetChildren() do
+				print("    -", child.Name, "(" .. child.ClassName .. ")")
+			end
+		end
+	else
+		print("  NO character!")
+	end
+	print("===============================================")
 end
 
 --------------------------------------------------------------------------------
@@ -87,6 +154,11 @@ function QueueController:_setupNetworkListeners()
 		self:_onMatchReady(data)
 	end)
 
+	-- Match teleport (client-side teleportation for custom character system)
+	self._net:ConnectClient("MatchTeleport", function(data)
+		self:_onMatchTeleport(data)
+	end)
+
 	-- Round events
 	self._net:ConnectClient("RoundStart", function(data)
 		self:_onRoundStart(data)
@@ -115,22 +187,158 @@ end
 
 function QueueController:_cachePads()
 	local padTag = MatchmakingConfig.Queue.PadTag
+	
+	debugPrint("Caching pads with tag:", padTag)
+	
+	local taggedPads = CollectionService:GetTagged(padTag)
+	debugPrint("CLIENT found", #taggedPads, "pads with tag '" .. padTag .. "'")
 
-	for _, pad in CollectionService:GetTagged(padTag) do
+	for _, pad in taggedPads do
+		debugPrint("  Caching pad:", pad.Name, "| Path:", pad:GetFullName())
 		self._pads[pad.Name] = pad
+		self:_cacheBoardForPad(pad)
+		self:_initQueueState(pad.Name)
+		
+		-- Debug: print zone positions
+		local team1 = pad:FindFirstChild("Team1")
+		local team2 = pad:FindFirstChild("Team2")
+		if team1 then
+			local inner = team1:FindFirstChild("Inner")
+			if inner and inner:IsA("BasePart") then
+				debugPrint("    Team1 Inner position:", inner.Position)
+			end
+		end
+		if team2 then
+			local inner = team2:FindFirstChild("Inner")
+			if inner and inner:IsA("BasePart") then
+				debugPrint("    Team2 Inner position:", inner.Position)
+			end
+		end
 	end
 
 	CollectionService:GetInstanceAddedSignal(padTag):Connect(function(pad)
+		debugPrint("NEW PAD ADDED (client):", pad.Name)
 		self._pads[pad.Name] = pad
+		self:_cacheBoardForPad(pad)
+		self:_initQueueState(pad.Name)
 	end)
 
 	CollectionService:GetInstanceRemovedSignal(padTag):Connect(function(pad)
 		self._pads[pad.Name] = nil
+		self._boards[pad.Name] = nil
+		self._queueState[pad.Name] = nil
 	end)
 end
 
+function QueueController:_cacheBoardForPad(pad)
+	debugPrint("Caching board for pad:", pad.Name)
+	
+	local board = pad:FindFirstChild("Board")
+	if not board then
+		debugPrint("  No Board found in pad")
+		return
+	end
+
+	local surfaceGui = board:FindFirstChild("SurfaceGui")
+	if not surfaceGui then
+		debugPrint("  No SurfaceGui found in Board")
+		return
+	end
+
+	local frame = surfaceGui:FindFirstChild("Frame")
+	if not frame then
+		debugPrint("  No Frame found in SurfaceGui")
+		return
+	end
+
+	local leftSide = frame:FindFirstChild("LeftSide")
+	local rightSide = frame:FindFirstChild("RightSide")
+	local counter = frame:FindFirstChild("Counter")
+	
+	debugPrint("  LeftSide found:", leftSide ~= nil)
+	debugPrint("  RightSide found:", rightSide ~= nil)
+	debugPrint("  Counter found:", counter ~= nil)
+
+	local leftImage = leftSide and self:_findImageLabel(leftSide)
+	local rightImage = rightSide and self:_findImageLabel(rightSide)
+	
+	debugPrint("  LeftImage found:", leftImage ~= nil, leftImage and leftImage:GetFullName() or "N/A")
+	debugPrint("  RightImage found:", rightImage ~= nil, rightImage and rightImage:GetFullName() or "N/A")
+	
+	-- Debug: print all children of LeftSide/RightSide if no image found
+	if leftSide and not leftImage then
+		debugPrint("  LeftSide children (no ImageLabel found):")
+		for _, child in leftSide:GetDescendants() do
+			debugPrint("    -", child.Name, "(" .. child.ClassName .. ")")
+		end
+	end
+	if rightSide and not rightImage then
+		debugPrint("  RightSide children (no ImageLabel found):")
+		for _, child in rightSide:GetDescendants() do
+			debugPrint("    -", child.Name, "(" .. child.ClassName .. ")")
+		end
+	end
+
+	local counterText = nil
+	if counter then
+		counterText = counter:FindFirstChild("TextLabel") or counter:FindFirstChildOfClass("TextLabel")
+		if not counterText then
+			for _, desc in counter:GetDescendants() do
+				if desc:IsA("TextLabel") then
+					counterText = desc
+					break
+				end
+			end
+		end
+	end
+	debugPrint("  CounterText found:", counterText ~= nil)
+
+	self._boards[pad.Name] = {
+		leftSide = leftSide,
+		rightSide = rightSide,
+		counter = counter,
+		counterText = counterText,
+		leftImage = leftImage,
+		rightImage = rightImage,
+	}
+
+	if leftSide then
+		leftSide.Visible = false
+	end
+	if rightSide then
+		rightSide.Visible = false
+	end
+	if counterText then
+		counterText.Text = "0"
+	end
+	
+	debugPrint("  Board cached successfully")
+end
+
+function QueueController:_findImageLabel(parent)
+	local imageLabel = parent:FindFirstChild("ImageLabel")
+	if imageLabel and imageLabel:IsA("ImageLabel") then
+		return imageLabel
+	end
+
+	for _, desc in parent:GetDescendants() do
+		if desc:IsA("ImageLabel") then
+			return desc
+		end
+	end
+
+	return nil
+end
+
+function QueueController:_initQueueState(padName)
+	self._queueState[padName] = {
+		Team1 = nil,
+		Team2 = nil,
+	}
+end
+
 function QueueController:_onPadUpdate(data)
-	local padId = data.padId
+	local padName = data.padName or data.padId
 	local team = data.team
 	local occupied = data.occupied
 	local playerId = data.playerId
@@ -140,46 +348,204 @@ function QueueController:_onPadUpdate(data)
 	if playerId and playerId == localPlayer.UserId then
 		self._inQueue = occupied
 		self._myTeam = occupied and team or nil
+		self._currentPadName = occupied and padName or nil
 	end
 
-	-- Update pad visual
-	self:_updatePadVisual(padId, occupied and "occupied" or "empty")
+	-- Update pad visual for the specific team zone
+	self:_updateTeamZoneVisual(padName, team, occupied and "occupied" or "empty")
+
+	-- Update queue state
+	local queueState = self._queueState[padName]
+	if queueState then
+		queueState[team] = occupied and playerId or nil
+	end
+
+	-- Update board display
+	self:_updateBoardDisplay(padName, team, occupied, playerId)
 end
 
-function QueueController:_updatePadVisual(padId, state)
-	local pad = self._pads[padId]
+function QueueController:_updatePadVisual(padName, state)
+	local pad = self._pads[padName]
 	if not pad then
 		return
 	end
 
 	local colors = MatchmakingConfig.PadVisuals
-	local color
-
-	if state == "empty" then
-		color = colors.EmptyColor
-	elseif state == "occupied" then
-		color = colors.OccupiedColor
-	elseif state == "countdown" then
-		color = colors.CountdownColor
-	elseif state == "ready" then
-		color = colors.ReadyColor
-	else
-		color = colors.EmptyColor
-	end
+	local color = self:_getColorForState(state)
 
 	-- Tween the color change
 	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-	if pad:IsA("BasePart") then
-		local tween = TweenService:Create(pad, tweenInfo, { Color = color })
-		tween:Play()
+	-- Update all descendant parts
+	for _, part in pad:GetDescendants() do
+		if part:IsA("BasePart") then
+			local tween = TweenService:Create(part, tweenInfo, { Color = color })
+			tween:Play()
+		end
+	end
+end
+
+function QueueController:_updateTeamZoneVisual(padName, team, state)
+	local pad = self._pads[padName]
+	if not pad then
+		return
 	end
 
-	-- Also update child visual part if exists
-	local visualPart = pad:FindFirstChild("Visual") or pad:FindFirstChild("Surface")
-	if visualPart and visualPart:IsA("BasePart") then
-		local tween = TweenService:Create(visualPart, tweenInfo, { Color = color })
+	local teamModel = pad:FindFirstChild(team)
+	if not teamModel then
+		-- Fallback to old behavior
+		self:_updatePadVisual(padName, state)
+		return
+	end
+
+	local color = self:_getColorForState(state)
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	-- Update all parts in the team model
+	for _, part in teamModel:GetDescendants() do
+		if part:IsA("BasePart") then
+			local tween = TweenService:Create(part, tweenInfo, { Color = color })
+			tween:Play()
+		end
+	end
+
+	if teamModel:IsA("BasePart") then
+		local tween = TweenService:Create(teamModel, tweenInfo, { Color = color })
 		tween:Play()
+	end
+end
+
+function QueueController:_getColorForState(state)
+	local colors = MatchmakingConfig.PadVisuals
+
+	if state == "empty" then
+		return colors.EmptyColor
+	elseif state == "occupied" then
+		return colors.OccupiedColor
+	elseif state == "countdown" then
+		return colors.CountdownColor
+	elseif state == "ready" then
+		return colors.ReadyColor
+	else
+		return colors.EmptyColor
+	end
+end
+
+--------------------------------------------------------------------------------
+-- BOARD DISPLAY
+--------------------------------------------------------------------------------
+
+function QueueController:_updateBoardDisplay(padName, team, occupied, playerId)
+	debugPrint("_updateBoardDisplay:", padName, team, "occupied:", occupied, "playerId:", playerId)
+	
+	local board = self._boards[padName]
+	if not board then
+		debugPrint("  No board cached for pad:", padName)
+		return
+	end
+
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	if team == "Team1" then
+		debugPrint("  Team1 - leftSide:", board.leftSide ~= nil, "leftImage:", board.leftImage ~= nil)
+		if board.leftSide then
+			board.leftSide.Visible = occupied
+			debugPrint("  Set leftSide.Visible =", occupied)
+		end
+		if occupied and playerId and board.leftImage then
+			debugPrint("  Setting player avatar for Team1, playerId:", playerId)
+			self:_setPlayerAvatar(board.leftImage, playerId)
+		elseif occupied and playerId and not board.leftImage then
+			debugPrint("  WARNING: No leftImage to set avatar!")
+		end
+	elseif team == "Team2" then
+		debugPrint("  Team2 - rightSide:", board.rightSide ~= nil, "rightImage:", board.rightImage ~= nil)
+		if board.rightSide then
+			board.rightSide.Visible = occupied
+			debugPrint("  Set rightSide.Visible =", occupied)
+		end
+		if occupied and playerId and board.rightImage then
+			debugPrint("  Setting player avatar for Team2, playerId:", playerId)
+			self:_setPlayerAvatar(board.rightImage, playerId)
+		elseif occupied and playerId and not board.rightImage then
+			debugPrint("  WARNING: No rightImage to set avatar!")
+		end
+	end
+
+	self:_updateBoardCounter(padName)
+end
+
+function QueueController:_updateBoardCounter(padName)
+	local board = self._boards[padName]
+	local queueState = self._queueState[padName]
+
+	if not board or not queueState then
+		return
+	end
+
+	local count = 0
+	if queueState.Team1 then
+		count = count + 1
+	end
+	if queueState.Team2 then
+		count = count + 1
+	end
+
+	if board.counterText then
+		board.counterText.Text = tostring(count)
+
+		local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		board.counterText.TextTransparency = 0.5
+		local tween = TweenService:Create(board.counterText, tweenInfo, {
+			TextTransparency = 0,
+		})
+		tween:Play()
+	end
+end
+
+function QueueController:_setPlayerAvatar(imageLabel, userId)
+	debugPrint("_setPlayerAvatar called, imageLabel:", imageLabel:GetFullName(), "userId:", userId)
+	
+	task.spawn(function()
+		local success, content = pcall(function()
+			return Players:GetUserThumbnailAsync(
+				userId,
+				Enum.ThumbnailType.HeadShot,
+				Enum.ThumbnailSize.Size150x150
+			)
+		end)
+
+		debugPrint("  GetUserThumbnailAsync result - success:", success, "content:", content and "got content" or "nil")
+
+		if success and content and imageLabel then
+			imageLabel.Image = content
+			debugPrint("  Set imageLabel.Image to:", content)
+		else
+			debugPrint("  FAILED to set avatar - success:", success, "content:", content ~= nil, "imageLabel:", imageLabel ~= nil)
+		end
+	end)
+end
+
+function QueueController:_resetBoardDisplay(padName)
+	local board = self._boards[padName]
+	if not board then
+		return
+	end
+
+	if board.leftSide then
+		board.leftSide.Visible = false
+	end
+	if board.rightSide then
+		board.rightSide.Visible = false
+	end
+	if board.counterText then
+		board.counterText.Text = "0"
+	end
+
+	local queueState = self._queueState[padName]
+	if queueState then
+		queueState.Team1 = nil
+		queueState.Team2 = nil
 	end
 end
 
@@ -320,36 +686,50 @@ end
 --------------------------------------------------------------------------------
 
 function QueueController:_onCountdownStart(data)
-	self._countdownActive = true
-	self._countdownRemaining = data.duration
+	local padName = data.padName
 
-	-- Update all occupied pads to countdown color
-	for padId, pad in self._pads do
-		-- Check if pad is occupied (we'd need to track this, for now just set all)
-		self:_updatePadVisual(padId, "countdown")
+	-- Only show countdown if this is the pad we're on
+	if self._currentPadName and self._currentPadName == padName then
+		self._countdownActive = true
+		self._countdownRemaining = data.duration
+
+		-- Show countdown GUI
+		self:_updateCountdownLabel(data.duration)
+		self:_showCountdownGui()
 	end
 
-	-- Show countdown GUI
-	self:_updateCountdownLabel(data.duration)
-	self:_showCountdownGui()
+	-- Update the specific pad to countdown color
+	local pad = self._pads[padName]
+	if pad then
+		self:_updatePadVisual(padName, "countdown")
+	end
 end
 
 function QueueController:_onCountdownTick(data)
-	self._countdownRemaining = data.remaining
-	self:_updateCountdownLabel(data.remaining)
+	local padName = data.padName
+
+	-- Only update if this is our pad
+	if self._currentPadName and self._currentPadName == padName then
+		self._countdownRemaining = data.remaining
+		self:_updateCountdownLabel(data.remaining)
+	end
 end
 
 function QueueController:_onCountdownCancel(data)
-	self._countdownActive = false
-	self._countdownRemaining = nil
+	local padName = data.padName
 
-	-- Reset pad colors
-	for padId, pad in self._pads do
-		self:_updatePadVisual(padId, "empty")
+	-- Only hide if this is our pad
+	if self._currentPadName and self._currentPadName == padName then
+		self._countdownActive = false
+		self._countdownRemaining = nil
+		self:_hideCountdownGui()
 	end
 
-	-- Hide countdown GUI
-	self:_hideCountdownGui()
+	-- Reset the specific pad colors
+	local pad = self._pads[padName]
+	if pad then
+		self:_updatePadVisual(padName, "empty")
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -357,19 +737,89 @@ end
 --------------------------------------------------------------------------------
 
 function QueueController:_onMatchReady(data)
+	local padName = data.padName
+
 	self._countdownActive = false
 	self._countdownRemaining = nil
 	self._inQueue = false
+	self._currentPadName = nil
 
 	-- Hide countdown GUI
 	self:_hideCountdownGui()
 
-	-- Update pads to ready color briefly
-	for padId, pad in self._pads do
-		self:_updatePadVisual(padId, "ready")
+	-- Update the specific pad to ready color briefly
+	local pad = self._pads[padName]
+	if pad then
+		self:_updatePadVisual(padName, "ready")
+
+		-- Reset after a short delay
+		task.delay(1, function()
+			if self._pads[padName] then
+				self:_updatePadVisual(padName, "empty")
+				self:_resetBoardDisplay(padName)
+			end
+		end)
 	end
 
 	-- The Map/Loadout UI will be triggered by the existing flow
+end
+
+function QueueController:_onMatchTeleport(data)
+	debugPrint("=== MatchTeleport received ===")
+	debugPrint("  matchId:", data.matchId)
+	debugPrint("  team:", data.team)
+	debugPrint("  spawnPosition:", data.spawnPosition)
+	debugPrint("  spawnLookVector:", data.spawnLookVector)
+	
+	local spawnPos = data.spawnPosition
+	local lookVector = data.spawnLookVector
+	local matchId = data.matchId
+	
+	if not spawnPos then
+		warn("[QueueController] MatchTeleport received without spawnPosition")
+		return
+	end
+	
+	-- Stop any active emotes before teleporting
+	self._net:FireServer("EmoteStop")
+	
+	-- Use MovementController to teleport (handles custom character system)
+	local movementController = self._registry:TryGet("Movement")
+	
+	if movementController and type(movementController.Teleport) == "function" then
+		debugPrint("  Calling MovementController:Teleport()")
+		local success = movementController:Teleport(spawnPos, lookVector)
+		debugPrint("  Teleport result:", success)
+	else
+		warn("[QueueController] MovementController not found or missing Teleport method")
+		
+		-- Fallback: Try to move character directly (may not work with anchored HumanoidRootPart)
+		local player = Players.LocalPlayer
+		local character = player.Character
+		if character then
+			local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+			if root then
+				local destCFrame
+				if lookVector then
+					destCFrame = CFrame.lookAt(spawnPos, spawnPos + lookVector)
+				else
+					destCFrame = CFrame.new(spawnPos)
+				end
+				character:PivotTo(destCFrame)
+				debugPrint("  Fallback PivotTo executed")
+			end
+		end
+	end
+	
+	-- Confirm teleport to server (so it knows to start the match)
+	if matchId and matchId ~= "reset" then
+		task.delay(0.1, function()
+			self._net:FireServer("MatchTeleportReady", {
+				matchId = matchId,
+			})
+			debugPrint("  Sent MatchTeleportReady confirmation")
+		end)
+	end
 end
 
 function QueueController:_onRoundStart(data)
@@ -399,9 +849,10 @@ function QueueController:_onReturnToLobby(data)
 	self._countdownRemaining = nil
 	self._myTeam = nil
 
-	-- Reset pad colors
-	for padId, pad in self._pads do
-		self:_updatePadVisual(padId, "empty")
+	-- Reset pad colors and board displays
+	for padName, pad in self._pads do
+		self:_updatePadVisual(padName, "empty")
+		self:_resetBoardDisplay(padName)
 	end
 end
 

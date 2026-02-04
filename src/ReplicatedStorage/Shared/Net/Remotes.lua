@@ -81,6 +81,8 @@ local Remotes = {
 	{ name = "QueueMatchReady", description = "Queue complete, transitioning to match" },
 
 	-- Round system
+	{ name = "MatchTeleport", description = "Server tells client to teleport for match" },
+	{ name = "MatchTeleportReady", description = "Client confirms teleport complete" },
 	{ name = "MatchStart", description = "Match has started" },
 	{ name = "RoundStart", description = "New round beginning" },
 	{ name = "RoundKill", description = "Kill occurred during round" },

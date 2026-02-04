@@ -8,6 +8,7 @@ local JumpPad = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Jum
 local Zipline = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Zipline"))
 local AreaTeleport = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("AreaTeleport"))
 local Exit = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Exit"))
+local TrainingRange = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRange"))
 
 local GadgetService = {}
 
@@ -25,6 +26,7 @@ function GadgetService:Init(registry, net)
 	self:Register("Zipline", Zipline)
 	self:Register("AreaTeleport", AreaTeleport)
 	self:Register("Exit", Exit)
+	self:Register("TrainingRange", TrainingRange)
 
 	self._net:ConnectServer("GadgetInitRequest", function(player)
 		self:SendInitToPlayer(player)
@@ -84,7 +86,25 @@ end
 
 function GadgetService:CreateForMap(mapInstance, dataByType)
 	if not mapInstance or not mapInstance.Parent then
+		print("[GadgetService] CreateForMap: mapInstance invalid or has no parent")
 		return {}
+	end
+
+	print("[GadgetService] CreateForMap: Scanning", mapInstance:GetFullName())
+	
+	-- Debug: Find all models with GadgetType attribute
+	local gadgetModels = {}
+	for _, desc in ipairs(mapInstance:GetDescendants()) do
+		if desc:IsA("Model") then
+			local gadgetType = desc:GetAttribute("GadgetType")
+			if gadgetType then
+				table.insert(gadgetModels, { model = desc, gadgetType = gadgetType })
+			end
+		end
+	end
+	print("[GadgetService] Found", #gadgetModels, "models with GadgetType attribute:")
+	for _, entry in ipairs(gadgetModels) do
+		print("[GadgetService]   ", entry.model:GetFullName(), "->", entry.gadgetType)
 	end
 
 	local created = self._gadgetSystem:scanMap(mapInstance, dataByType, true, {
@@ -93,10 +113,13 @@ function GadgetService:CreateForMap(mapInstance, dataByType)
 	})
 	self._gadgetsByMap[mapInstance] = created
 
+	print("[GadgetService] scanMap created", #created, "gadgets:")
 	for _, gadget in ipairs(created) do
 		local model = gadget.getModel and gadget:getModel() or gadget.model
 		local typeName = gadget.getTypeName and gadget:getTypeName() or gadget.typeName
+		local id = gadget.getId and gadget:getId() or "no-id"
 		if model and typeName then
+			print("[GadgetService]   ", id, "->", typeName, "(", model.Name, ")")
 		end
 	end
 
@@ -204,19 +227,34 @@ function GadgetService:_buildInitPayload()
 end
 
 function GadgetService:_onUseRequest(player, gadgetId, payload)
+	print("[GadgetService] _onUseRequest from:", player.Name)
+	print("[GadgetService]   gadgetId:", gadgetId)
+	print("[GadgetService]   payload:", payload)
+	
 	if typeof(gadgetId) ~= "string" then
+		print("[GadgetService] REJECTED: gadgetId is not a string, type:", typeof(gadgetId))
 		return
 	end
 
 	local gadget = self._gadgetSystem:getById(gadgetId)
 	if not gadget then
+		print("[GadgetService] REJECTED: gadget not found for id:", gadgetId)
+		print("[GadgetService] Available gadgets:")
+		for id, g in pairs(self._gadgetSystem.instances or {}) do
+			local typeName = g.getTypeName and g:getTypeName() or "unknown"
+			print("[GadgetService]   ", id, "->", typeName)
+		end
 		self._net:FireClient("GadgetUseResponse", player, gadgetId, false)
 		return
 	end
+	
+	local typeName = gadget.getTypeName and gadget:getTypeName() or "unknown"
+	print("[GadgetService] Found gadget:", typeName)
 
 	local approved = false
 	local responseData = nil
 	if type(gadget.onUseRequest) == "function" then
+		print("[GadgetService] Calling onUseRequest on gadget")
 		local result = gadget:onUseRequest(player, payload)
 		if type(result) == "table" then
 			approved = result.approved == true
@@ -224,6 +262,9 @@ function GadgetService:_onUseRequest(player, gadgetId, payload)
 		else
 			approved = result == true
 		end
+		print("[GadgetService] onUseRequest result: approved =", approved)
+	else
+		print("[GadgetService] gadget has no onUseRequest method")
 	end
 
 	self._net:FireClient("GadgetUseResponse", player, gadgetId, approved, responseData)

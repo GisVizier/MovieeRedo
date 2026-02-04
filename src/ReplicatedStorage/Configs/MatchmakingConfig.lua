@@ -22,7 +22,17 @@ MatchmakingConfig.Queue = {
 	ZoneCheckInterval = 0.2,
 
 	-- Default detection zone size if pad doesn't have ZoneSize attribute
-	DefaultZoneSize = Vector3.new(8, 10, 8),
+	DefaultZoneSize = Vector3.new(8, 6, 8),
+
+	-- Vertical tolerance (studs) for root-based checks
+	VerticalTolerance = 10,
+
+	-- Debug settings
+	Debug = {
+		ShowZones = true,
+		ZoneColor = Color3.fromRGB(0, 200, 255),
+		ZoneTransparency = 0.7,
+	},
 }
 
 --------------------------------------------------------------------------------
@@ -89,6 +99,7 @@ MatchmakingConfig.Modes = {
 		allowLoadoutReselect = false,
 		roundResetDelay = 2,
 		loadoutSelectionTime = 15,
+		showLoadoutOnMatchStart = true,  -- Show loadout UI when match first starts
 		showLoadoutOnRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
@@ -105,6 +116,7 @@ MatchmakingConfig.Modes = {
 		allowLoadoutReselect = false,
 		roundResetDelay = 2,
 		loadoutSelectionTime = 15,
+		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
@@ -121,6 +133,7 @@ MatchmakingConfig.Modes = {
 		allowLoadoutReselect = false,
 		roundResetDelay = 2,
 		loadoutSelectionTime = 15,
+		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
@@ -137,6 +150,7 @@ MatchmakingConfig.Modes = {
 		allowLoadoutReselect = false,
 		roundResetDelay = 2,
 		loadoutSelectionTime = 15,
+		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
@@ -145,6 +159,36 @@ MatchmakingConfig.Modes = {
 
 -- Default mode
 MatchmakingConfig.DefaultMode = "Duel"
+
+--------------------------------------------------------------------------------
+-- MODE NAME MAPPING
+-- Maps queue pad names to mode IDs
+--------------------------------------------------------------------------------
+
+MatchmakingConfig.ModeNameMapping = {
+	["1v1"] = "Duel",
+	["2v2"] = "TwoVTwo",
+	["3v3"] = "ThreeVThree",
+	["4v4"] = "FourVFour",
+}
+
+--------------------------------------------------------------------------------
+-- MAP POSITIONING
+-- Settings for placing cloned maps far from lobby
+--------------------------------------------------------------------------------
+
+MatchmakingConfig.MapPositioning = {
+	StartOffset = Vector3.new(5000, 0, 0),
+	Increment = Vector3.new(2000, 0, 0),
+	MaxConcurrentMaps = 10,
+}
+
+--------------------------------------------------------------------------------
+-- MAP SELECTION
+-- Default map for competitive matches
+--------------------------------------------------------------------------------
+
+MatchmakingConfig.DefaultMap = "Map"
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
@@ -172,6 +216,10 @@ end
 function MatchmakingConfig.getPlayersPerTeam(modeId)
 	local mode = MatchmakingConfig.getMode(modeId)
 	return mode and mode.playersPerTeam or 1
+end
+
+function MatchmakingConfig.getModeFromPadName(padName)
+	return MatchmakingConfig.ModeNameMapping[padName] or MatchmakingConfig.DefaultMode
 end
 
 return MatchmakingConfig

@@ -108,7 +108,7 @@ function AreaTeleport:onUseRequest(player, _payload)
 	-- Get services
 	local registry = self.context and self.context.registry
 	local gadgetService = registry and registry:TryGet("GadgetService")
-	local roundService = registry and registry:TryGet("RoundService")
+	local roundService = registry and registry:TryGet("Round")
 	local matchService = registry and registry:TryGet("MatchService")
 	local net = self.context and self.context.net
 

@@ -127,7 +127,7 @@ function Exit:onUseRequest(player, _payload)
 
 	-- Remove player from training match
 	local registry = self.context and self.context.registry
-	local roundService = registry and registry:TryGet("RoundService")
+	local roundService = registry and registry:TryGet("Round")
 	if roundService then
 		roundService:RemovePlayer(player)
 	end

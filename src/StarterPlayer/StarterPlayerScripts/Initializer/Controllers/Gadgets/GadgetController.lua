@@ -8,6 +8,7 @@ local JumpPad = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Jum
 local Zipline = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Zipline"))
 local AreaTeleport = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("AreaTeleport"))
 local Exit = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("Exit"))
+local TrainingRange = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRange"))
 
 local GadgetController = {}
 
@@ -20,6 +21,7 @@ function GadgetController:Init(registry, net)
 	self._gadgetSystem:register("Zipline", Zipline)
 	self._gadgetSystem:register("AreaTeleport", AreaTeleport)
 	self._gadgetSystem:register("Exit", Exit)
+	self._gadgetSystem:register("TrainingRange", TrainingRange)
 	self._loadedAreas = {} -- Track gadget IDs per area
 
 	self._net:ConnectClient("GadgetInit", function(payload)

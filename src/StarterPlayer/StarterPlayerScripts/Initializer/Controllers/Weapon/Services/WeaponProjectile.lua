@@ -26,6 +26,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local ProjectilePacketUtils = require(Locations.Shared.Util:WaitForChild("ProjectilePacketUtils"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local TrainingRangeShot = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRangeShot"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -702,6 +703,10 @@ end
 	Handle hitting environment
 ]]
 function WeaponProjectile:_handleEnvironmentHit(projectile, hitResult)
+	if TrainingRangeShot then
+		TrainingRangeShot:TryHandleHit(hitResult.Instance, hitResult.Position)
+	end
+
 	-- Check for ricochet
 	if projectile.bounceCount < projectile.maxBounce then
 		-- Ricochet

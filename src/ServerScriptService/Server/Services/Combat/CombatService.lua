@@ -112,6 +112,14 @@ function CombatService:_cleanupPlayer(player: Player)
 	self._assistTracking[player] = nil
 end
 
+--[[
+	Public method to clean up combat resources for a player or pseudo-player (dummies)
+	@param player Player|table - The player or pseudo-player to clean up
+]]
+function CombatService:CleanupPlayer(player)
+	self:_cleanupPlayer(player)
+end
+
 -- =============================================================================
 -- RESOURCE ACCESS
 -- =============================================================================
@@ -485,6 +493,14 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 			weaponId = weaponId,
 			killEffect = effectId,
 		})
+	end
+
+	-- Notify MatchManager for scoring/round reset (only for real players)
+	if typeof(victim) == "Instance" and victim:IsA("Player") then
+		local matchManager = self._registry:TryGet("MatchManager")
+		if matchManager then
+			matchManager:OnPlayerKilled(killer, victim)
+		end
 	end
 
 	print("[CombatService]", killer and killer.Name or "Unknown", "killed", victim.Name)

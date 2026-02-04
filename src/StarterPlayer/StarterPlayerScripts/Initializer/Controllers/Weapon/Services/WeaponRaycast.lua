@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local WeaponRaycast = {}
+local TrainingRangeShot = nil
 
 -- Debug flag (set to true to see hit logs)
 local DEBUG_LOGGING = true
@@ -217,6 +218,15 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
 
 	if result then
+		if not TrainingRangeShot then
+			local ReplicatedStorage = game:GetService("ReplicatedStorage")
+			local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+			TrainingRangeShot = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRangeShot"))
+		end
+		if TrainingRangeShot then
+			TrainingRangeShot:TryHandleHit(result.Instance, result.Position)
+		end
+
 		-- Enforce hitbox-only hits for players (Collider/Hitbox/Standing|Crouching)
 		local current = result.Instance.Parent
 		local hitCharacter = nil

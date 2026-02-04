@@ -28,7 +28,7 @@ function GadgetUtils:_normalizeTypeName(name)
 		JumpPads = "JumpPad",
 		Ziplines = "Zipline",
 		Exits = "Exit",
-		["ShootingRange"] = "AreaTeleport",
+		["ShootingRange"] = "TrainingRange", -- Fixed: ShootingRange folder contains TrainingRange gadgets
 		["Teleports"] = "AreaTeleport",
 	}
 	return aliases[name] or name

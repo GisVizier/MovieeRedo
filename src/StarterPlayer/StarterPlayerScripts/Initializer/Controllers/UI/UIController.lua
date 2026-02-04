@@ -333,6 +333,12 @@ function UIController:_onShowRoundLoadout(data)
 		end)
 	end
 
+	-- Allow camera movement during loadout selection (Orbit mode)
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("Orbit")
+	end
+
 	-- Show loadout UI
 	safeCall(function()
 		self._coreUi:show("Loadout", true)
@@ -347,6 +353,7 @@ function UIController:_onRoundStart(data)
 	local player = Players.LocalPlayer
 	if player then
 		player:SetAttribute("InLobby", false)
+		player:SetAttribute("PlayerState", "InMatch")
 	end
 
 	-- Hide loadout if visible
@@ -358,6 +365,12 @@ function UIController:_onRoundStart(data)
 	safeCall(function()
 		self._coreUi:show("HUD", true)
 	end)
+
+	-- Force first person camera for competitive match
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("FirstPerson")
+	end
 end
 
 function UIController:_onMatchEnd(data)
