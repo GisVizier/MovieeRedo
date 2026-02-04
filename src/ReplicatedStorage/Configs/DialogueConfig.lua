@@ -156,6 +156,101 @@ Dialogue.Dialogues = {
 		},
 	},
 
+	HonoredOne = {
+		RoundStart = {
+			Default = {
+				HonoredOne_Start_1 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 103048118780606,
+							DialogueText = "Try to keep up. I get bored easily.",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_2 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 91060266677915,
+							DialogueText = "Alright—try to keep up.",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_3 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 136033932961158,
+							DialogueText = "Relax. I'm here.",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_4 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 127616604766426,
+							DialogueText = "If this gets boring, I'll make it interesting.",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_5 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 86587884827335,
+							DialogueText = "I could end this instantly… but where's the fun?",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_6 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 105668188260399,
+							DialogueText = "Let's make this quick—I have plans.",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_7 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 105706230159715,
+							DialogueText = "You ever seen someone lose with style?",
+							Speaker = true,
+						},
+					},
+				},
+				HonoredOne_Start_8 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 121319465678027,
+							DialogueText = "If you hear screaming, that's normal. For them.",
+							Speaker = true,
+						},
+					},
+				},
+			},
+		},
+	},
+
 	ExampleCharacter = {
 		RoundStart = {
 			Win = {
