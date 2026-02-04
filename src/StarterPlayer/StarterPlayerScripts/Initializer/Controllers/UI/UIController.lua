@@ -85,6 +85,10 @@ function UIController:Init(registry, net)
 		self:_onStartMatch(matchData)
 	end)
 
+	self._net:ConnectClient("MatchStart", function(matchData)
+		self:_onStartMatch(matchData)
+	end)
+
 	-- Round system events
 	self._net:ConnectClient("ShowRoundLoadout", function(data)
 		self:_onShowRoundLoadout(data)

@@ -129,8 +129,201 @@ function module.start(export, ui: UI)
 	self._barHoldersOriginalPosition = playerSpace.BarHolders.Position
 
 	self:_cacheWeaponUI()
+	self:_cacheMatchUI()
+	self:_setupMatchListeners()
 
 	return self
+end
+
+function module:_cacheMatchUI()
+	local counter = self._ui:FindFirstChild("Counter", true)
+	if not counter then
+		return
+	end
+
+	local timer = counter:FindFirstChild("Timer")
+	self._roundNumberLabel = timer and timer:FindFirstChild("RoundNumber")
+
+	local redScore = counter:FindFirstChild("RedScore")
+	self._redScoreLabel = redScore and redScore:FindFirstChild("Text")
+
+	local blueScore = counter:FindFirstChild("BlueScore")
+	self._blueScoreLabel = blueScore and blueScore:FindFirstChild("Text")
+
+	self._yourTeamFrame = counter:FindFirstChild("YourTeam")
+	self._enemyTeamFrame = counter:FindFirstChild("EnemyTeam")
+
+	self._yourTeamTemplate = self:_getTeamPlayerTemplate(self._yourTeamFrame)
+	self._enemyTeamTemplate = self:_getTeamPlayerTemplate(self._enemyTeamFrame)
+
+	self._yourTeamSlots = {}
+	self._enemyTeamSlots = {}
+
+	self._matchTeam1 = {}
+	self._matchTeam2 = {}
+end
+
+function module:_getTeamPlayerTemplate(teamFrame)
+	if not teamFrame then
+		return nil
+	end
+
+	for _, child in ipairs(teamFrame:GetChildren()) do
+		if child.Name == "PlayerHolder" and child:IsA("GuiObject") then
+			child.Visible = false
+			return child
+		end
+	end
+
+	return nil
+end
+
+function module:_setupMatchListeners()
+	self._export:on("MatchStart", function(matchData)
+		self:_onMatchStart(matchData)
+	end)
+
+	self._export:on("RoundStart", function(data)
+		self:_onRoundStart(data)
+	end)
+
+	self._export:on("ScoreUpdate", function(data)
+		self:_onScoreUpdate(data)
+	end)
+
+	self._export:on("ReturnToLobby", function()
+		self:_clearMatchTeams()
+	end)
+end
+
+function module:_onMatchStart(matchData)
+	if typeof(matchData) ~= "table" then
+		return
+	end
+
+	local team1 = matchData.team1
+	local team2 = matchData.team2
+
+	if team1 == nil and typeof(matchData.teams) == "table" then
+		team1 = matchData.teams.team1
+		team2 = matchData.teams.team2
+	end
+
+	if type(team1) ~= "table" then
+		team1 = {}
+	end
+	if type(team2) ~= "table" then
+		team2 = {}
+	end
+
+	if #team1 == 0 and #team2 == 0 and type(matchData.players) == "table" then
+		team1 = matchData.players
+	end
+
+	self._matchTeam1 = team1
+	self._matchTeam2 = team2
+
+	self:_populateMatchTeams()
+end
+
+function module:_populateMatchTeams()
+	local localPlayer = Players.LocalPlayer
+	local localUserId = localPlayer and localPlayer.UserId or nil
+
+	local localIsTeam1 = localUserId and table.find(self._matchTeam1, localUserId) ~= nil
+	local localIsTeam2 = localUserId and table.find(self._matchTeam2, localUserId) ~= nil
+
+	local yourTeamIds = self._matchTeam1
+	local enemyTeamIds = self._matchTeam2
+
+	if localIsTeam2 and not localIsTeam1 then
+		yourTeamIds = self._matchTeam2
+		enemyTeamIds = self._matchTeam1
+	end
+
+	self:_populateTeamSlots(self._yourTeamFrame, self._yourTeamTemplate, self._yourTeamSlots, yourTeamIds)
+	self:_populateTeamSlots(self._enemyTeamFrame, self._enemyTeamTemplate, self._enemyTeamSlots, enemyTeamIds)
+end
+
+function module:_populateTeamSlots(teamFrame, template, slotCache, userIds)
+	if not teamFrame or not template or type(userIds) ~= "table" then
+		return
+	end
+
+	for i = #slotCache + 1, #userIds do
+		local clone = template:Clone()
+		clone.Visible = true
+		clone.Parent = teamFrame
+		table.insert(slotCache, clone)
+	end
+
+	for i = #slotCache, #userIds + 1, -1 do
+		slotCache[i]:Destroy()
+		table.remove(slotCache, i)
+	end
+
+	for i, userId in ipairs(userIds) do
+		local holder = slotCache[i]
+		if holder then
+			self:_setTeamPlayerThumbnail(holder, userId)
+		end
+	end
+end
+
+function module:_setTeamPlayerThumbnail(holder, userId)
+	if not holder or not userId then
+		return
+	end
+
+	local image = holder:FindFirstChild("PlayerImage", true)
+	if not image or not image:IsA("ImageLabel") then
+		return
+	end
+
+	task.spawn(function()
+		local success, content = pcall(function()
+			return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+		end)
+		if success and content then
+			image.Image = content
+		end
+	end)
+end
+
+function module:_onRoundStart(data)
+	if self._roundNumberLabel and data and data.roundNumber then
+		self._roundNumberLabel.Text = tostring(data.roundNumber)
+	end
+end
+
+function module:_onScoreUpdate(data)
+	if not data then
+		return
+	end
+
+	if self._redScoreLabel and data.team1Score ~= nil then
+		self._redScoreLabel.Text = tostring(data.team1Score)
+	end
+	if self._blueScoreLabel and data.team2Score ~= nil then
+		self._blueScoreLabel.Text = tostring(data.team2Score)
+	end
+end
+
+function module:_clearMatchTeams()
+	self:_clearTeamSlots(self._yourTeamSlots)
+	self:_clearTeamSlots(self._enemyTeamSlots)
+	self._matchTeam1 = {}
+	self._matchTeam2 = {}
+end
+
+function module:_clearTeamSlots(slotCache)
+	if not slotCache then
+		return
+	end
+	for i = #slotCache, 1, -1 do
+		slotCache[i]:Destroy()
+		table.remove(slotCache, i)
+	end
 end
 
 function module:_cacheWeaponUI()
@@ -730,7 +923,7 @@ function module:_updateItemDesc(weaponData)
 	local maxAmmo = weaponData.MaxAmmo or 0
 	local ammo = weaponData.Ammo or 0
 	local clipSize = weaponData.ClipSize or 0
-	
+
 	-- Check if weapon uses ammo (melee weapons don't)
 	local usesAmmo = clipSize > 0 or maxAmmo > 0
 
@@ -1375,6 +1568,7 @@ function module:_cleanup()
 
 	-- Do NOT clear live player attributes here (health/loadout may be owned by gameplay).
 	self:_clearTemplates()
+	self:_clearMatchTeams()
 
 	self._weaponData = {}
 	self._selectedSlot = nil
@@ -1390,12 +1584,12 @@ function module:ForceCooldown(slotType: string, duration: number)
 	if not slotType or not duration then
 		return
 	end
-	
+
 	local templateData = self._weaponTemplates[slotType]
 	if not templateData then
 		return
 	end
-	
+
 	self:_setupTemplateReloadState(templateData, true, duration)
 end
 

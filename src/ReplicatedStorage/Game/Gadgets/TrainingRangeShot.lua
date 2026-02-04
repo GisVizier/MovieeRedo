@@ -14,8 +14,6 @@ local MIN_COUNT = 1
 local MAX_COUNT = 8
 
 -- Debug flag
-local DEBUG_LOGGING = true
-
 local function findDescendantByName(root, name)
 	if not root then
 		return nil
@@ -145,10 +143,6 @@ local function getHitZone(point, surfaceGui)
 	-- Padding for forgiveness (in pixels)
 	local PADDING = 15
 
-	if DEBUG_LOGGING then
-		print(string.format("[TrainingRangeShot] Zone check: point (%.1f, %.1f)", point.X, point.Y))
-	end
-
 	-- Find all interactive frames
 	local exitFrame = findDescendantByName(surfaceGui, "Exit")
 	local practiceFrame = findDescendantByName(surfaceGui, "Practice")
@@ -216,9 +210,6 @@ local function getHitZone(point, surfaceGui)
 
 	-- No hits at all
 	if #candidates == 0 then
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot]   NO HIT: Point outside all interactive frames")
-		end
 		return nil
 	end
 
@@ -229,17 +220,6 @@ local function getHitZone(point, surfaceGui)
 
 	-- Return the closest one
 	local winner = candidates[1]
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[TrainingRangeShot]   HIT: %s (dist: %.1f, %d candidates)",
-				winner.zone,
-				winner.dist,
-				#candidates
-			)
-		)
-	end
-
 	return winner.zone
 end
 
@@ -357,75 +337,35 @@ local function sendStop(gadgetId)
 end
 
 function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
-	if DEBUG_LOGGING then
-		print("[TrainingRangeShot] === HIT DETECTED ===")
-		print("[TrainingRangeShot] Hit instance:", hitInstance:GetFullName())
-		print("[TrainingRangeShot] Hit position:", hitPosition)
-	end
-
 	local model = findTrainingRangeModel(hitInstance)
 	if not model then
-		if DEBUG_LOGGING then
-			print(
-				"[TrainingRangeShot] FAIL: No TrainingRange model found (missing GadgetType='TrainingRange' attribute?)"
-			)
-		end
 		return false
-	end
-
-	if DEBUG_LOGGING then
-		print("[TrainingRangeShot] Found model:", model.Name, "GadgetType:", model:GetAttribute("GadgetType"))
 	end
 
 	local gadgetId = GadgetUtils:getOrCreateId(model)
 	if not gadgetId then
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] FAIL: Could not get gadget ID")
-		end
 		return false
 	end
 
 	local now = os.clock()
 	local last = LAST_HIT[gadgetId]
 	if last and (now - last) < DEBOUNCE_SECONDS then
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] Debounced (too soon since last hit)")
-		end
 		return true
 	end
 
 	local surfaceGui, part = getSurfaceGuiAndPart(model)
 	if not surfaceGui or not part then
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] FAIL: Could not find SurfaceGui or Part")
-		end
 		return false
-	end
-
-	if DEBUG_LOGGING then
-		print("[TrainingRangeShot] SurfaceGui:", surfaceGui:GetFullName())
-		print("[TrainingRangeShot] Part:", part.Name, "Size:", part.Size)
 	end
 
 	local point = worldToSurfaceUV(part, surfaceGui, hitPosition)
 	if not point then
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] FAIL: worldToSurfaceUV returned nil")
-		end
 		return false
-	end
-
-	if DEBUG_LOGGING then
-		print("[TrainingRangeShot] SUCCESS: UV Point calculated:", point.X, point.Y)
 	end
 
 	local state = getState(gadgetId)
 	local handled = false
 	local zone = getHitZone(point, surfaceGui)
-
-	if DEBUG_LOGGING then
-		print("[TrainingRangeShot] Zone detected:", zone or "NONE")
-	end
 
 	local amountFrame = findDescendantByName(surfaceGui, "DummyAmount")
 	local moveFrame = findDescendantByName(surfaceGui, "Move")
@@ -435,9 +375,6 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 		state.practiceActive = false
 		sendStop(gadgetId)
 		handled = true
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] ACTION: exit -> sendStop()")
-		end
 	elseif zone == "practice" then
 		-- Practice button - toggle practice on/off
 		local practiceFrame = findDescendantByName(surfaceGui, "Practice")
@@ -459,16 +396,10 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 
 			task.wait(0.1) -- Brief delay before respawning
 			sendApply(gadgetId, state)
-			if DEBUG_LOGGING then
-				print("[TrainingRangeShot] ACTION: practice (Reset) -> defaults + sendStop + sendApply")
-			end
 		else
 			-- Not active -> Start practice with current count/move settings
 			state.practiceActive = true
 			sendApply(gadgetId, state)
-			if DEBUG_LOGGING then
-				print("[TrainingRangeShot] ACTION: practice (Start) -> sendApply")
-			end
 		end
 
 		-- Flash the bar ONLY when Practice button is actually pressed
@@ -488,15 +419,9 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 			sendStop(gadgetId)
 			task.wait(0.1)
 			sendApply(gadgetId, state)
-			if DEBUG_LOGGING then
-				print("[TrainingRangeShot] ACTION: move_on -> auto-reset dummies")
-			end
 		end
 
 		handled = true
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] ACTION: move_on")
-		end
 	elseif zone == "move_off" then
 		-- Move NO - update local state
 		state.move = false
@@ -505,9 +430,6 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 		local check2 = findDescendantByName(moveFrame, "Check2")
 		flashBarIn(check2)
 		handled = true
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] ACTION: move_off")
-		end
 	elseif zone == "move_toggle" then
 		local wasOff = not state.move
 		state.move = not state.move
@@ -521,9 +443,6 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 		end
 
 		handled = true
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] ACTION: move_toggle ->", state.move)
-		end
 	elseif zone == "amount_up" then
 		-- Increase count - just update local state, don't apply until Practice is pressed
 		state.count = math.clamp(state.count + 1, MIN_COUNT, MAX_COUNT)
@@ -536,9 +455,6 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 			amountOutcome.Text = tostring(state.count)
 		end
 		handled = true
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] ACTION: amount_up (local only) ->", state.count)
-		end
 	elseif zone == "amount_down" then
 		-- Decrease count - just update local state, don't apply until Practice is pressed
 		state.count = math.clamp(state.count - 1, MIN_COUNT, MAX_COUNT)
@@ -551,15 +467,9 @@ function TrainingRangeShot:TryHandleHit(hitInstance, hitPosition)
 			amountOutcome.Text = tostring(state.count)
 		end
 		handled = true
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] ACTION: amount_down (local only) ->", state.count)
-		end
 	end
 
 	if not handled then
-		if DEBUG_LOGGING then
-			print("[TrainingRangeShot] NO MATCH: Point did not hit any UI element or zone")
-		end
 		return false
 	end
 
