@@ -137,38 +137,59 @@ end
 --------------------------------------------------------------------------------
 -- VFX Helpers
 --------------------------------------------------------------------------------
-local function playspawnVFX(konModel, position)
 
+-- Play a sound at a position using an invisible anchored part
+local function playSoundAtPosition(soundName: string, position: Vector3)
+	local soundsFolder = script:FindFirstChild("Sounds")
+	if not soundsFolder then return end
+	
+	local soundTemplate = soundsFolder:FindFirstChild(soundName)
+	if not soundTemplate then return end
+	
+	-- Create invisible anchored part at position
+	local soundPart = Instance.new("Part")
+	soundPart.Name = "SoundEmitter_" .. soundName
+	soundPart.Size = Vector3.new(1, 1, 1)
+	soundPart.Position = position
+	soundPart.Anchored = true
+	soundPart.CanCollide = false
+	soundPart.CanQuery = false
+	soundPart.Transparency = 1
+	soundPart.Parent = getEffectsFolder()
+	
+	-- Clone and play sound
+	local sound = soundTemplate:Clone()
+	sound.Parent = soundPart
+	sound:Play()
+	
+	-- Destroy after 10 seconds
+	task.delay(10, function()
+		if soundPart and soundPart.Parent then
+			soundPart:Destroy()
+		end
+	end)
+end
+
+local function playspawnVFX(konModel, position)
 	task.spawn(function()
 		ReplicateFX("kon", "spawn", { Character = game.Players.LocalPlayer.Character, Kon = konModel, Pivot = position})
 	end)
-
-
-	--print("[Kon VFX] Spawn VFX at", position)
 end
 
 local function playBiteVFX(konModel, position)
-	-- Bite impact particles/sound
-	-- TODO: Add your actual bite VFX here
-	-- Example:
-	-- local biteEmitter = konModel:FindFirstChild("BiteParticles", true)
-	-- if biteEmitter and biteEmitter:IsA("ParticleEmitter") then
-	--     biteEmitter:Emit(20)
-	-- end
 	ReplicateFX("kon", "bite", { Character = game.Players.LocalPlayer.Character, Kon = konModel, Pivot = position})
-	--print("[Kon VFX] Bite VFX at", position)
+	
+	-- Play bite sound at position
+	local pos = typeof(position) == "CFrame" and position.Position or position
+	--playSoundAtPosition("bite", pos)
 end
 
 local function playSmokeVFX(konModel, position)
-	-- Smoke/poof particles when Kon disappears
-	-- TODO: Add your actual smoke VFX here
-	-- Example:
-	-- local smokeEmitter = konModel:FindFirstChild("SmokeEmitter", true)
-	-- if smokeEmitter and smokeEmitter:IsA("ParticleEmitter") then
-	--     smokeEmitter:Emit(30)
-	-- end
 	ReplicateFX("kon", "smoke", { Character = game.Players.LocalPlayer.Character, Kon = konModel, Pivot = position})
-	--print("[Kon VFX] Smoke VFX at", position)
+	
+	-- Play smoke sound at position
+	local pos = typeof(position) == "CFrame" and position.Position or position
+	playSoundAtPosition("smoke", pos)
 end
 
 local function despawnKon(konModel, fadeTime)
@@ -265,6 +286,7 @@ function Kon:createKon(originUserId, data)
 	self._activeKons[originUserId] = konModel
 
 	playspawnVFX(konModel, targetCFrame)
+	playSoundAtPosition("bite", targetCFrame.Position)
 
 	-- Play Kon animation
 	local konAnim = getKonAnimation()

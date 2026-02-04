@@ -23,6 +23,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
+local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -35,12 +36,139 @@ local BITE_RADIUS = 12
 local BITE_KNOCKBACK_PRESET = "Fling"
 local VM_ANIM_NAME = "Kon"
 
+-- Voice Lines with subtitles
+local ABILITY_VOICE_LINES = {
+	{ soundId = "rbxassetid://88406145669909", text = "Kon—tear into 'em!" },
+	{ soundId = "rbxassetid://96250233556151", text = "Devourer Fang!" },
+	{ soundId = "rbxassetid://83671676663633", text = "Kon!" },
+}
+local HIT_VOICE_LINE = { soundId = "rbxassetid://138015603446992", text = "Got you!" }
+
 --------------------------------------------------------------------------------
 -- Raycast Setup
 --------------------------------------------------------------------------------
 
 local TargetParams = RaycastParams.new()
 TargetParams.FilterType = Enum.RaycastFilterType.Exclude
+
+--------------------------------------------------------------------------------
+-- Voice Line Helpers
+--------------------------------------------------------------------------------
+
+local function showSubtitle(text: string)
+	-- Fire subtitle event for the Dialogue UI
+	Dialogue.onLine:fire({
+		character = "Aki",
+		text = text,
+		speaker = true,
+		audience = "Self",
+	})
+	
+	-- Auto-hide after a delay
+	task.delay(2.5, function()
+		Dialogue.onFinish:fire({ key = "Aki" })
+	end)
+end
+
+local function playVoiceLine(voiceData: { soundId: string, text: string }, parent: Instance?)
+	local character = LocalPlayer.Character
+	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
+	if not root then return end
+	
+	-- Play sound
+	local sound = Instance.new("Sound")
+	sound.SoundId = voiceData.soundId
+	sound.Volume = 1
+	sound.RollOffMode = Enum.RollOffMode.Linear
+	sound.RollOffMaxDistance = 50
+	sound.Parent = parent or root
+	sound:Play()
+	sound.Ended:Once(function()
+		sound:Destroy()
+	end)
+	
+	-- Show subtitle
+	if voiceData.text then
+		showSubtitle(voiceData.text)
+	end
+end
+
+local function playRandomAbilityVoice(parent: Instance?)
+	local randomIndex = math.random(1, #ABILITY_VOICE_LINES)
+	playVoiceLine(ABILITY_VOICE_LINES[randomIndex], parent)
+end
+
+local function playHitVoice(parent: Instance?)
+	playVoiceLine(HIT_VOICE_LINE, parent)
+end
+
+-- Active ability sounds (for cleanup on cancel)
+local activeSounds = {}
+
+local function playStartSound(viewmodelRig: any): Sound?
+	-- Play the "start" sound on the viewmodel root part
+	local startSound = script:FindFirstChild("start")
+	if not startSound then return nil end
+	
+	local rootPart = viewmodelRig and viewmodelRig.Model and viewmodelRig.Model:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return nil end
+	
+	local sound = startSound:Clone()
+	sound.Parent = rootPart
+	sound:Play()
+	
+	-- Track for cleanup
+	table.insert(activeSounds, sound)
+	
+	sound.Ended:Once(function()
+		-- Remove from tracking
+		local idx = table.find(activeSounds, sound)
+		if idx then table.remove(activeSounds, idx) end
+		sound:Destroy()
+	end)
+	
+	return sound
+end
+
+local function playAbilityVoice(viewmodelRig: any): Sound?
+	-- Play random ability voice on viewmodel root
+	local randomIndex = math.random(1, #ABILITY_VOICE_LINES)
+	local voiceData = ABILITY_VOICE_LINES[randomIndex]
+	
+	local rootPart = viewmodelRig and viewmodelRig.Model and viewmodelRig.Model:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return nil end
+	
+	local sound = Instance.new("Sound")
+	sound.SoundId = voiceData.soundId
+	sound.Volume = 1
+	sound.Parent = rootPart
+	sound:Play()
+	
+	-- Track for cleanup
+	table.insert(activeSounds, sound)
+	
+	sound.Ended:Once(function()
+		local idx = table.find(activeSounds, sound)
+		if idx then table.remove(activeSounds, idx) end
+		sound:Destroy()
+	end)
+	
+	-- Show subtitle
+	if voiceData.text then
+		showSubtitle(voiceData.text)
+	end
+	
+	return sound
+end
+
+local function cleanupSounds()
+	for _, sound in ipairs(activeSounds) do
+		if sound and sound.Parent then
+			sound:Destroy()
+		end
+	end
+	activeSounds = {}
+end
 
 --------------------------------------------------------------------------------
 -- Module
@@ -134,6 +262,10 @@ function Aki.Ability:OnStart(abilityRequest)
 		return
 	end
 
+	-- Play start sound + voice line immediately on ability fire
+	playStartSound(viewmodelRig)
+	playAbilityVoice(viewmodelRig)
+
 	-- State tracking
 	local state = {
 		active = true,
@@ -190,7 +322,6 @@ function Aki.Ability:OnStart(abilityRequest)
 				lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
 				surfaceNormal = { X = surfaceNormal.X, Y = surfaceNormal.Y, Z = surfaceNormal.Z },
 			})
-			
 
 			local targets = Hitbox.GetCharactersInSphere(targetCFrame.Position, BITE_RADIUS, {
 				Exclude = abilityRequest.player,
@@ -199,22 +330,34 @@ function Aki.Ability:OnStart(abilityRequest)
 			-- Knockback
 			local knockbackController = ServiceRegistry:GetController("Knockback")
 			local hitList = {}
+			local hitAnyPlayer = false
+			
 			for _, targetChar in ipairs(targets) do
 				if knockbackController then
-					knockbackController:ApplyKnockback(targetChar, {
-						upwardVelocity = 100,
+					local direction = (targetChar.PrimaryPart.Position - targetCFrame.Position).Unit
+
+					knockbackController:ApplyKnockback(targetChar, direction, {
+						upwardVelocity = 60,
 						outwardVelocity = 30,
 						preserveMomentum = -1.0,
-					}, targetCFrame.Position)
-
+					})
 				end
 
 				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+				if targetPlayer then
+					hitAnyPlayer = true
+				end
+				
 				table.insert(hitList, {
 					characterName = targetChar.Name,
 					playerId = targetPlayer and targetPlayer.UserId or nil,
 					isDummy = targetPlayer == nil,
 				})
+			end
+			
+			-- Play hit voice if we hit any player
+			if hitAnyPlayer then
+				task.delay(0.3, playHitVoice)
 			end
 			
 			task.spawn(function()
@@ -237,11 +380,13 @@ function Aki.Ability:OnStart(abilityRequest)
 
 				for _, targetChar in ipairs(targets) do
 					if knockbackController then
-						knockbackController:ApplyKnockback(targetChar, {
+						local direction = (targetChar.PrimaryPart.Position - bitePosition).Unit
+						
+						knockbackController:ApplyKnockback(targetChar, direction, {
 							upwardVelocity = 150,       -- Good lift (slightly less than jump pad)
 							outwardVelocity = 180,     -- Strong horizontal push away
 							preserveMomentum = 0.25,
-						}, targetCFrame.Position)
+						})
 
 						--knockbackController:ApplyKnockbackPreset(targetChar, `FlingHuge`, bitePosition)
 					end
@@ -330,6 +475,9 @@ function Aki.Ability:OnInterrupt(abilityRequest, reason)
 	state.cancelled = true
 	state.active = false
 	Aki._abilityState = nil
+
+	-- Cleanup active sounds
+	cleanupSounds()
 
 	-- Stop animation
 	if state.animation and state.animation.IsPlaying then
