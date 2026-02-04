@@ -24,10 +24,12 @@ end
 -- Preload all dialogue sounds for smoother playback
 local function preloadDialogueSounds()
 	local soundIds = {}
-	
+
 	-- Recursively collect all sound IDs from dialogue config
 	local function collectSounds(tbl)
-		if type(tbl) ~= "table" then return end
+		if type(tbl) ~= "table" then
+			return
+		end
 		for key, value in pairs(tbl) do
 			if key == "SoundInstance" and value then
 				if type(value) == "number" then
@@ -40,9 +42,9 @@ local function preloadDialogueSounds()
 			end
 		end
 	end
-	
+
 	collectSounds(DialogueConfig.Dialogues)
-	
+
 	-- Preload all collected sounds
 	if #soundIds > 0 then
 		task.spawn(function()
@@ -90,6 +92,10 @@ function UIController:Init(registry, net)
 
 	self._net:ConnectClient("RoundStart", function(data)
 		self:_onRoundStart(data)
+	end)
+
+	self._net:ConnectClient("ScoreUpdate", function(data)
+		self:_onScoreUpdate(data)
 	end)
 
 	self._net:ConnectClient("MatchEnd", function(data)
@@ -307,6 +313,11 @@ function UIController:_onStartMatch(matchData)
 			mapModule:setRoundData(matchData)
 		end)
 	end
+
+	-- Core module: match start (team data)
+	pcall(function()
+		self._coreUi:emit("MatchStart", matchData)
+	end)
 end
 
 function UIController:_onShowRoundLoadout(data)
@@ -371,6 +382,22 @@ function UIController:_onRoundStart(data)
 	if cameraController and type(cameraController.SetCameraMode) == "function" then
 		cameraController:SetCameraMode("FirstPerson")
 	end
+
+	-- Core module: round number
+	pcall(function()
+		self._coreUi:emit("RoundStart", data)
+	end)
+end
+
+function UIController:_onScoreUpdate(data)
+	if not self._coreUi then
+		return
+	end
+
+	-- Core module: team scores
+	pcall(function()
+		self._coreUi:emit("ScoreUpdate", data)
+	end)
 end
 
 function UIController:_onMatchEnd(data)
@@ -405,6 +432,11 @@ function UIController:_onReturnToLobby(data)
 	end)
 	safeCall(function()
 		self._coreUi:hide("Loadout")
+	end)
+
+	-- Core module: cleanup thumbnails
+	pcall(function()
+		self._coreUi:emit("ReturnToLobby")
 	end)
 
 	-- Force third person (Orbit) camera for lobby
