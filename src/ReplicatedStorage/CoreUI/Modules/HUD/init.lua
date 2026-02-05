@@ -168,14 +168,18 @@ function module:_getTeamPlayerTemplate(teamFrame)
 		return nil
 	end
 
+	local template = nil
+
 	for _, child in ipairs(teamFrame:GetChildren()) do
 		if child.Name == "PlayerHolder" and child:IsA("GuiObject") then
 			child.Visible = false
-			return child
+			if not template then
+				template = child
+			end
 		end
 	end
 
-	return nil
+	return template
 end
 
 function module:_setupMatchListeners()
@@ -230,23 +234,29 @@ function module:_populateMatchTeams()
 	local localPlayer = Players.LocalPlayer
 	local localUserId = localPlayer and localPlayer.UserId or nil
 
-	local localIsTeam1 = localUserId and table.find(self._matchTeam1, localUserId) ~= nil
-	local localIsTeam2 = localUserId and table.find(self._matchTeam2, localUserId) ~= nil
+	local team1 = self._matchTeam1 or {}
+	local team2 = self._matchTeam2 or {}
 
-	local yourTeamIds = self._matchTeam1
-	local enemyTeamIds = self._matchTeam2
+	local localIsTeam1 = localUserId and table.find(team1, localUserId) ~= nil
+	local localIsTeam2 = localUserId and table.find(team2, localUserId) ~= nil
+
+	local yourTeamIds = team1
+	local enemyTeamIds = team2
 
 	if localIsTeam2 and not localIsTeam1 then
-		yourTeamIds = self._matchTeam2
-		enemyTeamIds = self._matchTeam1
+		yourTeamIds = team2
+		enemyTeamIds = team1
 	end
+
+	self._yourTeamSlots = self._yourTeamSlots or {}
+	self._enemyTeamSlots = self._enemyTeamSlots or {}
 
 	self:_populateTeamSlots(self._yourTeamFrame, self._yourTeamTemplate, self._yourTeamSlots, yourTeamIds)
 	self:_populateTeamSlots(self._enemyTeamFrame, self._enemyTeamTemplate, self._enemyTeamSlots, enemyTeamIds)
 end
 
 function module:_populateTeamSlots(teamFrame, template, slotCache, userIds)
-	if not teamFrame or not template or type(userIds) ~= "table" then
+	if not teamFrame or not template or type(slotCache) ~= "table" or type(userIds) ~= "table" then
 		return
 	end
 
@@ -1537,6 +1547,14 @@ function module:show()
 
 	self:_init()
 
+	-- Re-populate match teams if we have cached team data (e.g., showing HUD after round reset)
+	local hasTeamData = (self._matchTeam1 and #self._matchTeam1 > 0) or (self._matchTeam2 and #self._matchTeam2 > 0)
+	local slotsEmpty = (not self._yourTeamSlots or #self._yourTeamSlots == 0)
+		and (not self._enemyTeamSlots or #self._enemyTeamSlots == 0)
+	if hasTeamData and slotsEmpty then
+		self:_populateMatchTeams()
+	end
+
 	return true
 end
 
@@ -1568,7 +1586,8 @@ function module:_cleanup()
 
 	-- Do NOT clear live player attributes here (health/loadout may be owned by gameplay).
 	self:_clearTemplates()
-	self:_clearMatchTeams()
+	-- Do NOT clear match teams here - only clear on ReturnToLobby event
+	-- self:_clearMatchTeams()
 
 	self._weaponData = {}
 	self._selectedSlot = nil
