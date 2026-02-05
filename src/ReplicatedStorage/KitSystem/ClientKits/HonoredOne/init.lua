@@ -36,6 +36,8 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
+local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -54,8 +56,8 @@ local BLUE_CONFIG = {
 	LIFETIME = 3.5,              -- Seconds - how long it's active
 
 	-- Start position
-	START_DISTANCE = 10,         -- Default start distance in front of player
-	RAYCAST_DISTANCE = 15,       -- Raycast forward to find surface
+	START_DISTANCE = 17.5,         -- Default start distance in front of player
+	RAYCAST_DISTANCE = 17.5,       -- Raycast forward to find surface
 
 	-- Pull + Orbit settings (creates swirling effect)
 	PULL_MIN_STRENGTH = 25,      -- Pull strength when very close to center
@@ -88,6 +90,9 @@ local RED_CONFIG = {
 	EXPLOSION_RADIUS = 20,       -- Studs
 	EXPLOSION_UPWARD = 60,       -- Upward knockback on explosion
 	EXPLOSION_OUTWARD = 100,     -- Outward knockback on explosion
+	
+	-- Recoil (pushes player back when firing)
+	RECOIL_STRENGTH = 80,        -- How hard the player gets pushed back on fire
 }
 
 -- ProjectilePhysics config for Red (straight line, no gravity)
@@ -98,13 +103,174 @@ local RED_PHYSICS_CONFIG = {
 	lifetime = RED_CONFIG.MAX_RANGE / RED_CONFIG.PROJECTILE_SPEED + 0.2,  -- ~1 second total
 }
 
+-- Voice line on hit
+local HIT_VOICE_LINE = { soundId = "rbxassetid://123168642237148", text = "Back off" }
+
+--------------------------------------------------------------------------------
+-- Create Sound instances as children of script (preloaded)
+--------------------------------------------------------------------------------
+
+-- Create sounds if they don't exist (first time load)
+if not script:FindFirstChild("start") then
+	local startSound = Instance.new("Sound")
+	startSound.Name = "start"
+	startSound.SoundId = "rbxassetid://103690871211615"
+	startSound.Volume = 1
+	startSound.Parent = script
+end
+
+if not script:FindFirstChild("shoot") then
+	local shootSound = Instance.new("Sound")
+	shootSound.Name = "shoot"
+	shootSound.SoundId = "rbxassetid://111984395150553"
+	shootSound.Volume = 1
+	shootSound.Parent = script
+end
+
+if not script:FindFirstChild("explosion") then
+	local explosionSound = Instance.new("Sound")
+	explosionSound.Name = "explosion"
+	explosionSound.SoundId = "rbxassetid://109996936076104"
+	explosionSound.Volume = 1.5
+	explosionSound.Parent = script
+end
+
+--------------------------------------------------------------------------------
+-- Sound Helpers (same pattern as Aki)
+--------------------------------------------------------------------------------
+
+local activeSounds = {}
+local chargeSound = nil
+
+local function showSubtitle(text: string)
+	Dialogue.onLine:fire({
+		character = "Gojo",
+		text = text,
+		speaker = true,
+		audience = "Self",
+	})
+	
+	task.delay(2.5, function()
+		Dialogue.onFinish:fire({ key = "Gojo" })
+	end)
+end
+
+local function playVoiceLine(voiceData: { soundId: string, text: string }, parent: Instance?)
+	local character = LocalPlayer.Character
+	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
+	if not root then return end
+	
+	local sound = Instance.new("Sound")
+	sound.SoundId = voiceData.soundId
+	sound.Volume = 1
+	sound.RollOffMode = Enum.RollOffMode.Linear
+	sound.RollOffMaxDistance = 50
+	sound.Parent = parent or root
+	sound:Play()
+	sound.Ended:Once(function()
+		sound:Destroy()
+	end)
+	
+	if voiceData.text then
+		showSubtitle(voiceData.text)
+	end
+end
+
+local function playHitVoice(parent: Instance?)
+	playVoiceLine(HIT_VOICE_LINE, parent)
+end
+
+local function playStartSound(viewmodelRig: any): Sound?
+	-- Play the "start" sound on the viewmodel root part
+	local startSound = script:FindFirstChild("start")
+	if not startSound then return nil end
+	
+	local rootPart = viewmodelRig and viewmodelRig.Model and viewmodelRig.Model:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return nil end
+	
+	local sound = startSound:Clone()
+	sound.Parent = rootPart
+	sound:Play()
+	
+	table.insert(activeSounds, sound)
+	chargeSound = sound
+	
+	sound.Ended:Once(function()
+		local idx = table.find(activeSounds, sound)
+		if idx then table.remove(activeSounds, idx) end
+		sound:Destroy()
+	end)
+	
+	return sound
+end
+
+local function playShootSound(parent: Instance?): Sound?
+	local shootSound = script:FindFirstChild("shoot")
+	if not shootSound then return nil end
+	
+	local sound = shootSound:Clone()
+	sound.Parent = parent or Workspace
+	sound:Play()
+	
+	table.insert(activeSounds, sound)
+	
+	sound.Ended:Once(function()
+		local idx = table.find(activeSounds, sound)
+		if idx then table.remove(activeSounds, idx) end
+		sound:Destroy()
+	end)
+	
+	return sound
+end
+
+local function playExplosionSound(parent: Instance?): Sound?
+	local explosionSound = script:FindFirstChild("explosion")
+	if not explosionSound then return nil end
+	
+	local sound = explosionSound:Clone()
+	sound.Parent = parent or Workspace
+	sound:Play()
+	
+	table.insert(activeSounds, sound)
+	
+	sound.Ended:Once(function()
+		local idx = table.find(activeSounds, sound)
+		if idx then table.remove(activeSounds, idx) end
+		sound:Destroy()
+	end)
+	
+	return sound
+end
+
+local function stopChargeSound()
+	if chargeSound and chargeSound.Parent then
+		chargeSound:Stop()
+		chargeSound:Destroy()
+		local idx = table.find(activeSounds, chargeSound)
+		if idx then table.remove(activeSounds, idx) end
+	end
+	chargeSound = nil
+end
+
+local function reparentChargeSoundToProjectile(projectilePart: Instance)
+	if chargeSound and chargeSound.Parent then
+		chargeSound.Parent = projectilePart
+	end
+end
+
+local function cleanupSounds()
+	for _, sound in ipairs(activeSounds) do
+		if sound and sound.Parent then
+			sound:Destroy()
+		end
+	end
+	activeSounds = {}
+	chargeSound = nil
+end
+
 --------------------------------------------------------------------------------
 -- Debug Helpers
 --------------------------------------------------------------------------------
-
-local function log(...)
-	print("[HonoredOne Client]", ...)
-end
 
 local function createDebugSphere(position, radius, color, duration)
 	local part = Instance.new("Part")
@@ -116,7 +282,7 @@ local function createDebugSphere(position, radius, color, duration)
 	part.CanCollide = false
 	part.CanQuery = false
 	part.CanTouch = false
-	part.Transparency = 0.6
+	part.Transparency = 1
 	part.Material = Enum.Material.Neon
 	part.Color = color or Color3.fromRGB(0, 150, 255)
 	part.Parent = Workspace
@@ -161,8 +327,6 @@ local function runBlueHitbox(state)
 	local abilityRequest = state.abilityRequest
 	local character = state.character
 	
-	log("=== BLUE HITBOX OPEN ===")
-	
 	local knockbackController = ServiceRegistry:GetController("Knockback")
 	if not knockbackController then
 		warn("[HonoredOne] KnockbackController not found!")
@@ -190,11 +354,9 @@ local function runBlueHitbox(state)
 	if rayResult and rayResult.Position then
 		-- Hit a surface - start there
 		startPosition = rayResult.Position
-		log("Hitbox starting on SURFACE at:", startPosition)
 	else
 		-- No surface - start 10 studs in front
 		startPosition = defaultStart
-		log("Hitbox starting 10 STUDS IN FRONT at:", startPosition)
 	end
 	
 	local elapsed = 0
@@ -212,17 +374,30 @@ local function runBlueHitbox(state)
 	hitboxViz.Name = "BlueHitbox_Active"
 	hitboxViz.Parent = getEffectsFolder()
 	
+	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+		Character = character,
+		forceAction = "blue_open",
+		projectile = hitboxViz,
+		lifetime = BLUE_CONFIG.LIFETIME,
+	})
+
+	task.delay(.3, function()
+		VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+			Character = character,
+			forceAction = "blue_loop",
+			projectile = hitboxViz,
+			lifetime = BLUE_CONFIG.LIFETIME,
+		})
+	end)
+	
 	-- Store for cleanup on cancel
 	state.hitboxViz = hitboxViz
 	state.hitboxActive = true
-	
-	log("Created hitbox visualization")
 	
 	-- Main ability loop (runs for full LIFETIME, independent of animation)
 	while elapsed < BLUE_CONFIG.LIFETIME do
 		-- Only stop if hard cancelled (interrupt/weapon switch)
 		if state.cancelled then
-			log("Blue hitbox cancelled early")
 			break
 		end
 		
@@ -249,6 +424,14 @@ local function runBlueHitbox(state)
 		-- Update visual
 		if hitboxViz and hitboxViz.Parent then
 			hitboxViz.CFrame = CFrame.new(currentPosition)
+			
+			-- Replicate position update
+			VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
+				Character = character,
+				Player = LocalPlayer,
+				pivot = CFrame.new(currentPosition),
+				radius = BLUE_CONFIG.HITBOX_RADIUS,
+			})
 		end
 		
 		-- Find NEW targets entering the sphere and add to captured list
@@ -264,7 +447,6 @@ local function runBlueHitbox(state)
 					orbitAngle = math.random() * math.pi * 2,          -- Random starting angle
 					orbitSpeed = 0.8 + math.random() * 0.4,            -- Speed variation (0.8 to 1.2)
 				}
-				log("CAPTURED:", targetChar.Name, "orbit dir:", capturedTargets[targetChar].orbitDirection)
 			end
 		end
 		
@@ -311,10 +493,6 @@ local function runBlueHitbox(state)
 					
 					knockbackController:_sendKnockbackVelocity(targetChar, totalVelocity, 0)
 					pullCount += 1
-					
-					if pullCount % 20 == 1 then
-						log(string.format("Orbiting %s (dist: %.1f)", targetChar.Name, distance))
-					end
 				end
 			else
 				-- Target lost root, remove from captured
@@ -325,6 +503,13 @@ local function runBlueHitbox(state)
 	
 	-- Check if cancelled before explosion
 	if state.cancelled then
+		-- Fire cleanup event
+		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
+			Character = character,
+			Player = LocalPlayer,
+			debris = true,
+		})
+		
 		if hitboxViz and hitboxViz.Parent then
 			hitboxViz:Destroy()
 		end
@@ -332,50 +517,45 @@ local function runBlueHitbox(state)
 		return
 	end
 	
-	log("=== BLUE HITBOX LIFETIME ENDED ===")
-	log("Total pulls:", pullCount)
-	
 	-- EXPLOSION at end (use current lerped position)
 	local finalPosition = currentPosition
-	log("Final explosion at:", finalPosition)
 	
 	-- Update visual for explosion
+	--if hitboxViz and hitboxViz.Parent then
+	--	hitboxViz.CFrame = CFrame.new(finalPosition)
+	--	hitboxViz.Color = Color3.fromRGB(255, 100, 0)
+	--	hitboxViz.Size = Vector3.new(BLUE_CONFIG.HITBOX_RADIUS * 4, BLUE_CONFIG.HITBOX_RADIUS * 4, BLUE_CONFIG.HITBOX_RADIUS * 4)
+	--	Debris:AddItem(hitboxViz, 0.5)
+	--end
+
+	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+		Character = character,
+		forceAction = "blue_close",
+		pivot = CFrame.new(finalPosition),
+		radius = BLUE_CONFIG.HITBOX_RADIUS,
+	})
+	
+	-- Cleanup blue VFX
+	task.delay(0.1, function()
+		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
+			Character = character,
+			Player = LocalPlayer,
+			debris = true,
+		})
+	end)
+
+	-- Blue ability does NO damage - just knockback/CC (no fling at end)
+	
+	-- Cleanup hitbox visual
 	if hitboxViz and hitboxViz.Parent then
-		hitboxViz.CFrame = CFrame.new(finalPosition)
-		hitboxViz.Color = Color3.fromRGB(255, 100, 0)
-		hitboxViz.Size = Vector3.new(BLUE_CONFIG.HITBOX_RADIUS * 4, BLUE_CONFIG.HITBOX_RADIUS * 4, BLUE_CONFIG.HITBOX_RADIUS * 4)
-		Debris:AddItem(hitboxViz, 0.5)
+		hitboxViz:Destroy()
 	end
-	
-	-- Explosion knockback to ALL CAPTURED targets (no damage, just knockback)
-	local capturedCount = 0
-	for _ in pairs(capturedTargets) do capturedCount += 1 end
-	log("Explosion on", capturedCount, "captured targets")
-	
-	for targetChar, orbitData in pairs(capturedTargets) do
-		if not targetChar or not targetChar.Parent then continue end
-		
-		local targetRoot = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Root") or targetChar.PrimaryPart
-		if targetRoot and knockbackController then
-			local awayFromCenter = (targetRoot.Position - finalPosition)
-			local outwardDir = awayFromCenter.Magnitude > 0.1 and awayFromCenter.Unit or Vector3.new(0, 0, 1)
-			local explosionVelocity = (outwardDir * BLUE_CONFIG.EXPLOSION_OUTWARD) + Vector3.new(0, BLUE_CONFIG.EXPLOSION_UPWARD, 0)
-			
-			knockbackController:_sendKnockbackVelocity(targetChar, explosionVelocity, 0)
-			log("EXPLOSION:", targetChar.Name)
-		end
-	end
-	
-	-- Blue ability does NO damage - just knockback/CC
-	log("Blue ability complete - no damage sent")
 	
 	-- Hitbox finished - clear state
 	state.hitboxActive = false
 	if HonoredOne._abilityState == state then
 		HonoredOne._abilityState = nil
 	end
-	
-	log("=== BLUE HITBOX COMPLETE ===")
 end
 
 --------------------------------------------------------------------------------
@@ -456,8 +636,6 @@ local function runRedProjectile(state)
 	local abilityRequest = state.abilityRequest
 	local character = state.character
 	
-	log("=== RED PROJECTILE FIRED ===")
-	
 	local knockbackController = ServiceRegistry:GetController("Knockback")
 	if not knockbackController then
 		warn("[HonoredOne] KnockbackController not found!")
@@ -469,9 +647,30 @@ local function runRedProjectile(state)
 	
 	-- Get fire direction and starting position
 	local direction = camera.CFrame.LookVector
-	local startPosition = hrp.Position + (direction * 3) + Vector3.new(0, 1, 0)
+	local intendedStart = hrp.Position + (direction * 3) + Vector3.new(0, 1, 0)
 	
-	log("Start:", startPosition, "Direction:", direction, "Speed:", RED_CONFIG.PROJECTILE_SPEED)
+	-- Raycast to prevent firing through walls
+	local wallCheckParams = RaycastParams.new()
+	wallCheckParams.FilterType = Enum.RaycastFilterType.Exclude
+	local effectsFolderCheck = Workspace:FindFirstChild("Effects")
+	wallCheckParams.FilterDescendantsInstances = effectsFolderCheck and { character, effectsFolderCheck } or { character }
+	
+	local wallCheck = Workspace:Raycast(hrp.Position + Vector3.new(0, 1, 0), direction * 3.5, wallCheckParams)
+	
+	local startPosition
+	if wallCheck then
+		-- Wall in the way - start projectile slightly in front of player (not through wall)
+		startPosition = wallCheck.Position - (direction * 0.5)
+	else
+		-- No wall - use intended start position
+		startPosition = intendedStart
+	end
+	
+	-- Apply RECOIL knockback to player (push back in opposite direction of shot)
+	if knockbackController then
+		local recoilVelocity = -direction * RED_CONFIG.RECOIL_STRENGTH
+		knockbackController:_sendKnockbackVelocity(character, recoilVelocity, 0)
+	end
 	
 	-- Create projectile physics
 	local physics = ProjectilePhysics.new(RED_PHYSICS_CONFIG)
@@ -488,13 +687,17 @@ local function runRedProjectile(state)
 	projectileViz.CanCollide = false
 	projectileViz.CanQuery = false
 	projectileViz.CanTouch = false
-	projectileViz.Transparency = 0.3
+	projectileViz.Transparency = 1
 	projectileViz.Material = Enum.Material.Neon
 	projectileViz.Color = Color3.fromRGB(255, 50, 50)
 	projectileViz.Parent = getEffectsFolder()
 	
 	state.projectileViz = projectileViz
 	state.projectileActive = true
+	
+	-- Reparent charge sound to projectile and play shoot sound
+	reparentChargeSoundToProjectile(projectileViz)
+	playShootSound(projectileViz)
 	
 	-- Raycast params - exclude self, effects, and pierced targets
 	local rayParams = RaycastParams.new()
@@ -509,6 +712,7 @@ local function runRedProjectile(state)
 	local hitList = {}
 	local distanceTraveled = 0
 	local exploded = false
+	local explosionPivot = nil -- CFrame oriented to hit surface
 	
 	-- Use Heartbeat for smooth physics
 	local connection
@@ -547,11 +751,9 @@ local function runRedProjectile(state)
 					piercedTargets[targetId] = true
 					
 					local damage = isHeadshot and RED_CONFIG.HEADSHOT_DAMAGE or RED_CONFIG.BODY_DAMAGE
-					log(string.format("PIERCED %s (%s) - %d damage", 
-						hitPlayer.Name, 
-						isHeadshot and "HEADSHOT" or "body",
-						damage
-					))
+					
+					-- Play hit voice line
+					playHitVoice(projectileViz)
 					
 					-- No knockback on pierce (just damage)
 					
@@ -577,11 +779,9 @@ local function runRedProjectile(state)
 					piercedTargets[targetId] = true
 					
 					local damage = isHeadshot and RED_CONFIG.HEADSHOT_DAMAGE or RED_CONFIG.BODY_DAMAGE
-					log(string.format("PIERCED DUMMY %s (%s) - %d damage", 
-						hitCharacter.Name, 
-						isHeadshot and "HEADSHOT" or "body",
-						damage
-					))
+					
+					-- Play hit voice line
+					playHitVoice(projectileViz)
 					
 					-- No knockback on pierce (just damage)
 					
@@ -601,8 +801,11 @@ local function runRedProjectile(state)
 				
 			else
 				-- Hit world/environment - explode here
-				log("Hit world at:", hitResult.Position)
 				position = hitResult.Position
+				
+				-- Create pivot CFrame oriented to hit surface (normal pointing outward)
+				local hitNormal = hitResult.Normal
+				explosionPivot = CFrame.lookAt(position, position + hitNormal)
 				
 				if projectileViz and projectileViz.Parent then
 					projectileViz.CFrame = CFrame.new(position)
@@ -621,6 +824,15 @@ local function runRedProjectile(state)
 		-- Update visual
 		if projectileViz and projectileViz.Parent then
 			projectileViz.CFrame = CFrame.lookAt(position, position + velocity.Unit)
+			VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateProj" }, {
+				Character = character,
+				Player = LocalPlayer,
+				pivot = CFrame.lookAt(position, position + velocity.Unit),
+			})
+
+			
+			
+			LocalPlayer:SetAttribute(`red_projectile_activeCFR`, CFrame.lookAt(position, position + velocity.Unit))
 		end
 	end)
 	
@@ -643,25 +855,64 @@ local function runRedProjectile(state)
 		return
 	end
 	
-	log("=== RED PROJECTILE EXPLOSION ===")
-	log("Explosion at:", position)
+	LocalPlayer:SetAttribute(`red_projectile_activeCFR`, nil)
 	
+	-- Store explosion pivot (CFrame oriented to hit surface) - nil if max range reached
+	if not explosionPivot then
+		-- Max range reached without hitting surface - use projectile direction as "surface"
+		explosionPivot = CFrame.lookAt(position, position - direction)
+	end
+	LocalPlayer:SetAttribute(`red_explosion_pivot`, explosionPivot)
+
+	-- Fire explosion VFX
+	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+		Character = character,
+		pivot = explosionPivot,
+		forceAction = "red_explode",
+	})
+
+	-- Stop charge sound and play explosion sound
+	stopChargeSound()
+	playExplosionSound()
+
 	-- Explosion visual
-	if projectileViz and projectileViz.Parent then
-		projectileViz.Color = Color3.fromRGB(255, 150, 50)
-		projectileViz.Size = Vector3.new(RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2)
-		projectileViz.Transparency = 0.6
-		Debris:AddItem(projectileViz, 0.5)
+	projectileViz:Destroy()
+	--if projectileViz and projectileViz.Parent then
+	--	projectileViz.Color = Color3.fromRGB(255, 150, 50)
+	--	projectileViz.Size = Vector3.new(RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2)
+	--	projectileViz.Transparency = 0.6
+	--	Debris:AddItem(projectileViz, 0.5)
+	--end
+	
+	-- Find targets in explosion radius (DON'T exclude player - allows rocket jumping!)
+	local explosionTargets = Hitbox.GetCharactersInSphere(position, RED_CONFIG.EXPLOSION_RADIUS, {})
+	
+	-- Also check if player is in explosion radius for self-knockback
+	local playerInExplosion = false
+	local playerRoot = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+	if playerRoot then
+		local distToExplosion = (playerRoot.Position - position).Magnitude
+		if distToExplosion <= RED_CONFIG.EXPLOSION_RADIUS then
+			playerInExplosion = true
+		end
 	end
 	
-	-- Find targets in explosion radius
-	local explosionTargets = Hitbox.GetCharactersInSphere(position, RED_CONFIG.EXPLOSION_RADIUS, {
-		Exclude = abilityRequest.player,
-	})
-	
-	log("Explosion targets:", #explosionTargets)
+	-- Apply knockback to player if in range (rocket jump!)
+	if playerInExplosion and playerRoot and knockbackController then
+		local awayDir = (playerRoot.Position - position)
+		awayDir = awayDir.Magnitude > 0.1 and awayDir.Unit or Vector3.yAxis
+		
+		local explosionVelocity = (awayDir * RED_CONFIG.EXPLOSION_OUTWARD) + Vector3.new(0, RED_CONFIG.EXPLOSION_UPWARD, 0)
+		knockbackController:_sendKnockbackVelocity(character, explosionVelocity, 0)
+	end
 	
 	for _, targetChar in ipairs(explosionTargets) do
+		-- Skip self for damage (but knockback already applied above)
+		local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+		if targetPlayer == abilityRequest.player then
+			continue
+		end
+		
 		local targetRoot = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Root") or targetChar.PrimaryPart
 		if targetRoot and knockbackController then
 			-- Knockback away from explosion
@@ -670,12 +921,9 @@ local function runRedProjectile(state)
 			
 			local explosionVelocity = (awayDir * RED_CONFIG.EXPLOSION_OUTWARD) + Vector3.new(0, RED_CONFIG.EXPLOSION_UPWARD, 0)
 			knockbackController:_sendKnockbackVelocity(targetChar, explosionVelocity, 0)
-			
-			log("Explosion knockback:", targetChar.Name)
 		end
 		
 		-- Add explosion damage if not already pierced
-		local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
 		local targetId = targetPlayer and targetPlayer.UserId or targetChar:GetFullName()
 		
 		if not piercedTargets[targetId] then
@@ -692,20 +940,30 @@ local function runRedProjectile(state)
 	
 	-- Send all hits to server
 	if #hitList > 0 then
-		log("Sending", #hitList, "hits to server")
 		abilityRequest.Send({
 			action = "redHit",
 			hits = hitList,
 			explosionPosition = { X = position.X, Y = position.Y, Z = position.Z },
+			pivot = explosionPivot,
 		})
 	end
+	
+	-- Cleanup pivot attribute after a short delay (let VFX read it first)
+	task.delay(0.1, function()
+		LocalPlayer:SetAttribute(`red_explosion_pivot`, nil)
+		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateProj" }, {
+			Character = character,
+			Player = LocalPlayer,
+			debris = true,
+			--pivot = CFrame.lookAt(position, position + velocity.Unit),
+		})
+		
+	end)
 	
 	state.projectileActive = false
 	if HonoredOne._abilityState == state then
 		HonoredOne._abilityState = nil
 	end
-	
-	log("=== RED PROJECTILE COMPLETE ===")
 end
 
 --------------------------------------------------------------------------------
@@ -715,30 +973,19 @@ end
 function HonoredOne.Ability:OnStart(abilityRequest)
 	local hrp = abilityRequest.humanoidRootPart
 	local character = abilityRequest.character
-	if not hrp or not character then 
-		log("ERROR: No character/hrp")
-		return 
-	end
+	if not hrp or not character then return end
 
 	local kitController = ServiceRegistry:GetController("Kit")
 	local inputManager = ServiceRegistry:GetController("Input")
 
-	if kitController:IsAbilityActive() then 
-		log("Ability already active, ignoring")
-		return 
-	end
-	if abilityRequest.IsOnCooldown() then 
-		log("Ability on cooldown, ignoring")
-		return 
-	end
+	if kitController:IsAbilityActive() then return end
+	if abilityRequest.IsOnCooldown() then return end
 
 	-- Check crouch state to determine Blue vs Red
 	local isCrouching = false
 	if inputManager and inputManager.IsCrouchHeld then
 		isCrouching = inputManager:IsCrouchHeld()
 	end
-	
-	log("Crouch check:", isCrouching and "CROUCHING (Red/Push)" or "NOT CROUCHING (Blue/Pull)")
 
 	-- Start ability
 	local ctx = abilityRequest.StartAbility()
@@ -759,13 +1006,10 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 	})
 
 	if not animation then
-		log("ERROR: Could not play animation:", animName)
 		unlock()
 		kitController:_unholsterWeapon()
 		return
 	end
-
-	log("Playing animation:", animName)
 
 	-- State tracking
 	local state = {
@@ -788,16 +1032,37 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 
 	-- Animation event handlers
 	local Events = {
-		["start"] = function()
-			log("Animation Event: start")
+		["create"] = function()
 			-- VFX/sounds on ability start (charging for Red)
 			-- TODO: Add VFXRep call for start effects
+			if isCrouching then
+				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				forceAction = "red_create",
+			})	
+			end
+		
+		end,
+		
+		["start"] = function()
+			-- VFX/sounds on ability start (charging for Red)
+			if isCrouching then
+				LocalPlayer:SetAttribute(`red_charge`, true)
+
+				-- Start charge sound on viewmodel
+				local vmRoot = viewmodelRig and viewmodelRig.Model and viewmodelRig.Model:FindFirstChild("HumanoidRootPart")
+				playStartSound(viewmodelRig)
+
+				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
+					ViewModel = viewmodelRig,
+					forceAction = "red_charge",
+				})
+			end
 		end,
 
 		["freeze"] = function()
 			-- RED ONLY: Pause animation while player aims
 			if not isCrouching then return end
-			log("Animation Event: freeze (Red charging)")
 			if state.active and not state.released then
 				state.animation:AdjustSpeed(0)
 			end
@@ -806,7 +1071,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		["open"] = function()
 			-- BLUE ONLY: Spawn hitbox
 			if isCrouching then return end
-			log("Animation Event: open (Blue)")
 			if not state.active or state.cancelled then return end
 			task.spawn(runBlueHitbox, state)
 		end,
@@ -814,13 +1078,24 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		["shoot"] = function()
 			-- RED ONLY: Fire projectile
 			if not isCrouching then return end
-			log("Animation Event: shoot (Red)")
 			if not state.active or state.cancelled then return end
 			task.spawn(runRedProjectile, state)
+
+			VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				forceAction = "red_fire",
+			})
+
+			VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				Character = character,
+				forceAction = "red_shootlolll",
+			})
+
+			LocalPlayer:SetAttribute(`red_charge`, nil)
 		end,
 
 		["_finish"] = function()
-			log("Animation Event: _finish")
 			if not state.active then return end
 			
 			state.active = false
@@ -838,13 +1113,12 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- Restore weapon (animation done, but hitbox/projectile continues)
 			state.unlock()
 			kitController:_unholsterWeapon()
-			log("Animation finished - weapon restored")
+			LocalPlayer:SetAttribute(`red_charge`, nil)
 		end,
 	}
 
 	-- Connect to animation events
 	state.connections[#state.connections + 1] = animation:GetMarkerReachedSignal("Event"):Connect(function(eventName)
-		log("Animation marker received:", eventName)
 		if Events[eventName] then
 			Events[eventName]()
 		end
@@ -853,14 +1127,12 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 	-- Safety cleanup on animation end
 	state.connections[#state.connections + 1] = animation.Stopped:Once(function()
 		if state.active then
-			log("Animation stopped - triggering _finish")
 			Events["_finish"]()
 		end
 	end)
 
 	state.connections[#state.connections + 1] = animation.Ended:Once(function()
 		if state.active then
-			log("Animation ended - triggering _finish")
 			Events["_finish"]()
 		end
 	end)
@@ -872,10 +1144,10 @@ function HonoredOne.Ability:OnEnded(abilityRequest)
 	
 	-- Mark as released
 	state.released = true
+	LocalPlayer:SetAttribute(`red_charge`, nil)
 	
 	-- Resume animation from freeze (Red ability)
 	if state.isCrouching and state.animation and state.animation.IsPlaying then
-		log("OnEnded: Resuming Red animation")
 		state.animation:AdjustSpeed(1)
 	end
 end
@@ -886,8 +1158,6 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	
 	-- Already fully finished
 	if not state.active and not state.hitboxActive and not state.projectileActive then return end
-
-	log("Ability interrupted:", reason)
 	
 	-- Hard cancel - stops everything including hitbox/projectile
 	state.cancelled = true
@@ -918,6 +1188,9 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 		end
 	end
 
+	-- Cleanup all sounds
+	cleanupSounds()
+
 	-- Restore weapon (if animation hadn't finished yet)
 	if state.unlock then
 		state.unlock()
@@ -930,7 +1203,6 @@ end
 --------------------------------------------------------------------------------
 
 function HonoredOne.Ultimate:OnStart(abilityRequest)
-	log("Ultimate not implemented yet")
 	abilityRequest.Send()
 end
 
@@ -950,17 +1222,14 @@ function HonoredOne.new(ctx)
 	self._connections = {}
 	self.Ability = HonoredOne.Ability
 	self.Ultimate = HonoredOne.Ultimate
-	log("HonoredOne kit created")
 	return self
 end
 
 function HonoredOne:OnEquip(ctx)
 	self._ctx = ctx
-	log("HonoredOne kit equipped")
 end
 
 function HonoredOne:OnUnequip(reason)
-	log("HonoredOne kit unequipped:", reason)
 	for _, conn in pairs(self._connections) do
 		if typeof(conn) == "RBXScriptConnection" then
 			conn:Disconnect()

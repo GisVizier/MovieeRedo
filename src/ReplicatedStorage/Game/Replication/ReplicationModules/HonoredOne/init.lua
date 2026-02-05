@@ -83,6 +83,15 @@ local function cleanupUserVFX(userId, vfxType)
 	end
 end
 
+local function ReplicateFX(module, action, fxData)
+	local clientsFolder = script:FindFirstChild("Clients")
+	if not clientsFolder then return end
+	local nmodule = clientsFolder:FindFirstChild(module)
+	if nmodule then
+		local mod = require(nmodule)
+		return mod[action](nil, fxData)
+	end
+end
 --------------------------------------------------------------------------------
 -- Validation
 --------------------------------------------------------------------------------
@@ -99,128 +108,115 @@ end
 	Called when Red ability starts charging
 	data: { position }
 ]]
-function HonoredOne:redStart(originUserId, data)
-	cleanupUserVFX(originUserId, "red")
-	
-	local position = parseVector3(data.position)
-	local root = getPlayerRoot(originUserId)
-	
-	-- TODO: Add your charging VFX here
-	
-	HonoredOne._activeRed[originUserId] = {
-		startTime = tick(),
-	}
+
+function HonoredOne:User(originUserId, data)
+	local localPlayer = Players.LocalPlayer
+	--if not localPlayer or localPlayer.UserId ~= originUserId then
+	--	return -- Only run on caster's client
+	--end
+
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	local ViewModel = data.ViewModel or (viewmodelController and viewmodelController:GetActiveRig())
+
+	local action = data.forceAction
+	if action == "red_charge" and localPlayer.UserId == originUserId then
+
+		local chargingFXcleanup = ReplicateFX("red", "chargeFX", { Character = localPlayer.Character, ViewModel = ViewModel})
+
+		local connection; connection =localPlayer:GetAttributeChangedSignal(`red_charge`):Connect(function()
+			if not localPlayer:GetAttribute(`red_charge`) then
+				chargingFXcleanup()
+				connection:Disconnect()
+
+				--warn(`ran231`)
+			end
+		end)
+
+
+	elseif action == "red_create" then
+		ReplicateFX("red", "charge", { Character = localPlayer.Character, ViewModel = ViewModel, Part = `Right Arm`})
+		ReplicateFX("red", "armFX", { Character = localPlayer.Character, ViewModel = ViewModel, Effect = `createred`})
+
+		task.wait(.1)
+
+		ReplicateFX("red", "createFire", { Character = localPlayer.Character, ViewModel = ViewModel, Effect = `createdmesh`})	
+
+	elseif action == "red_fire" then
+		ReplicateFX("red", "armFX", { Character = localPlayer.Character, ViewModel = ViewModel, Effect = `fire`})	
+	end
+
+	if action == "red_shootlolll" then
+		ReplicateFX("red", "ReplicateProjectile", {Character = data.Character, ViewModel = ViewModel})	
+		
+		
+	elseif action == "red_explode" then
+		ReplicateFX("red", "explodeplz", { Character = localPlayer.Character, pivot = data.pivot})	
+
+
+	elseif action == "blue_open" then
+
+		--ReplicateFX("blue", "open", { 
+		--	Character = localPlayer.Character, 
+		--	projectile = data.projectile, 
+		--	lifetime = data.lifetime
+		--})	
+
+	elseif action == "blue_loop" then
+		warn(data)
+		ReplicateFX("blue", "loop", { 
+			Character = localPlayer.Character, 
+			projectile = data.projectile, 
+			lifetime = data.lifetime
+		})	
+
+	elseif action == "blue_close" then
+
+		--ReplicateFX("blue", "close", { 
+		--	Character = localPlayer.Character, 
+		--	projectile = data.projectile, 
+		--	lifetime = data.lifetime
+		--})	
+	end
+
 end
 
---[[
-	Called to update charge VFX intensity
-	data: { chargePercent (0-1), position }
-]]
-function HonoredOne:redCharge(originUserId, data)
-	local active = HonoredOne._activeRed[originUserId]
-	if not active then return end
-	
-	local chargePercent = data.chargePercent or 0
-	local position = parseVector3(data.position)
-	
-	-- TODO: Add your charge update VFX here
-end
+function HonoredOne:UpdateProj(originUserId, data)
+	local plr = data.Player
+	local char = data.Character
+	local pivot = data.pivot
 
---[[
-	Called when Red projectile is fired
-	data: { startPosition, direction, speed }
-]]
-function HonoredOne:redShoot(originUserId, data)
-	local active = HonoredOne._activeRed[originUserId]
+	if not plr then
+		return
+	end
 	
-	local startPosition = parseVector3(data.startPosition) or parseVector3(data.position)
-	local direction = parseVector3(data.direction)
-	local speed = data.speed or 400
+	if data.debris then
+		plr:SetAttribute(`red_projectile_activeCFR`, nil )
+		return
+	end
 	
-	-- TODO: Add your projectile VFX here
-	
-	HonoredOne._activeRed[originUserId] = {
-		startPosition = startPosition,
-		direction = direction,
-		speed = speed,
-		startTime = tick(),
-	}
-end
-
---[[
-	Update projectile position (call each frame if needed)
-	data: { position }
-]]
-function HonoredOne:redUpdate(originUserId, data)
-	local active = HonoredOne._activeRed[originUserId]
-	if not active then return end
-	
-	local position = parseVector3(data.position)
-	
-	-- TODO: Add your projectile update VFX here
-end
-
---[[
-	Called when Red projectile explodes
-	data: { position, radius }
-]]
-function HonoredOne:redExplode(originUserId, data)
-	local position = parseVector3(data.position)
-	local radius = data.radius or 20
-	
-	-- TODO: Add your explosion VFX here
-	
-	cleanupUserVFX(originUserId, "red")
+	plr:SetAttribute(`red_projectile_activeCFR`, pivot )
 end
 
 --------------------------------------------------------------------------------
 -- BLUE ABILITY VFX
 --------------------------------------------------------------------------------
 
---[[
-	Called when Blue ability starts (create hitbox visual)
-	data: { position, radius }
-]]
-function HonoredOne:blueStart(originUserId, data)
-	cleanupUserVFX(originUserId, "blue")
-	
-	local position = parseVector3(data.position)
-	local radius = data.radius or 14
-	
-	-- TODO: Add your blue sphere VFX here
-	
-	HonoredOne._activeBlue[originUserId] = {
-		radius = radius,
-		startTime = tick(),
-	}
-end
+function HonoredOne:UpdateBlue(originUserId, data)
+	local plr = data.Player
+	local char = data.Character
+	local pivot = data.pivot
 
---[[
-	Update blue hitbox position (call each tick)
-	data: { position }
-]]
-function HonoredOne:blueUpdate(originUserId, data)
-	local active = HonoredOne._activeBlue[originUserId]
-	if not active then return end
-	
-	local position = parseVector3(data.position)
-	
-	-- TODO: Add your blue update VFX here
-end
+	if not plr then
+		return
+	end
 
---[[
-	Called when Blue ability ends (explosion)
-	data: { position, radius }
-]]
-function HonoredOne:blueEnd(originUserId, data)
-	local position = parseVector3(data.position)
-	local radius = data.radius or 14
-	
-	-- TODO: Add your blue end/explosion VFX here
-	
-	cleanupUserVFX(originUserId, "blue")
-end
+	if data.debris then
+		plr:SetAttribute(`blue_projectile_activeCFR`, nil )
+		return
+	end
 
+	plr:SetAttribute(`blue_projectile_activeCFR`, pivot )
+end
 --------------------------------------------------------------------------------
 -- Execute (fallback routing)
 --------------------------------------------------------------------------------
