@@ -546,6 +546,12 @@ local function runBlueHitbox(state)
 
 	-- Blue ability does NO damage - just knockback/CC (no fling at end)
 	
+	-- Send explosion position to server for terrain destruction
+	abilityRequest.Send({
+		action = "blueHit",
+		explosionPosition = { X = finalPosition.X, Y = finalPosition.Y, Z = finalPosition.Z },
+	})
+	
 	-- Cleanup hitbox visual
 	if hitboxViz and hitboxViz.Parent then
 		hitboxViz:Destroy()

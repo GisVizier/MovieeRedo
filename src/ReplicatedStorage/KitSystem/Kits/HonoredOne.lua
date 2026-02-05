@@ -11,6 +11,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
+local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
 
 local HonoredOne = {}
 
@@ -138,6 +140,48 @@ local function handleBlueHit(player, data, context)
 	log("Player:", player.Name)
 	-- Blue does NO damage, just knockback (handled client-side)
 	log("Blue ability does no damage - knockback only")
+	
+	-- Terrain destruction at explosion position
+	local posData = data.explosionPosition
+	if posData and type(posData) == "table" then
+		local explosionPos = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
+		
+		-- Validate range from player
+		local character = player.Character
+		if character then
+			local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+			if root and (root.Position - explosionPos).Magnitude <= MAX_RANGE then
+				local kitData = KitConfig.getKit("HonoredOne")
+				local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
+				
+				if destructionLevel then
+					local radiusMap = {
+						Small = 6,
+						Big = 10,
+						Huge = 15,
+						Mega = 22,
+					}
+					local radius = radiusMap[destructionLevel] or 10
+					
+					task.spawn(function()
+						local success = VoxManager:explode(explosionPos, radius, {
+							voxelSize = 2,
+							debris = true,
+							debrisAmount = 8,
+						})
+						if not success then
+							warn("[HonoredOne] Blue destruction failed at position:", explosionPos)
+						end
+					end)
+					
+					log("Terrain destruction at", explosionPos, "radius:", radiusMap[destructionLevel])
+				end
+			else
+				log("Explosion position out of range - skipping destruction")
+			end
+		end
+	end
+	
 	log("=== BLUE HIT COMPLETE ===")
 end
 
