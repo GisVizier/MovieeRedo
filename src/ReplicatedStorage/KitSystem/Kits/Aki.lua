@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
+local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
 
 -- HitDetectionAPI for authoritative position data
 local HitDetectionAPI = nil
@@ -232,6 +233,14 @@ function Kit:OnAbility(inputState, clientData)
 					humanoid:TakeDamage(BITE_DAMAGE)
 				end
 			end
+		end
+
+		-- Terrain destruction (if Destruction property is set)
+		local kit = KitConfig.getKit("Aki")
+		local destructionLevel = kit and kit.Ability and kit.Ability.Destruction
+		
+		if destructionLevel then
+			VoxManager:explode(bitePos)
 		end
 
 		self._pendingSpawn = nil
