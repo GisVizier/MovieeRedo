@@ -174,8 +174,7 @@ function VoxDestruct.octreeMeshSubtraction(
 		end
 	end
 
-	-- Destroy the hitbox since it's no longer needed.
-	sphereHitbox:Destroy()
+	-- NOTE: hitbox cleanup is handled by subtractHitbox after all parts are processed
 
 	-- Create folder to store meshes
 	local meshedFolder = workspace:FindFirstChild("CurrentVoxels")
@@ -270,16 +269,40 @@ function VoxDestruct.subtractHitbox(
 	-- Update cache
 	VoxDestruct.VoxelCache = voxelCache
 
+	-- Build ignore list from instance names (resolve string names to actual workspace instances)
+	local ignoreInstances = { sphereHitbox }
+	if ignore then
+		for _, name in ipairs(ignore) do
+			if typeof(name) == "Instance" then
+				table.insert(ignoreInstances, name)
+			elseif type(name) == "string" then
+				-- Find instances by name in workspace to exclude
+				local found = workspace:FindFirstChild(name, true)
+				if found then
+					table.insert(ignoreInstances, found)
+				end
+			end
+		end
+	end
+
 	-- Define overlap parameters.
 	local overlapParams = OverlapParams.new()
-	overlapParams.FilterDescendantsInstances = { sphereHitbox, table.unpack(ignore) }
+	overlapParams.FilterDescendantsInstances = ignoreInstances
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	-- Cache the hitbox position and radius before any processing
+	-- (since the hitbox reference stays valid throughout)
+	local hitboxPosition = sphereHitbox.Position
+	local hitboxRadius = sphereHitbox.Size.X / 2
+
+	-- Get ALL overlapping parts upfront before processing any of them
+	local overlappingParts = workspace:GetPartBoundsInRadius(hitboxPosition, hitboxRadius, overlapParams)
 
 	-- Loop through all parts overlapping the hitbox, and define debris.
 	local totalDebris = 0
 	local affectedPartIds = {}
 
-	for _, object in workspace:GetPartBoundsInRadius(sphereHitbox.Position, sphereHitbox.Size.X / 2, overlapParams) do
+	for _, object in ipairs(overlappingParts) do
 		-- Skip non-block shapes (wedges, balls, cylinders, etc.) since voxels are cubes
 		if object:IsA("WedgePart") or object:IsA("CornerWedgePart") or object:IsA("TrussPart") then
 			continue
@@ -292,6 +315,11 @@ function VoxDestruct.subtractHitbox(
 
 		-- Skip MeshParts (can't be properly voxelized)
 		if object:IsA("MeshPart") then
+			continue
+		end
+
+		-- Skip parts that are already voxels (from previous destructions)
+		if object.Name == "MeshedVoxel" then
 			continue
 		end
 
@@ -318,6 +346,11 @@ function VoxDestruct.subtractHitbox(
 		if partId then
 			table.insert(affectedPartIds, partId)
 		end
+	end
+
+	-- Destroy the hitbox after ALL parts have been processed
+	if sphereHitbox and sphereHitbox.Parent then
+		sphereHitbox:Destroy()
 	end
 
 	return affectedPartIds

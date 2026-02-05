@@ -114,21 +114,33 @@ function VoxManager:explode(position: Vector3, radius: number?, options: {}?)
 	hitbox.Size = Vector3.new(r * 2, r * 2, r * 2)
 	hitbox.Anchored = true
 	hitbox.CanCollide = false
+	hitbox.CanQuery = false
 	hitbox.Transparency = 1
 	hitbox.Parent = workspace
 
-	-- Execute voxelization
-	local result = Voxelizer.subtractHitbox(
-		hitbox,
-		voxelSize, -- minSize
-		voxelSize, -- finalSize
-		debugColors, -- randomColor
-		debris, -- debris
-		debrisAmount, -- debrisAmount
-		ignore, -- ignore list
-		self._voxelCache,
-		debrisSize
-	)
+	-- Execute voxelization (hitbox is destroyed inside subtractHitbox after processing)
+	local ok, result = pcall(function()
+		return Voxelizer.subtractHitbox(
+			hitbox,
+			voxelSize, -- minSize
+			voxelSize, -- finalSize
+			debugColors, -- randomColor
+			debris, -- debris
+			debrisAmount, -- debrisAmount
+			ignore, -- ignore list
+			self._voxelCache,
+			debrisSize
+		)
+	end)
+
+	-- Safety cleanup: if subtractHitbox errored, destroy the hitbox
+	if not ok then
+		if hitbox and hitbox.Parent then
+			hitbox:Destroy()
+		end
+		warn("[VoxManager] explode failed:", result)
+		return false
+	end
 
 	return result ~= nil
 end

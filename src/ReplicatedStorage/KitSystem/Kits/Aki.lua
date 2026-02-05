@@ -235,12 +235,30 @@ function Kit:OnAbility(inputState, clientData)
 			end
 		end
 
-		-- Terrain destruction (if Destruction property is set)
-		local kit = KitConfig.getKit("Aki")
-		local destructionLevel = kit and kit.Ability and kit.Ability.Destruction
+		-- Terrain destruction at bite location
+		local kitData = KitConfig.getKit("Aki")
+		local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
 		
 		if destructionLevel then
-			VoxManager:explode(bitePos)
+			-- Scale radius based on destruction level
+			local radiusMap = {
+				Small = 6,
+				Big = 10,
+				Huge = 15,
+				Mega = 22,
+			}
+			local radius = radiusMap[destructionLevel] or 10
+			
+			task.spawn(function()
+				local success = VoxManager:explode(bitePos, radius, {
+					voxelSize = 2,
+					debris = true,
+					debrisAmount = 8,
+				})
+				if not success then
+					warn("[Aki] Kon destruction failed at position:", bitePos)
+				end
+			end)
 		end
 
 		self._pendingSpawn = nil
