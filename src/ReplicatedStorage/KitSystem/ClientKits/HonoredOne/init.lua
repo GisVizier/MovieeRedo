@@ -39,6 +39,7 @@ local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
+local VoxManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxManager"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -69,6 +70,11 @@ local BLUE_CONFIG = {
 	-- Explosion settings
 	EXPLOSION_UPWARD = 90,      -- Upward velocity on explosion
 	EXPLOSION_OUTWARD = 80,     -- Outward velocity on explosion
+
+	-- Destruction
+	DESTRUCTION_INTERVAL = 0.3,  -- Seconds between each destruction tick
+	DESTRUCTION_RADIUS = 8,      -- Radius of each destruction explosion
+	DESTRUCTION_VOXEL_SIZE = 2,  -- Voxel size for destruction
 
 	-- Technical
 	TICK_RATE = 0.03,            -- Seconds between each tick (~33hz)
@@ -345,6 +351,7 @@ local function runBlueHitbox(state)
 	
 	local elapsed = 0
 	local pullCount = 0
+	local lastDestructionTime = 0 -- Throttle for continuous destruction
 	
 	-- CAPTURED TARGETS - once caught, they stay caught until ability ends
 	local capturedTargets = {}
@@ -416,6 +423,18 @@ local function runBlueHitbox(state)
 				pivot = CFrame.new(currentPosition),
 				radius = BLUE_CONFIG.HITBOX_RADIUS,
 			})
+		end
+		
+		-- Continuous terrain destruction along the path
+		if elapsed - lastDestructionTime >= BLUE_CONFIG.DESTRUCTION_INTERVAL then
+			lastDestructionTime = elapsed
+			task.spawn(function()
+				VoxManager:explode(currentPosition, BLUE_CONFIG.DESTRUCTION_RADIUS, {
+					voxelSize = BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
+					debris = true,
+					debrisAmount = 5,
+				})
+			end)
 		end
 		
 		-- Find NEW targets entering the sphere and add to captured list
@@ -530,7 +549,16 @@ local function runBlueHitbox(state)
 
 	-- Blue ability does NO damage - just knockback/CC (no fling at end)
 	
-	-- Send explosion position to server for terrain destruction
+	-- Final bigger destruction burst at the end
+	task.spawn(function()
+		VoxManager:explode(finalPosition, BLUE_CONFIG.DESTRUCTION_RADIUS + 4, {
+			voxelSize = BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
+			debris = true,
+			debrisAmount = 10,
+		})
+	end)
+	
+	-- Send to server for cooldown + server-side destruction
 	abilityRequest.Send({
 		action = "blueHit",
 		explosionPosition = { X = finalPosition.X, Y = finalPosition.Y, Z = finalPosition.Z },
