@@ -100,6 +100,9 @@ local RED_CONFIG = {
 	
 	-- Recoil (pushes player back when firing)
 	RECOIL_STRENGTH = 80,        -- How hard the player gets pushed back on fire
+	
+	-- Hold limit
+	MAX_HOLD_TIME = 10,          -- Max seconds player can hold before auto-fire
 }
 
 -- ProjectilePhysics config for Red (straight line, no gravity)
@@ -116,9 +119,13 @@ local RED_PHYSICS_CONFIG = {
 --------------------------------------------------------------------------------
 
 local SOUND_CONFIG = {
+	-- Red ability sounds
 	start = { id = "rbxassetid://103690871211615", volume = 1 },
 	shoot = { id = "rbxassetid://111984395150553", volume = 1 },
 	explosion = { id = "rbxassetid://109996936076104", volume = 1.5 },
+	-- Blue ability sounds
+	blueStart = { id = "rbxassetid://128253195405132", volume = 1 },
+	blueIdle = { id = "rbxassetid://100714867966748", volume = 1, looped = true },
 }
 
 -- Create and preload all sounds
@@ -129,6 +136,7 @@ for name, config in pairs(SOUND_CONFIG) do
 		sound.Name = name
 		sound.SoundId = config.id
 		sound.Volume = config.volume
+		sound.Looped = config.looped or false
 		sound.Parent = script
 	end
 	table.insert(preloadItems, script:FindFirstChild(name))
@@ -258,6 +266,81 @@ local function cleanupSounds()
 	chargeSound = nil
 end
 
+-- Blue ability sounds
+local blueIdleSound = nil
+
+local function playBlueStartSound(parent: Instance?): Sound?
+	local blueStartSound = script:FindFirstChild("blueStart")
+	if not blueStartSound then return nil end
+	
+	local sound = blueStartSound:Clone()
+	sound.Parent = parent or Workspace
+	sound:Play()
+	
+	table.insert(activeSounds, sound)
+	
+	sound.Ended:Once(function()
+		local idx = table.find(activeSounds, sound)
+		if idx then table.remove(activeSounds, idx) end
+		sound:Destroy()
+	end)
+	
+	return sound
+end
+
+--local function playBlueIdleSound(hitboxPart: Instance): Sound?
+--	local blueIdleSoundTemplate = script:FindFirstChild("blueIdle")
+--	if not blueIdleSoundTemplate then return nil end
+	
+--	local sound = blueIdleSoundTemplate:Clone()
+--	sound.Parent = hitboxPart
+--	sound.Looped = true
+--	sound:Play()
+	
+	
+	
+--	table.insert(activeSounds, sound)
+--	blueIdleSound = sound
+	
+--	return sound
+--end
+
+local function fadeOutBlueIdleSound(fadeTime: number?)
+	--local sound = blueIdleSound
+	--if not sound or not sound.Parent then
+	--	blueIdleSound = nil
+	--	return
+	--end
+	
+	--fadeTime = fadeTime or 0.5
+	--local startVolume = sound.Volume
+	--local startTime = os.clock()
+	
+	---- Fade out over time
+	--task.spawn(function()
+	--	while sound and sound.Parent do
+	--		local elapsed = os.clock() - startTime
+	--		local progress = math.min(1, elapsed / fadeTime)
+	--		sound.Volume = startVolume * (1 - progress)
+			
+	--		if progress >= 1 then
+	--			break
+	--		end
+	--		task.wait()
+	--	end
+		
+	--	-- Clean up
+	--	if sound and sound.Parent then
+	--		sound:Stop()
+	--		sound:Destroy()
+	--	end
+		
+	--	local idx = table.find(activeSounds, sound)
+	--	if idx then table.remove(activeSounds, idx) end
+	--	blueIdleSound = nil
+	--end)
+end
+
 --------------------------------------------------------------------------------
 -- Debug Helpers
 --------------------------------------------------------------------------------
@@ -364,6 +447,12 @@ local function runBlueHitbox(state)
 	local hitboxViz = createDebugSphere(startPosition, BLUE_CONFIG.HITBOX_RADIUS, Color3.fromRGB(0, 100, 255))
 	hitboxViz.Name = "BlueHitbox_Active"
 	hitboxViz.Parent = getEffectsFolder()
+	
+	-- Play Blue start sound
+	playBlueStartSound(hitboxViz)
+	
+	-- Play Blue idle sound (looped, on the hitbox)
+	--playBlueIdleSound(hitboxViz)
 	
 	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
 		Character = character,
@@ -531,6 +620,12 @@ local function runBlueHitbox(state)
 	--	Debris:AddItem(hitboxViz, 0.5)
 	--end
 
+	-- Fade out the idle sound before cleanup
+	fadeOutBlueIdleSound(1.5)
+
+	-- Play "Then Erased" voice line
+	Dialogue.generate("HonoredOne", "Ability", "BlueEnd", { override = true })
+
 	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
 		Character = character,
 		forceAction = "blue_close",
@@ -564,10 +659,12 @@ local function runBlueHitbox(state)
 		explosionPosition = { X = finalPosition.X, Y = finalPosition.Y, Z = finalPosition.Z },
 	})
 	
-	-- Cleanup hitbox visual
-	if hitboxViz and hitboxViz.Parent then
-		hitboxViz:Destroy()
-	end
+	-- Cleanup hitbox visual (delay to allow sound fade)
+	task.delay(1.5, function()
+		if hitboxViz and hitboxViz.Parent then
+			hitboxViz:Destroy()
+		end
+	end)
 	
 	-- Hitbox finished - clear state
 	state.hitboxActive = false
@@ -734,6 +831,7 @@ local function runRedProjectile(state)
 	
 	-- Use Heartbeat for smooth physics
 	local connection
+	local started = false
 	connection = RunService.Heartbeat:Connect(function(dt)
 		-- Check for cancel
 		if state.cancelled then
@@ -852,6 +950,17 @@ local function runRedProjectile(state)
 			
 			LocalPlayer:SetAttribute(`red_projectile_activeCFR`, CFrame.lookAt(position, position + velocity.Unit))
 		end
+		
+		if not started then
+			started = true
+
+			VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+				--ViewModel = viewmodelRig,
+				Character = character,
+				forceAction = "red_shootlolll",
+			})
+
+		end
 	end)
 	
 	-- Wait for projectile to finish
@@ -937,7 +1046,7 @@ local function runRedProjectile(state)
 			local awayDir = (targetRoot.Position - position)
 			awayDir = awayDir.Magnitude > 0.1 and awayDir.Unit or direction
 			
-			local explosionVelocity = (awayDir * RED_CONFIG.EXPLOSION_OUTWARD) + Vector3.new(0, RED_CONFIG.EXPLOSION_UPWARD, 0)
+			local explosionVelocity = (awayDir * RED_CONFIG.EXPLOSION_OUTWARD) * RED_CONFIG.EXPLOSION_UPWARD-- + Vector3.new(0, RED_CONFIG.EXPLOSION_UPWARD, 0)
 			knockbackController:_sendKnockbackVelocity(targetChar, explosionVelocity, 0)
 		end
 		
@@ -1117,9 +1226,9 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- TODO: Add VFXRep call for start effects
 			if isCrouching then
 				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
-				ViewModel = viewmodelRig,
-				forceAction = "red_create",
-			})	
+					ViewModel = viewmodelRig,
+					forceAction = "red_create",
+				})	
 			end
 		
 		end,
@@ -1139,8 +1248,18 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		["freeze"] = function()
 			-- RED ONLY: Pause animation while player aims
 			if not isCrouching then return end
+			if state.cancelled then return end
 			if state.active and not state.released then
 				state.animation:AdjustSpeed(0)
+				
+				-- Start max hold timer - auto-fire after MAX_HOLD_TIME seconds
+				task.delay(RED_CONFIG.MAX_HOLD_TIME, function()
+					-- Only auto-release if still frozen (not yet released or cancelled)
+					if state.active and not state.released and not state.cancelled then
+						state.released = true
+						state.animation:AdjustSpeed(1)
+					end
+				end)
 			end
 		end,
 
@@ -1148,12 +1267,15 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- BLUE ONLY: Spawn hitbox
 			if isCrouching then return end
 			if not state.active or state.cancelled then return end
-			
+
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
 			abilityRequest.Send({ action = "startCooldown" })
-			
+
+			-- Play "Pulled" voice line
+			Dialogue.generate("HonoredOne", "Ability", "BlueStart", { override = true })
+
 			task.spawn(runBlueHitbox, state)
 		end,
 
@@ -1174,11 +1296,11 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 				forceAction = "red_fire",
 			})
 
-			VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
-				ViewModel = viewmodelRig,
-				Character = character,
-				forceAction = "red_shootlolll",
-			})
+			--VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+			--	ViewModel = viewmodelRig,
+			--	Character = character,
+			--	forceAction = "red_shootlolll",
+			--})
 
 			LocalPlayer:SetAttribute(`red_charge`, nil)
 		end,
@@ -1228,7 +1350,8 @@ end
 
 function HonoredOne.Ability:OnEnded(abilityRequest)
 	local state = HonoredOne._abilityState
-	if not state or not state.active then return end
+	if not state then return end
+	if not state.active or state.cancelled then return end
 	
 	-- Mark as released
 	state.released = true

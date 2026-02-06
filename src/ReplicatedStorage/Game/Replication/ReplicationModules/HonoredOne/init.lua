@@ -155,16 +155,16 @@ function HonoredOne:User(originUserId, data)
 
 	elseif action == "blue_open" then
 
-		--ReplicateFX("blue", "open", { 
-		--	Character = localPlayer.Character, 
-		--	projectile = data.projectile, 
-		--	lifetime = data.lifetime
-		--})	
+		ReplicateFX("blue", "open", { 
+			Character = data.Character, 
+			projectile = data.projectile, 
+			lifetime = data.lifetime
+		})	
 
 	elseif action == "blue_loop" then
-		warn(data)
+		--warn(data)
 		ReplicateFX("blue", "loop", { 
-			Character = localPlayer.Character, 
+			Character = data.Character, 
 			projectile = data.projectile, 
 			lifetime = data.lifetime
 		})	

@@ -171,6 +171,32 @@ Dialogue.Dialogues = {
 					},
 				},
 			},
+			BlueStart = {
+				HonoredOne_BlueStart_1 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 134882292717708,
+							DialogueText = "Pulled.",
+							Speaker = true,
+						},
+					},
+				},
+			},
+			BlueEnd = {
+				HonoredOne_BlueEnd_1 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 98938138430499,
+							DialogueText = "Then Erased.",
+							Speaker = true,
+						},
+					},
+				},
+			},
 		},
 		RoundStart = {
 			Default = {
