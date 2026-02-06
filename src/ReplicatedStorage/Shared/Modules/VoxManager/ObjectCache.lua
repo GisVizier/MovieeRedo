@@ -90,12 +90,9 @@ function Cache:ReturnPart(Part: BasePart)
 		return
 	end
 
-	-- Check if part was destroyed (Parent is nil and locked)
-	local success, _ = pcall(function()
-		return Part.Parent
-	end)
-	if not success then
-		return -- Part was destroyed, don't add to cache
+	-- Check if part was destroyed (Parent is nil means destroyed or removed)
+	if not Part.Parent then
+		return
 	end
 
 	self._Objects[Part] = true

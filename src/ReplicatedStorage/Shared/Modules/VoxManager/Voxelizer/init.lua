@@ -18,12 +18,23 @@ local VoxDestruct = {
 }
 
 -- [ CONSTANTS ]
-local YIELD_INTERVAL = 50 -- Yield every N voxels during creation
+local FRAME_BUDGET = 0.004 -- 4ms budget per frame before yielding
 local FAR_AWAY_CFRAME = CFrame.new(0, -10000, 0) -- Hidden position for cached parts
 
--- [ HELPER FUNCTIONS ]
+-- [ CACHED FOLDERS ] (avoid FindFirstChild every explosion)
+local meshedFolder = nil
+local function getMeshedFolder()
+	if not meshedFolder or not meshedFolder.Parent then
+		meshedFolder = workspace:FindFirstChild("CurrentVoxels")
+		if not meshedFolder then
+			meshedFolder = Instance.new("Folder")
+			meshedFolder.Name = "CurrentVoxels"
+			meshedFolder.Parent = workspace
+		end
+	end
+	return meshedFolder
+end
 
---! Get or create the cache folder for original parts
 local function getOriginalPartsCache()
 	if not VoxDestruct.OriginalPartsCache or not VoxDestruct.OriginalPartsCache.Parent then
 		VoxDestruct.OriginalPartsCache = workspace:FindFirstChild("OriginalPartsCache")
@@ -36,79 +47,80 @@ local function getOriginalPartsCache()
 	return VoxDestruct.OriginalPartsCache
 end
 
---! Uses recursive octree subdivision.
+-- [ HELPER FUNCTIONS ]
+
+--! Recursive octree subdivision. Uses a shared output table to avoid allocations.
 local function subdivideAABB(
 	aabbCenter: Vector3,
 	halfSize: Vector3,
 	sphereCenter: Vector3,
 	sphereRadius: number,
-	minSize: number
+	minSize: number,
+	output: { any }
 )
-	local blocks = {}
-
-	-- If the entire part is inside the hitbox, just remove it.
+	-- If the entire block is inside the sphere, remove it (add nothing).
 	if Utils.isAABBInsideSphere(aabbCenter, halfSize, sphereCenter, sphereRadius) then
-		return {} -- This removes it.
-	elseif Utils.isAABBOutsideSphere(aabbCenter, halfSize, sphereCenter, sphereRadius) then
-		-- If it's outside, add it as extra.
-		table.insert(blocks, { center = aabbCenter, size = halfSize * 2 })
-		return blocks
-	else
-		-- Check for partial intersection.
-		local fullSize = halfSize * 2
+		return
+	end
 
-		-- If the block is less than the minSize, decide by just voxel sizes.
-		if fullSize.X <= minSize and fullSize.Y <= minSize and fullSize.Z <= minSize then
-			if (aabbCenter - sphereCenter).Magnitude >= sphereRadius then
-				table.insert(blocks, { center = aabbCenter, size = fullSize })
-			end
-			return blocks
-		else
-			-- Subdivide into 8 octants/cubes, because subdividing a cube into equal parts is 8 parts.
-			local newHalf = halfSize * 0.5
-			for x = -1, 1, 2 do
-				for y = -1, 1, 2 do
-					for z = -1, 1, 2 do
-						-- Calculate new offset and center, try subdivide again on new part if possible.
-						local offset = Vector3.new(newHalf.X * x, newHalf.Y * y, newHalf.Z * z)
-						local newCenter = aabbCenter + offset
-						local subBlocks = subdivideAABB(newCenter, newHalf, sphereCenter, sphereRadius, minSize)
+	-- If the block is fully outside the sphere, keep it as-is.
+	if Utils.isAABBOutsideSphere(aabbCenter, halfSize, sphereCenter, sphereRadius) then
+		output[#output + 1] = { center = aabbCenter, size = halfSize * 2 }
+		return
+	end
 
-						-- Add the new part to list.
-						for _, b in ipairs(subBlocks) do
-							table.insert(blocks, b)
-						end
-					end
-				end
+	-- Partial intersection — check if we've reached minimum size.
+	local fullSize = halfSize * 2
+	if fullSize.X <= minSize and fullSize.Y <= minSize and fullSize.Z <= minSize then
+		-- At min size, use simple distance check to decide keep/remove
+		local dx = aabbCenter.X - sphereCenter.X
+		local dy = aabbCenter.Y - sphereCenter.Y
+		local dz = aabbCenter.Z - sphereCenter.Z
+		if dx * dx + dy * dy + dz * dz >= sphereRadius * sphereRadius then
+			output[#output + 1] = { center = aabbCenter, size = fullSize }
+		end
+		return
+	end
+
+	-- Subdivide into 8 octants directly into the shared output table.
+	local newHalf = halfSize * 0.5
+	for x = -1, 1, 2 do
+		for y = -1, 1, 2 do
+			for z = -1, 1, 2 do
+				local offset = Vector3.new(newHalf.X * x, newHalf.Y * y, newHalf.Z * z)
+				subdivideAABB(aabbCenter + offset, newHalf, sphereCenter, sphereRadius, minSize, output)
 			end
-			return blocks
 		end
 	end
 end
 
---! Using octrees, it takes in a sphereical part and subtracts like a negate part from a target, which is a part too.
+--! Core voxelization: subtracts a sphere from a target part using octree + greedy meshing.
+--  OPTIMIZED: No hitbox Part needed, time-budget yields, batched CFrame updates, minimal cloning.
 function VoxDestruct.octreeMeshSubtraction(
 	target: Part,
-	sphereHitbox: Part,
+	sphereCenter: Vector3,
+	sphereRadius: number,
 	minSize: number,
 	finalVoxelSize: number,
 	randomColor: boolean,
 	debris: boolean,
 	debrisAmount: number,
-	debrisSizeMultiplier
+	debrisSizeMultiplier: number
 )
-	-- Define variables
-	local sphereCenterWorld = sphereHitbox.Position
-	local sphereRadius = sphereHitbox.Size.X / 2
-
 	local targetCFrame = target.CFrame
 	local targetSize = target.Size
 	local targetHalf = targetSize * 0.5
 
-	local localSphereCenter = targetCFrame:PointToObjectSpace(sphereCenterWorld)
+	local localSphereCenter = targetCFrame:PointToObjectSpace(sphereCenter)
 
-	-- Subdivide via AABB
-	local remainingBlocks = subdivideAABB(Vector3.new(0, 0, 0), targetHalf, localSphereCenter, sphereRadius, minSize)
+	-- Subdivide via AABB into shared output table (zero intermediate allocations)
+	local remainingBlocks = {}
+	subdivideAABB(Vector3.zero, targetHalf, localSphereCenter, sphereRadius, minSize, remainingBlocks)
+
+	-- If nothing was subtracted (all blocks remain), skip this part
+	if #remainingBlocks == 0 then
+		return nil, nil, nil
+	end
 
 	-- Using greedy meshing, merge blocks
 	local mergedBlocks = Mesh.greedyMergeBlocks(remainingBlocks)
@@ -116,22 +128,20 @@ function VoxDestruct.octreeMeshSubtraction(
 	-- Generate unique ID for this original part
 	local partId = HttpService:GenerateGUID(false)
 
-	-- Store the ACTUAL original part (not a copy) - move it to cache
+	-- Store the ACTUAL original part — move it to cache
 	local cacheFolder = getOriginalPartsCache()
-
-	-- Store original CFrame before moving
 	local originalCFrame = target.CFrame
 
-	-- Store reference to actual part and its original position
-	VoxDestruct.OriginalParts[partId] = {
+	-- Store reference and visual properties
+	local originalInfo = {
 		part = target,
 		originalCFrame = originalCFrame,
-		-- Store material/color for debris (since part is hidden, not destroyed)
 		Material = target.Material,
 		Color = target.Color,
 		Transparency = target.Transparency,
 		Reflectance = target.Reflectance,
 	}
+	VoxDestruct.OriginalParts[partId] = originalInfo
 	VoxDestruct.OriginalToVoxels[partId] = {}
 
 	-- Move original part to cache (hidden far away) instead of destroying
@@ -140,11 +150,9 @@ function VoxDestruct.octreeMeshSubtraction(
 	target.CanCollide = false
 	target.Parent = cacheFolder
 
-	-- Add debris if requested.
-	local originalInfo = VoxDestruct.OriginalParts[partId]
-	if debris then
+	-- Add debris if requested
+	if debris and debrisAmount > 0 then
 		if VoxDestruct.DebrisCallback then
-			-- Fire to clients for client-side debris physics
 			local debrisInfo = {
 				Material = originalInfo.Material,
 				Color = originalInfo.Color,
@@ -152,36 +160,26 @@ function VoxDestruct.octreeMeshSubtraction(
 				Reflectance = originalInfo.Reflectance,
 			}
 			VoxDestruct.DebrisCallback(
-				sphereHitbox.Position,
-				sphereHitbox.Size.X / 2,
+				sphereCenter,
+				sphereRadius,
 				debrisAmount,
 				debrisSizeMultiplier,
 				debrisInfo
 			)
 		else
-			-- Fallback to server-side debris (for testing or single-player)
-			DebrisModule.makeDebris(debrisAmount, sphereHitbox, originalInfo, debrisSizeMultiplier)
+			-- Fallback server-side debris (pass center/radius directly)
+			DebrisModule.makeDebris(debrisAmount, sphereCenter, sphereRadius, originalInfo, debrisSizeMultiplier)
 		end
 	end
 
-	-- NOTE: hitbox cleanup is handled by subtractHitbox after all parts are processed
-
-	-- Create folder to store meshes
-	local meshedFolder = workspace:FindFirstChild("CurrentVoxels")
-	if not meshedFolder then
-		meshedFolder = Instance.new("Folder")
-		meshedFolder.Name = "CurrentVoxels"
-		meshedFolder.Parent = workspace
-	end
-
-	local finalVoxels = {}
-
-	-- Resample the voxels if they are too big/small. Most of the time they will be resampled anyway.
+	-- Build final voxel list
+	local finalVoxels
 	if finalVoxelSize and finalVoxelSize > minSize then
+		finalVoxels = {}
 		for _, block in ipairs(mergedBlocks) do
 			local subVoxels = Cleanup.subdivideBlockToUniformVoxels(block, finalVoxelSize)
 			for _, voxel in ipairs(subVoxels) do
-				table.insert(finalVoxels, voxel)
+				finalVoxels[#finalVoxels + 1] = voxel
 			end
 		end
 	else
@@ -191,24 +189,43 @@ function VoxDestruct.octreeMeshSubtraction(
 	-- Clean up duplicate/unneeded voxels
 	finalVoxels = Cleanup.cleanupVoxels(finalVoxels, 0.5)
 
-	-- Build the final voxels with yielding to prevent timeout
-	-- Get the cached original part for cloning textures
+	-- Pre-cache texture children from original part (only SurfaceAppearance matters at voxel scale)
 	local cachedPart = originalInfo.part
+	local textureChildren = nil
+	if cachedPart then
+		textureChildren = {}
+		for _, child in ipairs(cachedPart:GetChildren()) do
+			if child:IsA("SurfaceAppearance") then
+				textureChildren[#textureChildren + 1] = child
+			end
+		end
+		if #textureChildren == 0 then
+			textureChildren = nil
+		end
+	end
 
-	local createdParts = {}
+	-- Get cached folder reference
+	local voxelFolder = getMeshedFolder()
+
+	-- BATCH: Collect all parts and CFrames for BulkMoveTo
+	local createdParts = table.create(#finalVoxels)
+	local bulkParts = table.create(#finalVoxels)
+	local bulkCFrames = table.create(#finalVoxels)
+
+	local clock = os.clock
+	local lastYield = clock()
+
 	for i, voxel in ipairs(finalVoxels) do
 		local worldCFrame = targetCFrame * CFrame.new(voxel.center)
 
 		local part = VoxDestruct.VoxelCache:GetPart()
 		part.Size = voxel.size
-		part.CFrame = worldCFrame
 		part.Anchored = true
 		part.TopSurface = Enum.SurfaceType.Smooth
 		part.BottomSurface = Enum.SurfaceType.Smooth
 		part.Transparency = originalInfo.Transparency
 		part.Reflectance = originalInfo.Reflectance
 
-		-- Debug random colors
 		if randomColor then
 			part.BrickColor = BrickColor.Random()
 		else
@@ -218,35 +235,45 @@ function VoxDestruct.octreeMeshSubtraction(
 		part.Material = originalInfo.Material
 		part.Name = "MeshedVoxel"
 
-		-- Clone textures from the ACTUAL cached original part
-		if cachedPart then
-			for _, child in ipairs(cachedPart:GetChildren()) do
-				if child:IsA("SurfaceAppearance") or child:IsA("Texture") or child:IsA("Decal") then
-					local clone = child:Clone()
-					clone.Parent = part
-				end
+		-- Only clone SurfaceAppearance (textures/decals are invisible at voxel scale)
+		if textureChildren then
+			for _, child in ipairs(textureChildren) do
+				local clone = child:Clone()
+				clone.Parent = part
 			end
 		end
 
-		part.Parent = meshedFolder
+		part.Parent = voxelFolder
+
+		-- Collect for batch CFrame update
+		bulkParts[i] = part
+		bulkCFrames[i] = worldCFrame
+		createdParts[i] = part
 
 		-- Track for regeneration
-		table.insert(createdParts, part)
 		VoxDestruct.VoxelToOriginal[part] = partId
-		table.insert(VoxDestruct.OriginalToVoxels[partId], part)
+		VoxDestruct.OriginalToVoxels[partId][#VoxDestruct.OriginalToVoxels[partId] + 1] = part
 
-		-- Yield periodically to prevent script timeout
-		if i % YIELD_INTERVAL == 0 then
+		-- Time-budget yielding: only yield if we've exceeded the frame budget
+		if clock() - lastYield > FRAME_BUDGET then
 			task.wait()
+			lastYield = clock()
 		end
+	end
+
+	-- Batch-move all voxels to final positions at once
+	if #bulkParts > 0 then
+		workspace:BulkMoveTo(bulkParts, bulkCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 
 	return finalVoxels, partId, createdParts
 end
 
---! Subtracts the specified area from a part, then uses octreeMeshSubtraction on it.
+--! Subtracts the specified spherical area from all overlapping parts.
+--  OPTIMIZED: No physical hitbox Part needed — uses position/radius directly.
 function VoxDestruct.subtractHitbox(
-	sphereHitbox: Part,
+	sphereCenter: Vector3,
+	sphereRadius: number,
 	minSize: number,
 	finalVoxelSize: number,
 	randomColor: boolean,
@@ -259,41 +286,43 @@ function VoxDestruct.subtractHitbox(
 	-- Update cache
 	VoxDestruct.VoxelCache = voxelCache
 
-	-- Build ignore list from instance names (resolve string names to actual workspace instances)
-	local ignoreInstances = { sphereHitbox }
+	-- Build ignore list from instance names
+	local ignoreInstances = {}
 	if ignore then
 		for _, name in ipairs(ignore) do
 			if typeof(name) == "Instance" then
-				table.insert(ignoreInstances, name)
+				ignoreInstances[#ignoreInstances + 1] = name
 			elseif type(name) == "string" then
-				-- Find instances by name in workspace to exclude
 				local found = workspace:FindFirstChild(name, true)
 				if found then
-					table.insert(ignoreInstances, found)
+					ignoreInstances[#ignoreInstances + 1] = found
 				end
 			end
 		end
 	end
 
-	-- Define overlap parameters.
+	-- Also ignore the meshed voxels folder and the original parts cache
+	local voxelFolder = getMeshedFolder()
+	if voxelFolder then
+		ignoreInstances[#ignoreInstances + 1] = voxelFolder
+	end
+
+	-- Define overlap parameters
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterDescendantsInstances = ignoreInstances
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
-	-- Cache the hitbox position and radius before any processing
-	-- (since the hitbox reference stays valid throughout)
-	local hitboxPosition = sphereHitbox.Position
-	local hitboxRadius = sphereHitbox.Size.X / 2
+	-- Get ALL overlapping parts upfront
+	local overlappingParts = workspace:GetPartBoundsInRadius(sphereCenter, sphereRadius, overlapParams)
 
-	-- Get ALL overlapping parts upfront before processing any of them
-	local overlappingParts = workspace:GetPartBoundsInRadius(hitboxPosition, hitboxRadius, overlapParams)
-
-	-- Loop through all parts overlapping the hitbox, and define debris.
+	-- Loop through all parts overlapping the hitbox
 	local totalDebris = 0
 	local affectedPartIds = {}
+	local clock = os.clock
+	local lastYield = clock()
 
 	for _, object in ipairs(overlappingParts) do
-		-- Skip non-block shapes (wedges, balls, cylinders, etc.) since voxels are cubes
+		-- Skip non-block shapes (wedges, balls, cylinders, etc.)
 		if object:IsA("WedgePart") or object:IsA("CornerWedgePart") or object:IsA("TrussPart") then
 			continue
 		end
@@ -308,23 +337,22 @@ function VoxDestruct.subtractHitbox(
 			continue
 		end
 
-		-- Skip parts that are already voxels (from previous destructions)
+		-- Skip parts that are already voxels
 		if object.Name == "MeshedVoxel" then
 			continue
 		end
 
 		totalDebris = totalDebris + debrisAmount
-
-		-- Adjust debris amount based on total.
 		local localDebrisAmount = debrisAmount
 		if totalDebris > debrisAmount * 4 then
 			localDebrisAmount = 0
 		end
 
-		-- Subtract specified area from part.
+		-- Subtract sphere from this part
 		local _, partId = VoxDestruct.octreeMeshSubtraction(
 			object,
-			sphereHitbox,
+			sphereCenter,
+			sphereRadius,
 			minSize,
 			finalVoxelSize,
 			randomColor,
@@ -334,13 +362,14 @@ function VoxDestruct.subtractHitbox(
 		)
 
 		if partId then
-			table.insert(affectedPartIds, partId)
+			affectedPartIds[#affectedPartIds + 1] = partId
 		end
-	end
 
-	-- Destroy the hitbox after ALL parts have been processed
-	if sphereHitbox and sphereHitbox.Parent then
-		sphereHitbox:Destroy()
+		-- Yield between parts if we've exceeded frame budget
+		if clock() - lastYield > FRAME_BUDGET then
+			task.wait()
+			lastYield = clock()
+		end
 	end
 
 	return affectedPartIds
@@ -353,28 +382,21 @@ function VoxDestruct.regenerate(partId: string)
 		return false
 	end
 
-	-- Get the actual cached original part
 	local originalPart = originalInfo.part
 	if not originalPart or not originalPart.Parent then
-		-- Part was destroyed somehow, clean up
 		VoxDestruct.OriginalParts[partId] = nil
 		VoxDestruct.OriginalToVoxels[partId] = nil
 		return false
 	end
 
-	-- Return voxels to cache first
+	-- Return voxels to cache
 	local voxels = VoxDestruct.OriginalToVoxels[partId]
 	if voxels then
 		for _, voxel in ipairs(voxels) do
 			if voxel and voxel.Parent then
-				-- Clear children before returning to cache
+				-- Only clear SurfaceAppearance (we no longer clone Texture/Decal)
 				for _, child in ipairs(voxel:GetChildren()) do
-					if
-						child:IsA("SurfaceAppearance")
-						or child:IsA("Texture")
-						or child:IsA("Decal")
-						or child:IsA("SpecialMesh")
-					then
+					if child:IsA("SurfaceAppearance") or child:IsA("SpecialMesh") then
 						child:Destroy()
 					end
 				end
@@ -384,13 +406,12 @@ function VoxDestruct.regenerate(partId: string)
 		end
 	end
 
-	-- Move the ORIGINAL part back to its original position
+	-- Restore the original part
 	originalPart.CFrame = originalInfo.originalCFrame
-	originalPart.Anchored = true -- Restore anchored state
-	originalPart.CanCollide = true -- Restore collision
+	originalPart.Anchored = true
+	originalPart.CanCollide = true
 	originalPart.Parent = workspace
 
-	-- Remove from storage
 	VoxDestruct.OriginalParts[partId] = nil
 	VoxDestruct.OriginalToVoxels[partId] = nil
 
@@ -403,7 +424,7 @@ function VoxDestruct.regenerateAll()
 	for partId in pairs(VoxDestruct.OriginalParts) do
 		local success, newPart = VoxDestruct.regenerate(partId)
 		if success then
-			table.insert(regenerated, newPart)
+			regenerated[#regenerated + 1] = newPart
 		end
 	end
 	return regenerated
@@ -414,44 +435,43 @@ function VoxDestruct.regenerateInRadius(position: Vector3, radius: number)
 	local regenerated = {}
 	local toRegenerate = {}
 
-	-- Find parts whose original position is within radius
 	for partId, info in pairs(VoxDestruct.OriginalParts) do
 		local partCenter = info.originalCFrame.Position
-		if (partCenter - position).Magnitude <= radius then
-			table.insert(toRegenerate, partId)
+		local dx = partCenter.X - position.X
+		local dy = partCenter.Y - position.Y
+		local dz = partCenter.Z - position.Z
+		if dx * dx + dy * dy + dz * dz <= radius * radius then
+			toRegenerate[#toRegenerate + 1] = partId
 		end
 	end
 
-	-- Regenerate them
 	for _, partId in ipairs(toRegenerate) do
 		local success, newPart = VoxDestruct.regenerate(partId)
 		if success then
-			table.insert(regenerated, newPart)
+			regenerated[#regenerated + 1] = newPart
 		end
 	end
 
 	return regenerated
 end
 
---! Get list of stored part IDs for debugging/UI
+--! Get list of stored part IDs
 function VoxDestruct.getStoredPartIds()
 	local ids = {}
 	for partId in pairs(VoxDestruct.OriginalParts) do
-		table.insert(ids, partId)
+		ids[#ids + 1] = partId
 	end
 	return ids
 end
 
---! Clear all regeneration data (call when cleaning up)
+--! Clear all regeneration data
 function VoxDestruct.clearRegenData()
-	-- Destroy all cached original parts
 	for _, info in pairs(VoxDestruct.OriginalParts) do
 		if info.part and info.part.Parent then
 			info.part:Destroy()
 		end
 	end
 
-	-- Clear the cache folder
 	if VoxDestruct.OriginalPartsCache and VoxDestruct.OriginalPartsCache.Parent then
 		VoxDestruct.OriginalPartsCache:ClearAllChildren()
 	end
@@ -459,6 +479,9 @@ function VoxDestruct.clearRegenData()
 	table.clear(VoxDestruct.OriginalParts)
 	table.clear(VoxDestruct.VoxelToOriginal)
 	table.clear(VoxDestruct.OriginalToVoxels)
+
+	-- Reset cached folder references
+	meshedFolder = nil
 end
 
 -- [ RETURNING ]

@@ -1,64 +1,78 @@
 -- [ VARIABLES ]
 local Cleanup = {}
 
-local YIELD_INTERVAL = 200 -- Yield every N voxels to prevent timeout
+local FRAME_BUDGET = 0.004 -- 4ms budget before yielding
 local MIN_DIMENSION = 1 -- Minimum size on any axis (prevents tiny slivers)
 
 -- [ FUNCTIONS ]
 
---! Cleans up too small voxels (no longer double-merges to avoid lag).
+--! Cleans up too-small voxels by filtering volume and minimum dimension.
 function Cleanup.cleanupVoxels(voxels: {}, minVolume: number)
 	local cleaned = {}
 	for _, v in ipairs(voxels) do
-		local vol = v.size.X * v.size.Y * v.size.Z
+		local sx, sy, sz = v.size.X, v.size.Y, v.size.Z
+		local vol = sx * sy * sz
 
 		-- Filter by both volume AND minimum dimension on each axis
-		local minAxis = math.min(v.size.X, v.size.Y, v.size.Z)
+		local minAxis = math.min(sx, sy, sz)
 
-		-- Only keep voxels that meet both thresholds
 		if vol >= minVolume and minAxis >= MIN_DIMENSION then
-			table.insert(cleaned, v)
+			cleaned[#cleaned + 1] = v
 		end
 	end
-	-- Removed redundant greedyMergeBlocks call - already merged in octreeMeshSubtraction
 	return cleaned
 end
 
---! Subdivides a given block, using a uniform voxel grid size.
+--! Subdivides a given block using a uniform voxel grid size.
+--  OPTIMIZED: Time-budget yielding, pre-computed values, #table+1 insertion.
 function Cleanup.subdivideBlockToUniformVoxels(block, voxelSize: number)
 	local voxels = {}
 	local blockSize = block.size
 
-	-- Snap the X/Y/Z to grid.
-	local snappedSizeX = math.floor(blockSize.X / voxelSize) * voxelSize
-	local snappedSizeY = math.floor(blockSize.Y / voxelSize) * voxelSize
-	local snappedSizeZ = math.floor(blockSize.Z / voxelSize) * voxelSize
-	local snappedSize = Vector3.new(snappedSizeX, snappedSizeY, snappedSizeZ)
+	-- Snap the X/Y/Z to grid
+	local numX = math.floor(blockSize.X / voxelSize)
+	local numY = math.floor(blockSize.Y / voxelSize)
+	local numZ = math.floor(blockSize.Z / voxelSize)
 
-	-- Recenter
-	local lowerCorner = block.center - snappedSize * 0.5
+	if numX <= 0 or numY <= 0 or numZ <= 0 then
+		return voxels
+	end
 
-	-- Find number of voxels along each axis.
-	local numX = math.floor(snappedSizeX / voxelSize)
-	local numY = math.floor(snappedSizeY / voxelSize)
-	local numZ = math.floor(snappedSizeZ / voxelSize)
+	local snappedSizeX = numX * voxelSize
+	local snappedSizeY = numY * voxelSize
+	local snappedSizeZ = numZ * voxelSize
 
-	local count = 0
+	-- Recenter: lower corner of the snapped region
+	local lowerX = block.center.X - snappedSizeX * 0.5
+	local lowerY = block.center.Y - snappedSizeY * 0.5
+	local lowerZ = block.center.Z - snappedSizeZ * 0.5
+
+	local halfVoxel = voxelSize * 0.5
+	local voxelSizeVec = Vector3.new(voxelSize, voxelSize, voxelSize)
+
+	local clock = os.clock
+	local lastYield = clock()
+
 	for x = 0, numX - 1 do
+		local cx = lowerX + x * voxelSize + halfVoxel
 		for y = 0, numY - 1 do
+			local cy = lowerY + y * voxelSize + halfVoxel
 			for z = 0, numZ - 1 do
-				local center = lowerCorner
-					+ Vector3.new((x + 0.5) * voxelSize, (y + 0.5) * voxelSize, (z + 0.5) * voxelSize)
-				table.insert(voxels, { center = center, size = Vector3.new(voxelSize, voxelSize, voxelSize) })
-
-				-- Yield periodically to prevent script timeout
-				count += 1
-				if count % YIELD_INTERVAL == 0 then
-					task.wait()
-				end
+				local cz = lowerZ + z * voxelSize + halfVoxel
+				voxels[#voxels + 1] = {
+					center = Vector3.new(cx, cy, cz),
+					size = voxelSizeVec, -- Reuse same Vector3 for all uniform voxels
+				}
 			end
 		end
+
+		-- Time-budget yielding (check per X-row, not per voxel)
+		if clock() - lastYield > FRAME_BUDGET then
+			task.wait()
+			lastYield = clock()
+		end
 	end
+
 	return voxels
 end
 

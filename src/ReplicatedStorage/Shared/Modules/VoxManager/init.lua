@@ -107,37 +107,24 @@ function VoxManager:explode(position: Vector3, radius: number?, options: {}?)
 		debugColors = self.Defaults.debugColors
 	end
 
-	-- Create hitbox
-	local hitbox = Instance.new("Part")
-	hitbox.Shape = Enum.PartType.Ball
-	hitbox.Position = position
-	hitbox.Size = Vector3.new(r * 2, r * 2, r * 2)
-	hitbox.Anchored = true
-	hitbox.CanCollide = false
-	hitbox.CanQuery = false
-	hitbox.Transparency = 1
-	hitbox.Parent = workspace
-
-	-- Execute voxelization (hitbox is destroyed inside subtractHitbox after processing)
+	-- Execute voxelization directly with position/radius (no hitbox Part needed)
 	local ok, result = pcall(function()
 		return Voxelizer.subtractHitbox(
-			hitbox,
-			voxelSize, -- minSize
-			voxelSize, -- finalSize
-			debugColors, -- randomColor
-			debris, -- debris
-			debrisAmount, -- debrisAmount
-			ignore, -- ignore list
+			position,       -- sphereCenter
+			r,              -- sphereRadius
+			voxelSize,      -- minSize
+			voxelSize,      -- finalSize
+			debugColors,    -- randomColor
+			debris,         -- debris
+			debrisAmount,   -- debrisAmount
+			ignore,         -- ignore list
 			self._voxelCache,
-			debrisSize
+			debrisSize      -- debrisSizeMultiplier
 		)
 	end)
 
-	-- Safety cleanup: if subtractHitbox errored, destroy the hitbox
 	if not ok then
-		if hitbox and hitbox.Parent then
-			hitbox:Destroy()
-		end
+		warn("[VoxManager] Explosion failed:", result)
 		return false
 	end
 
@@ -207,6 +194,7 @@ end
 --[[
 	Explode using a pre-made spherical hitbox Part.
 	For advanced users who want more control.
+	NOTE: The hitbox Part is destroyed after processing.
 	
 	@param hitbox Part - A Ball-shaped part
 	@param options? table - Same as explode()
@@ -232,9 +220,17 @@ function VoxManager:explodeWithHitbox(hitbox: Part, options: {}?)
 		debugColors = self.Defaults.debugColors
 	end
 
+	-- Extract position/radius from hitbox, then destroy it immediately
+	local position = hitbox.Position
+	local radius = hitbox.Size.X / 2
+	if hitbox.Parent then
+		hitbox:Destroy()
+	end
+
 	local ok, result = pcall(function()
 		return Voxelizer.subtractHitbox(
-			hitbox,
+			position,
+			radius,
 			voxelSize,
 			voxelSize,
 			debugColors,
@@ -247,6 +243,7 @@ function VoxManager:explodeWithHitbox(hitbox: Part, options: {}?)
 	end)
 
 	if not ok then
+		warn("[VoxManager] Explosion failed:", result)
 		return false
 	end
 

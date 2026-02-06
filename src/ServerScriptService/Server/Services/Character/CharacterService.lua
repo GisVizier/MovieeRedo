@@ -307,6 +307,14 @@ function CharacterService:Ragdoll(player, duration, options)
 
 	-- Use the RagdollModule
 	RagdollModule.Ragdoll(player, knockbackForce, duration)
+
+	-- Notify clients so CharacterController can switch camera to third-person
+	if self._net then
+		self._net:FireAllClients("RagdollStarted", player, {
+			Velocity = knockbackForce,
+		})
+	end
+
 	return true
 end
 
@@ -322,6 +330,12 @@ function CharacterService:Unragdoll(player)
 	end
 
 	RagdollModule.GetBackUp(player)
+
+	-- Notify clients so CharacterController can restore camera mode
+	if self._net then
+		self._net:FireAllClients("RagdollEnded", player)
+	end
+
 	return true
 end
 

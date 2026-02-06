@@ -12,23 +12,24 @@ function Utils.distanceSqFromPointToAABB(point: Vector3, aabbCenter: Vector3, ha
 end
 
 --! Check if bounding box of a part is inside a sphere part.
+--  OPTIMIZED: No table/Vector3 allocations. Pure inline math with squared magnitude.
 function Utils.isAABBInsideSphere(aabbCenter: Vector3, halfSize: Vector3, sphereCenter: Vector3, sphereRadius: number)
-	-- Check all 8 corners to see if they are in.
-	local corners = {
-		Vector3.new(aabbCenter.X - halfSize.X, aabbCenter.Y - halfSize.Y, aabbCenter.Z - halfSize.Z),
-		Vector3.new(aabbCenter.X + halfSize.X, aabbCenter.Y - halfSize.Y, aabbCenter.Z - halfSize.Z),
-		Vector3.new(aabbCenter.X - halfSize.X, aabbCenter.Y + halfSize.Y, aabbCenter.Z - halfSize.Z),
-		Vector3.new(aabbCenter.X + halfSize.X, aabbCenter.Y + halfSize.Y, aabbCenter.Z - halfSize.Z),
-		Vector3.new(aabbCenter.X - halfSize.X, aabbCenter.Y - halfSize.Y, aabbCenter.Z + halfSize.Z),
-		Vector3.new(aabbCenter.X + halfSize.X, aabbCenter.Y - halfSize.Y, aabbCenter.Z + halfSize.Z),
-		Vector3.new(aabbCenter.X - halfSize.X, aabbCenter.Y + halfSize.Y, aabbCenter.Z + halfSize.Z),
-		Vector3.new(aabbCenter.X + halfSize.X, aabbCenter.Y + halfSize.Y, aabbCenter.Z + halfSize.Z),
-	}
+	local rSq = sphereRadius * sphereRadius
+	local cx, cy, cz = aabbCenter.X, aabbCenter.Y, aabbCenter.Z
+	local hx, hy, hz = halfSize.X, halfSize.Y, halfSize.Z
+	local sx, sy, sz = sphereCenter.X, sphereCenter.Y, sphereCenter.Z
 
-	-- For each corner, check if it is using a loop. Use radius not diameter since diameter is full width of sphere.
-	for _, corner in ipairs(corners) do
-		if (corner - sphereCenter).Magnitude > sphereRadius then
-			return false
+	-- Check all 8 corners inline without allocating any tables or Vector3s
+	for x = -1, 1, 2 do
+		local dx = cx + hx * x - sx
+		for y = -1, 1, 2 do
+			local dy = cy + hy * y - sy
+			for z = -1, 1, 2 do
+				local dz = cz + hz * z - sz
+				if dx * dx + dy * dy + dz * dz > rSq then
+					return false
+				end
+			end
 		end
 	end
 	return true
