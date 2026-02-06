@@ -29,6 +29,7 @@ CombatService._statusEffects = {} -- [Player] = StatusEffectManager
 CombatService._assistTracking = {} -- [Player] = { [attackerUserId] = lastDamageTime }
 
 local ASSIST_WINDOW = 10 -- Seconds to qualify for assist
+local DEATH_RAGDOLL_DURATION = CombatConfig.Death.RagdollDuration or 3
 
 function CombatService:Init(registry, net)
 	self._registry = registry
@@ -472,9 +473,37 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 		end
 	end
 
-	-- Execute kill effect
+	-- Determine kill effect
 	local effectId = self:_getKillEffect(killer, weaponId)
-	KillEffects:Execute(effectId, victim, killer, weaponId)
+
+	-- Trigger ragdoll through CharacterService for ragdoll-type kill effects
+	local characterService = self._registry:TryGet("CharacterService")
+	if characterService and effectId == "Ragdoll" then
+		-- Build knockback direction from killer toward victim
+		local ragdollOptions = {}
+		local victimChar = victim.Character
+		local killerChar = killer and killer.Character
+
+		if victimChar and killerChar then
+			local victimRoot = victimChar:FindFirstChild("Root") or victimChar.PrimaryPart
+			local killerRoot = killerChar:FindFirstChild("Root") or killerChar.PrimaryPart
+			if victimRoot and killerRoot then
+				local direction = (victimRoot.Position - killerRoot.Position).Unit
+				ragdollOptions.Velocity = direction * 40 + Vector3.new(0, 30, 0)
+			end
+		end
+
+		-- If no directional knockback, apply a default upward fling
+		if not ragdollOptions.Velocity then
+			ragdollOptions.Velocity = Vector3.new(0, 30, 0)
+		end
+
+		-- Ragdoll with no auto-recovery (server controls respawn timing)
+		characterService:Ragdoll(victim, nil, ragdollOptions)
+	else
+		-- Non-ragdoll kill effects: execute as before
+		KillEffects:Execute(effectId, victim, killer, weaponId)
+	end
 
 	-- Clear status effects
 	local effectManager = self._statusEffects[victim]
@@ -504,6 +533,19 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 	end
 
 	print("[CombatService]", killer and killer.Name or "Unknown", "killed", victim.Name)
+
+	-- Server-controlled respawn after ragdoll plays out (only for real players)
+	if typeof(victim) == "Instance" and victim:IsA("Player") and characterService then
+		task.delay(DEATH_RAGDOLL_DURATION, function()
+			if not victim or not victim.Parent then
+				return
+			end
+
+			-- Clean up ragdoll before respawning
+			characterService:Unragdoll(victim)
+			characterService:SpawnCharacter(victim)
+		end)
+	end
 end
 
 function CombatService:_getKillEffect(killer: Player?, weaponId: string?): string

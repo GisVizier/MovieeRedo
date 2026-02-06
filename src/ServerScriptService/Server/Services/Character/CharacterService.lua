@@ -148,6 +148,9 @@ function CharacterService:SpawnCharacter(player)
 	end
 	self.IsSpawningCharacter[player.UserId] = true
 
+	-- Clean up any active ragdoll before removing the character
+	self:Unragdoll(player)
+
 	self:RemoveCharacter(player)
 
 	local character = Instance.new("Model")

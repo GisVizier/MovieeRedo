@@ -36,16 +36,6 @@ local function getOriginalPartsCache()
 	return VoxDestruct.OriginalPartsCache
 end
 
---! Clone SurfaceAppearance and other texture children from source to target
-local function cloneTextures(source: Part, target: Part)
-	for _, child in ipairs(source:GetChildren()) do
-		if child:IsA("SurfaceAppearance") or child:IsA("Texture") or child:IsA("Decal") then
-			local clone = child:Clone()
-			clone.Parent = target
-		end
-	end
-end
-
 --! Uses recursive octree subdivision.
 local function subdivideAABB(
 	aabbCenter: Vector3,

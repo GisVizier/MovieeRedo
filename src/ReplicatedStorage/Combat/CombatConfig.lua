@@ -48,7 +48,8 @@ CombatConfig.StatusEffects = {
 -- Death settings
 CombatConfig.Death = {
 	DefaultKillEffect = "Ragdoll",
-	RespawnDelay = 0,      -- Handled by game controller
+	RagdollDuration = 3,   -- Seconds ragdoll plays before respawn
+	RespawnDelay = 0,      -- Additional delay after ragdoll (handled by game controller)
 }
 
 -- Damage numbers display settings

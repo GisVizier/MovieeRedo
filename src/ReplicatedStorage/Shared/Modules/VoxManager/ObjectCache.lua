@@ -24,10 +24,6 @@ local Cache = {}
 Cache.__index = Cache
 
 function Cache:_GetNew(Amount: number, Warn: boolean)
-	if Warn then
-		warn(`ObjectCache: Cache retrieval exceeded preallocated amount! expanding by {Amount}...`)
-	end
-
 	local FreeObjectsContainer = self._FreeObjects
 	local InitialLength = #self._FreeObjects
 	local CacheHolder = self.CacheHolder

@@ -1,45 +1,23 @@
 --[[
 	Ragdoll.lua
-	Default kill effect - triggers the ragdoll system on the victim
+	Default kill effect - ragdoll physics on the victim
+	
+	The actual ragdoll is triggered directly by CombatService._handleDeath
+	via CharacterService:Ragdoll(). This module exists as a registered
+	KillEffect entry so the system can identify it by ID.
 ]]
-
-local Players = game:GetService("Players")
 
 local Ragdoll = {}
 Ragdoll.Id = "Ragdoll"
 Ragdoll.Name = "Ragdoll"
 
 --[[
-	Executes the ragdoll kill effect
-	@param victim Player
-	@param killer Player?
-	@param weaponId string?
-	@param options table?
+	Execute is intentionally a no-op for the Ragdoll effect.
+	CombatService._handleDeath handles ragdoll triggering directly
+	through CharacterService:Ragdoll() for proper server authority.
 ]]
-function Ragdoll:Execute(victim: Player, killer: Player?, weaponId: string?, options: {[string]: any}?)
-	-- The actual ragdoll is handled by CharacterService on the server
-	-- This module just needs to signal the intent
-	
-	local character = victim.Character
-	if not character then
-		return
-	end
-	
-	-- Set attribute to trigger ragdoll
-	-- CharacterService listens for this and handles the actual ragdoll physics
-	character:SetAttribute("KillEffect", "Ragdoll")
-	character:SetAttribute("KillerId", killer and killer.UserId or nil)
-	character:SetAttribute("KillWeaponId", weaponId)
-	
-	-- Apply fling options if provided
-	if options then
-		if options.flingDirection then
-			character:SetAttribute("KillFlingDirection", options.flingDirection)
-		end
-		if options.flingStrength then
-			character:SetAttribute("KillFlingStrength", options.flingStrength)
-		end
-	end
+function Ragdoll:Execute(_victim: Player, _killer: Player?, _weaponId: string?, _options: {[string]: any}?)
+	-- No-op: CombatService handles ragdoll death directly via CharacterService
 end
 
 return Ragdoll

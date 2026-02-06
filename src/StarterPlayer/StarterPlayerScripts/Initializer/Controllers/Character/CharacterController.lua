@@ -95,20 +95,6 @@ function CharacterController:Init(registry, net)
 		if input.KeyCode == Enum.KeyCode.F4 then
 			self:ToggleHitboxDebug()
 		end
-
-		-- RAGDOLL TEST KEYBINDS (R = ragdoll with force, G = get back up)
-		if input.KeyCode == Enum.KeyCode.R then
-			local character = Players.LocalPlayer.Character
-			if character then
-				-- Strong knockback force for testing (upward + backward)
-				local knockbackForce = Vector3.new(0, 200, -150)
-				RagdollModule.Ragdoll(Players.LocalPlayer, knockbackForce)
-				print("[CharacterController] TEST: Ragdoll triggered with force", knockbackForce)
-			end
-		elseif input.KeyCode == Enum.KeyCode.G then
-			RagdollModule.GetBackUp(Players.LocalPlayer)
-			print("[CharacterController] TEST: GetBackUp triggered")
-		end
 	end)
 
 	self:_setupExistingCharacters()
@@ -373,12 +359,10 @@ function CharacterController:_setupLocalCharacter(player, character)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid and not self._deathConnections[character] then
 		self._deathConnections[character] = humanoid.Died:Connect(function()
-			warn("[CHAR_DEATH] Humanoid.Died -> RequestRespawn")
-			if self._respawnRequested then
-				return
-			end
-			self._respawnRequested = true
-			self._net:FireServer("RequestRespawn")
+			warn("[CHAR_DEATH] Humanoid.Died - server handles ragdoll and respawn")
+			-- Respawn is now server-controlled via CombatService death ragdoll.
+			-- The server will trigger ragdoll, wait for it to play, then respawn.
+			-- We no longer fire RequestRespawn here to avoid racing the ragdoll.
 		end)
 	end
 

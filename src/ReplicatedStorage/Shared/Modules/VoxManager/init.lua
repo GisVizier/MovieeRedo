@@ -138,7 +138,6 @@ function VoxManager:explode(position: Vector3, radius: number?, options: {}?)
 		if hitbox and hitbox.Parent then
 			hitbox:Destroy()
 		end
-		warn("[VoxManager] explode failed:", result)
 		return false
 	end
 
@@ -172,8 +171,6 @@ function VoxManager:setDefaults(options: {})
 	for key, value in pairs(options) do
 		if self.Defaults[key] ~= nil then
 			self.Defaults[key] = value
-		else
-			warn("VoxManager: Unknown default option '" .. tostring(key) .. "'")
 		end
 	end
 end
@@ -235,17 +232,23 @@ function VoxManager:explodeWithHitbox(hitbox: Part, options: {}?)
 		debugColors = self.Defaults.debugColors
 	end
 
-	local result = Voxelizer.subtractHitbox(
-		hitbox,
-		voxelSize,
-		voxelSize,
-		debugColors,
-		debris,
-		debrisAmount,
-		ignore,
-		self._voxelCache,
-		debrisSize
-	)
+	local ok, result = pcall(function()
+		return Voxelizer.subtractHitbox(
+			hitbox,
+			voxelSize,
+			voxelSize,
+			debugColors,
+			debris,
+			debrisAmount,
+			ignore,
+			self._voxelCache,
+			debrisSize
+		)
+	end)
+
+	if not ok then
+		return false
+	end
 
 	return result ~= nil
 end

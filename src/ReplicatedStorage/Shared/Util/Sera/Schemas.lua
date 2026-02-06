@@ -207,7 +207,7 @@ SeraSchemas.ProjectileHitPacket = Sera.Schema({
 	ImpactTimestamp = Sera.Float64, -- 8 bytes (when projectile hit)
 	Origin = Sera.Vector3,          -- 12 bytes (fire position)
 	HitPosition = Sera.Vector3,     -- 12 bytes (impact position)
-	TargetUserId = Sera.Int32,      -- 4 bytes (target player, 0 = environment)
+	TargetUserId = Sera.Uint32,     -- 4 bytes (target player, 0 = environment)
 	HitPart = Sera.Uint8,           -- 1 byte (enum: None/Body/Head/Limb)
 	WeaponId = Sera.Uint8,          -- 1 byte (weapon enum)
 	ProjectileId = Sera.Uint32,     -- 4 bytes (matching spawn ID)
