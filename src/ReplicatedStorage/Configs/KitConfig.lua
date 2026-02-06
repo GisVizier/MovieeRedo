@@ -257,7 +257,7 @@ KitConfig.Kits = {
 			Name = "DUALITY",
 			Description = "Wield limitless force through two states, Pull to drag enemies in and Push to blast them away. Master both to control space, movement, and the fight itself.",
 			Video = "",
-			Cooldown = 8,
+			Cooldown = 0.5, -- TEST COOLDOWN (was 8)
 			Destruction = "Big",
 		},
 

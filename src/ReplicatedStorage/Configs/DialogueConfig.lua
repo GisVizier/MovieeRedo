@@ -157,6 +157,21 @@ Dialogue.Dialogues = {
 	},
 
 	HonoredOne = {
+		Ability = {
+			Hit = {
+				HonoredOne_Hit_1 = {
+					CharactersNeeded = {"HonoredOne"},
+					Dialogue = {
+						{
+							Character = "HonoredOne",
+							SoundInstance = 123168642237148,
+							DialogueText = "Back off.",
+							Speaker = true,
+						},
+					},
+				},
+			},
+		},
 		RoundStart = {
 			Default = {
 				HonoredOne_Start_1 = {

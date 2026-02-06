@@ -119,10 +119,7 @@ local function handleBlueHit(self, clientData)
 
 	log("=== BLUE HIT ===", player.Name)
 
-	-- Start cooldown
-	if service then
-		service:StartCooldown(player)
-	end
+	-- Cooldown already started at "open" event via startCooldown action
 
 	-- Terrain destruction at explosion position
 	local posData = clientData.explosionPosition
@@ -263,7 +260,14 @@ function Kit:OnAbility(inputState, clientData)
 	clientData = clientData or {}
 	local action = clientData.action
 
-	if action == "blueHit" then
+	if action == "startCooldown" then
+		-- Start cooldown when ability commits (open for Blue, shoot for Red)
+		local service = self._ctx.service
+		if service then
+			service:StartCooldown(player)
+		end
+		return false -- Don't end ability, just started cooldown
+	elseif action == "blueHit" then
 		handleBlueHit(self, clientData)
 		return true
 	elseif action == "redHit" then

@@ -31,6 +31,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -103,37 +104,32 @@ local RED_PHYSICS_CONFIG = {
 	lifetime = RED_CONFIG.MAX_RANGE / RED_CONFIG.PROJECTILE_SPEED + 0.2,  -- ~1 second total
 }
 
--- Voice line on hit
-local HIT_VOICE_LINE = { soundId = "rbxassetid://123168642237148", text = "Back off" }
 
 --------------------------------------------------------------------------------
--- Create Sound instances as children of script (preloaded)
+-- Sound Configuration & Preloading
 --------------------------------------------------------------------------------
 
--- Create sounds if they don't exist (first time load)
-if not script:FindFirstChild("start") then
-	local startSound = Instance.new("Sound")
-	startSound.Name = "start"
-	startSound.SoundId = "rbxassetid://103690871211615"
-	startSound.Volume = 1
-	startSound.Parent = script
+local SOUND_CONFIG = {
+	start = { id = "rbxassetid://103690871211615", volume = 1 },
+	shoot = { id = "rbxassetid://111984395150553", volume = 1 },
+	explosion = { id = "rbxassetid://109996936076104", volume = 1.5 },
+}
+
+-- Create and preload all sounds
+local preloadItems = {}
+for name, config in pairs(SOUND_CONFIG) do
+	if not script:FindFirstChild(name) then
+		local sound = Instance.new("Sound")
+		sound.Name = name
+		sound.SoundId = config.id
+		sound.Volume = config.volume
+		sound.Parent = script
+	end
+	table.insert(preloadItems, script:FindFirstChild(name))
 end
 
-if not script:FindFirstChild("shoot") then
-	local shootSound = Instance.new("Sound")
-	shootSound.Name = "shoot"
-	shootSound.SoundId = "rbxassetid://111984395150553"
-	shootSound.Volume = 1
-	shootSound.Parent = script
-end
-
-if not script:FindFirstChild("explosion") then
-	local explosionSound = Instance.new("Sound")
-	explosionSound.Name = "explosion"
-	explosionSound.SoundId = "rbxassetid://109996936076104"
-	explosionSound.Volume = 1.5
-	explosionSound.Parent = script
-end
+-- Preload synchronously to prevent delay on first use
+ContentProvider:PreloadAsync(preloadItems)
 
 --------------------------------------------------------------------------------
 -- Sound Helpers (same pattern as Aki)
@@ -142,42 +138,9 @@ end
 local activeSounds = {}
 local chargeSound = nil
 
-local function showSubtitle(text: string)
-	Dialogue.onLine:fire({
-		character = "Gojo",
-		text = text,
-		speaker = true,
-		audience = "Self",
-	})
-	
-	task.delay(2.5, function()
-		Dialogue.onFinish:fire({ key = "Gojo" })
-	end)
-end
-
-local function playVoiceLine(voiceData: { soundId: string, text: string }, parent: Instance?)
-	local character = LocalPlayer.Character
-	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
-	if not root then return end
-	
-	local sound = Instance.new("Sound")
-	sound.SoundId = voiceData.soundId
-	sound.Volume = 1
-	sound.RollOffMode = Enum.RollOffMode.Linear
-	sound.RollOffMaxDistance = 50
-	sound.Parent = parent or root
-	sound:Play()
-	sound.Ended:Once(function()
-		sound:Destroy()
-	end)
-	
-	if voiceData.text then
-		showSubtitle(voiceData.text)
-	end
-end
-
-local function playHitVoice(parent: Instance?)
-	playVoiceLine(HIT_VOICE_LINE, parent)
+local function playHitVoice()
+	-- Use the Dialogue system to play the hit voice line (handles sound + subtitles)
+	Dialogue.generate("HonoredOne", "Ability", "Hit", { override = true })
 end
 
 local function playStartSound(viewmodelRig: any): Sound?
@@ -223,22 +186,43 @@ local function playShootSound(parent: Instance?): Sound?
 	return sound
 end
 
-local function playExplosionSound(parent: Instance?): Sound?
+local function playExplosionSound(position: Vector3?): Sound?
 	local explosionSound = script:FindFirstChild("explosion")
 	if not explosionSound then return nil end
-	
+
 	local sound = explosionSound:Clone()
-	sound.Parent = parent or Workspace
+
+	-- If position provided, create an anchored part at that location for 3D audio
+	if position then
+		local soundAnchor = Instance.new("Part")
+		soundAnchor.Name = "ExplosionSoundAnchor"
+		soundAnchor.Size = Vector3.new(1, 1, 1)
+		soundAnchor.CFrame = CFrame.new(position)
+		soundAnchor.Anchored = true
+		soundAnchor.CanCollide = false
+		soundAnchor.CanQuery = false
+		soundAnchor.CanTouch = false
+		soundAnchor.Transparency = 1
+		soundAnchor.Parent = Workspace
+		sound.Parent = soundAnchor
+
+		sound.Ended:Once(function()
+			local idx = table.find(activeSounds, sound)
+			if idx then table.remove(activeSounds, idx) end
+			soundAnchor:Destroy()
+		end)
+	else
+		sound.Parent = Workspace
+		sound.Ended:Once(function()
+			local idx = table.find(activeSounds, sound)
+			if idx then table.remove(activeSounds, idx) end
+			sound:Destroy()
+		end)
+	end
+
 	sound:Play()
-	
 	table.insert(activeSounds, sound)
-	
-	sound.Ended:Once(function()
-		local idx = table.find(activeSounds, sound)
-		if idx then table.remove(activeSounds, idx) end
-		sound:Destroy()
-	end)
-	
+
 	return sound
 end
 
@@ -877,9 +861,9 @@ local function runRedProjectile(state)
 		forceAction = "red_explode",
 	})
 
-	-- Stop charge sound and play explosion sound
+	-- Stop charge sound and play explosion sound at explosion position
 	stopChargeSound()
-	playExplosionSound()
+	playExplosionSound(position)
 
 	-- Explosion visual
 	projectileViz:Destroy()
@@ -995,7 +979,22 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 
 	-- Start ability
 	local ctx = abilityRequest.StartAbility()
-	local unlock = kitController:LockWeaponSwitch()
+	
+	-- DON'T lock weapon switch immediately - allow cancel by swapping weapons
+	-- Will lock at "open" (Blue) or "shoot" (Red) when ability commits
+	local weaponLocked = false
+	local function lockWeaponNow()
+		if not weaponLocked then
+			weaponLocked = true
+			kitController:LockWeaponSwitch()
+		end
+	end
+	local function unlockWeaponNow()
+		if weaponLocked then
+			weaponLocked = false
+			kitController:UnlockWeaponSwitch()
+		end
+	end
 
 	-- Get viewmodel animator
 	local viewmodelAnimator = ctx.viewmodelAnimator
@@ -1012,7 +1011,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 	})
 
 	if not animation then
-		unlock()
 		kitController:_unholsterWeapon()
 		return
 	end
@@ -1024,9 +1022,11 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		projectileActive = false, -- Red projectile is running
 		cancelled = false,       -- Hard cancel (interrupt)
 		released = false,        -- Button released (for Red freeze/aim)
+		committed = false,       -- Has ability committed (cooldown started)?
 		isCrouching = isCrouching,
 		animation = animation,
-		unlock = unlock,
+		lockWeapon = lockWeaponNow,
+		unlockWeapon = unlockWeaponNow,
 		abilityRequest = abilityRequest,
 		character = character,
 		viewmodelRig = viewmodelRig,
@@ -1035,6 +1035,52 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		projectileViz = nil,
 	}
 	HonoredOne._abilityState = state
+
+	-- Play start sound immediately for red ability (no delay)
+	if isCrouching then
+		playStartSound(viewmodelRig)
+	end
+
+	-- Listen for weapon slot changes to cancel if not yet committed
+	local slotChangedConn
+	slotChangedConn = LocalPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(function()
+		if state.committed or state.cancelled then
+			-- Already committed or cancelled, ignore
+			return
+		end
+		
+		-- Player swapped weapons before ability committed - cancel!
+		state.cancelled = true
+		state.active = false
+		
+		-- Stop animation
+		if state.animation and state.animation.IsPlaying then
+			state.animation:Stop(0.1)
+		end
+		
+		-- Cleanup
+		cleanupSounds()
+		LocalPlayer:SetAttribute(`red_charge`, nil)
+		
+		-- Disconnect all connections
+		for _, conn in ipairs(state.connections or {}) do
+			if typeof(conn) == "RBXScriptConnection" then
+				conn:Disconnect()
+			end
+		end
+		state.connections = {}
+		
+		-- Clear state
+		if HonoredOne._abilityState == state then
+			HonoredOne._abilityState = nil
+		end
+		
+		-- Disconnect this listener
+		if slotChangedConn then
+			slotChangedConn:Disconnect()
+		end
+	end)
+	table.insert(state.connections, slotChangedConn)
 
 	-- Animation event handlers
 	local Events = {
@@ -1051,13 +1097,9 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		end,
 		
 		["start"] = function()
-			-- VFX/sounds on ability start (charging for Red)
+			-- VFX on ability start (charging for Red) - sound already played at ability start
 			if isCrouching then
 				LocalPlayer:SetAttribute(`red_charge`, true)
-
-				-- Start charge sound on viewmodel
-				local vmRoot = viewmodelRig and viewmodelRig.Model and viewmodelRig.Model:FindFirstChild("HumanoidRootPart")
-				playStartSound(viewmodelRig)
 
 				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 					ViewModel = viewmodelRig,
@@ -1078,6 +1120,12 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- BLUE ONLY: Spawn hitbox
 			if isCrouching then return end
 			if not state.active or state.cancelled then return end
+			
+			-- COMMIT: Lock weapon switch and start cooldown
+			state.committed = true
+			state.lockWeapon()
+			abilityRequest.Send({ action = "startCooldown" })
+			
 			task.spawn(runBlueHitbox, state)
 		end,
 
@@ -1085,6 +1133,12 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- RED ONLY: Fire projectile
 			if not isCrouching then return end
 			if not state.active or state.cancelled then return end
+			
+			-- COMMIT: Lock weapon switch and start cooldown
+			state.committed = true
+			state.lockWeapon()
+			abilityRequest.Send({ action = "startCooldown" })
+			
 			task.spawn(runRedProjectile, state)
 
 			VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
@@ -1117,7 +1171,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			state.connections = {}
 
 			-- Restore weapon (animation done, but hitbox/projectile continues)
-			state.unlock()
+			state.unlockWeapon()
 			kitController:_unholsterWeapon()
 			LocalPlayer:SetAttribute(`red_charge`, nil)
 		end,
@@ -1198,8 +1252,8 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	cleanupSounds()
 
 	-- Restore weapon (if animation hadn't finished yet)
-	if state.unlock then
-		state.unlock()
+	if state.unlockWeapon then
+		state.unlockWeapon()
 	end
 	ServiceRegistry:GetController("Kit"):_unholsterWeapon()
 end
