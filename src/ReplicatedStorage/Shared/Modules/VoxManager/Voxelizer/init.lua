@@ -186,8 +186,8 @@ function VoxDestruct.octreeMeshSubtraction(
 		finalVoxels = mergedBlocks
 	end
 
-	-- Clean up duplicate/unneeded voxels
-	finalVoxels = Cleanup.cleanupVoxels(finalVoxels, 0.5)
+	-- Clean up duplicate/unneeded voxels (low threshold to keep fine boundary detail)
+	finalVoxels = Cleanup.cleanupVoxels(finalVoxels, 0.06)
 
 	-- Pre-cache texture children from original part (only SurfaceAppearance matters at voxel scale)
 	local cachedPart = originalInfo.part

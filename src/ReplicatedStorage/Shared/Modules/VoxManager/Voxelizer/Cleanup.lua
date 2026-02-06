@@ -2,7 +2,7 @@
 local Cleanup = {}
 
 local FRAME_BUDGET = 0.004 -- 4ms budget before yielding
-local MIN_DIMENSION = 1 -- Minimum size on any axis (prevents tiny slivers)
+local MIN_DIMENSION = 0.4 -- Minimum size on any axis (prevents tiny slivers, allows fine boundary voxels)
 
 -- [ FUNCTIONS ]
 

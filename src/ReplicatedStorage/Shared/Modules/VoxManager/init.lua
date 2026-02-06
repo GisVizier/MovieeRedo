@@ -107,13 +107,18 @@ function VoxManager:explode(position: Vector3, radius: number?, options: {}?)
 		debugColors = self.Defaults.debugColors
 	end
 
+	-- Use a finer minSize for more accurate sphere boundary detection.
+	-- The octree subdivides to minSize for precision, then greedy merging
+	-- recombines blocks to keep part count low.
+	local minSize = voxelSize * 0.5
+
 	-- Execute voxelization directly with position/radius (no hitbox Part needed)
 	local ok, result = pcall(function()
 		return Voxelizer.subtractHitbox(
 			position,       -- sphereCenter
 			r,              -- sphereRadius
-			voxelSize,      -- minSize
-			voxelSize,      -- finalSize
+			minSize,        -- minSize (finer than voxelSize for accuracy)
+			voxelSize,      -- finalSize (display size)
 			debugColors,    -- randomColor
 			debris,         -- debris
 			debrisAmount,   -- debrisAmount
@@ -227,11 +232,13 @@ function VoxManager:explodeWithHitbox(hitbox: Part, options: {}?)
 		hitbox:Destroy()
 	end
 
+	local minSize = voxelSize * 0.5
+
 	local ok, result = pcall(function()
 		return Voxelizer.subtractHitbox(
 			position,
 			radius,
-			voxelSize,
+			minSize,
 			voxelSize,
 			debugColors,
 			debris,
