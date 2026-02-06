@@ -248,10 +248,11 @@ KitConfig.Kits = {
 	HonoredOne = {
 		Icon = "rbxassetid://106069283820738",
 		Name = "HONORED ONE",
-		Description = "A legendary sorcerer who bends space itself, untouchable in battle and overwhelming in power. Calm, confident, and unstoppable, he treats every fight like it’s already won.",
+		Description = "A legendary sorcerer who bends space itself, untouchable in battle and overwhelming in power. Calm, confident, and unstoppable, he treats every fight like it's already won.",
 		Rarity = "Mythic",
 		Price = 12570,
 		Module = "HonoredOne",
+		Color = Color3.fromRGB(155, 89, 255),
 
 		Ability = {
 			Name = "DUALITY",
