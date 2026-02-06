@@ -86,11 +86,6 @@ function CameraController:_clampPositionAboveGround(pos: Vector3, clearance: num
 
 	local result = workspace:Raycast(origin, dir, self:_getEnvironmentRaycastParams())
 
-	-- DEBUG: Log ALL ground clamp hits
-	if result then
-		warn("[CAMERA GROUNDCLAMP] HIT:", result.Instance:GetFullName())
-	end
-
 	if not result then
 		return pos
 	end
@@ -421,12 +416,6 @@ function CameraController:SetupInput()
 			end
 		end
 
-		-- G key to toggle ragdoll (test)
-		if input.KeyCode == Config.Controls.Input.ToggleRagdollTest then
-			if self._net then
-				self._net:FireServer("ToggleRagdollTest")
-			end
-		end
 	end)
 
 	self.InputEndedConnection = UserInputService.InputEnded:Connect(function(input)
@@ -987,16 +976,6 @@ function CameraController:UpdateOrbitCamera(camera, deltaTime)
 
 	local spherecastResult = workspace:Spherecast(rayOrigin, orbitConfig.CollisionRadius, rayDirection, raycastParams)
 
-	-- DEBUG: Log camera collision results (throttled)
-	if spherecastResult then
-		local now = os.clock()
-		self._lastCameraOrbitLog = self._lastCameraOrbitLog or 0
-		if now - self._lastCameraOrbitLog > 0.5 then
-			self._lastCameraOrbitLog = now
-			warn("[CAMERA ORBIT] HIT:", spherecastResult.Instance:GetFullName())
-		end
-	end
-
 	local finalPosition
 	if spherecastResult then
 		local hitDistance = (spherecastResult.Position - rayOrigin).Magnitude
@@ -1082,11 +1061,6 @@ function CameraController:UpdateShoulderCamera(camera, deltaTime)
 	local cameraRadius = shoulderConfig.CollisionRadius or 0.5
 	local spherecastResult = workspace:Spherecast(rayOrigin, cameraRadius, rayDirection, raycastParams)
 
-	-- DEBUG: Log ALL camera collision results
-	if spherecastResult then
-		warn("[CAMERA SHOULDER] HIT:", spherecastResult.Instance:GetFullName())
-	end
-
 	local finalCameraPosition
 	if spherecastResult then
 		local hitDistance = (spherecastResult.Position - rayOrigin).Magnitude
@@ -1146,12 +1120,6 @@ function CameraController:UpdateFirstPersonCamera(camera, deltaTime)
 	local characterRotation = headCFrame * CFrame.Angles(0, math.rad(wrappedAngleY), 0)
 	local cameraOffset = followRigHead and (fpConfig.HeadOffset or fpConfig.Offset) or fpConfig.Offset
 	local rotOffset = fpConfig.HeadRotationOffset or Vector3.zero
-
-	-- Debug: Print offset being used (remove after testing)
-	if not self._fpOffsetPrinted then
-		print("[CameraController] FirstPerson offset:", cameraOffset, "FollowHead:", followRigHead)
-		self._fpOffsetPrinted = true
-	end
 
 	-- Apply offset in character's local space (so it moves with character facing)
 	local offsetPosition = characterRotation * CFrame.new(cameraOffset)

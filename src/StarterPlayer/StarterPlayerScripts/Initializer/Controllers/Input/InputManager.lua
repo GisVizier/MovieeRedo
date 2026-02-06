@@ -49,7 +49,6 @@ InputManager.Callbacks = {
 	Inspect = {},
 	Special = {},
 	ToggleCameraMode = {},
-	ToggleRagdollTest = {},
 	Settings = {},
 	Emotes = {},
 }
@@ -282,8 +281,6 @@ function InputManager:SetupKeyboardMouse()
 			self:FireCallbacks("Ultimate", input.UserInputState)
 		elseif self:IsKeybind(input, "ToggleCameraMode") then
 			self:FireCallbacks("ToggleCameraMode", true)
-		elseif self:IsKeybind(input, "ToggleRagdollTest") then
-			self:FireCallbacks("ToggleRagdollTest", true)
 		end
 	end)
 

@@ -850,7 +850,6 @@ function WeaponController:_updateAimAssistADS(isADS: boolean)
 		-- Apply ADS boost to strengthen the continuous pull
 		local boostConfig = self._aimAssistConfig and self._aimAssistConfig.adsBoost
 		self._aimAssist:applyADSBoost(boostConfig)
-		print("[WeaponController] ADS activated - continuous pull strengthened")
 
 		-- Start auto-shoot if target is in sight and ADS-only is enabled
 		if self._hasAutoShootTarget and AimAssistConfig.AutoShoot.ADSOnly then
@@ -859,7 +858,6 @@ function WeaponController:_updateAimAssistADS(isADS: boolean)
 	else
 		-- Deactivate ADS (restore base strengths)
 		self._aimAssist:deactivateADS()
-		print("[WeaponController] ADS deactivated - normal pull strength")
 
 		-- Stop auto-shoot if ADS-only is required
 		if AimAssistConfig.AutoShoot.ADSOnly then

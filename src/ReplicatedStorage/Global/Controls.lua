@@ -24,7 +24,6 @@ Controls.Input = {
 	
 	-- Camera & UI
 	ToggleCameraMode = Enum.KeyCode.T,
-	ToggleRagdollTest = Enum.KeyCode.G,
 
 	-- Controller defaults
 	ControllerJump = Enum.KeyCode.ButtonA,
@@ -156,13 +155,6 @@ Controls.CustomizableKeybinds = {
 		DefaultPrimary = Enum.KeyCode.O,
 		DefaultSecondary = nil,
 		Category = "UI",
-	},
-	{
-		Key = "ToggleRagdollTest",
-		Label = "Toggle Ragdoll (Test)",
-		DefaultPrimary = Enum.KeyCode.G,
-		DefaultSecondary = nil,
-		Category = "Debug",
 	},
 }
 

@@ -13,7 +13,6 @@ local Remotes = {
 	{ name = "PlayerRagdolled", description = "Server broadcasts ragdoll info" },
 
 	-- Ragdoll system
-	{ name = "ToggleRagdollTest", description = "Client requests ragdoll toggle (test key)" },
 	{ name = "RagdollStarted", description = "Server notifies clients that ragdoll started" },
 	{ name = "RagdollEnded", description = "Server notifies clients that ragdoll ended" },
 

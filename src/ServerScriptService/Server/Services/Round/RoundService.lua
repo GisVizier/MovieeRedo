@@ -106,34 +106,22 @@ function RoundService:_setupPlayerRemoving()
 end
 
 function RoundService:_setupDeathHandling()
-	self._net:ConnectServer("PlayerDied", function(player)
-		if self:IsPlayerInTraining(player) then
-			self:_onTrainingPlayerDied(player)
-		end
-	end)
+	-- Death is now handled server-side by CombatService._handleDeath(),
+	-- which checks IsPlayerInTraining() and calls RespawnInTraining().
+	-- The old "PlayerDied" client remote was never fired, so we no longer rely on it.
 end
 
-function RoundService:_onTrainingPlayerDied(player)
-	local respawnDelay = self._trainingConfig.respawnDelay or 2
-
-	task.delay(respawnDelay, function()
-		if player and player.Parent and self:IsPlayerInTraining(player) then
-			self:_respawnPlayer(player)
-		end
-	end)
-end
-
-function RoundService:_respawnPlayer(player)
-	local character = player.Character
-	if character then
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			humanoid.Health = humanoid.MaxHealth
-		end
+--[[
+	Public method called by CombatService after spawning a new character
+	for a training player. Teleports to a training spawn and notifies the client.
+	@param player Player
+]]
+function RoundService:RespawnInTraining(player)
+	if not self:IsPlayerInTraining(player) then
+		return
 	end
 
 	self:_teleportPlayerToTraining(player)
-
 	self._net:FireClient(player, "PlayerRespawned", {})
 end
 

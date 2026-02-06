@@ -34,6 +34,13 @@ local DebugVisualizer = require(script.DebugVisualizer)
 
 export type EasingFunction = (number) -> number
 
+local DEBUG_LOGS = false
+local function debugLog(...)
+	if DEBUG_LOGS then
+		print(...)
+	end
+end
+
 local AimAssist = {}
 AimAssist.__index = AimAssist
 
@@ -61,8 +68,6 @@ function AimAssist:enable()
 	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 20, function(deltaTime: number)
 		self:applyAimAssist(deltaTime)
 	end)
-
-	print("[AimAssist] ENABLED - Running at HIGH PRIORITY:", Enum.RenderPriority.Camera.Value + 20)
 end
 
 function AimAssist:disable()
@@ -329,7 +334,7 @@ function AimAssist:snapToTarget(snapConfig: { strength: number?, maxAngle: numbe
 	-- Get nearest target
 	local targetResult = self.targetSelector:selectTarget(self.subject)
 	if not targetResult then
-		print("[AimAssist] Snap: No valid target found")
+		debugLog("[AimAssist] Snap: No valid target found")
 		return false
 	end
 	
@@ -339,7 +344,7 @@ function AimAssist:snapToTarget(snapConfig: { strength: number?, maxAngle: numbe
 	
 	-- Check if target is within max snap angle
 	if targetResult.angle > maxAngle then
-		print(string.format("[AimAssist] Snap: Target too far (%.1f° > %.1f° max)", targetResult.angle, maxAngle))
+		debugLog(string.format("[AimAssist] Snap: Target too far (%.1f° > %.1f° max)", targetResult.angle, maxAngle))
 		return false
 	end
 	
@@ -363,7 +368,7 @@ function AimAssist:snapToTarget(snapConfig: { strength: number?, maxAngle: numbe
 	-- Calculate how much we rotated
 	local rotationDelta = math.deg(math.acos(math.clamp(currentCFrame.LookVector:Dot(newCFrame.LookVector), -1, 1)))
 	
-	print(string.format(
+	debugLog(string.format(
 		"[AimAssist] SNAP! Target: %s | Angle: %.1f° | Strength: %.2f | Rotated: %.1f°",
 		targetResult.instance and targetResult.instance.Name or "?",
 		targetResult.angle,
@@ -528,7 +533,7 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 	self._logTimer = (self._logTimer or 0) + (deltaTime or 0)
 	if self._logTimer > 1 then
 		self._logTimer = 0
-		print(string.format(
+		debugLog(string.format(
 			"[AimAssist] TARGET: %s | Angle: %.1f° | Distance: %.1f | Strength: %.2f | Friction: %.2f | Tracking: %.2f | Centering: %.2f",
 			targetResult.instance and targetResult.instance.Name or "?",
 			targetResult.angle,
@@ -567,7 +572,7 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 		
 		-- Log when actually applying adjustment
 		if self._logTimer == 0 then
-			print(string.format("[AimAssist] APPLIED: Rotation delta = %.3f°", rotationDelta))
+			debugLog(string.format("[AimAssist] APPLIED: Rotation delta = %.3f°", rotationDelta))
 		end
 	end
 

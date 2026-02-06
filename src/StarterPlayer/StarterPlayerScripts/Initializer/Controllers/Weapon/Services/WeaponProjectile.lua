@@ -37,7 +37,7 @@ local LocalPlayer = Players.LocalPlayer
 local CONFIG = {
 	-- Debug (set to true to see hit markers and logs)
 	DebugVisualization = true,
-	DebugLogging = true,
+	DebugLogging = false,
 
 	-- Simulation
 	PhysicsTickRate = 1 / 60, -- 60 Hz physics
@@ -655,14 +655,16 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 	if Net and hitPacket then
 		local rigName = not hitPlayer and hitCharacter.Name or nil
 
-		print(
-			string.format(
-				"[WeaponProjectile] Sending hit to server - Target: %s, Rig: %s, Position: %s",
-				hitPlayer and hitPlayer.Name or hitCharacter.Name,
-				tostring(rigName),
-				tostring(hitResult.Position)
+		if CONFIG.DebugLogging then
+			print(
+				string.format(
+					"[WeaponProjectile] Sending hit to server - Target: %s, Rig: %s, Position: %s",
+					hitPlayer and hitPlayer.Name or hitCharacter.Name,
+					tostring(rigName),
+					tostring(hitResult.Position)
+				)
 			)
-		)
+		end
 
 		Net:FireServer("ProjectileHit", {
 			packet = hitPacket,

@@ -107,17 +107,6 @@ function CharacterService:_bindRemotes()
 		end
 	end)
 
-	-- Ragdoll test toggle (G key)
-	self._net:ConnectServer("ToggleRagdollTest", function(player)
-		if self:IsRagdolled(player) then
-			self:Unragdoll(player)
-		else
-			-- Ragdoll for 3 seconds with a noticeable upward fling
-			self:Ragdoll(player, 3, {
-				Velocity = Vector3.new(0, 60, 0), -- Direct velocity for reliable upward launch
-			})
-		end
-	end)
 end
 
 function CharacterService:_ensureEntitiesContainer()

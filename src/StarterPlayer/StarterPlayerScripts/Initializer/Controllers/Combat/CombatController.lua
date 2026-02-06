@@ -137,12 +137,10 @@ function CombatController:_onPlayerKilled(data)
 	
 	if data.killerUserId == LocalPlayer.UserId then
 		-- We got a kill - could play sound, show notification, etc.
-		print("[CombatController] You eliminated", data.victimUserId)
 	end
 	
 	if data.victimUserId == LocalPlayer.UserId then
 		-- We died
-		print("[CombatController] You were eliminated by", data.killerUserId or "Unknown")
 	end
 end
 

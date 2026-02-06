@@ -536,7 +536,12 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 
 	-- Server-controlled respawn after ragdoll plays out (only for real players)
 	if typeof(victim) == "Instance" and victim:IsA("Player") and characterService then
-		task.delay(DEATH_RAGDOLL_DURATION, function()
+		-- Use training respawn delay if in training, otherwise default ragdoll duration
+		local roundService = self._registry:TryGet("RoundService")
+		local isTraining = roundService and roundService:IsPlayerInTraining(victim)
+		local respawnDelay = isTraining and 2 or DEATH_RAGDOLL_DURATION
+
+		task.delay(respawnDelay, function()
 			if not victim or not victim.Parent then
 				return
 			end
@@ -544,6 +549,11 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 			-- Clean up ragdoll before respawning
 			characterService:Unragdoll(victim)
 			characterService:SpawnCharacter(victim)
+
+			-- If in training, teleport back to training spawn instead of lobby
+			if isTraining and roundService:IsPlayerInTraining(victim) then
+				roundService:RespawnInTraining(victim)
+			end
 		end)
 	end
 end
