@@ -373,7 +373,7 @@ LoadoutConfig.Weapons = {
 		damage = 45,
 		headshotMultiplier = 2.0,
 		range = 200,
-		fireRate = 120, -- Rounds per minute
+		fireRate = 75, -- Rounds per minute (slower, more deliberate revolver feel)
 		tracerColor = Color3.fromRGB(255, 100, 50),
 
 		crosshair = {
