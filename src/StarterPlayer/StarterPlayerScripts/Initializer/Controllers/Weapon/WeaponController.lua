@@ -989,6 +989,12 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	local kickRot = recoilCfg.kickRot or Vector3.new(-0.08, 0, 0)
 
 	self._viewmodelController:ApplyRecoil(kickPos, kickRot)
+	
+	-- Render tracer immediately (client-side prediction)
+	if SHOW_TRACERS and hitData then
+		hitData.weaponId = weaponId
+		self:_renderBulletTracer(hitData)
+	end
 end
 
 function WeaponController:_onHitConfirmed(hitData)
@@ -996,7 +1002,9 @@ function WeaponController:_onHitConfirmed(hitData)
 		return
 	end
 
-	if SHOW_TRACERS then
+	-- Tracers are now rendered immediately in _playFireEffects (client-side prediction)
+	-- Only render here for OTHER players' shots (so we see their tracers)
+	if SHOW_TRACERS and hitData.shooter ~= LocalPlayer.UserId then
 		self:_renderBulletTracer(hitData)
 	end
 

@@ -27,6 +27,7 @@ local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("Projectile
 local ProjectilePacketUtils = require(Locations.Shared.Util:WaitForChild("ProjectilePacketUtils"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local TrainingRangeShot = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRangeShot"))
+local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("Tracers"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -258,8 +259,11 @@ function WeaponProjectile:Fire(weaponInstance, options)
 			})
 		end
 
-		-- Spawn visual
-		self:_spawnVisual(projectileData)
+		-- Get gun model for muzzle effects
+		local gunModel = weaponInstance.GetRig and weaponInstance.GetRig() or nil
+
+		-- Spawn visual with gun model
+		self:_spawnVisual(projectileData, gunModel)
 
 		table.insert(projectileIds, projectileId)
 
@@ -430,8 +434,11 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 			})
 		end
 
-		-- Spawn visual
-		self:_spawnVisual(projectileData)
+		-- Get gun model for muzzle effects (only on first pellet)
+		local gunModel = (i == 1) and weaponInstance.GetRig and weaponInstance.GetRig() or nil
+
+		-- Spawn visual with gun model
+		self:_spawnVisual(projectileData, gunModel)
 
 		table.insert(projectileIds, projectileId)
 	end
@@ -675,8 +682,8 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 		warn("[WeaponProjectile] Cannot send hit - Net:", Net ~= nil, "Packet:", hitPacket ~= nil)
 	end
 
-	-- Play local impact effect
-	self:_playImpactEffect(projectile, hitResult, true)
+	-- Play local impact effect (pass hitCharacter for tracer HitPlayer)
+	self:_playImpactEffect(projectile, hitResult, true, hitCharacter)
 
 	local targetName = hitPlayer and hitPlayer.Name or hitCharacter.Name
 	if CONFIG.DebugLogging then
@@ -734,8 +741,8 @@ function WeaponProjectile:_handleEnvironmentHit(projectile, hitResult)
 			self:_handleAoEExplosion(projectile, hitResult)
 		end
 
-		-- Play impact effect
-		self:_playImpactEffect(projectile, hitResult, false)
+		-- Play impact effect (nil hitCharacter for world hit)
+		self:_playImpactEffect(projectile, hitResult, false, nil)
 
 		-- Destroy
 		return false, "HitEnvironment"
@@ -1066,89 +1073,83 @@ function WeaponProjectile:_calculateSpread(projectileConfig, spreadState, crossh
 end
 
 -- =============================================================================
--- VISUALS
+-- VISUALS (Using Tracer System)
 -- =============================================================================
 
 --[[
-	Spawn visual for projectile
+	Spawn visual for projectile using Tracer system
+	@param projectile table - Projectile data
+	@param gunModel Model? - The weapon model for muzzle effects
 ]]
-function WeaponProjectile:_spawnVisual(projectile)
-	-- Get visual type
-	local visualType = projectile.projectileConfig.visual or "Bullet"
-
-	-- Create simple part for now (can be replaced with VFX module)
-	local part = Instance.new("Part")
-	part.Name = "Projectile_" .. projectile.id
-	part.Size = Vector3.new(0.2, 0.2, 1)
-	part.Shape = Enum.PartType.Block
-	part.Material = Enum.Material.Neon
-	part.Color = projectile.projectileConfig.tracerColor or CONFIG.DefaultTracerColor
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-
-	-- Position and orient
-	part.CFrame = CFrame.lookAt(projectile.position, projectile.position + projectile.velocity)
-
-	-- Add trail
-	if projectile.projectileConfig.trailEnabled ~= false then
-		local attachment0 = Instance.new("Attachment")
-		attachment0.Position = Vector3.new(0, 0, -0.5)
-		attachment0.Parent = part
-
-		local attachment1 = Instance.new("Attachment")
-		attachment1.Position = Vector3.new(0, 0, 0.5)
-		attachment1.Parent = part
-
-		local trail = Instance.new("Trail")
-		trail.Attachment0 = attachment0
-		trail.Attachment1 = attachment1
-		trail.Color = ColorSequence.new(part.Color)
-		trail.Transparency = NumberSequence.new(0, 1)
-		trail.Lifetime = 0.2
-		trail.MinLength = 0.1
-		trail.WidthScale = NumberSequence.new(1, 0)
-		trail.Parent = part
-	end
-
-	part.Parent = workspace
-
-	projectile.visual = part
-end
-
---[[
-	Update visual position
-]]
-function WeaponProjectile:_updateVisual(projectile)
-	if not projectile.visual or not projectile.visual.Parent then
+function WeaponProjectile:_spawnVisual(projectile, gunModel)
+	-- Get tracer ID from weapon config (or use default)
+	local tracerId = projectile.projectileConfig.tracerId or projectile.weaponConfig.tracerId
+	
+	-- Resolve tracer (weapon config > player cosmetic > default)
+	local resolvedTracerId = Tracers:Resolve(tracerId, nil)
+	
+	-- Fire tracer - get attachment handle
+	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel)
+	if not handle then
+		warn("[WeaponProjectile] Failed to get tracer handle")
 		return
 	end
-
-	-- Update CFrame to face velocity direction
-	projectile.visual.CFrame = CFrame.lookAt(projectile.position, projectile.position + projectile.velocity.Unit)
+	
+	-- Store the tracer handle
+	projectile.tracerHandle = handle
+	
+	-- Update initial position
+	handle.attachment.WorldPosition = projectile.position
 end
 
 --[[
-	Destroy visual
+	Update visual position using Tracer attachment
+]]
+function WeaponProjectile:_updateVisual(projectile)
+	if not projectile.tracerHandle or not projectile.tracerHandle.attachment then
+		return
+	end
+	
+	-- Update attachment WorldPosition to match projectile
+	projectile.tracerHandle.attachment.WorldPosition = projectile.position
+end
+
+--[[
+	Destroy visual - cleanup tracer handle
 ]]
 function WeaponProjectile:_destroyVisual(projectile)
-	if projectile.visual and projectile.visual.Parent then
-		projectile.visual:Destroy()
+	if projectile.tracerHandle then
+		if projectile.tracerHandle.cleanup then
+			projectile.tracerHandle.cleanup()
+		end
+		projectile.tracerHandle = nil
 	end
-	projectile.visual = nil
 end
 
 -- =============================================================================
--- EFFECTS
+-- EFFECTS (Using Tracer System)
 -- =============================================================================
 
 --[[
-	Play impact effect
+	Play impact effect using Tracer system
+	@param projectile table - Projectile data
+	@param hitResult RaycastResult - Hit result
+	@param isTarget boolean - True if hit a character/dummy
+	@param hitCharacter Model? - The character that was hit (if any)
 ]]
-function WeaponProjectile:_playImpactEffect(projectile, hitResult, isTarget)
-	-- Debug visualization - red for targets, yellow for environment
+function WeaponProjectile:_playImpactEffect(projectile, hitResult, isTarget, hitCharacter)
+	-- Use tracer system for impact effects
+	if projectile.tracerHandle then
+		if isTarget and hitCharacter then
+			-- Hit player/dummy - call tracer HitPlayer
+			Tracers:HitPlayer(projectile.tracerHandle, hitResult.Position, hitResult.Instance, hitCharacter)
+		else
+			-- Hit world - call tracer HitWorld
+			Tracers:HitWorld(projectile.tracerHandle, hitResult.Position, hitResult.Normal, hitResult.Instance)
+		end
+	end
+	
+	-- Debug visualization (optional)
 	if CONFIG.DebugVisualization then
 		local part = Instance.new("Part")
 		part.Size = Vector3.new(0.4, 0.4, 0.4)
@@ -1162,7 +1163,6 @@ function WeaponProjectile:_playImpactEffect(projectile, hitResult, isTarget)
 		part.CanTouch = false
 		part.Parent = workspace
 
-		-- Stay visible for 2 seconds then fade
 		task.delay(2, function()
 			if part and part.Parent then
 				part:Destroy()
@@ -1316,7 +1316,8 @@ function WeaponProjectile:_onProjectileReplicate(data)
 	}
 
 	ActiveProjectiles[parsed.projectileId] = projectileData
-	self:_spawnVisual(projectileData)
+	-- Remote projectiles don't have access to gun model
+	self:_spawnVisual(projectileData, nil)
 
 	if CONFIG.DebugLogging then
 		print(

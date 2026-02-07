@@ -22,6 +22,7 @@ local CombatController = {}
 CombatController._registry = nil
 CombatController._net = nil
 CombatController._initialized = false
+CombatController._damageRad = nil
 
 function CombatController:Init(registry, net)
 	self._registry = registry
@@ -53,6 +54,25 @@ function CombatController:Init(registry, net)
 end
 
 function CombatController:Start()
+end
+
+function CombatController:_getDamageRad()
+	if self._damageRad then
+		return self._damageRad
+	end
+
+	local uiController = ServiceRegistry:GetController("UI")
+	if not uiController or not uiController.GetCoreUI then
+		return nil
+	end
+
+	local coreUi = uiController:GetCoreUI()
+	if not coreUi then
+		return nil
+	end
+
+	self._damageRad = coreUi:getModule("DamageRad")
+	return self._damageRad
 end
 
 -- =============================================================================
@@ -103,6 +123,23 @@ function CombatController:_onDamageDealt(data)
 	end
 	
 	if not position then return end
+
+	if not data.isHeal and data.targetUserId == LocalPlayer.UserId then
+		local sourcePosition = data.sourcePosition
+		if not sourcePosition and data.attackerUserId then
+			local attacker = Players:GetPlayerByUserId(data.attackerUserId)
+			local attackerCharacter = attacker and attacker.Character
+			local attackerRoot = attackerCharacter and (attackerCharacter.PrimaryPart or attackerCharacter:FindFirstChild("HumanoidRootPart"))
+			sourcePosition = attackerRoot and attackerRoot.Position or nil
+		end
+
+		if sourcePosition then
+			local damageRad = self:_getDamageRad()
+			if damageRad and damageRad.reportDamageFromPosition then
+				damageRad:reportDamageFromPosition(sourcePosition)
+			end
+		end
+	end
 	
 	-- Show damage number
 	DamageNumbers:Show(position, data.damage, {

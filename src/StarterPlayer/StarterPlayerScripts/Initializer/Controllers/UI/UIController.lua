@@ -5,6 +5,7 @@ local HttpService = game:GetService("HttpService")
 
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local DialogueConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DialogueConfig"))
+local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
 local UIController = {}
 
@@ -68,6 +69,7 @@ end
 function UIController:Init(registry, net)
 	self._registry = registry
 	self._net = net
+	ServiceRegistry:RegisterController("UI", self)
 
 	-- Preload dialogue sounds in background
 	preloadDialogueSounds()
@@ -135,6 +137,10 @@ function UIController:Init(registry, net)
 	end)
 end
 
+function UIController:GetCoreUI()
+	return self._coreUi
+end
+
 function UIController:Start() end
 
 function UIController:_bootstrapUi()
@@ -187,8 +193,6 @@ function UIController:_bootstrapUi()
 		ui._kitController = kitController
 
 		-- Register in ServiceRegistry so other systems can access it
-		local ServiceRegistry =
-			require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 		ServiceRegistry:RegisterController("Kit", kitController)
 	end
 

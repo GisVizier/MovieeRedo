@@ -212,6 +212,7 @@ function CombatService:ApplyDamage(
 	damage: number,
 	options: {
 		source: Player?,
+		sourcePosition: Vector3?,
 		isTrueDamage: boolean?,
 		isHeadshot: boolean?,
 		weaponId: string?,
@@ -749,6 +750,15 @@ function CombatService:_broadcastDamage(
 		return
 	end
 
+	local sourcePosition = options.sourcePosition
+	if not sourcePosition and options.source and options.source.Character then
+		local sourceCharacter = options.source.Character
+		local sourceRoot = sourceCharacter.PrimaryPart or sourceCharacter:FindFirstChild("HumanoidRootPart")
+		if sourceRoot then
+			sourcePosition = sourceRoot.Position
+		end
+	end
+
 	-- Offset position upward for head
 	local head = character:FindFirstChild("Head")
 	if head then
@@ -762,6 +772,7 @@ function CombatService:_broadcastDamage(
 		isHeadshot = options.isHeadshot or false,
 		isCritical = options.isCritical or false,
 		position = position,
+		sourcePosition = sourcePosition,
 	})
 end
 
