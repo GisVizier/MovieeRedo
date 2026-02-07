@@ -13,7 +13,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
-local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
+local VoxelDestruction = require(ReplicatedStorage.Shared.Modules.VoxelDestruction)
 
 --------------------------------------------------------------------------------
 -- Constants
@@ -151,14 +151,26 @@ local function handleBlueHit(self, clientData)
 	local radius = DESTRUCTION_RADIUS[destructionLevel] or 10
 
 	task.spawn(function()
-		local success = VoxManager:explode(explosionPos, radius, {
-			voxelSize = 2,
-			debris = true,
-			debrisAmount = 8,
-		})
-		if not success then
-			warn("[HonoredOne] Blue destruction failed at:", explosionPos)
-		end
+		-- Create hitbox for destruction
+		local hitbox = Instance.new("Part")
+		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Position = explosionPos
+		hitbox.Shape = Enum.PartType.Ball
+		hitbox.Anchored = true
+		hitbox.CanCollide = false
+		hitbox.CanQuery = true
+		hitbox.Transparency = 1
+		hitbox.Parent = workspace
+		
+		VoxelDestruction.Destroy(
+			hitbox,
+			nil, -- OverlapParams
+			2, -- voxelSize
+			8, -- debrisCount
+			nil -- reset (uses default)
+		)
+		
+		hitbox:Destroy()
 	end)
 
 	log("Terrain destruction at", explosionPos, "radius:", radius)

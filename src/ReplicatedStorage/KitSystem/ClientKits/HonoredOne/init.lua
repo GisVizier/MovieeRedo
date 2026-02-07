@@ -39,7 +39,7 @@ local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
-local VoxManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxManager"))
+local VoxelDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -518,11 +518,26 @@ local function runBlueHitbox(state)
 		if elapsed - lastDestructionTime >= BLUE_CONFIG.DESTRUCTION_INTERVAL then
 			lastDestructionTime = elapsed
 			task.spawn(function()
-				VoxManager:explode(currentPosition, BLUE_CONFIG.DESTRUCTION_RADIUS, {
-					voxelSize = BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-					debris = true,
-					debrisAmount = 5,
-				})
+				-- Create temporary hitbox for destruction
+				local tempHitbox = Instance.new("Part")
+				tempHitbox.Size = Vector3.new(BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2)
+				tempHitbox.Position = currentPosition
+				tempHitbox.Shape = Enum.PartType.Ball
+				tempHitbox.Anchored = true
+				tempHitbox.CanCollide = false
+				tempHitbox.CanQuery = true
+				tempHitbox.Transparency = 1
+				tempHitbox.Parent = workspace
+				
+				VoxelDestruction.Destroy(
+					tempHitbox,
+					nil, -- OverlapParams
+					BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
+					5, -- debrisCount
+					nil -- reset (uses default)
+				)
+				
+				tempHitbox:Destroy()
 			end)
 		end
 		
@@ -646,11 +661,25 @@ local function runBlueHitbox(state)
 	
 	-- Final bigger destruction burst at the end
 	task.spawn(function()
-		VoxManager:explode(finalPosition, BLUE_CONFIG.DESTRUCTION_RADIUS + 4, {
-			voxelSize = BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-			debris = true,
-			debrisAmount = 10,
-		})
+		local finalHitbox = Instance.new("Part")
+		finalHitbox.Size = Vector3.new((BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2)
+		finalHitbox.Position = finalPosition
+		finalHitbox.Shape = Enum.PartType.Ball
+		finalHitbox.Anchored = true
+		finalHitbox.CanCollide = false
+		finalHitbox.CanQuery = true
+		finalHitbox.Transparency = 1
+		finalHitbox.Parent = workspace
+		
+		VoxelDestruction.Destroy(
+			finalHitbox,
+			nil,
+			BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
+			10,
+			nil
+		)
+		
+		finalHitbox:Destroy()
 	end)
 	
 	-- Send to server for cooldown + server-side destruction

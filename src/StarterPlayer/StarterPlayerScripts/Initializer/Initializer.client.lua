@@ -78,6 +78,10 @@ local entries = {
 		name = "Queue",
 		module = controllersFolder:WaitForChild("Queue"):WaitForChild("QueueController"),
 	},
+	{
+		name = "VoxelDebris",
+		module = controllersFolder:WaitForChild("VoxelDebris"):WaitForChild("VoxelDebrisController"),
+	},
 }
 
 Loader:Load(entries, registry, Net)

@@ -137,11 +137,19 @@ function RoundService:_teleportPlayerToTraining(player)
 	local character = player.Character
 
 	if character then
-		local rootPart = character:FindFirstChild("HumanoidRootPart")
-		if rootPart then
-			character:PivotTo(spawn.CFrame + Vector3.new(0, 3, 0))
-			rootPart.AssemblyLinearVelocity = Vector3.zero
-			rootPart.AssemblyAngularVelocity = Vector3.zero
+		character:PivotTo(spawn.CFrame + Vector3.new(0, 3, 0))
+
+		-- Clear velocity on both HumanoidRootPart and Root (the actual physics body)
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end
+
+		local physicsRoot = character:FindFirstChild("Root")
+		if physicsRoot then
+			physicsRoot.AssemblyLinearVelocity = Vector3.zero
+			physicsRoot.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
 end

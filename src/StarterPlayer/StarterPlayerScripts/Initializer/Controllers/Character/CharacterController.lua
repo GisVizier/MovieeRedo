@@ -77,6 +77,18 @@ function CharacterController:Init(registry, net)
 		self:_onRagdollEnded(player)
 	end)
 
+	-- Respawn: server sends spawn position, client teleports (same as Exit gadget)
+	self._net:ConnectClient("PlayerRespawned", function(data)
+		if not data or not data.spawnPosition then
+			return
+		end
+
+		local movementController = self._registry and self._registry:TryGet("Movement")
+		if movementController and type(movementController.Teleport) == "function" then
+			movementController:Teleport(data.spawnPosition, data.spawnLookVector)
+		end
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		local character = player.Character
 		if character then
@@ -94,6 +106,11 @@ function CharacterController:Init(registry, net)
 		end
 		if input.KeyCode == Enum.KeyCode.F4 then
 			self:ToggleHitboxDebug()
+		end
+		-- Debug: H = test death (triggers full ragdoll -> respawn flow)
+		if input.KeyCode == Enum.KeyCode.H then
+			print("[CharacterController] Test death requested (H)")
+			self._net:FireServer("RequestTestDeath")
 		end
 	end)
 
@@ -754,8 +771,6 @@ function CharacterController:_onRagdollStarted(player, ragdollData)
 				end
 			end
 		end
-
-		print("[CharacterController] Local player ragdoll started")
 	end
 end
 

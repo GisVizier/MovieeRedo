@@ -159,6 +159,33 @@ function GadgetService:GetAreaFolder(areaId)
 	return self._areaFolders[areaId]
 end
 
+--[[
+	Gets all Exit gadget instances that belong to a given area.
+	@param areaId string - Area ID (e.g., "TrainingArea")
+	@return { gadget, ... } - List of Exit gadget instances in the area
+]]
+function GadgetService:GetExitGadgetsForArea(areaId)
+	local areaFolder = self._areaFolders[areaId]
+	if not areaFolder then
+		return {}
+	end
+
+	local areaGadgets = self._gadgetsByMap[areaFolder]
+	if not areaGadgets then
+		return {}
+	end
+
+	local exits = {}
+	for _, gadget in ipairs(areaGadgets) do
+		local typeName = gadget.getTypeName and gadget:getTypeName() or gadget.typeName
+		if typeName == "Exit" then
+			table.insert(exits, gadget)
+		end
+	end
+
+	return exits
+end
+
 function GadgetService:LoadAreaForPlayer(player, areaId)
 	if not player or type(areaId) ~= "string" then
 		return

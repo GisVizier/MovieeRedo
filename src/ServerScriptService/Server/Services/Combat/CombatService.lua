@@ -12,6 +12,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -19,6 +20,7 @@ local CombatResource = require(ReplicatedStorage:WaitForChild("Combat"):WaitForC
 local StatusEffectManager = require(ReplicatedStorage.Combat:WaitForChild("StatusEffectManager"))
 local CombatConfig = require(ReplicatedStorage.Combat:WaitForChild("CombatConfig"))
 local KillEffects = require(ReplicatedStorage.Combat:WaitForChild("KillEffects"))
+local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 
 local CombatService = {}
 
@@ -35,6 +37,10 @@ function CombatService:Init(registry, net)
 	self._registry = registry
 	self._net = net
 
+	-- Give KillEffects access to the service registry so effects
+	-- (e.g. Ragdoll) can reach CharacterService and other services.
+	KillEffects:Init(registry)
+
 	-- Tick status effects on heartbeat
 	RunService.Heartbeat:Connect(function(deltaTime)
 		self:_tickStatusEffects(deltaTime)
@@ -45,6 +51,15 @@ function CombatService:Start()
 	-- Clean up on player leave
 	Players.PlayerRemoving:Connect(function(player)
 		self:_cleanupPlayer(player)
+	end)
+
+	-- Debug: test death keybind (H) – kills self through the full combat pipeline
+	self._net:ConnectServer("RequestTestDeath", function(player)
+		local resource = self._playerResources[player]
+		if not resource or not resource:IsAlive() then
+			return
+		end
+		self:Kill(player, nil, "Ragdoll")
 	end)
 end
 
@@ -473,37 +488,9 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 		end
 	end
 
-	-- Determine kill effect
+	-- Determine kill effect and execute through the KillEffects registry
 	local effectId = self:_getKillEffect(killer, weaponId)
-
-	-- Trigger ragdoll through CharacterService for ragdoll-type kill effects
-	local characterService = self._registry:TryGet("CharacterService")
-	if characterService and effectId == "Ragdoll" then
-		-- Build knockback direction from killer toward victim
-		local ragdollOptions = {}
-		local victimChar = victim.Character
-		local killerChar = killer and killer.Character
-
-		if victimChar and killerChar then
-			local victimRoot = victimChar:FindFirstChild("Root") or victimChar.PrimaryPart
-			local killerRoot = killerChar:FindFirstChild("Root") or killerChar.PrimaryPart
-			if victimRoot and killerRoot then
-				local direction = (victimRoot.Position - killerRoot.Position).Unit
-				ragdollOptions.Velocity = direction * 40 + Vector3.new(0, 30, 0)
-			end
-		end
-
-		-- If no directional knockback, apply a default upward fling
-		if not ragdollOptions.Velocity then
-			ragdollOptions.Velocity = Vector3.new(0, 30, 0)
-		end
-
-		-- Ragdoll with no auto-recovery (server controls respawn timing)
-		characterService:Ragdoll(victim, nil, ragdollOptions)
-	else
-		-- Non-ragdoll kill effects: execute as before
-		KillEffects:Execute(effectId, victim, killer, weaponId)
-	end
+	KillEffects:Execute(effectId, victim, killer, weaponId)
 
 	-- Clear status effects
 	local effectManager = self._statusEffects[victim]
@@ -535,24 +522,102 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 	print("[CombatService]", killer and killer.Name or "Unknown", "killed", victim.Name)
 
 	-- Server-controlled respawn after ragdoll plays out (only for real players)
+	local characterService = self._registry:TryGet("CharacterService")
 	if typeof(victim) == "Instance" and victim:IsA("Player") and characterService then
-		-- Use training respawn delay if in training, otherwise default ragdoll duration
-		local roundService = self._registry:TryGet("RoundService")
+		local roundService = self._registry:TryGet("Round")
+		local matchManager = self._registry:TryGet("MatchManager")
+
 		local isTraining = roundService and roundService:IsPlayerInTraining(victim)
-		local respawnDelay = isTraining and 2 or DEATH_RAGDOLL_DURATION
+		local match = matchManager and matchManager:GetMatchForPlayer(victim)
+		local isCompetitive = match and (match.state == "playing" or match.state == "resetting")
+
+		-- Pick ragdoll/respawn delay based on context
+		local respawnDelay
+		if isTraining then
+			respawnDelay = MatchmakingConfig.Modes.Training.respawnDelay or 2
+		elseif isCompetitive then
+			respawnDelay = match.modeConfig.roundResetDelay or DEATH_RAGDOLL_DURATION
+		else
+			respawnDelay = DEATH_RAGDOLL_DURATION
+		end
 
 		task.delay(respawnDelay, function()
 			if not victim or not victim.Parent then
 				return
 			end
 
-			-- Clean up ragdoll before respawning
+			-- Always clean up ragdoll
 			characterService:Unragdoll(victim)
-			characterService:SpawnCharacter(victim)
 
-			-- If in training, teleport back to training spawn instead of lobby
+			-- Competitive round-based modes: MatchManager._resetRound handles
+			-- respawning BOTH players, loadout UI, round counter, etc.
+			-- Just clean up the ragdoll and let MatchManager take it from here.
+			if isCompetitive and match.modeConfig.hasScoring then
+				return
+			end
+
+			-- Training: revive + teleport to a random Exit gadget Spawn
+			-- (same approach as Exit gadget — no character recreation, just teleport)
 			if isTraining and roundService:IsPlayerInTraining(victim) then
-				roundService:RespawnInTraining(victim)
+				-- Find a random Exit gadget spawn in the player's area
+				local spawnPos = nil
+				local spawnLookVector = nil
+				local areaId = victim:GetAttribute("CurrentArea")
+				local gadgetService = self._registry:TryGet("GadgetService")
+
+				if gadgetService and areaId then
+					local exitGadgets = gadgetService:GetExitGadgetsForArea(areaId)
+					local spawns = {}
+					for _, gadget in ipairs(exitGadgets) do
+						local model = gadget.model or (gadget.getModel and gadget:getModel())
+						if model then
+							local spawnPart = model:FindFirstChild("Spawn")
+							if spawnPart and spawnPart:IsA("BasePart") then
+								table.insert(spawns, spawnPart)
+							end
+						end
+					end
+
+					if #spawns > 0 then
+						local chosen = spawns[math.random(1, #spawns)]
+						local size = chosen.Size
+						local offset = Vector3.new(
+							(math.random() - 0.5) * size.X,
+							0,
+							(math.random() - 0.5) * size.Z
+						)
+						local spawnCFrame = chosen.CFrame * CFrame.new(offset)
+						spawnPos = spawnCFrame.Position + Vector3.new(0, 3, 0)
+						spawnLookVector = spawnCFrame.LookVector
+					end
+				end
+
+				-- Revive combat resource (reset health and dead state)
+				local resource = self._playerResources[victim]
+				if resource then
+					resource:Revive()
+					self:_syncCombatState(victim)
+				end
+
+				-- Reset humanoid health
+				local character = victim.Character
+				if character then
+					local humanoid = character:FindFirstChildOfClass("Humanoid")
+					if humanoid then
+						humanoid.Health = humanoid.MaxHealth
+					end
+				end
+
+				-- Tell client to teleport (same pattern as Exit gadget)
+				if self._net and spawnPos then
+					self._net:FireClient("PlayerRespawned", victim, {
+						spawnPosition = spawnPos,
+						spawnLookVector = spawnLookVector,
+					})
+				end
+			else
+				-- Lobby/no match: spawn new character normally (resets to "Lobby")
+				characterService:SpawnCharacter(victim)
 			end
 		end)
 	end

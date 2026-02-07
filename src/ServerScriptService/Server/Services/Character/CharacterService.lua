@@ -127,7 +127,9 @@ function CharacterService:_sendExistingCharacters(player)
 	end
 end
 
-function CharacterService:SpawnCharacter(player)
+function CharacterService:SpawnCharacter(player, options)
+	options = options or {}
+
 	if not self._template then
 		self:_cacheTemplate()
 	end
@@ -172,7 +174,7 @@ function CharacterService:SpawnCharacter(player)
 
 	player.Character = character
 
-	local spawnPosition = self:_getSpawnPosition()
+	local spawnPosition = options.spawnPosition or self:_getSpawnPosition()
 	if character.PrimaryPart then
 		character:PivotTo(CFrame.new(spawnPosition))
 	end
@@ -183,8 +185,10 @@ function CharacterService:SpawnCharacter(player)
 	self.ActiveCharacters[player] = character
 	self.IsClientSetupComplete[player.UserId] = false
 
-	-- Set player state to Lobby (will be changed when match starts)
-	player:SetAttribute("PlayerState", "Lobby")
+	-- Set player state to Lobby unless preserveState is set (mid-match respawn)
+	if not options.preserveState then
+		player:SetAttribute("PlayerState", "Lobby")
+	end
 
 	-- Initialize combat resources for this player
 	local combatService = self._registry and self._registry:TryGet("CombatService")

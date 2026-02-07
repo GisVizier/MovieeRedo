@@ -382,6 +382,47 @@ function MatchManager:GetActiveMatches()
 	return self._matches
 end
 
+--[[
+	Returns all Player objects in the same game context as the given player.
+	Works for competitive matches AND training mode.
+	Returns empty table if player is in lobby.
+
+	Usage:
+		local players = MatchManager:GetPlayersInMatch(player)
+		for _, p in players do
+			net:FireClient("VFXRep", p, data)
+		end
+]]
+function MatchManager:GetPlayersInMatch(player)
+	-- 1) Check competitive match
+	local match = self._playerToMatch[player]
+	if match then
+		local players = {}
+		for _, userId in match.team1 do
+			local p = Players:GetPlayerByUserId(userId)
+			if p then
+				table.insert(players, p)
+			end
+		end
+		for _, userId in match.team2 do
+			local p = Players:GetPlayerByUserId(userId)
+			if p then
+				table.insert(players, p)
+			end
+		end
+		return players
+	end
+
+	-- 2) Check training mode
+	local roundService = self._registry:TryGet("RoundService")
+	if roundService and roundService:IsPlayerInTraining(player) then
+		return roundService:GetTrainingPlayers()
+	end
+
+	-- 3) Player is in lobby — no match context
+	return {}
+end
+
 function MatchManager:GetPlayerTeam(match, player)
 	if not match or not player then
 		return nil

@@ -116,6 +116,21 @@ function Net:FireAllClients(name, ...)
 	end
 end
 
+--[[
+	Fires a remote to a specific list of players.
+	Usage:
+		local players = matchManager:GetPlayersInMatch(caster)
+		net:FireClients(players, "VFXRep", data)
+]]
+function Net:FireClients(players, name, ...)
+	local remote = self:Get(name)
+	if remote then
+		for _, player in players do
+			remote:FireClient(player, ...)
+		end
+	end
+end
+
 function Net:FireAllClientsExcept(excludePlayer, name, ...)
 	local remote = self:Get(name)
 	if remote then

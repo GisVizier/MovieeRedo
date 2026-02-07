@@ -14,6 +14,18 @@ local EffectModuleCache = {}
 -- Default kill effect
 KillEffects.DefaultEffect = "Ragdoll"
 
+-- Service registry (set via Init)
+KillEffects._registry = nil
+
+--[[
+	Initializes KillEffects with the service registry so that
+	individual effect modules can access services (e.g. CharacterService).
+	@param registry ServiceRegistry
+]]
+function KillEffects:Init(registry)
+	self._registry = registry
+end
+
 --[[
 	Loads a kill effect module by ID
 	@param effectId string
@@ -82,10 +94,15 @@ function KillEffects:Execute(effectId: string, victim: Player, killer: Player?, 
 			return
 		end
 	end
+
+	-- Build context so effects can access services
+	local context = {
+		registry = self._registry,
+	}
 	
 	if effectModule.Execute then
 		local ok, err = pcall(function()
-			effectModule:Execute(victim, killer, weaponId, options)
+			effectModule:Execute(victim, killer, weaponId, options, context)
 		end)
 		
 		if not ok then

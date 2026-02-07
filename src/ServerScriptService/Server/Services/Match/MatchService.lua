@@ -50,6 +50,7 @@ function MatchService:ClearPlayerState(player)
 	self._ready[userId] = nil
 	self._loadouts[userId] = nil
 	self._pendingTrainingEntry[userId] = nil
+	player:SetAttribute("CurrentArea", nil)
 end
 
 function MatchService:Start() end
@@ -87,8 +88,9 @@ function MatchService:_onSubmitLoadout(player, payload)
 			areaId = pendingEntry.areaId,
 		})
 		
-		-- Set player state to Training
+		-- Set player state to Training and track which area they're in
 		player:SetAttribute("PlayerState", "Training")
+		player:SetAttribute("CurrentArea", pendingEntry.areaId)
 		return
 	end
 

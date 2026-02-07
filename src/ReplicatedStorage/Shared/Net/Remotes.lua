@@ -96,6 +96,12 @@ local Remotes = {
 	-- Training entry flow
 	{ name = "ShowTrainingLoadout", description = "Server tells client to show loadout UI for training entry" },
 	{ name = "TrainingLoadoutConfirmed", description = "Server confirms loadout and sends spawn data for training" },
+
+	-- Voxel destruction system
+	{ name = "VoxelDebris", description = "Server sends debris creation data to clients", unreliable = true },
+
+	-- Debug / testing
+	{ name = "RequestTestDeath", description = "Client requests self-kill for testing respawn flow" },
 }
 
 return Remotes
