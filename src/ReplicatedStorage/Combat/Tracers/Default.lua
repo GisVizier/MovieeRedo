@@ -1,14 +1,20 @@
 --[[
 	Default.lua
-	Default tracer VFX - attaches effects to the projectile attachment
+	Default tracer module - handles hit effects
 	
-	The projectile system moves the attachment along the path.
-	This module just provides the visual effects.
+	FX are loaded from ReplicatedStorage.Assets.Tracers.Default:
+	- Trail/FX - Auto-attached by Tracers system
+	- Muzzle   - Auto-attached by Tracers system
+	- Hit      - Attached on world impact
+	- Highlight - Used for player hit effects
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+
+local ReturnService = require(ReplicatedStorage.Shared.Util.FXLibaray)
+local Utils = ReturnService()
 
 local CharacterLocations = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Character"):WaitForChild("CharacterLocations"))
 
@@ -16,20 +22,32 @@ local Default = {}
 Default.Id = "Default"
 Default.Name = "Default Tracer"
 
--- Highlight config
-local HIGHLIGHT_COLOR = Color3.fromRGB(255, 100, 100)
-local HIGHLIGHT_OUTLINE_COLOR = Color3.fromRGB(255, 50, 50)
-local HIGHLIGHT_DURATION = 0.15
-local HIGHLIGHT_FADE_TIME = 0.1
-
 --[[
 	Muzzle flash effect
 	@param origin Vector3 - Barrel position
 	@param gunModel Model? - The weapon model
 	@param attachment Attachment - Tracer attachment for VFX
+	@param tracers table - Reference to Tracers system
+	@param muzzleAttachment Attachment? - The gun's muzzle attachment
 ]]
-function Default:Muzzle(origin: Vector3, gunModel: Model?, attachment: Attachment)
-	-- TODO: Add muzzle flash ParticleEmitter/PointLight to attachment
+function Default:Muzzle(origin: Vector3, gunModel: Model?, attachment: Attachment, tracers, muzzleAttachment: Attachment?)
+	if not muzzleAttachment then return end
+	
+	local FxFolder = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Tracers"):WaitForChild("Defualt")
+	
+	local endFX = FxFolder.Muzzle:FindFirstChild("FX")
+	if endFX then
+		endFX = endFX:Clone()
+		endFX.Parent = muzzleAttachment
+		
+		Utils.PlayAttachment(endFX, 5)
+		
+		for _, light in endFX:GetChildren() do
+			if light:FindFirstChild("info") then
+				ReturnService("MovieeTweenMethod")(light).play()
+			end
+		end
+	end
 end
 
 --[[
@@ -71,49 +89,54 @@ end
 	@param hitPart BasePart
 	@param targetCharacter Model
 	@param attachment Attachment
+	@param tracers table - Reference to Tracers system
 ]]
-function Default:HitPlayer(hitPosition: Vector3, hitPart: BasePart, targetCharacter: Model, attachment: Attachment)
+function Default:HitPlayer(hitPosition: Vector3, hitPart: BasePart, targetCharacter: Model, attachment: Attachment, tracers)
 	if not targetCharacter then return end
 
 	local rigToHighlight = findRigToHighlight(targetCharacter)
 	if not rigToHighlight then return end
 
-	local existingHighlight = rigToHighlight:FindFirstChildOfClass("Highlight")
+	local existingHighlight = rigToHighlight:FindFirstChildOfClass("Highlight") and (rigToHighlight:FindFirstChildOfClass("Highlight").Name == "HitHighlight")
 	if existingHighlight then
 		existingHighlight:Destroy()
 	end
 
 	local highlight = Instance.new("Highlight")
+	highlight.Name = "HitHighlight"
+
 	highlight.Adornee = rigToHighlight
-	highlight.FillColor = HIGHLIGHT_COLOR
-	highlight.OutlineColor = HIGHLIGHT_OUTLINE_COLOR
-	highlight.FillTransparency = 1
+	highlight.FillColor = Color3.fromRGB(255, 11, 3)
+	--highlight.OutlineColor = Color3.fromRGB(4, 4, 4)
+	highlight.FillTransparency = .45
 	highlight.OutlineTransparency = 1
+
 	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
 	highlight.Parent = rigToHighlight
 
-	local tweenIn = TweenService:Create(
+	local tween = TweenService:Create(
 		highlight,
-		TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ FillTransparency = 0.5, OutlineTransparency = 0 }
+		TweenInfo.new(0.67, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, .15),
+		{FillTransparency = 1, OutlineTransparency = 1}
 	)
-	tweenIn:Play()
+	tween:Play()
 
-	task.delay(HIGHLIGHT_DURATION, function()
-		if not highlight or not highlight.Parent then return end
 
-		local tweenOut = TweenService:Create(
-			highlight,
-			TweenInfo.new(HIGHLIGHT_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-			{ FillTransparency = 1, OutlineTransparency = 1 }
-		)
-		tweenOut:Play()
-		tweenOut.Completed:Once(function()
-			if highlight and highlight.Parent then
-				highlight:Destroy()
-			end
-		end)
+	--task.delay(HIGHLIGHT_DURATION, function()
+	--	if not highlight or not highlight.Parent then return end
+
+	--	local tweenOut = TweenService:Create(
+	--		highlight,
+	--		TweenInfo.new(HIGHLIGHT_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+	--		{ FillTransparency = 1, OutlineTransparency = 1 }
+	--	)
+	--	tweenOut:Play()
+	tween.Completed:Once(function()
+		if highlight and highlight.Parent then
+			highlight:Destroy()
+		end
 	end)
+	--end)
 	
 	-- TODO: Add impact particle to attachment
 end
@@ -123,10 +146,31 @@ end
 	@param hitPosition Vector3
 	@param hitNormal Vector3
 	@param hitPart BasePart
-	@param attachment Attachment
+	@param attachment Attachment - The tracer attachment (not used for hit, we create a new one)
+	@param tracers table - Reference to Tracers system
 ]]
-function Default:HitWorld(hitPosition: Vector3, hitNormal: Vector3, hitPart: BasePart, attachment: Attachment)
-	-- TODO: Add impact particles/decal to attachment
+
+function Default:HitWorld(hitPosition: Vector3, hitNormal: Vector3, hitPart: BasePart, attachment: Attachment, tracers)
+	if not tracers then return end
+
+	-- Create a hit attachment at the impact position
+	local hitAttachment = tracers:CreateHitAttachment(hitPosition, hitNormal, 2)
+	if not hitAttachment then return end
+
+	-- Attach hit FX
+	local fxClone = tracers:AttachHitFX(self.Id, hitAttachment)
+	if not fxClone then return end
+
+	Utils.PlayAttachment(fxClone, 10)	
+
+	-- Emit all particle emitters
+	--task.delay(0.025, function()
+		--for _, fx in fxClone:GetDescendants() do
+		--	if fx:IsA("ParticleEmitter") then
+		--		fx:Emit(fx:GetAttribute("EmitCount") or 5)
+		--	end
+		--end
+	--end)
 end
 
 return Default

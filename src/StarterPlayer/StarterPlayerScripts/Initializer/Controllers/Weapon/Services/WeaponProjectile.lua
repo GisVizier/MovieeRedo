@@ -259,11 +259,12 @@ function WeaponProjectile:Fire(weaponInstance, options)
 			})
 		end
 
-		-- Get gun model for muzzle effects
-		local gunModel = weaponInstance.GetRig and weaponInstance.GetRig() or nil
+		-- Get gun model for muzzle effects (rig is a table with .Model property)
+		local rig = weaponInstance.GetRig and weaponInstance.GetRig()
+		local gunModel = rig and rig.Model or nil
 
-		-- Spawn visual with gun model
-		self:_spawnVisual(projectileData, gunModel)
+		-- Spawn visual with gun model (always play muzzle for single shot)
+		self:_spawnVisual(projectileData, gunModel, true)
 
 		table.insert(projectileIds, projectileId)
 
@@ -434,11 +435,13 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 			})
 		end
 
-		-- Get gun model for muzzle effects (only on first pellet)
-		local gunModel = (i == 1) and weaponInstance.GetRig and weaponInstance.GetRig() or nil
+		-- Get gun model for muzzle effects
+		local rig = weaponInstance.GetRig and weaponInstance.GetRig()
+		local gunModel = rig and rig.Model or nil
 
-		-- Spawn visual with gun model
-		self:_spawnVisual(projectileData, gunModel)
+		-- Spawn visual with gun model (only play muzzle FX on first pellet)
+		local playMuzzle = (i == 1)
+		self:_spawnVisual(projectileData, gunModel, playMuzzle)
 
 		table.insert(projectileIds, projectileId)
 	end
@@ -1080,16 +1083,17 @@ end
 	Spawn visual for projectile using Tracer system
 	@param projectile table - Projectile data
 	@param gunModel Model? - The weapon model for muzzle effects
+	@param playMuzzle boolean? - Whether to play muzzle FX (default true)
 ]]
-function WeaponProjectile:_spawnVisual(projectile, gunModel)
+function WeaponProjectile:_spawnVisual(projectile, gunModel, playMuzzle)
 	-- Get tracer ID from weapon config (or use default)
 	local tracerId = projectile.projectileConfig.tracerId or projectile.weaponConfig.tracerId
 	
 	-- Resolve tracer (weapon config > player cosmetic > default)
 	local resolvedTracerId = Tracers:Resolve(tracerId, nil)
 	
-	-- Fire tracer - get attachment handle
-	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel)
+	-- Fire tracer - get attachment handle (playMuzzle controls muzzle FX)
+	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel, playMuzzle)
 	if not handle then
 		warn("[WeaponProjectile] Failed to get tracer handle")
 		return
@@ -1147,27 +1151,6 @@ function WeaponProjectile:_playImpactEffect(projectile, hitResult, isTarget, hit
 			-- Hit world - call tracer HitWorld
 			Tracers:HitWorld(projectile.tracerHandle, hitResult.Position, hitResult.Normal, hitResult.Instance)
 		end
-	end
-	
-	-- Debug visualization (optional)
-	if CONFIG.DebugVisualization then
-		local part = Instance.new("Part")
-		part.Size = Vector3.new(0.4, 0.4, 0.4)
-		part.Shape = Enum.PartType.Ball
-		part.Material = Enum.Material.Neon
-		part.Color = isTarget and Color3.new(1, 0, 0) or Color3.new(1, 1, 0)
-		part.Position = hitResult.Position
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanQuery = false
-		part.CanTouch = false
-		part.Parent = workspace
-
-		task.delay(2, function()
-			if part and part.Parent then
-				part:Destroy()
-			end
-		end)
 	end
 end
 
@@ -1316,8 +1299,8 @@ function WeaponProjectile:_onProjectileReplicate(data)
 	}
 
 	ActiveProjectiles[parsed.projectileId] = projectileData
-	-- Remote projectiles don't have access to gun model
-	self:_spawnVisual(projectileData, nil)
+	-- Remote projectiles don't have access to gun model, don't play muzzle (already played on owner's client)
+	self:_spawnVisual(projectileData, nil, false)
 
 	if CONFIG.DebugLogging then
 		print(

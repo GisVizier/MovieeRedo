@@ -23,6 +23,7 @@ CombatController._registry = nil
 CombatController._net = nil
 CombatController._initialized = false
 CombatController._damageRad = nil
+CombatController._damagedOverlay = nil
 
 function CombatController:Init(registry, net)
 	self._registry = registry
@@ -75,6 +76,25 @@ function CombatController:_getDamageRad()
 	return self._damageRad
 end
 
+function CombatController:_getDamagedOverlay()
+	if self._damagedOverlay then
+		return self._damagedOverlay
+	end
+
+	local uiController = ServiceRegistry:GetController("UI")
+	if not uiController or not uiController.GetCoreUI then
+		return nil
+	end
+
+	local coreUi = uiController:GetCoreUI()
+	if not coreUi then
+		return nil
+	end
+
+	self._damagedOverlay = coreUi:getModule("Damaged")
+	return self._damagedOverlay
+end
+
 -- =============================================================================
 -- EVENT HANDLERS
 -- =============================================================================
@@ -93,6 +113,11 @@ function CombatController:_onCombatStateUpdate(state)
 		LocalPlayer:SetAttribute("Overshield", state.overshield)
 		LocalPlayer:SetAttribute("Ultimate", state.ultimate)
 		LocalPlayer:SetAttribute("MaxUltimate", state.maxUltimate)
+	end
+
+	local damagedOverlay = self:_getDamagedOverlay()
+	if damagedOverlay and damagedOverlay.setHealthState then
+		damagedOverlay:setHealthState(state.health, state.maxHealth)
 	end
 end
 
@@ -138,6 +163,16 @@ function CombatController:_onDamageDealt(data)
 			if damageRad and damageRad.reportDamageFromPosition then
 				damageRad:reportDamageFromPosition(sourcePosition)
 			end
+		end
+
+		local damagedOverlay = self:_getDamagedOverlay()
+		if damagedOverlay and damagedOverlay.onDamageTaken then
+			damagedOverlay:onDamageTaken(data.damage)
+		end
+	elseif data.isHeal and data.targetUserId == LocalPlayer.UserId then
+		local damagedOverlay = self:_getDamagedOverlay()
+		if damagedOverlay and damagedOverlay.onHealed then
+			damagedOverlay:onHealed(data.damage)
 		end
 	end
 	
