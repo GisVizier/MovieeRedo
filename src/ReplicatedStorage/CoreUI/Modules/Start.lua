@@ -86,7 +86,7 @@ local TEMPLATE_KICK_WARN = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.Easin
 local KICK_WARNING_DURATION = 3
 local TEMPLATE_BASE_LAYOUT_ORDER = 5
 
-local ACTION_ORDER = {"Play", "Shop", "Inventory", "Settings"}
+local ACTION_ORDER = { "Play", "Shop", "Inventory", "Settings" }
 local STAGGER_DELAY = 0.25
 
 local ActionHandlers = {}
@@ -158,14 +158,22 @@ function ActionHandlers.setupHover(ui, canvas, connections, tween, originals)
 						end
 					end
 
-					local sizetween = TweenService:Create(uiScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-						Scale = 1.15,
-					})
+					local sizetween = TweenService:Create(
+						uiScale,
+						TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+						{
+							Scale = 1.15,
+						}
+					)
 
-					local texttween = TweenService:Create(textLabel, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-						TextTransparency = 0,
-						Position = UDim2.new(0.5, 0, 0, -15),
-					})
+					local texttween = TweenService:Create(
+						textLabel,
+						TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+						{
+							TextTransparency = 0,
+							Position = UDim2.new(0.5, 0, 0, -15),
+						}
+					)
 
 					sizetween:Play()
 					texttween:Play()
@@ -189,14 +197,22 @@ function ActionHandlers.setupHover(ui, canvas, connections, tween, originals)
 						end
 					end
 
-					local sizetween = TweenService:Create(uiScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-						Scale = originalScale,
-					})
+					local sizetween = TweenService:Create(
+						uiScale,
+						TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{
+							Scale = originalScale,
+						}
+					)
 
-					local texttween = TweenService:Create(textLabel, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-						TextTransparency = originalTextTransparency,
-						Position = originalTextPosition,
-					})
+					local texttween = TweenService:Create(
+						textLabel,
+						TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+						{
+							TextTransparency = originalTextTransparency,
+							Position = originalTextPosition,
+						}
+					)
 
 					sizetween:Play()
 					texttween:Play()
@@ -393,7 +409,7 @@ function module:createTemplate(userId)
 			if infoPanel then
 				local canvasGroup = infoPanel:FindFirstChild("CanvasGroup")
 				warn(`ran`)
-				
+
 				if canvasGroup then
 					local nameLabel = canvasGroup:FindFirstChild("_name")
 					local usernameLabel = canvasGroup:FindFirstChild("usernam")
@@ -426,7 +442,8 @@ function module:createTemplate(userId)
 		end
 	end)
 
-	local originalGradientColor = template:FindFirstChild("UIGradient") and template.UIGradient.Color or ColorSequence.new(Color3.new(1, 1, 1))
+	local originalGradientColor = template:FindFirstChild("UIGradient") and template.UIGradient.Color
+		or ColorSequence.new(Color3.new(1, 1, 1))
 	local originalBackgroundColor = template.BackgroundColor3
 
 	self._templateData[userId] = {
@@ -479,7 +496,7 @@ function module:removeTemplate(userId, skipEmit)
 	--		template:Destroy()
 	--	end)
 	--else
-		template:Destroy()
+	template:Destroy()
 	--end
 
 	self._templateData[userId] = nil
@@ -552,7 +569,7 @@ function module:_setupTemplateHover(template: Template, userId)
 
 					infoPanel.Visible = true
 					spacer.Visible = true
-					
+
 					if currenttweens[template.Name] then
 						for _, activeTween in currenttweens[template.Name] do
 							activeTween:Cancel()
@@ -570,7 +587,7 @@ function module:_setupTemplateHover(template: Template, userId)
 					sizeTween:Play()
 					fadeTween:Play()
 
-					local tweens = {sizeTween, fadeTween}
+					local tweens = { sizeTween, fadeTween }
 
 					if spacer then
 						local spacerTween = TweenService:Create(spacer, TEMPLATE_HOVER, {
@@ -610,7 +627,7 @@ function module:_setupTemplateHover(template: Template, userId)
 					infoPanel.Visible = false
 					spacer.Visible = false
 
-					currenttweens[template.Name] = {sizeTween, fadeTween}
+					currenttweens[template.Name] = { sizeTween, fadeTween }
 				end, groupName)
 			end
 		end
@@ -655,7 +672,7 @@ function module:_setupTemplateClick(template: Template, userId)
 			})
 			redTween:Play()
 
-			currenttweens[template.Name .. "_kick"] = {redTween}
+			currenttweens[template.Name .. "_kick"] = { redTween }
 
 			data.kickResetThread = task.delay(KICK_WARNING_DURATION, function()
 				if not data or not data.template or not data.template.Parent then
@@ -676,7 +693,7 @@ function module:_setupTemplateClick(template: Template, userId)
 				})
 				resetTween:Play()
 
-				currenttweens[template.Name .. "_kick"] = {resetTween}
+				currenttweens[template.Name .. "_kick"] = { resetTween }
 			end)
 		end
 	end, groupName)
@@ -823,7 +840,7 @@ function module:_init()
 				local stroke = grad:FindFirstChild("UIStroke")
 				if stroke and stroke:FindFirstChild("UIGradient") then
 					local current = stroke.UIGradient.Rotation
-					local nextRotation = (current + .25) % 360
+					local nextRotation = (current + 0.25) % 360
 					if nextRotation > 180 then
 						nextRotation -= 360
 					end
@@ -836,14 +853,18 @@ function module:_init()
 
 					local shine = grad:FindFirstChild("Shine")
 					if stroke and shine:FindFirstChild("UIGradient") then
-						local tween = TweenService:Create(shine:FindFirstChild("UIGradient"), TweenInfo.new(.85, Enum.EasingStyle.Quad), {
-							Offset = Vector2.new(1, 0),
-						})
+						local tween = TweenService:Create(
+							shine:FindFirstChild("UIGradient"),
+							TweenInfo.new(0.85, Enum.EasingStyle.Quad),
+							{
+								Offset = Vector2.new(1, 0),
+							}
+						)
 						tween:Play()
 
 						tween.Completed:Once(function()
 							if MainUI and MainUI.Parent then
-								shine:FindFirstChild("UIGradient").Offset = Vector2.new(-.8, 0)
+								shine:FindFirstChild("UIGradient").Offset = Vector2.new(-0.8, 0)
 							end
 						end)
 					end
@@ -884,7 +905,11 @@ function module:_setupLocalPlayerThumbnail()
 	task.spawn(function()
 		userFrame.Visible = true
 		local success, content = pcall(function()
-			return Players:GetUserThumbnailAsync(localPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+			return Players:GetUserThumbnailAsync(
+				localPlayer.UserId,
+				Enum.ThumbnailType.HeadShot,
+				Enum.ThumbnailSize.Size420x420
+			)
 		end)
 
 		if success and content then
@@ -904,14 +929,15 @@ function module:hideAll()
 		end
 	end
 
-	local fadeTween = TweenService:Create(mainCanvas, TweenInfo.new(.67, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		GroupTransparency = 1,
-		Position = UDim2.new(0, 15, 1.05, -15),
-	})
+	local fadeTween =
+		TweenService:Create(mainCanvas, TweenInfo.new(0.67, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			GroupTransparency = 1,
+			Position = UDim2.new(0, 15, 1.05, -15),
+		})
 
 	fadeTween:Play()
 
-	currenttweens["main"] = {fadeTween}
+	currenttweens["main"] = { fadeTween }
 
 	fadeTween.Completed:Wait()
 
@@ -952,14 +978,15 @@ function module:showAll()
 	local targetposition = originals.Position
 	mainCanvas.Position = UDim2.new(0, 15, 1.05, -15)
 
-	local fadeTween = TweenService:Create(mainCanvas, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		GroupTransparency = targetTransparency,
-		Position = targetposition,
-	})
+	local fadeTween =
+		TweenService:Create(mainCanvas, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			GroupTransparency = targetTransparency,
+			Position = targetposition,
+		})
 
 	fadeTween:Play()
 
-	currenttweens["main"] = {fadeTween}
+	currenttweens["main"] = { fadeTween }
 
 	fadeTween.Completed:Once(function()
 		self:_setButtonsActive(true)
@@ -1029,13 +1056,14 @@ function module:_onActionActivated(actionName, actionButton)
 	end
 
 	local uiScale = actionButton:FindFirstChild("UIScale")
-	if  uiScale then
-		local scaleTween = TweenService:Create(uiScale, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, true), {
-			Scale = 0.9,
-		})
+	if uiScale then
+		local scaleTween =
+			TweenService:Create(uiScale, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, true), {
+				Scale = 0.9,
+			})
 		scaleTween:Play()
 	end
-	
+
 	if actionName == "Inventory" then
 		self._actionDebounce = true
 
@@ -1067,7 +1095,6 @@ function module:_onActionActivated(actionName, actionButton)
 		task.delay(1, function()
 			self._actionDebounce = false
 		end)
-
 	elseif actionName == "Shop" then
 		--self._export:emit("OpenShop")
 	elseif actionName == "Settings" then

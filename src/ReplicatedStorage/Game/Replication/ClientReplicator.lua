@@ -34,6 +34,7 @@ ClientReplicator.CurrentLoadout = nil
 ClientReplicator.CurrentEquippedSlot = nil
 ClientReplicator._loadoutConn = nil
 ClientReplicator._slotConn = nil
+ClientReplicator._lastAnimChangeTime = 0  -- Tracks when animation last changed for retransmit window
 
 function ClientReplicator:Init(net)
 	self._net = net
@@ -302,6 +303,15 @@ function ClientReplicator:SendStateUpdate()
 
 	local rigTilt = RigRotationUtils:GetCurrentTilt(self.Character) or 0
 
+	-- Track animation changes for retransmit window (unreliable transport can drop packets)
+	if self.LastSentState and self.LastSentState.AnimationId ~= animationId then
+		self._lastAnimChangeTime = timestamp
+	end
+
+	-- Keep sending for 1s after an animation change to ensure it reaches the server
+	local ANIM_RETRANSMIT_WINDOW = 1.0
+	local recentAnimChange = (timestamp - self._lastAnimChangeTime) < ANIM_RETRANSMIT_WINDOW
+
 	-- Heartbeat: Force update every 0.5s even if nothing changed (for hit detection position history)
 	local HEARTBEAT_INTERVAL = 0.5
 	local timeSinceLastForced = timestamp - self.LastForcedUpdateTime
@@ -322,6 +332,7 @@ function ClientReplicator:SendStateUpdate()
 			and not shouldSendGrounded
 			and not shouldSendAnimation
 			and not shouldSendRigTilt
+			and not recentAnimChange
 		then
 			return
 		end
