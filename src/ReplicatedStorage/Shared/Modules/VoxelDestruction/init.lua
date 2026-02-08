@@ -358,6 +358,17 @@ function Destroy(
 	local isClient = game:GetService("RunService"):IsClient()
 	local clientID = if isClient then "Client" else ""
 
+	-- Client with OnServer: route to server instead of processing locally.
+	-- Server will call Destroy() which triggers FireAllClients to replicate to everyone.
+	if isClient and Settings.OnServer then
+		Remote:FireServer("Destroy",
+			focus.CFrame, focus.Size,
+			if focus:IsA("Part") then focus.Shape else nil,
+			voxelSize, debrisCount, reset
+		)
+		return {}, {}
+	end
+
 	if focus:GetAttribute("__HitboxID") == nil and game:GetService("RunService"):IsServer() and Settings.OnClient then
 		task.wait()
 		-- Send serializable data instead of Instance reference to avoid race condition
@@ -1618,13 +1629,46 @@ coroutine.resume(coroutine.create(function()
 		task.wait()
 		Remote:FireServer("Load")
 	elseif game:GetService("RunService"):IsServer() then
-		Remote.OnServerEvent:Connect(function(player, key)
+		Remote.OnServerEvent:Connect(function(player, key, ...)
 			if key == "Load" and not Players[player] then
 				local token = Settings.Tag .. tostring(player.UserId)
 				local queue = Queuer.Fetch(token) or Queuer.New(token)
 				queue:Run()
 
 				Players[player] = queue
+			elseif key == "Destroy" then
+				local cf, sz, shape, vs, dc, rst = ...
+				if not cf or not sz then return end
+
+				-- Validate range from player
+				local character = player.Character
+				local root = character and (
+					character:FindFirstChild("HumanoidRootPart")
+					or character:FindFirstChild("Root")
+					or character.PrimaryPart
+				)
+				if not root then return end
+				if (root.Position - cf.Position).Magnitude > 500 then return end
+
+				task.spawn(function()
+					local hitbox = Instance.new("Part")
+					hitbox.CFrame = cf
+					hitbox.Size = sz
+					if shape then hitbox.Shape = shape end
+					hitbox.Anchored = true
+					hitbox.CanCollide = false
+					hitbox.CanQuery = true
+					hitbox.Transparency = 1
+					hitbox.Parent = game:GetService("Workspace")
+
+					Destroy(hitbox, nil, vs, dc, rst)
+
+					task.delay(2, function()
+						if hitbox and hitbox.Parent then
+							hitbox:Destroy()
+						end
+					end)
+				end)
 			end
 		end)
 
