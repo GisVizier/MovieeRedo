@@ -2,7 +2,7 @@ local Settings = {}
 
 Settings.Tag = "Breakable"
 
-Settings.OnClient = false
+Settings.OnClient = true
 Settings.OnServer = true
 Settings.RecordDestruction = false
 
