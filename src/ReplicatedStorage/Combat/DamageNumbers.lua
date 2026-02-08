@@ -29,7 +29,7 @@ local function createFallbackTemplate(): Attachment
 	billboard.Active = true
 	billboard.ClipsDescendants = true
 	billboard.Size = UDim2.new(3.5, 45, 3.5, 45)
-	billboard.StudsOffsetWorldSpace = Vector3.new(-3, 3, 0)
+	billboard.StudsOffsetWorldSpace = Vector3.zero
 	billboard.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	billboard.AlwaysOnTop = true
 	billboard.LightInfluence = 0
@@ -137,6 +137,7 @@ function DamageNumbers:_createState(position: Vector3)
 
 	local attachment = self._template:Clone()
 	attachment.Parent = anchorPart
+	attachment.CFrame = CFrame.new()
 
 	local billboard = attachment:FindFirstChild("DamageNumbers")
 	local frame = billboard and billboard:FindFirstChild("Frame")
@@ -145,6 +146,7 @@ function DamageNumbers:_createState(position: Vector3)
 
 	if billboard and billboard:IsA("BillboardGui") then
 		billboard.Adornee = attachment
+		billboard.StudsOffsetWorldSpace = Vector3.zero
 		billboard.Enabled = true
 	end
 
