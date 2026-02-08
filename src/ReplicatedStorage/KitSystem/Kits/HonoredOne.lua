@@ -170,10 +170,71 @@ local function handleBlueHit(self, clientData)
 			nil -- reset (uses default)
 		)
 		
-		hitbox:Destroy()
+		-- Delay cleanup so clients have time to receive and process the replicated hitbox
+		task.delay(2, function()
+			if hitbox and hitbox.Parent then
+				hitbox:Destroy()
+			end
+		end)
 	end)
 
 	log("Terrain destruction at", explosionPos, "radius:", radius)
+end
+
+--------------------------------------------------------------------------------
+-- Blue Destruction Tick Handler (continuous destruction during blue movement)
+--------------------------------------------------------------------------------
+
+local function handleBlueDestruction(self, clientData)
+	local player = self._ctx.player
+
+	local posData = clientData.position
+	if not posData or type(posData) ~= "table" then
+		return
+	end
+
+	local position = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
+	local radius = clientData.radius or 8
+
+	-- Validate range
+	local root = getPlayerRoot(player)
+	if not root then
+		return
+	end
+
+	if (root.Position - position).Magnitude > MAX_RANGE then
+		return
+	end
+
+	-- Clamp radius to prevent abuse
+	radius = math.clamp(radius, 1, 25)
+
+	task.spawn(function()
+		local hitbox = Instance.new("Part")
+		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Position = position
+		hitbox.Shape = Enum.PartType.Ball
+		hitbox.Anchored = true
+		hitbox.CanCollide = false
+		hitbox.CanQuery = true
+		hitbox.Transparency = 1
+		hitbox.Parent = workspace
+
+		VoxelDestruction.Destroy(
+			hitbox,
+			nil, -- OverlapParams
+			2, -- voxelSize
+			5, -- debrisCount
+			nil -- reset (uses default)
+		)
+
+		-- Delay cleanup so clients have time to receive and process the replicated hitbox
+		task.delay(2, function()
+			if hitbox and hitbox.Parent then
+				hitbox:Destroy()
+			end
+		end)
+	end)
 end
 
 --------------------------------------------------------------------------------
@@ -279,6 +340,10 @@ function Kit:OnAbility(inputState, clientData)
 			service:StartCooldown(player)
 		end
 		return false -- Don't end ability, just started cooldown
+	elseif action == "blueDestruction" then
+		-- Periodic destruction tick during blue movement (replicate to all clients)
+		handleBlueDestruction(self, clientData)
+		return false -- Don't end ability, just a destruction tick
 	elseif action == "blueHit" then
 		handleBlueHit(self, clientData)
 		return true
