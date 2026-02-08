@@ -3,7 +3,7 @@ local Settings = {}
 Settings.Tag = "Breakable"
 
 Settings.OnClient = false
-Settings.OnServer = false
+Settings.OnServer = true
 Settings.RecordDestruction = false
 
 Settings.ResetModel = false
