@@ -32,6 +32,7 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local ContentProvider = game:GetService("ContentProvider")
+local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -39,7 +40,6 @@ local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
-local VoxelDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -75,6 +75,13 @@ local BLUE_CONFIG = {
 	DESTRUCTION_INTERVAL = 0.3,  -- Seconds between each destruction tick
 	DESTRUCTION_RADIUS = 8,      -- Radius of each destruction explosion
 	DESTRUCTION_VOXEL_SIZE = 2,  -- Voxel size for destruction
+
+	-- Debris orbit (swirling rubble effect)
+	DEBRIS_CAPTURE_RADIUS = 20,  -- Capture debris within this radius
+	DEBRIS_ORBIT_SPEED = 2.5,    -- Base orbit speed (radians/sec)
+	DEBRIS_SPIRAL_RATE = 1.5,    -- How fast debris spirals inward
+	DEBRIS_MIN_RADIUS = 2,       -- Inner orbit limit
+	DEBRIS_MAX_COUNT = 55,       -- Cap orbiting pieces for perf
 
 	-- Technical
 	TICK_RATE = 0.03,            -- Seconds between each tick (~33hz)
@@ -439,6 +446,10 @@ local function runBlueHitbox(state)
 	-- CAPTURED TARGETS - once caught, they stay caught until ability ends
 	local capturedTargets = {}
 	
+	-- CAPTURED DEBRIS - voxel rubble that orbits the sphere
+	local capturedDebris = {}
+	local capturedDebrisCount = 0
+	
 	-- Current hitbox position (will lerp smoothly)
 	local currentPosition = startPosition
 	local targetPosition = startPosition
@@ -517,30 +528,7 @@ local function runBlueHitbox(state)
 		-- Continuous terrain destruction along the path
 		if elapsed - lastDestructionTime >= BLUE_CONFIG.DESTRUCTION_INTERVAL then
 			lastDestructionTime = elapsed
-			task.spawn(function()
-				-- Create temporary hitbox for local destruction (instant feedback)
-				local tempHitbox = Instance.new("Part")
-				tempHitbox.Size = Vector3.new(BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2)
-				tempHitbox.Position = currentPosition
-				tempHitbox.Shape = Enum.PartType.Ball
-				tempHitbox.Anchored = true
-				tempHitbox.CanCollide = false
-				tempHitbox.CanQuery = true
-				tempHitbox.Transparency = 1
-				tempHitbox.Parent = workspace
-				
-				VoxelDestruction.Destroy(
-					tempHitbox,
-					nil, -- OverlapParams
-					BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-					5, -- debrisCount
-					nil -- reset (uses default)
-				)
-				
-				tempHitbox:Destroy()
-			end)
-			
-			-- Send to server for replication to all other clients
+			-- Send to server for replication to all clients
 			abilityRequest.Send({
 				action = "blueDestruction",
 				position = { X = currentPosition.X, Y = currentPosition.Y, Z = currentPosition.Z },
@@ -614,10 +602,95 @@ local function runBlueHitbox(state)
 				capturedTargets[targetChar] = nil
 			end
 		end
+		
+		-- DEBRIS ORBIT: Capture nearby debris and swirl it around the sphere
+		-- Capture new debris pieces
+		if capturedDebrisCount < BLUE_CONFIG.DEBRIS_MAX_COUNT then
+			for _, debrisPart in ipairs(CollectionService:GetTagged("Debris")) do
+				if not capturedDebris[debrisPart] and debrisPart.Parent then
+					local dist = (debrisPart.Position - currentPosition).Magnitude
+					if dist <= BLUE_CONFIG.DEBRIS_CAPTURE_RADIUS then
+						-- Prevent cleanup timer from destroying it mid-orbit
+						debrisPart:SetAttribute("BreakableTimer", 999)
+						debrisPart.Anchored = true
+						
+						capturedDebris[debrisPart] = {
+							angle = math.atan2(
+								debrisPart.Position.Z - currentPosition.Z,
+								debrisPart.Position.X - currentPosition.X
+							),
+							radius = math.max(BLUE_CONFIG.DEBRIS_MIN_RADIUS, dist),
+							height = debrisPart.Position.Y - currentPosition.Y,
+							speed = BLUE_CONFIG.DEBRIS_ORBIT_SPEED * (0.7 + math.random() * 0.6),
+							dir = math.random() > 0.5 and 1 or -1,
+							spinAxis = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5).Unit,
+						}
+						capturedDebrisCount += 1
+						
+						if capturedDebrisCount >= BLUE_CONFIG.DEBRIS_MAX_COUNT then
+							break
+						end
+					end
+				end
+			end
+		end
+		
+		-- Orbit all captured debris around the center
+		for debrisPart, data in pairs(capturedDebris) do
+			if not debrisPart or not debrisPart.Parent then
+				capturedDebris[debrisPart] = nil
+				capturedDebrisCount -= 1
+				continue
+			end
+			
+			-- Advance orbit angle
+			data.angle += data.speed * data.dir * dt
+			
+			-- Spiral inward gradually
+			data.radius = math.max(BLUE_CONFIG.DEBRIS_MIN_RADIUS, data.radius - BLUE_CONFIG.DEBRIS_SPIRAL_RATE * dt)
+			
+			-- Dampen height toward center + slight bobbing
+			data.height = data.height * 0.97 + math.sin(data.angle * 0.7) * 0.3
+			
+			-- Calculate orbit position
+			local offsetX = math.cos(data.angle) * data.radius
+			local offsetZ = math.sin(data.angle) * data.radius
+			local targetPos = currentPosition + Vector3.new(offsetX, data.height, offsetZ)
+			
+			-- Smooth lerp so debris doesn't teleport
+			local lerpedPos = debrisPart.Position:Lerp(targetPos, math.min(1, 10 * dt))
+			
+			-- Spin the piece itself for visual flair
+			local spinAngle = data.angle * 2
+			debrisPart.CFrame = CFrame.new(lerpedPos) * CFrame.fromAxisAngle(data.spinAxis, spinAngle)
+		end
+	end
+	
+	-- Helper: release all captured debris (drop or fling)
+	local function releaseDebris(flingFrom)
+		for debrisPart, data in pairs(capturedDebris) do
+			if debrisPart and debrisPart.Parent then
+				debrisPart.Anchored = false
+				debrisPart:SetAttribute("BreakableTimer", 3) -- Resume normal cleanup
+				
+				if flingFrom then
+					-- Fling outward from explosion center
+					local awayDir = (debrisPart.Position - flingFrom)
+					awayDir = awayDir.Magnitude > 0.1 and awayDir.Unit or Vector3.yAxis
+					debrisPart.AssemblyLinearVelocity = awayDir * BLUE_CONFIG.EXPLOSION_OUTWARD
+						+ Vector3.new(0, BLUE_CONFIG.EXPLOSION_UPWARD * 0.5, 0)
+				end
+			end
+		end
+		capturedDebris = {}
+		capturedDebrisCount = 0
 	end
 	
 	-- Check if cancelled before explosion
 	if state.cancelled then
+		-- Drop all orbiting debris (no fling)
+		releaseDebris(nil)
+		
 		-- Fire cleanup event
 		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
 			Character = character,
@@ -634,6 +707,9 @@ local function runBlueHitbox(state)
 	
 	-- EXPLOSION at end (use current lerped position)
 	local finalPosition = currentPosition
+	
+	-- Fling all orbiting debris outward from explosion
+	releaseDebris(finalPosition)
 	
 	-- Update visual for explosion
 	--if hitboxViz and hitboxViz.Parent then
@@ -666,29 +742,6 @@ local function runBlueHitbox(state)
 	end)
 
 	-- Blue ability does NO damage - just knockback/CC (no fling at end)
-	
-	-- Final bigger destruction burst at the end (local instant feedback)
-	task.spawn(function()
-		local finalHitbox = Instance.new("Part")
-		finalHitbox.Size = Vector3.new((BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2)
-		finalHitbox.Position = finalPosition
-		finalHitbox.Shape = Enum.PartType.Ball
-		finalHitbox.Anchored = true
-		finalHitbox.CanCollide = false
-		finalHitbox.CanQuery = true
-		finalHitbox.Transparency = 1
-		finalHitbox.Parent = workspace
-		
-		VoxelDestruction.Destroy(
-			finalHitbox,
-			nil,
-			BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-			10,
-			nil
-		)
-		
-		finalHitbox:Destroy()
-	end)
 	
 	-- Send to server for cooldown + server-side destruction (replicated to all clients)
 	abilityRequest.Send({
@@ -1022,29 +1075,6 @@ local function runRedProjectile(state)
 	
 	LocalPlayer:SetAttribute(`red_projectile_activeCFR`, nil)
 	
-	-- Local terrain destruction for instant feedback (server replicates to other clients)
-	task.spawn(function()
-		local destructHitbox = Instance.new("Part")
-		destructHitbox.Size = Vector3.new(RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2)
-		destructHitbox.Position = position
-		destructHitbox.Shape = Enum.PartType.Ball
-		destructHitbox.Anchored = true
-		destructHitbox.CanCollide = false
-		destructHitbox.CanQuery = true
-		destructHitbox.Transparency = 1
-		destructHitbox.Parent = workspace
-
-		VoxelDestruction.Destroy(
-			destructHitbox,
-			nil, -- OverlapParams
-			2, -- voxelSize
-			5, -- debrisCount
-			nil -- reset
-		)
-
-		destructHitbox:Destroy()
-	end)
-
 	-- Store explosion pivot (CFrame oriented to hit surface) - nil if max range reached
 	if not explosionPivot then
 		-- Max range reached without hitting surface - use projectile direction as "surface"

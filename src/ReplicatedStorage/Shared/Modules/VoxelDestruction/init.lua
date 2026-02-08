@@ -8,8 +8,7 @@ export type _breaker = {
 		parameters: OverlapParams?,
 		voxelSize: number?,
 		debrisCount: number?,
-		reset: number?,
-		excludePlayer: Player?
+		reset: number?
 	) -> ({ Part }, { Part }),
 
 	Hitbox: (
@@ -63,13 +62,6 @@ local Settings = Settings
 local RunService = game:GetService("RunService")
 local Storage = {}
 local Hitboxes = {}
-
-local DEBUG = true
-local function debugPrint(...)
-	if DEBUG then
-		print("[VoxelDestruction]", ...)
-	end
-end
 
 local function getVoxelFolderParent()
 	if RunService:IsServer() then
@@ -347,7 +339,6 @@ function Repair(wall: Part | Model, __self: boolean?)
 	local folder = if id then folderParent:FindFirstChild(id) else nil
 	local parent = wall
 	if game:GetService("RunService"):IsServer() and Settings.OnClient and Settings.OnServer and folder then
-		debugPrint("Server using voxel folder", folder.Name, "parent", folderParent.Name)
 		parent = folder
 	end
 
@@ -372,21 +363,8 @@ function Destroy(
 	parameters: OverlapParams?,
 	voxelSize: number?,
 	debrisCount: number?,
-	reset: number?,
-	excludePlayer: Player?
+	reset: number?
 )
-	debugPrint(
-		RunService:IsServer() and "Server Destroy" or "Client Destroy",
-		"focus",
-		focus and focus.Name or "nil",
-		"voxelSize",
-		voxelSize,
-		"debrisCount",
-		debrisCount,
-		"reset",
-		reset
-	)
-
 	local isClient = game:GetService("RunService"):IsClient()
 	local clientID = if isClient then "Client" else ""
 
@@ -400,18 +378,7 @@ function Destroy(
 			Shape = if focus:IsA("Part") then focus.Shape else nil,
 		}
 
-		if excludePlayer then
-			-- Fire to all clients EXCEPT the excluded player (they already did local destruction)
-			debugPrint("Server firing Destroy to all clients except", excludePlayer.Name)
-			for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-				if player ~= excludePlayer then
-					Remote:FireClient(player, "Destroy", focusData, parameters, voxelSize, debrisCount, reset)
-				end
-			end
-		else
-			debugPrint("Server firing Destroy to all clients")
-			Remote:FireAllClients("Destroy", focusData, parameters, voxelSize, debrisCount, reset)
-		end
+		Remote:FireAllClients("Destroy", focusData, parameters, voxelSize, debrisCount, reset)
 
 		if not Settings.RecordDestruction then
 			return
@@ -583,8 +550,13 @@ function Destroy(
 				container = wall
 			end
 
+			-- Skip wedges/ramps - they don't voxelize cleanly
+			local isWedge = wall:IsA("WedgePart") or wall:IsA("CornerWedgePart")
+				or (wall:IsA("Part") and wall.Shape == Enum.PartType.Wedge)
+
 			if
-				(wall:HasTag(Settings.Tag) or wall:GetAttribute("__" .. Settings.Tag .. clientID) ~= nil)
+				not isWedge
+				and (wall:HasTag(Settings.Tag) or wall:GetAttribute("__" .. Settings.Tag .. clientID) ~= nil)
 				and not wall:HasTag(Settings.Tag .. "Piece")
 				and wall:GetAttribute(Settings.Tag .. "Locked" .. clientID) ~= true
 			then
@@ -635,7 +607,6 @@ function Destroy(
 
 								folder.Name = id
 								folder.Parent = folderParent
-								debugPrint("Created voxel folder", id, "parent", folderParent.Name)
 							end
 
 							piece.Parent = folder
@@ -1549,7 +1520,6 @@ coroutine.resume(coroutine.create(function()
 
 		Remote.OnClientEvent:Connect(function(key, ...)
 			if key == "Destroy" then
-				debugPrint("Client received Destroy event")
 				local args = { ... }
 				local focusOrData = args[1]
 

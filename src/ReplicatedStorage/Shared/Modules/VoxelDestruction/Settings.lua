@@ -15,9 +15,9 @@ Settings.CutoutSize = 1
 Settings.GridLock = false
 
 Settings.DebrisContainer = game:GetService("Workspace")
-Settings.DebrisDefaultBehavior = false
+Settings.DebrisDefaultBehavior = true
 Settings.DebrisAnchored = false
-Settings.DebrisReset = 10
+Settings.DebrisReset = 3
 
 Settings.Relativity = true
 Settings.VoxelRelative = 1 / 8

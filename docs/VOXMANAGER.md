@@ -1,232 +1,113 @@
-# VoxManager
+# Voxel Destruction System
 
-A high-performance voxel-based destruction system for Roblox. Blow stuff up, then regenerate it back.
+This project uses the `VoxelDestruction` module in `ReplicatedStorage/Shared/Modules/VoxelDestruction`. The previous VoxManager API does not apply here. This doc reflects the current, working, server-authoritative setup and the integration work completed in this repo.
 
-## Quick Start
+## Architecture Summary
 
-```lua
-local VoxManager = require(game.ReplicatedStorage.VoxManager)
+- **Authoritative destruction runs on the server.**
+- **Clients only request destruction** (via kit ability requests). The server performs destruction and replicates to all clients using the `_ClientDestruction` RemoteEvent inside the module.
+- **Voxel pieces are visible on the server** because their folders are parented to `workspace` on the server.
+- **Debris is visible and resets quickly** (see Settings section below).
 
--- Explode at a position
-VoxManager:explode(Vector3.new(0, 10, 0))
+## Core Module
 
--- Regenerate everything
-VoxManager:regenerateAll()
-```
+**Module:** `ReplicatedStorage/Shared/Modules/VoxelDestruction/init.lua`
 
-That's it. Two lines.
+**Entry points:**
+- `Destroy(focus, overlapParams?, voxelSize?, debrisCount?, reset?)`
+- `Hitbox(focus, overlapParams?, voxelSize?, debrisCount?, reset?)`
+- `Repair(wallOrModel)`
 
----
+The module handles:
+- Part slicing and voxelization
+- Debris generation
+- Reset timers
+- Replication to clients
 
-## API Reference
+### Replication Flow
 
-### `VoxManager:explode(position, radius?, options?)`
+1. Server calls `Destroy(...)`.
+2. Server fires `_ClientDestruction` RemoteEvent to all clients with a serialized hitbox payload.
+3. Each client locally runs `Destroy` with a temporary hitbox, generating matching voxel visuals.
 
-Destroy parts at a position.
+**Important:** This is intentionally **server-only authoritative destruction** now. Clients no longer spawn local debris; they only send requests.
 
-```lua
--- Basic - uses defaults (radius 10, voxelSize 1)
-VoxManager:explode(position)
+## Kit Integration (HonoredOne)
 
--- With radius
-VoxManager:explode(position, 15)
+**Client kit:** `ReplicatedStorage/KitSystem/ClientKits/HonoredOne/init.lua`  
+Sends destruction requests only. It does not spawn local voxel debris.
 
--- With options
-VoxManager:explode(position, 10, {
-    voxelSize = 2,        -- Size of resulting voxels (default: 1)
-    debris = true,        -- Show debris particles (default: true)
-    debrisAmount = 10,    -- Number of debris pieces (default: 5)
-    ignore = {"Bedrock"}, -- Parts to ignore by name (default: {"Bedrock"})
-    debugColors = false,  -- Random colors for debugging (default: false)
-})
-```
+**Server kit:** `ReplicatedStorage/KitSystem/Kits/HonoredOne.lua`  
+Receives requests and calls `VoxelDestruction.Destroy(...)` on the server, which then replicates to all clients.
 
-**Returns:** `boolean` - Success
+### Ability Request Pipeline
 
----
+The ability request send function now supports multiple sends per ability:
 
-### `VoxManager:regenerateAll()`
+- `abilityRequest.Send({ allowMultiple = true, ... })`
 
-Restore all destroyed parts to their original state.
+This is required for continuous Blue destruction ticks and late sends like `blueHit` and `redHit`.
 
-```lua
-local restoredParts = VoxManager:regenerateAll()
-print("Restored", #restoredParts, "parts")
-```
+## Settings (Current)
 
-**Returns:** `{Part}` - Array of restored parts
+**File:** `ReplicatedStorage/Shared/Modules/VoxelDestruction/Settings.lua`
 
----
+- `DebrisDefaultBehavior = true`
+- `DebrisAnchored = false` (debris falls)
+- `DebrisReset = 3` (faster cleanup)
+- `OnServer = true` (server authoritative)
+- `OnClient = true` (clients render replicated destruction)
 
-### `VoxManager:setDefaults(options)`
+## Server Visibility
 
-Set default options for all future explosions.
+Voxel folders are parented to:
 
-```lua
-VoxManager:setDefaults({
-    radius = 15,
-    voxelSize = 2,
-    debris = true,
-    debrisAmount = 8,
-    ignore = {"Bedrock", "Baseplate", "SpawnLocation"},
-})
+- **Server:** `workspace`
+- **Client:** `workspace.CurrentCamera` (fallback to `workspace` if needed)
 
--- Now all calls use these defaults
-VoxManager:explode(position)  -- Uses radius 15, voxelSize 2, etc.
-```
+This ensures voxels are visible on the server while keeping client rendering scoped.
 
----
+## Usage Guide (Server)
 
-### `VoxManager:cleanup()`
-
-Clean up all voxels and regeneration data. Call when resetting.
+Example server-only usage:
 
 ```lua
-VoxManager:cleanup()
+local VoxelDestruction = require(ReplicatedStorage.Shared.Modules.VoxelDestruction)
+
+local hitbox = Instance.new("Part")
+hitbox.Size = Vector3.new(12, 12, 12)
+hitbox.CFrame = CFrame.new(0, 10, 0)
+hitbox.Anchored = true
+hitbox.CanCollide = false
+hitbox.CanQuery = true
+hitbox.Transparency = 1
+hitbox.Parent = workspace
+
+VoxelDestruction.Destroy(hitbox, nil, 2, 5, nil)
+hitbox:Destroy()
 ```
 
----
+## Troubleshooting
 
-## Examples
+If destruction does not replicate:
 
-### Basic Destruction Ability
+- Make sure the **server** is calling `VoxelDestruction.Destroy(...)`.
+- Ensure client kits only send requests (no local destruction).
+- Verify `OnClient = true` and `OnServer = true` in settings.
+- Confirm `_ClientDestruction` RemoteEvent exists inside the module.
 
-```lua
--- Server Script
-local VoxManager = require(game.ReplicatedStorage.VoxManager)
-local RemoteEvent = game.ReplicatedStorage.DestroyAbility
+If debris is invisible:
 
-RemoteEvent.OnServerEvent:Connect(function(player, position)
-    VoxManager:explode(position, 12)
-end)
-```
+- Set `DebrisDefaultBehavior = true`
+- Set `DebrisAnchored = false` for falling debris
+- Ensure `DebrisReset` is > 0 so cleanup runs
 
-### Regenerating After Delay
+## Notes for New Abilities
 
-```lua
-local VoxManager = require(game.ReplicatedStorage.VoxManager)
+Keep destruction modular and server-authoritative:
 
--- Destroy something
-VoxManager:explode(position, 10)
+1. Client computes the impact position and sends it to the server.
+2. Server validates (range, cooldown, etc).
+3. Server calls `VoxelDestruction.Destroy(...)`.
 
--- Wait 5 seconds, then restore
-task.delay(5, function()
-    VoxManager:regenerateAll()
-end)
-```
-
-### Hollow Purple Projectile
-
-```lua
-local VoxManager = require(game.ReplicatedStorage.VoxManager)
-
-local function fireHollowPurple(origin, direction)
-    local projectile = Instance.new("Part")
-    projectile.Shape = Enum.PartType.Ball
-    projectile.Size = Vector3.new(6, 6, 6)
-    projectile.Position = origin
-    projectile.Anchored = false
-    projectile.CanCollide = false
-    projectile.Color = Color3.fromRGB(128, 0, 255)
-    projectile.Material = Enum.Material.Neon
-    projectile.Parent = workspace
-
-    -- Move forward (ignores gravity)
-    local velocity = Instance.new("LinearVelocity")
-    velocity.VectorVelocity = direction * 100
-    velocity.MaxForce = math.huge
-    velocity.Attachment0 = Instance.new("Attachment", projectile)
-    velocity.Parent = projectile
-
-    -- Voxelize on touch
-    local touched = {}
-    projectile.Touched:Connect(function(hit)
-        if touched[hit] or hit.Name == "Bedrock" then return end
-        touched[hit] = true
-        VoxManager:explode(hit.Position, 8)
-    end)
-
-    -- Destroy after 5 seconds
-    game.Debris:AddItem(projectile, 5)
-end
-```
-
-### Custom Defaults Per Ability
-
-```lua
-local VoxManager = require(game.ReplicatedStorage.VoxManager)
-
--- Small precise explosion
-local function smallExplosion(pos)
-    VoxManager:explode(pos, 5, {
-        voxelSize = 0.5,
-        debris = true,
-        debrisAmount = 3,
-    })
-end
-
--- Big destruction
-local function bigExplosion(pos)
-    VoxManager:explode(pos, 25, {
-        voxelSize = 3,
-        debris = true,
-        debrisAmount = 20,
-    })
-end
-```
-
-### Client-Side Debris (Performance)
-
-```lua
--- Server
-local VoxManager = require(game.ReplicatedStorage.VoxManager)
-local DebrisRemote = game.ReplicatedStorage.VoxelDebris
-
-VoxManager:setDebrisCallback(function(pos, radius, amount, size, info)
-    DebrisRemote:FireAllClients(pos, radius, amount, size, info)
-end)
-
--- Client
-DebrisRemote.OnClientEvent:Connect(function(pos, radius, amount, size, info)
-    -- Create local debris particles here
-end)
-```
-
----
-
-## Default Values
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `radius` | `10` | Explosion radius in studs |
-| `voxelSize` | `1` | Minimum voxel size |
-| `debris` | `true` | Show debris particles |
-| `debrisAmount` | `5` | Number of debris pieces |
-| `debrisSize` | `0.3` | Debris size multiplier |
-| `ignore` | `{"Bedrock"}` | Part names to ignore |
-| `debugColors` | `false` | Random colors for debugging |
-
----
-
-## How It Works
-
-1. **Octree Subdivision** - Recursively splits parts into 8 octants to create spherical cutouts
-2. **Greedy Meshing** - Merges adjacent voxels into larger blocks (reduces part count)
-3. **Object Pooling** - Reuses parts to avoid garbage collection lag
-4. **Instance Caching** - Original parts are cached (not destroyed) for perfect regeneration
-
----
-
-## Performance Tips
-
-- Use larger `voxelSize` for better performance (1-2 for small, 3-4 for large explosions)
-- Use `setDebrisCallback` to move debris to client-side
-- Call `cleanup()` when done to free memory
-- Parts named "Bedrock" are ignored by default
-
----
-
-## Credits
-
-- Octree system: https://devforum.roblox.com/t/dynamic-octree-system/2177042
-- Greedy meshing: https://devforum.roblox.com/t/consume-everything-how-greedy-meshing-works/452717
+Do not spawn debris locally in client kits.

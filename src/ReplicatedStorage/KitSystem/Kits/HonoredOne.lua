@@ -24,7 +24,7 @@ local RED_BODY_DAMAGE = 35
 local RED_HEADSHOT_DAMAGE = 90
 local RED_EXPLOSION_DAMAGE = 10
 
-local MAX_RANGE = 350            -- Max distance from player for validation
+local MAX_RANGE = 3000           -- Max distance from player for validation
 local MAX_TARGETS = 15           -- Max targets to accept per ability use
 
 -- Destruction radius mapping
@@ -39,9 +39,7 @@ local DESTRUCTION_RADIUS = {
 -- Debug Helpers
 --------------------------------------------------------------------------------
 
-local function log(...)
-	print("[HonoredOne Server]", ...)
-end
+local function log(...) end
 
 --------------------------------------------------------------------------------
 -- Module
@@ -138,8 +136,9 @@ local function handleBlueHit(self, clientData)
 		return
 	end
 
-	if (root.Position - explosionPos).Magnitude > MAX_RANGE then
-		log("Explosion position out of range - skipping destruction")
+	local distance = (root.Position - explosionPos).Magnitude
+	if distance > MAX_RANGE then
+		log("Explosion position out of range - skipping destruction", "distance:", math.floor(distance + 0.5))
 		return
 	end
 
@@ -170,8 +169,7 @@ local function handleBlueHit(self, clientData)
 			nil, -- OverlapParams
 			2, -- voxelSize
 			8, -- debrisCount
-			nil, -- reset (uses default)
-			player -- excludePlayer: skip originator (they already did local destruction)
+			nil -- reset (uses default)
 		)
 		
 		-- Delay cleanup so clients have time to receive and process the replicated hitbox
@@ -207,7 +205,9 @@ local function handleBlueDestruction(self, clientData)
 		return
 	end
 
-	if (root.Position - position).Magnitude > MAX_RANGE then
+	local distance = (root.Position - position).Magnitude
+	if distance > MAX_RANGE then
+		log("Blue destruction out of range", "distance:", math.floor(distance + 0.5))
 		return
 	end
 
@@ -232,8 +232,7 @@ local function handleBlueDestruction(self, clientData)
 			nil, -- OverlapParams
 			2, -- voxelSize
 			5, -- debrisCount
-			nil, -- reset (uses default)
-			player -- excludePlayer: skip originator (they already did local destruction)
+			nil -- reset (uses default)
 		)
 
 		-- Delay cleanup so clients have time to receive and process the replicated hitbox
@@ -327,7 +326,12 @@ local function handleRedHit(self, clientData)
 		local explosionPos = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
 
 		-- Validate range
-		if root and (root.Position - explosionPos).Magnitude <= MAX_RANGE then
+		if root then
+			local distance = (root.Position - explosionPos).Magnitude
+			if distance > MAX_RANGE then
+				log("Red explosion out of range", "distance:", math.floor(distance + 0.5))
+				return
+			end
 			task.spawn(function()
 				local hitbox = Instance.new("Part")
 				hitbox.Size = Vector3.new(20 * 2, 20 * 2, 20 * 2) -- RED_CONFIG.EXPLOSION_RADIUS = 20
@@ -344,8 +348,7 @@ local function handleRedHit(self, clientData)
 					nil, -- OverlapParams
 					2, -- voxelSize
 					5, -- debrisCount
-					nil, -- reset (uses default)
-					player -- excludePlayer: skip originator (they already did local destruction)
+					nil -- reset (uses default)
 				)
 
 				task.delay(2, function()
