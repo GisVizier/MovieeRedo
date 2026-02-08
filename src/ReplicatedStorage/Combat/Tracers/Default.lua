@@ -97,8 +97,8 @@ function Default:HitPlayer(hitPosition: Vector3, hitPart: BasePart, targetCharac
 	local rigToHighlight = findRigToHighlight(targetCharacter)
 	if not rigToHighlight then return end
 
-	local existingHighlight = rigToHighlight:FindFirstChildOfClass("Highlight") and (rigToHighlight:FindFirstChildOfClass("Highlight").Name == "HitHighlight")
-	if existingHighlight then
+	local existingHighlight = rigToHighlight:FindFirstChild("HitHighlight")
+	if existingHighlight and existingHighlight:IsA("Highlight") then
 		existingHighlight:Destroy()
 	end
 
