@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Signal = require(ReplicatedStorage:WaitForChild("CoreUI"):WaitForChild("Signal"))
 local Configs = ReplicatedStorage:WaitForChild("Configs")
@@ -434,6 +435,12 @@ local function playSoundInstance(sound: Sound?, member: {[any]: any}?, options: 
 	local soundClone = sound:Clone()
 	local parent = getSoundParent(member, options)
 	soundClone.Parent = parent
+
+	-- Wait for sound asset to load before playing (prevents silent playback)
+	if not soundClone.IsLoaded then
+		ContentProvider:PreloadAsync({ soundClone })
+	end
+
 	pcall(function()
 		soundClone:Play()
 	end)
