@@ -39,7 +39,6 @@ local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
-local VoxelDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -514,32 +513,7 @@ local function runBlueHitbox(state)
 			})
 		end
 		
-		-- Continuous terrain destruction along the path
-		if elapsed - lastDestructionTime >= BLUE_CONFIG.DESTRUCTION_INTERVAL then
-			lastDestructionTime = elapsed
-			task.spawn(function()
-				-- Create temporary hitbox for destruction
-				local tempHitbox = Instance.new("Part")
-				tempHitbox.Size = Vector3.new(BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2)
-				tempHitbox.Position = currentPosition
-				tempHitbox.Shape = Enum.PartType.Ball
-				tempHitbox.Anchored = true
-				tempHitbox.CanCollide = false
-				tempHitbox.CanQuery = true
-				tempHitbox.Transparency = 1
-				tempHitbox.Parent = workspace
-				
-				VoxelDestruction.Destroy(
-					tempHitbox,
-					nil, -- OverlapParams
-					BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-					5, -- debrisCount
-					nil -- reset (uses default)
-				)
-				
-				tempHitbox:Destroy()
-			end)
-		end
+		-- Destruction is handled server-side and replicated to all clients
 		
 		-- Find NEW targets entering the sphere and add to captured list
 		local newTargets = Hitbox.GetCharactersInSphere(currentPosition, BLUE_CONFIG.HITBOX_RADIUS, {
@@ -659,30 +633,7 @@ local function runBlueHitbox(state)
 
 	-- Blue ability does NO damage - just knockback/CC (no fling at end)
 	
-	-- Final bigger destruction burst at the end
-	task.spawn(function()
-		local finalHitbox = Instance.new("Part")
-		finalHitbox.Size = Vector3.new((BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2)
-		finalHitbox.Position = finalPosition
-		finalHitbox.Shape = Enum.PartType.Ball
-		finalHitbox.Anchored = true
-		finalHitbox.CanCollide = false
-		finalHitbox.CanQuery = true
-		finalHitbox.Transparency = 1
-		finalHitbox.Parent = workspace
-		
-		VoxelDestruction.Destroy(
-			finalHitbox,
-			nil,
-			BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-			10,
-			nil
-		)
-		
-		finalHitbox:Destroy()
-	end)
-	
-	-- Send to server for cooldown + server-side destruction
+	-- Send to server for cooldown + server-side destruction (destruction replicated to all clients)
 	abilityRequest.Send({
 		action = "blueHit",
 		explosionPosition = { X = finalPosition.X, Y = finalPosition.Y, Z = finalPosition.Z },
