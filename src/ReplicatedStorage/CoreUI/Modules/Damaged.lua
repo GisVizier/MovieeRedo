@@ -4,10 +4,9 @@ local module = {}
 module.__index = module
 
 local HEALTH_FADE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local FLASH_IN_TWEEN = TweenInfo.new(0.01, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
-local FLASH_OUT_TWEEN = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local FLASH_OUT_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-local FLASH_MIN_TRANSPARENCY = 0.67
+local FLASH_MIN_TRANSPARENCY = 0.45
 
 function module.start(export, ui)
 	local self = setmetatable({}, module)
@@ -80,22 +79,14 @@ function module:onDamageTaken(_damage)
 	self:_cancelTween("_currentFlashInTween")
 	self:_cancelTween("_currentFlashOutTween")
 
-	self._takeDmg.ImageTransparency = 1
+	self._takeDmg.ImageTransparency = FLASH_MIN_TRANSPARENCY
 
-	self._currentFlashInTween = TweenService:Create(self._takeDmg, FLASH_IN_TWEEN, {
-		ImageTransparency = FLASH_MIN_TRANSPARENCY,
+	self._currentFlashOutTween = TweenService:Create(self._takeDmg, FLASH_OUT_TWEEN, {
+		ImageTransparency = 1,
 	})
-	self._currentFlashInTween:Play()
-
-	self._currentFlashInTween.Completed:Once(function()
-		self._currentFlashInTween = nil
-		self._currentFlashOutTween = TweenService:Create(self._takeDmg, FLASH_OUT_TWEEN, {
-			ImageTransparency = 1,
-		})
-		self._currentFlashOutTween:Play()
-		self._currentFlashOutTween.Completed:Once(function()
-			self._currentFlashOutTween = nil
-		end)
+	self._currentFlashOutTween:Play()
+	self._currentFlashOutTween.Completed:Once(function()
+		self._currentFlashOutTween = nil
 	end)
 end
 

@@ -65,7 +65,7 @@ local function findRigToHighlight(character: Model): Instance?
 	end
 	
 	-- For players: use CharacterLocations to get the proper appearance rig
-	local playerRig = CharacterLocations.GetRigFromCharacter(character)
+	local playerRig = CharacterLocations:GetRig(character)
 	if playerRig then
 		return playerRig
 	end

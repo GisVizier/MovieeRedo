@@ -27,8 +27,8 @@ Dialogue.Dialogues = {
 					Dialogue = {
 						{
 							Character = "Airborne",
-							SoundInstance = nil,
-							DialogueText = "I'm up then I'm gone.",
+							SoundInstance = 104740909169471,
+							DialogueText = "Air's got me!",
 							Speaker = true,
 						},
 					},
@@ -38,8 +38,19 @@ Dialogue.Dialogues = {
 					Dialogue = {
 						{
 							Character = "Airborne",
-							SoundInstance = nil,
+							SoundInstance = 128092723574788,
 							DialogueText = "Air's got me!",
+							Speaker = true,
+						},
+					},
+				},
+				Updraft_3 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 85510004641934,
+							DialogueText = "I'm up—then I'm gone.",
 							Speaker = true,
 						},
 					},
@@ -51,8 +62,133 @@ Dialogue.Dialogues = {
 					Dialogue = {
 						{
 							Character = "Airborne",
-							SoundInstance = nil,
-							DialogueText = "New angle watch this!",
+							SoundInstance = 93306408560177,
+							DialogueText = "New angle—watch this!",
+							Speaker = true,
+						},
+					},
+				},
+				Dash_2 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 106515480045968,
+							DialogueText = "New angle—watch this!",
+							Speaker = true,
+						},
+					},
+				},
+			},
+		},
+		RoundStart = {
+			Default = {
+				Airborne_Start_1 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 90292593727314,
+							DialogueText = "Okay! Let's win without being… too mean.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_2 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 90032301287290,
+							DialogueText = "I'm calm! I'm calm… I'm calm.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_3 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 139206283884064,
+							DialogueText = "We're gonna do great! …Right?",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_4 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 117982214741482,
+							DialogueText = "Wind's up. Let's move.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_5 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 76237139043739,
+							DialogueText = "Okay! In and out—no one gets hurt… too much.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_6 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 139799644295784,
+							DialogueText = "Remember: breathe… and dodge.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_7 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 129052196811681,
+							DialogueText = "I'll take the high ground! …Air pun intended.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_8 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 117666987034540,
+							DialogueText = "If you fall, I can catch you… probably!",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_9 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 122890177350687,
+							DialogueText = "Stay close—wind's on our side.",
+							Speaker = true,
+						},
+					},
+				},
+				Airborne_Start_10 = {
+					CharactersNeeded = {"Airborne"},
+					Dialogue = {
+						{
+							Character = "Airborne",
+							SoundInstance = 127111706242242,
+							DialogueText = "I'll scout ahead! Quiet feet, big gusts.",
 							Speaker = true,
 						},
 					},

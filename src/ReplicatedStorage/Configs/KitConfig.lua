@@ -284,6 +284,7 @@ KitConfig.Kits = {
 		Rarity = "Rare",
 		Price = 570,
 		Module = "Airborne",
+		Color = Color3.fromRGB(100, 200, 235),
 
 		Ability = {
 			Name = "CLOUDSKIP",
