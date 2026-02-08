@@ -4,7 +4,7 @@
 	
 	Handles:
 	- Receiving combat state updates from server
-	- Displaying damage numbers
+	- Driving local damage UI helpers
 	- Status effect visual feedback
 ]]
 
@@ -24,14 +24,13 @@ CombatController._net = nil
 CombatController._initialized = false
 CombatController._damageRad = nil
 CombatController._damagedOverlay = nil
+CombatController._lastHealth = nil
 
 function CombatController:Init(registry, net)
 	self._registry = registry
 	self._net = net
 	
 	ServiceRegistry:RegisterController("Combat", self)
-	
-	-- Initialize damage numbers
 	DamageNumbers:Init()
 	
 	-- Connect to combat events
@@ -117,37 +116,38 @@ function CombatController:_onCombatStateUpdate(state)
 
 	local damagedOverlay = self:_getDamagedOverlay()
 	if damagedOverlay and damagedOverlay.setHealthState then
+		if type(state.health) == "number" then
+			if type(self._lastHealth) == "number" then
+				local delta = state.health - self._lastHealth
+				if delta < 0 and damagedOverlay.onDamageTaken then
+					damagedOverlay:onDamageTaken(math.abs(delta))
+				elseif delta > 0 and damagedOverlay.onHealed then
+					damagedOverlay:onHealed(delta)
+				end
+			end
+			self._lastHealth = state.health
+		end
+
 		damagedOverlay:setHealthState(state.health, state.maxHealth)
 	end
 end
 
 --[[
-	Handles damage dealt events - shows damage numbers
+	Handles damage/heal events for local damage UI helpers
 ]]
 function CombatController:_onDamageDealt(data)
 	if not data then return end
-	
-	-- Don't show damage numbers for damage we deal to ourselves
-	-- (but do show healing on ourselves)
-	if data.attackerUserId == LocalPlayer.UserId and data.targetUserId == LocalPlayer.UserId and not data.isHeal then
-		return
-	end
-	
-	-- Get position
-	local position = data.position
-	if not position then
-		-- Try to get from character
-		local targetPlayer = Players:GetPlayerByUserId(data.targetUserId)
-		if targetPlayer and targetPlayer.Character then
-			local head = targetPlayer.Character:FindFirstChild("Head")
-			position = head and head.Position or targetPlayer.Character.PrimaryPart and targetPlayer.Character.PrimaryPart.Position
-			if position then
-				position = position + Vector3.new(0, 1, 0)
-			end
+
+	if not data.isHeal and data.attackerUserId == LocalPlayer.UserId and data.targetUserId ~= LocalPlayer.UserId then
+		local hitPos = data.position
+		if typeof(hitPos) == "Vector3" then
+			DamageNumbers:ShowForTarget(data.targetUserId, hitPos, data.damage, {
+				isHeadshot = data.isHeadshot,
+				isCritical = data.isCritical,
+				targetUserId = data.targetUserId,
+			})
 		end
 	end
-	
-	if not position then return end
 
 	if not data.isHeal and data.targetUserId == LocalPlayer.UserId then
 		local sourcePosition = data.sourcePosition
@@ -164,24 +164,7 @@ function CombatController:_onDamageDealt(data)
 				damageRad:reportDamageFromPosition(sourcePosition)
 			end
 		end
-
-		local damagedOverlay = self:_getDamagedOverlay()
-		if damagedOverlay and damagedOverlay.onDamageTaken then
-			damagedOverlay:onDamageTaken(data.damage)
-		end
-	elseif data.isHeal and data.targetUserId == LocalPlayer.UserId then
-		local damagedOverlay = self:_getDamagedOverlay()
-		if damagedOverlay and damagedOverlay.onHealed then
-			damagedOverlay:onHealed(data.damage)
-		end
 	end
-	
-	-- Show damage number
-	DamageNumbers:Show(position, data.damage, {
-		isHeadshot = data.isHeadshot,
-		isCritical = data.isCritical,
-		isHeal = data.isHeal,
-	})
 end
 
 --[[
@@ -213,6 +196,7 @@ function CombatController:_onPlayerKilled(data)
 	
 	if data.victimUserId == LocalPlayer.UserId then
 		-- We died
+		self._lastHealth = nil
 	end
 end
 

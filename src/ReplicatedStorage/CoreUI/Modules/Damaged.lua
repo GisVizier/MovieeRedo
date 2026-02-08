@@ -3,10 +3,12 @@ local TweenService = game:GetService("TweenService")
 local module = {}
 module.__index = module
 
-local HEALTH_FADE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local FLASH_OUT_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local HEALTH_FADE_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local FLASH_OUT_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-local FLASH_MIN_TRANSPARENCY = 0.45
+local LOW_HEALTH_START = 60
+local FLASH_SOFT_TRANSPARENCY = 0.55
+local FLASH_HARD_TRANSPARENCY = 0.3
 
 function module.start(export, ui)
 	local self = setmetatable({}, module)
@@ -57,7 +59,7 @@ function module:setHealthState(health, maxHealth)
 		return
 	end
 
-	local startOverlayHealth = math.min(60, maxHealth)
+	local startOverlayHealth = math.min(LOW_HEALTH_START, maxHealth)
 	local targetTransparency = 1
 
 	if health < startOverlayHealth then
@@ -79,7 +81,12 @@ function module:onDamageTaken(_damage)
 	self:_cancelTween("_currentFlashInTween")
 	self:_cancelTween("_currentFlashOutTween")
 
-	self._takeDmg.ImageTransparency = FLASH_MIN_TRANSPARENCY
+	local damageAmount = type(_damage) == "number" and math.max(_damage, 0) or 0
+	local damageAlpha = math.clamp(damageAmount / 40, 0, 1)
+	local startTransparency = FLASH_SOFT_TRANSPARENCY
+		+ (FLASH_HARD_TRANSPARENCY - FLASH_SOFT_TRANSPARENCY) * damageAlpha
+
+	self._takeDmg.ImageTransparency = startTransparency
 
 	self._currentFlashOutTween = TweenService:Create(self._takeDmg, FLASH_OUT_TWEEN, {
 		ImageTransparency = 1,

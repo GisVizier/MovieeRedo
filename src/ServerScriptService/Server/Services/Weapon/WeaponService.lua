@@ -223,7 +223,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 		hitCharacter = victimPlayer.Character
 		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
 		if hitCharacter and hitCharacter:FindFirstChildWhichIsA("Humanoid", true) then
-			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin)
+			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin, hitData.hitPosition)
 			hitCharacterName = hitCharacter.Name
 		end
 	else
@@ -258,7 +258,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 								local isHeadshot = result.Instance.Name == "Head"
 									or result.Instance.Name == "CrouchHead"
 									or result.Instance.Name == "HitboxHead"
-								self:ApplyDamageToCharacter(character, damage, player, isHeadshot, weaponId, hitData.origin)
+								self:ApplyDamageToCharacter(character, damage, player, isHeadshot, weaponId, hitData.origin, result.Position)
 
 								if DEBUG_LOGGING then
 									print(
@@ -459,7 +459,8 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 			player,
 			(headshotByCharacter[character] or 0) > 0,
 			shotData.weaponId,
-			shotData.origin
+			shotData.origin,
+			nil
 		)
 	end
 
@@ -519,7 +520,7 @@ function WeaponService:CalculateDamage(shotData, weaponConfig)
 	return math.floor(baseDamage + 0.5) -- Round to nearest integer
 end
 
-function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot, weaponId, damageSourcePosition)
+function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot, weaponId, damageSourcePosition, damageHitPosition)
 	if not character or not character.Parent then
 		if DEBUG_LOGGING then
 			print("[WeaponService] ApplyDamageToCharacter: character is nil or has no parent")
@@ -581,6 +582,7 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 			isHeadshot = isHeadshot,
 			weaponId = weaponId or self._currentWeaponId,
 			sourcePosition = damageSourcePosition,
+			hitPosition = damageHitPosition,
 		})
 
 		if DEBUG_LOGGING then
@@ -765,7 +767,7 @@ function WeaponService:OnProjectileHit(player, data)
 		hitCharacter = victimPlayer.Character
 		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
 		if hitCharacter and hitCharacter:FindFirstChildWhichIsA("Humanoid", true) then
-			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin)
+			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin, hitData.hitPosition)
 			hitCharacterName = hitCharacter.Name
 		end
 	elseif isRig then
@@ -790,7 +792,7 @@ function WeaponService:OnProjectileHit(player, data)
 					)
 				)
 			end
-			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin)
+			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin, hitData.hitPosition)
 			hitCharacterName = hitCharacter.Name
 		else
 			warn("[WeaponService] Could not find rig:", data.rigName)

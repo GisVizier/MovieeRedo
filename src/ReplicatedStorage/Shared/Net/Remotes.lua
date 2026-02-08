@@ -54,7 +54,7 @@ local Remotes = {
 
 	-- Combat system
 	{ name = "CombatStateUpdate", description = "Server sends combat state to client" },
-	{ name = "DamageDealt", description = "Server broadcasts damage for damage numbers" },
+	{ name = "DamageDealt", description = "Server broadcasts damage/heal events for client combat UI" },
 	{ name = "StatusEffectUpdate", description = "Server sends status effect changes" },
 
 	-- Ping measurement (for lag compensation)

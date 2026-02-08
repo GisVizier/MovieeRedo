@@ -213,6 +213,7 @@ function CombatService:ApplyDamage(
 	options: {
 		source: Player?,
 		sourcePosition: Vector3?,
+		hitPosition: Vector3?,
 		isTrueDamage: boolean?,
 		isHeadshot: boolean?,
 		weaponId: string?,
@@ -264,7 +265,7 @@ function CombatService:ApplyDamage(
 	-- Sync state to client
 	self:_syncCombatState(targetPlayer)
 
-	-- Broadcast damage for damage numbers
+	-- Broadcast damage for client combat UI
 	self:_broadcastDamage(targetPlayer, damage, options)
 
 	return result
@@ -288,7 +289,7 @@ function CombatService:Heal(player: Player, amount: number, options: { source: P
 	if healed > 0 then
 		self:_syncCombatState(player)
 
-		-- Broadcast heal for damage numbers
+		-- Broadcast heal for client combat UI
 		self:_broadcastHeal(player, healed, options)
 	end
 
@@ -733,6 +734,7 @@ function CombatService:_broadcastDamage(
 	damage: number,
 	options: {
 		source: Player?,
+		hitPosition: Vector3?,
 		isHeadshot: boolean?,
 		isCritical: boolean?,
 		weaponId: string?,
@@ -745,7 +747,7 @@ function CombatService:_broadcastDamage(
 	options = options or {}
 
 	local character = target.Character
-	local position = character and character.PrimaryPart and character.PrimaryPart.Position
+	local position = options.hitPosition or (character and character.PrimaryPart and character.PrimaryPart.Position)
 	if not position then
 		return
 	end
@@ -759,10 +761,12 @@ function CombatService:_broadcastDamage(
 		end
 	end
 
-	-- Offset position upward for head
-	local head = character:FindFirstChild("Head")
-	if head then
-		position = head.Position + Vector3.new(0, 1, 0)
+	-- Fallback offset when hit position is unavailable.
+	if not options.hitPosition and character then
+		local head = character:FindFirstChild("Head")
+		if head then
+			position = head.Position + Vector3.new(0, 1, 0)
+		end
 	end
 
 	self._net:FireAllClients("DamageDealt", {

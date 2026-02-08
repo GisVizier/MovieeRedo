@@ -17,6 +17,8 @@ export type DamageResult = {
 -- Damage options when applying damage
 export type DamageOptions = {
 	source: Player?,
+	sourcePosition: Vector3?,
+	hitPosition: Vector3?,
 	isTrueDamage: boolean?,
 	isHeadshot: boolean?,
 	weaponId: string?,
@@ -104,6 +106,7 @@ export type DamageDealtPayload = {
 	isHeadshot: boolean,
 	isCritical: boolean?,
 	position: Vector3,
+	sourcePosition: Vector3?,
 	damageType: string?,
 }
 
