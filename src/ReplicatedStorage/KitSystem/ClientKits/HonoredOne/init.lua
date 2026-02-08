@@ -518,7 +518,6 @@ local function runBlueHitbox(state)
 		if elapsed - lastDestructionTime >= BLUE_CONFIG.DESTRUCTION_INTERVAL then
 			lastDestructionTime = elapsed
 			task.spawn(function()
-				-- Create temporary hitbox for local destruction (instant feedback)
 				local tempHitbox = Instance.new("Part")
 				tempHitbox.Size = Vector3.new(BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2)
 				tempHitbox.Position = currentPosition
@@ -528,24 +527,17 @@ local function runBlueHitbox(state)
 				tempHitbox.CanQuery = true
 				tempHitbox.Transparency = 1
 				tempHitbox.Parent = workspace
-				
+
 				VoxelDestruction.Destroy(
 					tempHitbox,
-					nil, -- OverlapParams
+					nil,
 					BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-					5, -- debrisCount
-					nil -- reset (uses default)
+					5,
+					nil
 				)
-				
+
 				tempHitbox:Destroy()
 			end)
-			
-			-- Send to server for replication to all other clients
-			abilityRequest.Send({
-				action = "blueDestruction",
-				position = { X = currentPosition.X, Y = currentPosition.Y, Z = currentPosition.Z },
-				radius = BLUE_CONFIG.DESTRUCTION_RADIUS,
-			})
 		end
 		
 		-- Find NEW targets entering the sphere and add to captured list
@@ -666,7 +658,7 @@ local function runBlueHitbox(state)
 
 	-- Blue ability does NO damage - just knockback/CC (no fling at end)
 	
-	-- Final bigger destruction burst at the end (local instant feedback)
+	-- Final bigger destruction burst at the end
 	task.spawn(function()
 		local finalHitbox = Instance.new("Part")
 		finalHitbox.Size = Vector3.new((BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2)
@@ -677,7 +669,7 @@ local function runBlueHitbox(state)
 		finalHitbox.CanQuery = true
 		finalHitbox.Transparency = 1
 		finalHitbox.Parent = workspace
-		
+
 		VoxelDestruction.Destroy(
 			finalHitbox,
 			nil,
@@ -685,15 +677,9 @@ local function runBlueHitbox(state)
 			10,
 			nil
 		)
-		
+
 		finalHitbox:Destroy()
 	end)
-	
-	-- Send to server for cooldown + server-side destruction (replicated to all clients)
-	abilityRequest.Send({
-		action = "blueHit",
-		explosionPosition = { X = finalPosition.X, Y = finalPosition.Y, Z = finalPosition.Z },
-	})
 	
 	-- Cleanup hitbox visual (delay to allow sound fade)
 	task.delay(1.5, function()
