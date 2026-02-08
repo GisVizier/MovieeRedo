@@ -8,7 +8,8 @@ export type _breaker = {
 		parameters: OverlapParams?,
 		voxelSize: number?,
 		debrisCount: number?,
-		reset: number?
+		reset: number?,
+		excludePlayer: Player?
 	) -> ({ Part }, { Part }),
 
 	Hitbox: (
@@ -59,8 +60,24 @@ end
 Remote = script:WaitForChild(RemoteName) :: RemoteEvent
 
 local Settings = Settings
+local RunService = game:GetService("RunService")
 local Storage = {}
 local Hitboxes = {}
+
+local DEBUG = true
+local function debugPrint(...)
+	if DEBUG then
+		print("[VoxelDestruction]", ...)
+	end
+end
+
+local function getVoxelFolderParent()
+	if RunService:IsServer() then
+		return workspace
+	end
+
+	return workspace.CurrentCamera or workspace
+end
 
 local Cache = nil
 if Settings.PartCache then
@@ -326,9 +343,11 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
-	local folder = if id then workspace.Camera:FindFirstChild(id) else nil
+	local folderParent = getVoxelFolderParent()
+	local folder = if id then folderParent:FindFirstChild(id) else nil
 	local parent = wall
 	if game:GetService("RunService"):IsServer() and Settings.OnClient and Settings.OnServer and folder then
+		debugPrint("Server using voxel folder", folder.Name, "parent", folderParent.Name)
 		parent = folder
 	end
 
@@ -353,21 +372,23 @@ function Destroy(
 	parameters: OverlapParams?,
 	voxelSize: number?,
 	debrisCount: number?,
-	reset: number?
+	reset: number?,
+	excludePlayer: Player?
 )
+	debugPrint(
+		RunService:IsServer() and "Server Destroy" or "Client Destroy",
+		"focus",
+		focus and focus.Name or "nil",
+		"voxelSize",
+		voxelSize,
+		"debrisCount",
+		debrisCount,
+		"reset",
+		reset
+	)
+
 	local isClient = game:GetService("RunService"):IsClient()
 	local clientID = if isClient then "Client" else ""
-
-	-- Client with OnServer: route to server instead of processing locally.
-	-- Server will call Destroy() which triggers FireAllClients to replicate to everyone.
-	if isClient and Settings.OnServer then
-		Remote:FireServer("Destroy",
-			focus.CFrame, focus.Size,
-			if focus:IsA("Part") then focus.Shape else nil,
-			voxelSize, debrisCount, reset
-		)
-		return {}, {}
-	end
 
 	if focus:GetAttribute("__HitboxID") == nil and game:GetService("RunService"):IsServer() and Settings.OnClient then
 		task.wait()
@@ -378,7 +399,19 @@ function Destroy(
 			Size = focus.Size,
 			Shape = if focus:IsA("Part") then focus.Shape else nil,
 		}
-		Remote:FireAllClients("Destroy", focusData, parameters, voxelSize, debrisCount, reset)
+
+		if excludePlayer then
+			-- Fire to all clients EXCEPT the excluded player (they already did local destruction)
+			debugPrint("Server firing Destroy to all clients except", excludePlayer.Name)
+			for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
+				if player ~= excludePlayer then
+					Remote:FireClient(player, "Destroy", focusData, parameters, voxelSize, debrisCount, reset)
+				end
+			end
+		else
+			debugPrint("Server firing Destroy to all clients")
+			Remote:FireAllClients("Destroy", focusData, parameters, voxelSize, debrisCount, reset)
+		end
 
 		if not Settings.RecordDestruction then
 			return
@@ -591,7 +624,8 @@ function Destroy(
 								wall:SetAttribute("__VoxelDestructID" .. clientID, id)
 							end
 
-							local folder = workspace.Camera:FindFirstChild(id)
+							local folderParent = getVoxelFolderParent()
+							local folder = folderParent:FindFirstChild(id)
 							if not folder then
 								folder = Instance.new("Folder")
 
@@ -600,7 +634,8 @@ function Destroy(
 								end)
 
 								folder.Name = id
-								folder.Parent = workspace.Camera
+								folder.Parent = folderParent
+								debugPrint("Created voxel folder", id, "parent", folderParent.Name)
 							end
 
 							piece.Parent = folder
@@ -699,8 +734,9 @@ function Destroy(
 						end
 
 						local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
+						local folderParent = getVoxelFolderParent()
 						local folder = if id
-							then workspace.Camera:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
+							then folderParent:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
 							else nil
 
 						local parent = wall
@@ -1130,7 +1166,7 @@ function Hitbox(
 		end
 	end
 
-		function hitbox:Stop()
+	function hitbox:Stop()
 		hitbox.active = false
 
 		if game:GetService("RunService"):IsServer() and Settings.OnClient then
@@ -1513,6 +1549,7 @@ coroutine.resume(coroutine.create(function()
 
 		Remote.OnClientEvent:Connect(function(key, ...)
 			if key == "Destroy" then
+				debugPrint("Client received Destroy event")
 				local args = { ... }
 				local focusOrData = args[1]
 
@@ -1629,46 +1666,13 @@ coroutine.resume(coroutine.create(function()
 		task.wait()
 		Remote:FireServer("Load")
 	elseif game:GetService("RunService"):IsServer() then
-		Remote.OnServerEvent:Connect(function(player, key, ...)
+		Remote.OnServerEvent:Connect(function(player, key)
 			if key == "Load" and not Players[player] then
 				local token = Settings.Tag .. tostring(player.UserId)
 				local queue = Queuer.Fetch(token) or Queuer.New(token)
 				queue:Run()
 
 				Players[player] = queue
-			elseif key == "Destroy" then
-				local cf, sz, shape, vs, dc, rst = ...
-				if not cf or not sz then return end
-
-				-- Validate range from player
-				local character = player.Character
-				local root = character and (
-					character:FindFirstChild("HumanoidRootPart")
-					or character:FindFirstChild("Root")
-					or character.PrimaryPart
-				)
-				if not root then return end
-				if (root.Position - cf.Position).Magnitude > 500 then return end
-
-				task.spawn(function()
-					local hitbox = Instance.new("Part")
-					hitbox.CFrame = cf
-					hitbox.Size = sz
-					if shape then hitbox.Shape = shape end
-					hitbox.Anchored = true
-					hitbox.CanCollide = false
-					hitbox.CanQuery = true
-					hitbox.Transparency = 1
-					hitbox.Parent = game:GetService("Workspace")
-
-					Destroy(hitbox, nil, vs, dc, rst)
-
-					task.delay(2, function()
-						if hitbox and hitbox.Parent then
-							hitbox:Destroy()
-						end
-					end)
-				end)
 			end
 		end)
 

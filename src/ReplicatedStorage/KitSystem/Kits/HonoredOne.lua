@@ -13,6 +13,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
+local VoxelDestruction = require(ReplicatedStorage.Shared.Modules.VoxelDestruction)
 
 --------------------------------------------------------------------------------
 -- Constants
@@ -117,6 +118,7 @@ local function handleBlueHit(self, clientData)
 	local service = self._ctx.service
 
 	log("=== BLUE HIT ===", player.Name)
+	log("Blue hit payload:", clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition")
 
 	-- Cooldown already started at "open" event via startCooldown action
 
@@ -148,8 +150,99 @@ local function handleBlueHit(self, clientData)
 	end
 
 	local radius = DESTRUCTION_RADIUS[destructionLevel] or 10
+
+	task.spawn(function()
+		-- Create hitbox for destruction
+		local hitbox = Instance.new("Part")
+		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Position = explosionPos
+		hitbox.Shape = Enum.PartType.Ball
+		hitbox.Anchored = true
+		hitbox.CanCollide = false
+		hitbox.CanQuery = true
+		hitbox.Transparency = 1
+		hitbox.Parent = workspace
+		
+		-- excludePlayer = player: the originating client already did local destruction
+		-- for instant feedback, so only replicate to other clients
+		VoxelDestruction.Destroy(
+			hitbox,
+			nil, -- OverlapParams
+			2, -- voxelSize
+			8, -- debrisCount
+			nil, -- reset (uses default)
+			player -- excludePlayer: skip originator (they already did local destruction)
+		)
+		
+		-- Delay cleanup so clients have time to receive and process the replicated hitbox
+		task.delay(2, function()
+			if hitbox and hitbox.Parent then
+				hitbox:Destroy()
+			end
+		end)
+	end)
+
 	log("Terrain destruction at", explosionPos, "radius:", radius)
-	-- Destruction is now handled via VoxelDestroyRequest remote (server-authoritative)
+end
+
+--------------------------------------------------------------------------------
+-- Blue Destruction Tick Handler (continuous destruction during blue movement)
+--------------------------------------------------------------------------------
+
+local function handleBlueDestruction(self, clientData)
+	local player = self._ctx.player
+
+	log("Blue destruction payload:", clientData and clientData.position and "has position" or "missing position")
+	local posData = clientData.position
+	if not posData or type(posData) ~= "table" then
+		return
+	end
+
+	local position = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
+	local radius = clientData.radius or 8
+
+	-- Validate range
+	local root = getPlayerRoot(player)
+	if not root then
+		return
+	end
+
+	if (root.Position - position).Magnitude > MAX_RANGE then
+		return
+	end
+
+	-- Clamp radius to prevent abuse
+	radius = math.clamp(radius, 1, 25)
+
+	task.spawn(function()
+		local hitbox = Instance.new("Part")
+		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Position = position
+		hitbox.Shape = Enum.PartType.Ball
+		hitbox.Anchored = true
+		hitbox.CanCollide = false
+		hitbox.CanQuery = true
+		hitbox.Transparency = 1
+		hitbox.Parent = workspace
+
+		-- excludePlayer = player: the originating client already did local destruction
+		-- for instant feedback, so only replicate to other clients
+		VoxelDestruction.Destroy(
+			hitbox,
+			nil, -- OverlapParams
+			2, -- voxelSize
+			5, -- debrisCount
+			nil, -- reset (uses default)
+			player -- excludePlayer: skip originator (they already did local destruction)
+		)
+
+		-- Delay cleanup so clients have time to receive and process the replicated hitbox
+		task.delay(2, function()
+			if hitbox and hitbox.Parent then
+				hitbox:Destroy()
+			end
+		end)
+	end)
 end
 
 --------------------------------------------------------------------------------
@@ -161,6 +254,7 @@ local function handleRedHit(self, clientData)
 	local character = self._ctx.character or player.Character
 
 	log("=== RED HIT ===", player.Name)
+	log("Red hit payload:", clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition")
 
 	if not clientData.hits or type(clientData.hits) ~= "table" then
 		log("Invalid hit list")
@@ -227,6 +321,44 @@ local function handleRedHit(self, clientData)
 		end
 	end
 
+	-- Red explosion terrain destruction (replicate to all clients except originator)
+	local posData = clientData.explosionPosition
+	if posData and type(posData) == "table" then
+		local explosionPos = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
+
+		-- Validate range
+		if root and (root.Position - explosionPos).Magnitude <= MAX_RANGE then
+			task.spawn(function()
+				local hitbox = Instance.new("Part")
+				hitbox.Size = Vector3.new(20 * 2, 20 * 2, 20 * 2) -- RED_CONFIG.EXPLOSION_RADIUS = 20
+				hitbox.Position = explosionPos
+				hitbox.Shape = Enum.PartType.Ball
+				hitbox.Anchored = true
+				hitbox.CanCollide = false
+				hitbox.CanQuery = true
+				hitbox.Transparency = 1
+				hitbox.Parent = workspace
+
+				VoxelDestruction.Destroy(
+					hitbox,
+					nil, -- OverlapParams
+					2, -- voxelSize
+					5, -- debrisCount
+					nil, -- reset (uses default)
+					player -- excludePlayer: skip originator (they already did local destruction)
+				)
+
+				task.delay(2, function()
+					if hitbox and hitbox.Parent then
+						hitbox:Destroy()
+					end
+				end)
+			end)
+
+			log("Red explosion destruction at", explosionPos)
+		end
+	end
+
 	log("=== RED HIT COMPLETE ===")
 end
 
@@ -247,6 +379,7 @@ function Kit:OnAbility(inputState, clientData)
 
 	clientData = clientData or {}
 	local action = clientData.action
+	log("OnAbility action:", action or "nil", "player:", player.Name)
 
 	if action == "startCooldown" then
 		-- Start cooldown when ability commits (open for Blue, shoot for Red)
@@ -255,10 +388,17 @@ function Kit:OnAbility(inputState, clientData)
 			service:StartCooldown(player)
 		end
 		return false -- Don't end ability, just started cooldown
+	elseif action == "blueDestruction" then
+		-- Periodic destruction tick during blue movement (replicate to all clients)
+		log("Blue destruction tick received")
+		handleBlueDestruction(self, clientData)
+		return false -- Don't end ability, just a destruction tick
 	elseif action == "blueHit" then
+		log("Blue hit received")
 		handleBlueHit(self, clientData)
 		return true
 	elseif action == "redHit" then
+		log("Red hit received")
 		handleRedHit(self, clientData)
 		return true
 	else

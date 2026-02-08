@@ -202,8 +202,12 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 	local viewmodelAnimator = viewmodelController and viewmodelController._animator or nil
 
 	local sent = false
+	local allowMultipleSends = false
 	local function send(extraData)
-		if sent then
+		if extraData and extraData.allowMultiple == true then
+			allowMultipleSends = true
+		end
+		if sent and not allowMultipleSends then
 			return false
 		end
 		sent = true

@@ -518,6 +518,7 @@ local function runBlueHitbox(state)
 		if elapsed - lastDestructionTime >= BLUE_CONFIG.DESTRUCTION_INTERVAL then
 			lastDestructionTime = elapsed
 			task.spawn(function()
+				-- Create temporary hitbox for local destruction (instant feedback)
 				local tempHitbox = Instance.new("Part")
 				tempHitbox.Size = Vector3.new(BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2, BLUE_CONFIG.DESTRUCTION_RADIUS * 2)
 				tempHitbox.Position = currentPosition
@@ -527,17 +528,25 @@ local function runBlueHitbox(state)
 				tempHitbox.CanQuery = true
 				tempHitbox.Transparency = 1
 				tempHitbox.Parent = workspace
-
+				
 				VoxelDestruction.Destroy(
 					tempHitbox,
-					nil,
+					nil, -- OverlapParams
 					BLUE_CONFIG.DESTRUCTION_VOXEL_SIZE,
-					5,
-					nil
+					5, -- debrisCount
+					nil -- reset (uses default)
 				)
-
+				
 				tempHitbox:Destroy()
 			end)
+			
+			-- Send to server for replication to all other clients
+			abilityRequest.Send({
+				action = "blueDestruction",
+				position = { X = currentPosition.X, Y = currentPosition.Y, Z = currentPosition.Z },
+				radius = BLUE_CONFIG.DESTRUCTION_RADIUS,
+				allowMultiple = true,
+			})
 		end
 		
 		-- Find NEW targets entering the sphere and add to captured list
@@ -658,7 +667,7 @@ local function runBlueHitbox(state)
 
 	-- Blue ability does NO damage - just knockback/CC (no fling at end)
 	
-	-- Final bigger destruction burst at the end
+	-- Final bigger destruction burst at the end (local instant feedback)
 	task.spawn(function()
 		local finalHitbox = Instance.new("Part")
 		finalHitbox.Size = Vector3.new((BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2, (BLUE_CONFIG.DESTRUCTION_RADIUS + 4) * 2)
@@ -669,7 +678,7 @@ local function runBlueHitbox(state)
 		finalHitbox.CanQuery = true
 		finalHitbox.Transparency = 1
 		finalHitbox.Parent = workspace
-
+		
 		VoxelDestruction.Destroy(
 			finalHitbox,
 			nil,
@@ -677,9 +686,16 @@ local function runBlueHitbox(state)
 			10,
 			nil
 		)
-
+		
 		finalHitbox:Destroy()
 	end)
+	
+	-- Send to server for cooldown + server-side destruction (replicated to all clients)
+	abilityRequest.Send({
+		action = "blueHit",
+		explosionPosition = { X = finalPosition.X, Y = finalPosition.Y, Z = finalPosition.Z },
+		allowMultiple = true,
+	})
 	
 	-- Cleanup hitbox visual (delay to allow sound fade)
 	task.delay(1.5, function()
@@ -1006,6 +1022,29 @@ local function runRedProjectile(state)
 	
 	LocalPlayer:SetAttribute(`red_projectile_activeCFR`, nil)
 	
+	-- Local terrain destruction for instant feedback (server replicates to other clients)
+	task.spawn(function()
+		local destructHitbox = Instance.new("Part")
+		destructHitbox.Size = Vector3.new(RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2)
+		destructHitbox.Position = position
+		destructHitbox.Shape = Enum.PartType.Ball
+		destructHitbox.Anchored = true
+		destructHitbox.CanCollide = false
+		destructHitbox.CanQuery = true
+		destructHitbox.Transparency = 1
+		destructHitbox.Parent = workspace
+
+		VoxelDestruction.Destroy(
+			destructHitbox,
+			nil, -- OverlapParams
+			2, -- voxelSize
+			5, -- debrisCount
+			nil -- reset
+		)
+
+		destructHitbox:Destroy()
+	end)
+
 	-- Store explosion pivot (CFrame oriented to hit surface) - nil if max range reached
 	if not explosionPivot then
 		-- Max range reached without hitting surface - use projectile direction as "surface"
@@ -1094,6 +1133,7 @@ local function runRedProjectile(state)
 			hits = hitList,
 			explosionPosition = { X = position.X, Y = position.Y, Z = position.Z },
 			pivot = explosionPivot,
+			allowMultiple = true,
 		})
 	end
 	
@@ -1293,7 +1333,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
-			abilityRequest.Send({ action = "startCooldown" })
+			abilityRequest.Send({ action = "startCooldown", allowMultiple = true })
 
 			-- Play "Pulled" voice line
 			Dialogue.generate("HonoredOne", "Ability", "BlueStart", { override = true })
@@ -1309,7 +1349,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
-			abilityRequest.Send({ action = "startCooldown" })
+			abilityRequest.Send({ action = "startCooldown", allowMultiple = true })
 			
 			task.spawn(runRedProjectile, state)
 
