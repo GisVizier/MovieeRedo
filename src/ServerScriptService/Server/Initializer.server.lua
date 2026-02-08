@@ -8,6 +8,11 @@ local Registry = require(script.Parent:WaitForChild("Registry"):WaitForChild("Re
 
 Net:Init()
 
+-- Initialize VoxelDestruction early so its _ClientDestruction RemoteEvent is created
+-- before any client tries to WaitForChild for it. Without this, clients that load the
+-- module at startup get an infinite yield.
+require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
+
 do
 	local existing = ReplicatedStorage:FindFirstChild("CharacterTemplate")
 	if not existing then
