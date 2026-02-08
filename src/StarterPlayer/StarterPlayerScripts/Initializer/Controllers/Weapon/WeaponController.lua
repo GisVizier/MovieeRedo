@@ -27,6 +27,7 @@ local WeaponAmmo = require(WeaponServices:WaitForChild("WeaponAmmo"))
 local WeaponRaycast = require(WeaponServices:WaitForChild("WeaponRaycast"))
 local WeaponFX = require(WeaponServices:WaitForChild("WeaponFX"))
 local WeaponCooldown = require(WeaponServices:WaitForChild("WeaponCooldown"))
+local WeaponProjectile = require(WeaponServices:WaitForChild("WeaponProjectile"))
 
 -- Aim Assist
 local AimAssist = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"))
@@ -97,6 +98,11 @@ function WeaponController:Init(registry, net)
 
 	ServiceRegistry:SetRegistry(registry)
 	ServiceRegistry:RegisterController("Weapon", self)
+
+	-- Initialize WeaponProjectile early so OnClientEvent handlers for
+	-- ProjectileReplicate and ProjectileHitConfirmed are connected before
+	-- any events arrive from the server (prevents "did you forget to implement OnClientEvent?" warnings).
+	WeaponProjectile:Init(net)
 
 	-- Listen for hit confirmations from server
 	if self._net then

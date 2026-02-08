@@ -360,7 +360,14 @@ function Destroy(
 
 	if focus:GetAttribute("__HitboxID") == nil and game:GetService("RunService"):IsServer() and Settings.OnClient then
 		task.wait()
-		Remote:FireAllClients("Destroy", focus, parameters, voxelSize, debrisCount, reset)
+		-- Send serializable data instead of Instance reference to avoid race condition
+		-- where the Part hasn't replicated to clients yet when the remote arrives
+		local focusData = {
+			CFrame = focus.CFrame,
+			Size = focus.Size,
+			Shape = if focus:IsA("Part") then focus.Shape else nil,
+		}
+		Remote:FireAllClients("Destroy", focusData, parameters, voxelSize, debrisCount, reset)
 
 		if not Settings.RecordDestruction then
 			return
@@ -1495,7 +1502,29 @@ coroutine.resume(coroutine.create(function()
 
 		Remote.OnClientEvent:Connect(function(key, ...)
 			if key == "Destroy" then
-				Destroy(...)
+				local args = { ... }
+				local focusOrData = args[1]
+
+				if typeof(focusOrData) == "table" and focusOrData.CFrame and focusOrData.Size then
+					-- Server sent serializable data, create a local hitbox Part
+					local hitbox = Instance.new("Part")
+					hitbox.CFrame = focusOrData.CFrame
+					hitbox.Size = focusOrData.Size
+					if focusOrData.Shape then
+						hitbox.Shape = focusOrData.Shape
+					end
+					hitbox.Anchored = true
+					hitbox.CanCollide = false
+					hitbox.CanQuery = true
+					hitbox.Transparency = 1
+					hitbox.Parent = game:GetService("Workspace")
+
+					Destroy(hitbox, args[2], args[3], args[4], args[5])
+					hitbox:Destroy()
+				elseif typeof(focusOrData) == "Instance" then
+					-- Legacy: Instance reference passed directly
+					Destroy(...)
+				end
 			elseif key == "Repair" then
 				Repair(...)
 			end

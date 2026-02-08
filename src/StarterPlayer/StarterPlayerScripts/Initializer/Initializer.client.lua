@@ -14,6 +14,11 @@ SoundManager:Init()
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 VFXRep:Init(Net, false)
 
+-- Initialize VoxelDestruction early so its OnClientEvent handler is active for ALL clients,
+-- not just the player who has HonoredOne equipped. Without this, destruction events from
+-- the server are silently dropped on clients that never require the module.
+require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
+
 local registry = Registry.new()
 
 local controllersFolder = script.Parent:WaitForChild("Controllers")

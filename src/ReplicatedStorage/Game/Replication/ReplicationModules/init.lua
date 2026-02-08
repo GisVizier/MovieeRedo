@@ -125,19 +125,26 @@ function VFXRep:Init(net, isServer)
 			end
 		end)
 	else
-		-- Wait for assets that MovementFX modules depend on (StreamingEnabled-safe).
-		local assets = ReplicatedStorage:WaitForChild("Assets", 10)
-		if assets then
-			assets:WaitForChild("MovementFX", 10)
-		end
-
-		waitForLocalPlayerLoaded()
-		loadModules()
+		-- Connect OnClientEvent IMMEDIATELY so no events are dropped.
+		-- getModule() will lazy-load individual modules on demand if they
+		-- haven't been bulk-loaded yet, so early events still work.
 		self._net:ConnectClient("VFXRep", function(originUserId, moduleName, functionName, data)
 			local mod = getModule(moduleName)
 			if mod and type(mod[functionName]) == "function" then
 				mod[functionName](mod, originUserId, data)
 			end
+		end)
+
+		-- Bulk-load modules in the background so they're warm for future calls.
+		task.spawn(function()
+			-- Wait for assets that MovementFX modules depend on (StreamingEnabled-safe).
+			local assets = ReplicatedStorage:WaitForChild("Assets", 10)
+			if assets then
+				assets:WaitForChild("MovementFX", 10)
+			end
+
+			waitForLocalPlayerLoaded()
+			loadModules()
 		end)
 	end
 end

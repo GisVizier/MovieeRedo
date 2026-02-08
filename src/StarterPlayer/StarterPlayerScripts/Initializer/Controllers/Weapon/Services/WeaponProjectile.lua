@@ -67,6 +67,11 @@ local Net = nil
 	@param net table - Network module for events
 ]]
 function WeaponProjectile:Init(net)
+	-- Prevent double-initialization (now initialized early in WeaponController:Init)
+	if self._initialized then
+		return
+	end
+	self._initialized = true
 	Net = net
 
 	-- Start simulation loop

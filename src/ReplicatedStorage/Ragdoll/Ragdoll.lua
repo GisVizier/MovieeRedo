@@ -240,6 +240,13 @@ if IsClient then
 		local clone = rig:Clone()
 		clone.Name = rig.Name .. "_Ragdoll"
 		
+		-- Remove Highlights from clone
+		for _, desc in clone:GetDescendants() do
+			if desc:IsA("Highlight") then
+				desc:Destroy()
+			end
+		end
+		
 		-- Collect main limb parts for colliders
 		local mainLimbs = {}
 		for _, part in clone:GetChildren() do
