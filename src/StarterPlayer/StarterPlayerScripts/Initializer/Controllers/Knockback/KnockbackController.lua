@@ -43,10 +43,12 @@ KnockbackController._registry = nil
 KnockbackController._net = nil
 KnockbackController._movementController = nil
 KnockbackController._initialized = false
+KnockbackController._knockbackEvent = nil
 
 function KnockbackController:Init(registry, net)
 	self._registry = registry
 	self._net = net
+	self._knockbackEvent = Instance.new("BindableEvent")
 
 	ServiceRegistry:RegisterController("Knockback", self)
 
@@ -77,14 +79,27 @@ function KnockbackController:_onKnockbackReceived(data)
 	-- Check for new velocity-based format
 	if data.velocity then
 		local velocity = Vector3.new(data.velocity.X, data.velocity.Y, data.velocity.Z)
-		self:_applyVelocityToLocalPlayer(velocity, preserveMomentum)
+		self:_applyVelocityToLocalPlayer(velocity, preserveMomentum, data.sourceUserId)
 		return
 	end
 
 	-- Legacy direction+magnitude format
 	if data.direction then
 		local direction = Vector3.new(data.direction.X, data.direction.Y, data.direction.Z)
-		self:_applyKnockbackToLocalPlayer(direction, data.magnitude, preserveMomentum)
+		self:_applyKnockbackToLocalPlayer(direction, data.magnitude, preserveMomentum, data.sourceUserId)
+	end
+end
+
+function KnockbackController:GetKnockbackSignal()
+	if not self._knockbackEvent then
+		self._knockbackEvent = Instance.new("BindableEvent")
+	end
+	return self._knockbackEvent.Event
+end
+
+function KnockbackController:_emitLocalKnockbackApplied(data)
+	if self._knockbackEvent then
+		self._knockbackEvent:Fire(data)
 	end
 end
 
@@ -92,7 +107,7 @@ end
 -- INTERNAL: Apply knockback to local player
 -- =============================================================================
 
-function KnockbackController:_applyKnockbackToLocalPlayer(direction, magnitude, preserveMomentum)
+function KnockbackController:_applyKnockbackToLocalPlayer(direction, magnitude, preserveMomentum, sourceUserId)
 	local character = LocalPlayer.Character
 	if not character then
 		return
@@ -134,6 +149,11 @@ function KnockbackController:_applyKnockbackToLocalPlayer(direction, magnitude, 
 	if isGrounded and knockbackVel.Y < 15 then
 		root.AssemblyLinearVelocity = root.AssemblyLinearVelocity + Vector3.new(0, 15, 0)
 	end
+
+	self:_emitLocalKnockbackApplied({
+		kind = "direction",
+		sourceUserId = sourceUserId,
+	})
 end
 
 -- =============================================================================
@@ -243,7 +263,7 @@ end
 --[[
 	Internal: Apply velocity directly to local player (no normalization)
 ]]
-function KnockbackController:_applyVelocityToLocalPlayer(velocity, preserveMomentum)
+function KnockbackController:_applyVelocityToLocalPlayer(velocity, preserveMomentum, sourceUserId)
 	local character = LocalPlayer.Character
 	if not character then
 		return
@@ -262,6 +282,11 @@ function KnockbackController:_applyVelocityToLocalPlayer(velocity, preserveMomen
 
 	-- Apply velocity directly (like JumpPad does)
 	root.AssemblyLinearVelocity = velocity + preserved
+
+	self:_emitLocalKnockbackApplied({
+		kind = "velocity",
+		sourceUserId = sourceUserId,
+	})
 end
 
 --[[

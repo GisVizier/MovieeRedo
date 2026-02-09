@@ -4,9 +4,9 @@ local KitServiceImpl = require(ReplicatedStorage:WaitForChild("KitSystem"):WaitF
 
 local KitService = {}
 
-function KitService:Init(_registry, net)
+function KitService:Init(registry, net)
 	self._net = net
-	self._impl = KitServiceImpl.new(net)
+	self._impl = KitServiceImpl.new(net, registry)
 end
 
 function KitService:Start()

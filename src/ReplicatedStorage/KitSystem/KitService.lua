@@ -6,10 +6,11 @@ local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 local KitService = {}
 KitService.__index = KitService
 
-function KitService.new(net)
+function KitService.new(net, registry)
 	local self = setmetatable({}, KitService)
 
 	self._net = net
+	self._registry = registry
 	self._data = {}
 	self._playerKits = {}
 	self._started = false
@@ -323,9 +324,13 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 		return
 	end
 
+	local allowMultiple = type(extraData) == "table" and extraData.allowMultiple == true
+
 	-- Check cooldown (only for Begin, ability only)
 	if inputState == Enum.UserInputState.Begin then
-		if isAbility and now < (info.abilityCooldownEndsAt or 0) then
+		-- Allow in-progress multi-send ability packets (e.g. hit/destruction ticks)
+		-- to pass while cooldown is active.
+		if isAbility and now < (info.abilityCooldownEndsAt or 0) and not allowMultiple then
 			return -- On cooldown, silently reject
 		end
 		
@@ -452,6 +457,63 @@ function KitService:BroadcastVFX(player: Player, targetSpec: string, moduleName:
 	
 	-- Fire to each target client
 	-- Format matches what VFXRep client expects: (originUserId, moduleName, functionName, data)
+	for _, target in ipairs(targets) do
+		self._net:FireClient("VFXRep", target, player.UserId, moduleName, func, data)
+	end
+end
+
+local function appendUniquePlayer(targets, seen, player)
+	if not player then
+		return
+	end
+	if seen[player] then
+		return
+	end
+	seen[player] = true
+	table.insert(targets, player)
+end
+
+function KitService:_getMatchScopedTargets(originPlayer: Player, includeSelf: boolean)
+	local targets = {}
+	local seen = {}
+	local matchTargets = nil
+
+	local registry = self._registry
+	local matchManager = registry and registry:TryGet("MatchManager") or nil
+	if matchManager and matchManager.GetPlayersInMatch then
+		matchTargets = matchManager:GetPlayersInMatch(originPlayer)
+	end
+
+	if type(matchTargets) == "table" and #matchTargets > 0 then
+		for _, player in ipairs(matchTargets) do
+			if includeSelf or player ~= originPlayer then
+				appendUniquePlayer(targets, seen, player)
+			end
+		end
+	end
+
+	-- Fallback when player is not in a managed match (training/lobby custom spaces).
+	if #targets == 0 then
+		local originArea = originPlayer:GetAttribute("CurrentArea")
+		for _, player in ipairs(Players:GetPlayers()) do
+			if includeSelf or player ~= originPlayer then
+				if originArea == nil or player:GetAttribute("CurrentArea") == originArea then
+					appendUniquePlayer(targets, seen, player)
+				end
+			end
+		end
+	end
+
+	return targets
+end
+
+function KitService:BroadcastVFXMatchScoped(player: Player, moduleName: string, data: any, functionName: string?, includeSelf: boolean?)
+	if not self._net or not player then
+		return
+	end
+
+	local func = functionName or "Execute"
+	local targets = self:_getMatchScopedTargets(player, includeSelf == true)
 	for _, target in ipairs(targets) do
 		self._net:FireClient("VFXRep", target, player.UserId, moduleName, func, data)
 	end

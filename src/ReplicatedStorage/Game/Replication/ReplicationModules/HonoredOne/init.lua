@@ -30,6 +30,9 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local HonoredOne = {}
+local DEBUG_PROJECTILE_REPLICATION = true
+local LOG_INTERVAL = 0.35
+local _lastLogByKey = {}
 
 --------------------------------------------------------------------------------
 -- Active VFX tracking
@@ -67,6 +70,44 @@ local function getPlayerRoot(userId)
 		return player.Character:FindFirstChild("HumanoidRootPart") 
 			or player.Character:FindFirstChild("Root")
 	end
+	return nil
+end
+
+local function debugLog(key, ...)
+	if not DEBUG_PROJECTILE_REPLICATION then
+		return
+	end
+
+	local now = os.clock()
+	local last = _lastLogByKey[key]
+	if last and (now - last) < LOG_INTERVAL then
+		return
+	end
+	_lastLogByKey[key] = now
+	warn("[HonoredOneRep]", ...)
+end
+
+local function resolveReplicatedPlayer(originUserId, data)
+	if typeof(data) == "table" then
+		local candidate = data.Player
+		if typeof(candidate) == "Instance" and candidate:IsA("Player") then
+			return candidate
+		end
+
+		local playerId = tonumber(data.playerId)
+		if playerId then
+			local byId = Players:GetPlayerByUserId(playerId)
+			if byId then
+				return byId
+			end
+		end
+	end
+
+	local fallbackId = tonumber(originUserId)
+	if fallbackId then
+		return Players:GetPlayerByUserId(fallbackId)
+	end
+
 	return nil
 end
 
@@ -111,6 +152,7 @@ end
 
 function HonoredOne:User(originUserId, data)
 	local localPlayer = Players.LocalPlayer
+	local originPlayer = Players:GetPlayerByUserId(originUserId)
 	--if not localPlayer or localPlayer.UserId ~= originUserId then
 	--	return -- Only run on caster's client
 	--end
@@ -146,17 +188,29 @@ function HonoredOne:User(originUserId, data)
 	end
 
 	if action == "red_shootlolll" then
-		ReplicateFX("red", "ReplicateProjectile", {Character = data.Character, ViewModel = ViewModel})	
+		ReplicateFX("red", "ReplicateProjectile", {
+			Character = data.Character,
+			Player = originPlayer,
+			playerId = originUserId,
+			ViewModel = ViewModel,
+		})	
 		
 		
 	elseif action == "red_explode" then
-		ReplicateFX("red", "explodeplz", { Character = localPlayer.Character, pivot = data.pivot})	
+		ReplicateFX("red", "explodeplz", {
+			Character = localPlayer.Character,
+			Player = originPlayer,
+			playerId = originUserId,
+			pivot = data.pivot,
+		})	
 
 
 	elseif action == "blue_open" then
 
 		ReplicateFX("blue", "open", { 
 			Character = data.Character, 
+			Player = originPlayer,
+			playerId = originUserId,
 			projectile = data.projectile, 
 			lifetime = data.lifetime
 		})	
@@ -165,6 +219,8 @@ function HonoredOne:User(originUserId, data)
 		--warn(data)
 		ReplicateFX("blue", "loop", { 
 			Character = data.Character, 
+			Player = originPlayer,
+			playerId = originUserId,
 			projectile = data.projectile, 
 			lifetime = data.lifetime
 		})	
@@ -173,6 +229,8 @@ function HonoredOne:User(originUserId, data)
 
 		--ReplicateFX("blue", "close", { 
 		--	Character = localPlayer.Character, 
+		--	Player = originPlayer,
+		--	playerId = originUserId,
 		--	projectile = data.projectile, 
 		--	lifetime = data.lifetime
 		--})	
@@ -181,20 +239,28 @@ function HonoredOne:User(originUserId, data)
 end
 
 function HonoredOne:UpdateProj(originUserId, data)
-	local plr = data.Player
+	local plr = resolveReplicatedPlayer(originUserId, data)
 	local char = data.Character
 	local pivot = data.pivot
 
 	if not plr then
+		debugLog("red_missing_player_" .. tostring(originUserId), "UpdateProj missing player", "originUserId=", originUserId)
 		return
 	end
 	
 	if data.debris then
 		plr:SetAttribute(`red_projectile_activeCFR`, nil )
+		debugLog("red_debris_" .. tostring(plr.UserId), "UpdateProj clear", plr.Name)
 		return
 	end
-	
+
+	if typeof(pivot) ~= "CFrame" then
+		debugLog("red_bad_pivot_" .. tostring(plr.UserId), "UpdateProj missing/invalid pivot", plr.Name)
+		return
+	end
+
 	plr:SetAttribute(`red_projectile_activeCFR`, pivot )
+	debugLog("red_update_" .. tostring(plr.UserId), "UpdateProj set", plr.Name, tostring(pivot.Position))
 end
 
 --------------------------------------------------------------------------------
@@ -202,20 +268,28 @@ end
 --------------------------------------------------------------------------------
 
 function HonoredOne:UpdateBlue(originUserId, data)
-	local plr = data.Player
+	local plr = resolveReplicatedPlayer(originUserId, data)
 	local char = data.Character
 	local pivot = data.pivot
 
 	if not plr then
+		debugLog("blue_missing_player_" .. tostring(originUserId), "UpdateBlue missing player", "originUserId=", originUserId)
 		return
 	end
 
 	if data.debris then
 		plr:SetAttribute(`blue_projectile_activeCFR`, nil )
+		debugLog("blue_debris_" .. tostring(plr.UserId), "UpdateBlue clear", plr.Name)
+		return
+	end
+
+	if typeof(pivot) ~= "CFrame" then
+		debugLog("blue_bad_pivot_" .. tostring(plr.UserId), "UpdateBlue missing/invalid pivot", plr.Name)
 		return
 	end
 
 	plr:SetAttribute(`blue_projectile_activeCFR`, pivot )
+	debugLog("blue_update_" .. tostring(plr.UserId), "UpdateBlue set", plr.Name, tostring(pivot.Position))
 end
 --------------------------------------------------------------------------------
 -- Execute (fallback routing)

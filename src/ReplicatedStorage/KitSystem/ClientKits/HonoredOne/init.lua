@@ -119,6 +119,7 @@ local RED_PHYSICS_CONFIG = {
 	drag = 0,          -- No slowdown
 	lifetime = RED_CONFIG.MAX_RANGE / RED_CONFIG.PROJECTILE_SPEED + 0.2,  -- ~1 second total
 }
+local PROJECTILE_REPLICATION_INTERVAL = 1 / 18
 
 
 --------------------------------------------------------------------------------
@@ -398,6 +399,60 @@ HonoredOne._ctx = nil
 HonoredOne._connections = {}
 HonoredOne._abilityState = nil
 
+local function clearRedStateAttributes()
+	LocalPlayer:SetAttribute(`red_charge`, nil)
+	LocalPlayer:SetAttribute(`red_projectile_activeCFR`, nil)
+	LocalPlayer:SetAttribute(`red_explosion_pivot`, nil)
+end
+
+local function setExternalMoveMult(multiplier)
+	local value = tonumber(multiplier) or 1
+	LocalPlayer:SetAttribute("ExternalMoveMult", math.clamp(value, 0.1, 1))
+end
+
+local function clearExternalMoveMult()
+	LocalPlayer:SetAttribute("ExternalMoveMult", 1)
+end
+
+local function clearRedCrouchGate()
+	LocalPlayer:SetAttribute("ForceUncrouch", nil)
+	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+end
+
+local function setRedCrouchGate()
+	LocalPlayer:SetAttribute("ForceUncrouch", true)
+	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", true)
+end
+
+local function endBlue(state)
+	if not state then return end
+	state.hitboxActive = false
+	LocalPlayer:SetAttribute("cleanupblueFX", os.clock())
+	clearExternalMoveMult()
+
+	if state.hitboxViz and state.hitboxViz.Parent then
+		state.hitboxViz:Destroy()
+	end
+	state.hitboxViz = nil
+end
+
+local function endRed(state, preserveExplosionPivot)
+	if not state then return end
+	state.projectileActive = false
+	clearExternalMoveMult()
+	clearRedCrouchGate()
+
+	if state.projectileViz and state.projectileViz.Parent then
+		state.projectileViz:Destroy()
+	end
+	state.projectileViz = nil
+	LocalPlayer:SetAttribute(`red_charge`, nil)
+	LocalPlayer:SetAttribute(`red_projectile_activeCFR`, nil)
+	if not preserveExplosionPivot then
+		LocalPlayer:SetAttribute(`red_explosion_pivot`, nil)
+	end
+end
+
 --------------------------------------------------------------------------------
 -- Blue Ability - Moving Vacuum Hitbox (Pull)
 -- Called from animation "open" event
@@ -465,19 +520,34 @@ local function runBlueHitbox(state)
 	-- Play Blue idle sound (looped, on the hitbox)
 	--playBlueIdleSound(hitboxViz)
 	
-	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+	VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 		Character = character,
 		forceAction = "blue_open",
 		projectile = hitboxViz,
 		lifetime = BLUE_CONFIG.LIFETIME,
 	})
+	abilityRequest.Send({
+		action = "relayUserVfx",
+		forceAction = "blue_open",
+		lifetime = BLUE_CONFIG.LIFETIME,
+		allowMultiple = true,
+	})
 
 	task.delay(.3, function()
-		VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+		if state.cancelled then
+			return
+		end
+		VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 			Character = character,
 			forceAction = "blue_loop",
 			projectile = hitboxViz,
 			lifetime = BLUE_CONFIG.LIFETIME,
+		})
+		abilityRequest.Send({
+			action = "relayUserVfx",
+			forceAction = "blue_loop",
+			lifetime = BLUE_CONFIG.LIFETIME,
+			allowMultiple = true,
 		})
 	end)
 	
@@ -513,15 +583,21 @@ local function runBlueHitbox(state)
 		currentPosition = currentPosition:Lerp(targetPosition, lerpAlpha)
 		
 		-- Update visual
+		local bluePivot = CFrame.new(currentPosition)
 		if hitboxViz and hitboxViz.Parent then
-			hitboxViz.CFrame = CFrame.new(currentPosition)
-			
-			-- Replicate position update
-			VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
-				Character = character,
-				Player = LocalPlayer,
-				pivot = CFrame.new(currentPosition),
+			hitboxViz.CFrame = bluePivot
+		end
+		LocalPlayer:SetAttribute(`blue_projectile_activeCFR`, bluePivot)
+
+		local now = os.clock()
+		if (state.lastBlueReplicationAt or 0) + PROJECTILE_REPLICATION_INTERVAL <= now then
+			state.lastBlueReplicationAt = now
+			abilityRequest.Send({
+				action = "blueProjectileUpdate",
+				pivot = bluePivot,
+				position = { X = currentPosition.X, Y = currentPosition.Y, Z = currentPosition.Z },
 				radius = BLUE_CONFIG.HITBOX_RADIUS,
+				allowMultiple = true,
 			})
 		end
 		
@@ -679,6 +755,19 @@ local function runBlueHitbox(state)
 					awayDir = awayDir.Magnitude > 0.1 and awayDir.Unit or Vector3.yAxis
 					debrisPart.AssemblyLinearVelocity = awayDir * BLUE_CONFIG.EXPLOSION_OUTWARD
 						+ Vector3.new(0, BLUE_CONFIG.EXPLOSION_UPWARD * 0.5, 0)
+				else
+					-- Preserve path momentum when releasing so debris doesn't just drop straight down.
+					local radialDir = Vector3.new(math.cos(data.angle), 0, math.sin(data.angle))
+					local tangent = Vector3.new(-radialDir.Z, 0, radialDir.X) * data.dir
+					if tangent.Magnitude < 0.01 then
+						tangent = Vector3.xAxis
+					end
+					tangent = tangent.Unit
+
+					local orbitLinear = tangent * (data.speed * data.radius * 6)
+					local inward = -radialDir * 4
+					local verticalCarry = Vector3.new(0, math.clamp(data.height * 1.2, -6, 12), 0)
+					debrisPart.AssemblyLinearVelocity = orbitLinear + inward + verticalCarry
 				end
 			end
 		end
@@ -692,24 +781,22 @@ local function runBlueHitbox(state)
 		releaseDebris(nil)
 		
 		-- Fire cleanup event
-		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
-			Character = character,
-			Player = LocalPlayer,
+		LocalPlayer:SetAttribute(`blue_projectile_activeCFR`, nil)
+		abilityRequest.Send({
+			action = "blueProjectileUpdate",
 			debris = true,
+			allowMultiple = true,
 		})
 		
-		if hitboxViz and hitboxViz.Parent then
-			hitboxViz:Destroy()
-		end
-		state.hitboxActive = false
+		endBlue(state)
 		return
 	end
 	
 	-- EXPLOSION at end (use current lerped position)
 	local finalPosition = currentPosition
 	
-	-- Fling all orbiting debris outward from explosion
-	releaseDebris(finalPosition)
+	-- Stop following and drop orbiting debris (no end fling)
+	releaseDebris(nil)
 	
 	-- Update visual for explosion
 	--if hitboxViz and hitboxViz.Parent then
@@ -725,19 +812,27 @@ local function runBlueHitbox(state)
 	-- Play "Then Erased" voice line
 	Dialogue.generate("HonoredOne", "Ability", "BlueEnd", { override = true })
 
-	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+	VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 		Character = character,
 		forceAction = "blue_close",
 		pivot = CFrame.new(finalPosition),
 		radius = BLUE_CONFIG.HITBOX_RADIUS,
 	})
+	abilityRequest.Send({
+		action = "relayUserVfx",
+		forceAction = "blue_close",
+		pivot = CFrame.new(finalPosition),
+		radius = BLUE_CONFIG.HITBOX_RADIUS,
+		allowMultiple = true,
+	})
 	
 	-- Cleanup blue VFX
 	task.delay(0.1, function()
-		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateBlue" }, {
-			Character = character,
-			Player = LocalPlayer,
+		LocalPlayer:SetAttribute(`blue_projectile_activeCFR`, nil)
+		abilityRequest.Send({
+			action = "blueProjectileUpdate",
 			debris = true,
+			allowMultiple = true,
 		})
 	end)
 
@@ -750,15 +845,8 @@ local function runBlueHitbox(state)
 		allowMultiple = true,
 	})
 	
-	-- Cleanup hitbox visual (delay to allow sound fade)
-	task.delay(1.5, function()
-		if hitboxViz and hitboxViz.Parent then
-			hitboxViz:Destroy()
-		end
-	end)
-	
 	-- Hitbox finished - clear state
-	state.hitboxActive = false
+	endBlue(state)
 	if HonoredOne._abilityState == state then
 		HonoredOne._abilityState = nil
 	end
@@ -803,7 +891,8 @@ local function getPlayerFromHit(hitInstance)
 				local player = Players:GetPlayerByUserId(ownerUserId)
 				if player then
 					-- Headshot = hit part named "Head"
-					local isHeadshot = hitInstance.Name == "Head"
+					local hitName = hitInstance.Name
+					local isHeadshot = hitName == "Head" or hitName == "CrouchHead" or hitName == "HitboxHead"
 					return player, player.Character, isHeadshot
 				end
 			end
@@ -828,7 +917,8 @@ local function getPlayerFromHit(hitInstance)
 					return nil, nil, false
 				end
 				-- It's a dummy/rig
-				local isHeadshot = hitInstance.Name == "Head" or hitInstance.Name == "HitboxHead"
+				local hitName = hitInstance.Name
+				local isHeadshot = hitName == "Head" or hitName == "CrouchHead" or hitName == "HitboxHead"
 				return nil, current, isHeadshot
 			end
 		end
@@ -927,10 +1017,7 @@ local function runRedProjectile(state)
 		-- Check for cancel
 		if state.cancelled then
 			connection:Disconnect()
-			if projectileViz and projectileViz.Parent then
-				projectileViz:Destroy()
-			end
-			state.projectileActive = false
+			endRed(state)
 			return
 		end
 		
@@ -1029,26 +1116,35 @@ local function runRedProjectile(state)
 		velocity = newVelocity
 		
 		-- Update visual
+		local redPivot = CFrame.lookAt(position, position + velocity.Unit)
 		if projectileViz and projectileViz.Parent then
-			projectileViz.CFrame = CFrame.lookAt(position, position + velocity.Unit)
-			VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateProj" }, {
-				Character = character,
-				Player = LocalPlayer,
-				pivot = CFrame.lookAt(position, position + velocity.Unit),
-			})
+			projectileViz.CFrame = redPivot
+		end
+		LocalPlayer:SetAttribute(`red_projectile_activeCFR`, redPivot)
 
-			
-			
-			LocalPlayer:SetAttribute(`red_projectile_activeCFR`, CFrame.lookAt(position, position + velocity.Unit))
+		local now = os.clock()
+		if (state.lastRedReplicationAt or 0) + PROJECTILE_REPLICATION_INTERVAL <= now then
+			state.lastRedReplicationAt = now
+			abilityRequest.Send({
+				action = "redProjectileUpdate",
+				pivot = redPivot,
+				position = { X = position.X, Y = position.Y, Z = position.Z },
+				direction = { X = velocity.Unit.X, Y = velocity.Unit.Y, Z = velocity.Unit.Z },
+				allowMultiple = true,
+			})
 		end
 		
 		if not started then
 			started = true
 
-			VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
-				--ViewModel = viewmodelRig,
+			VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 				Character = character,
 				forceAction = "red_shootlolll",
+			})
+			abilityRequest.Send({
+				action = "relayUserVfx",
+				forceAction = "red_shootlolll",
+				allowMultiple = true,
 			})
 
 		end
@@ -1066,10 +1162,7 @@ local function runRedProjectile(state)
 	
 	-- Check if cancelled
 	if state.cancelled then
-		if projectileViz and projectileViz.Parent then
-			projectileViz:Destroy()
-		end
-		state.projectileActive = false
+		endRed(state)
 		return
 	end
 	
@@ -1083,10 +1176,16 @@ local function runRedProjectile(state)
 	LocalPlayer:SetAttribute(`red_explosion_pivot`, explosionPivot)
 
 	-- Fire explosion VFX
-	VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
+	VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 		Character = character,
 		pivot = explosionPivot,
 		forceAction = "red_explode",
+	})
+	abilityRequest.Send({
+		action = "relayUserVfx",
+		forceAction = "red_explode",
+		pivot = explosionPivot,
+		allowMultiple = true,
 	})
 
 	-- Stop charge sound and play explosion sound at explosion position
@@ -1094,7 +1193,7 @@ local function runRedProjectile(state)
 	playExplosionSound(position)
 
 	-- Explosion visual
-	projectileViz:Destroy()
+	endRed(state, true)
 	--if projectileViz and projectileViz.Parent then
 	--	projectileViz.Color = Color3.fromRGB(255, 150, 50)
 	--	projectileViz.Size = Vector3.new(RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2, RED_CONFIG.EXPLOSION_RADIUS * 2)
@@ -1166,20 +1265,28 @@ local function runRedProjectile(state)
 			allowMultiple = true,
 		})
 	end
+
+	-- Always request server-side red explosion destruction on impact.
+	abilityRequest.Send({
+		action = "redDestruction",
+		position = { X = position.X, Y = position.Y, Z = position.Z },
+		radius = RED_CONFIG.EXPLOSION_RADIUS,
+		allowMultiple = true,
+	})
 	
 	-- Cleanup pivot attribute after a short delay (let VFX read it first)
 	task.delay(0.1, function()
 		LocalPlayer:SetAttribute(`red_explosion_pivot`, nil)
-		VFXRep:Fire("All", { Module = "HonoredOne", Function = "UpdateProj" }, {
-			Character = character,
-			Player = LocalPlayer,
+		abilityRequest.Send({
+			action = "redProjectileUpdate",
 			debris = true,
-			--pivot = CFrame.lookAt(position, position + velocity.Unit),
+			allowMultiple = true,
 		})
 		
 	end)
 	
 	state.projectileActive = false
+	state.projectileViz = nil
 	if HonoredOne._abilityState == state then
 		HonoredOne._abilityState = nil
 	end
@@ -1289,7 +1396,9 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		
 		-- Cleanup
 		cleanupSounds()
-		LocalPlayer:SetAttribute(`red_charge`, nil)
+		clearRedStateAttributes()
+		endBlue(state)
+		endRed(state)
 		
 		-- Disconnect all connections
 		for _, conn in ipairs(state.connections or {}) do
@@ -1317,6 +1426,8 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- VFX/sounds on ability start (charging for Red)
 			-- TODO: Add VFXRep call for start effects
 			if isCrouching then
+				setExternalMoveMult(0.45)
+				setRedCrouchGate()
 				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 					ViewModel = viewmodelRig,
 					forceAction = "red_create",
@@ -1363,7 +1474,39 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
+			setExternalMoveMult(0.5)
 			abilityRequest.Send({ action = "startCooldown", allowMultiple = true })
+
+			local function cancelBlue(reason)
+				if state.cancelled or state.isCrouching or not state.committed then return end
+				HonoredOne.Ability:OnInterrupt(nil, reason or "blue_cancel")
+			end
+
+			-- Cancel Blue instantly if we take damage
+			local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+			if humanoid then
+				state.blueLastHealth = humanoid.Health
+				table.insert(state.connections, humanoid.HealthChanged:Connect(function(newHealth)
+					if state.cancelled or state.isCrouching or not state.committed then
+						state.blueLastHealth = newHealth
+						return
+					end
+
+					local lastHealth = state.blueLastHealth or newHealth
+					if newHealth < lastHealth then
+						cancelBlue("blue_cancel_damage")
+					end
+					state.blueLastHealth = newHealth
+				end))
+			end
+
+			-- Cancel Blue instantly if local knockback is applied
+			local knockbackController = ServiceRegistry:GetController("Knockback")
+			if knockbackController and knockbackController.GetKnockbackSignal then
+				table.insert(state.connections, knockbackController:GetKnockbackSignal():Connect(function()
+					cancelBlue("blue_cancel_knockback")
+				end))
+			end
 
 			-- Play "Pulled" voice line
 			Dialogue.generate("HonoredOne", "Ability", "BlueStart", { override = true })
@@ -1379,6 +1522,8 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
+			setExternalMoveMult(0.45)
+			setRedCrouchGate()
 			abilityRequest.Send({ action = "startCooldown", allowMultiple = true })
 			
 			task.spawn(runRedProjectile, state)
@@ -1387,13 +1532,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 				ViewModel = viewmodelRig,
 				forceAction = "red_fire",
 			})
-
-			--VFXRep:Fire("All", { Module = "HonoredOne", Function = "User" }, {
-			--	ViewModel = viewmodelRig,
-			--	Character = character,
-			--	forceAction = "red_shootlolll",
-			--})
-
 			LocalPlayer:SetAttribute(`red_charge`, nil)
 		end,
 
@@ -1401,8 +1539,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			if not state.active then return end
 			
 			state.active = false
-			-- NOTE: Don't clear _abilityState yet - hitbox/projectile may still be running
-			-- NOTE: Don't set cancelled - let ability run to completion
 
 			-- Cleanup animation connections
 			for _, conn in ipairs(state.connections) do
@@ -1415,7 +1551,18 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- Restore weapon (animation done, but hitbox/projectile continues)
 			state.unlockWeapon()
 			kitController:_unholsterWeapon()
-			LocalPlayer:SetAttribute(`red_charge`, nil)
+			clearRedStateAttributes()
+
+			-- If ability never committed, hard-clean everything here.
+			-- If committed, Blue/Red runtime loops own their cleanup.
+			if not state.committed then
+				state.cancelled = true
+				endBlue(state)
+				endRed(state)
+				if HonoredOne._abilityState == state then
+					HonoredOne._abilityState = nil
+				end
+			end
 		end,
 	}
 
@@ -1447,7 +1594,7 @@ function HonoredOne.Ability:OnEnded(abilityRequest)
 	
 	-- Mark as released
 	state.released = true
-	LocalPlayer:SetAttribute(`red_charge`, nil)
+	clearRedStateAttributes()
 	
 	-- Resume animation from freeze (Red ability)
 	if state.isCrouching and state.animation and state.animation.IsPlaying then
@@ -1465,23 +1612,13 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	-- Hard cancel - stops everything including hitbox/projectile
 	state.cancelled = true
 	state.active = false
-	state.hitboxActive = false
-	state.projectileActive = false
+	endBlue(state)
+	endRed(state)
 	HonoredOne._abilityState = nil
 
 	-- Stop animation
 	if state.animation and state.animation.IsPlaying then
 		state.animation:Stop(0.1)
-	end
-
-	-- Cleanup hitbox visual (Blue)
-	if state.hitboxViz and state.hitboxViz.Parent then
-		state.hitboxViz:Destroy()
-	end
-
-	-- Cleanup projectile visual (Red)
-	if state.projectileViz and state.projectileViz.Parent then
-		state.projectileViz:Destroy()
 	end
 
 	-- Cleanup connections

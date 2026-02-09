@@ -92,6 +92,11 @@ function CharacterController:Init(registry, net)
 	ServiceRegistry:RegisterController("CharacterController", self)
 	ServiceRegistry:RegisterController("MovementController", self)
 
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("ExternalMoveMult") == nil then
+		localPlayer:SetAttribute("ExternalMoveMult", 1)
+	end
+
 	local currentTime = tick()
 	self.LastCrouchTime = currentTime - 1
 	self.LastGroundedTime = currentTime
@@ -499,6 +504,9 @@ function CharacterController:UpdateMovement(deltaTime)
 		end
 		return
 	end
+
+	-- Enforce forced-stand ability gates every frame (not only on crouch input events).
+	self:EnforceAbilityCrouchGate()
 
 	if self.Character and not self._missingColliderPartLogged then
 		local body = CharacterLocations:GetBody(self.Character)
@@ -1078,6 +1086,14 @@ function CharacterController:ApplyMovement()
 	local emoteMult = localPlayer and localPlayer:GetAttribute("EmoteSpeedMultiplier") or 1
 	targetSpeed = targetSpeed * emoteMult
 
+	-- External movement multiplier (ability/system-controlled, clamped for safety)
+	local externalMoveMult = localPlayer and localPlayer:GetAttribute("ExternalMoveMult") or 1
+	if typeof(externalMoveMult) ~= "number" then
+		externalMoveMult = 1
+	end
+	externalMoveMult = math.clamp(externalMoveMult, 0.1, 1)
+	targetSpeed = targetSpeed * externalMoveMult
+
 	local weightMultiplier = 1.0
 
 	local timeSinceWallJump = tick() - WallJumpUtils.LastWallJumpTime
@@ -1560,6 +1576,38 @@ function CharacterController:HandleCrouch(isCrouching)
 		return
 	end
 
+	-- Ability crouch gate enforcement: force stand even if crouch input state doesn't change.
+	self:EnforceAbilityCrouchGate()
+
+	local localPlayer = Players.LocalPlayer
+	local forceUncrouch = localPlayer and localPlayer:GetAttribute("ForceUncrouch") == true
+	local blockCrouch = localPlayer and localPlayer:GetAttribute("BlockCrouchWhileAbility") == true
+
+	-- Ability gate: block crouch and force standing, and replicate this uncrouch.
+	if forceUncrouch or blockCrouch then
+		self:StopUncrouchChecking()
+		self.IsCrouching = false
+		if self.InputManager then
+			self.InputManager.IsCrouching = false
+		end
+
+		if CrouchUtils:IsVisuallycrouched(self.Character) then
+			CrouchUtils:Uncrouch(self.Character)
+			CrouchUtils:RemoveVisualCrouch(self.Character)
+			Net:FireServer("CrouchStateChanged", false)
+		end
+
+		if MovementStateManager:IsCrouching() then
+			local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+			if shouldRestoreSprint then
+				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+			else
+				MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+			end
+		end
+		return
+	end
+
 	if isCrouching then
 		self:StopUncrouchChecking()
 		CrouchUtils:Crouch(self.Character)
@@ -1578,6 +1626,40 @@ function CharacterController:HandleCrouch(isCrouching)
 		self:StopUncrouchChecking()
 		CrouchUtils:Uncrouch(self.Character)
 
+		local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+		if shouldRestoreSprint then
+			MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+		else
+			MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+		end
+	end
+end
+
+function CharacterController:EnforceAbilityCrouchGate()
+	if not self.Character then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	local forceUncrouch = localPlayer and localPlayer:GetAttribute("ForceUncrouch") == true
+	local blockCrouch = localPlayer and localPlayer:GetAttribute("BlockCrouchWhileAbility") == true
+	if not forceUncrouch and not blockCrouch then
+		return
+	end
+
+	self:StopUncrouchChecking()
+	self.IsCrouching = false
+	if self.InputManager then
+		self.InputManager.IsCrouching = false
+	end
+
+	if CrouchUtils:IsVisuallycrouched(self.Character) then
+		CrouchUtils:Uncrouch(self.Character)
+		CrouchUtils:RemoveVisualCrouch(self.Character)
+		Net:FireServer("CrouchStateChanged", false)
+	end
+
+	if MovementStateManager:IsCrouching() then
 		local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
 		if shouldRestoreSprint then
 			MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
@@ -1606,11 +1688,6 @@ function CharacterController:HandleSlideInput(isSliding)
 		if canSlide then
 			local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 			SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
-		elseif not self.IsGrounded then
-			local canBuffer = SlidingSystem:CanBufferSlide(self.MovementInput, true, self.IsGrounded, self)
-			if canBuffer then
-				SlidingSystem:StartSlideBuffer(movementDirection, false)
-			end
 		end
 	else
 		if SlidingSystem.IsSliding then
@@ -1669,19 +1746,6 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 			if canSlide then
 				local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 				SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
-				return
-			end
-		end
-
-		if autoSlideEnabled and not self.IsGrounded and isSprinting and hasMovementInput then
-			local canBuffer, reason =
-				SlidingSystem:CanBufferSlide(self.MovementInput, isCrouching, self.IsGrounded, self)
-
-			if canBuffer then
-				local movementDirection = self:CalculateMovementDirection()
-				if movementDirection.Magnitude > 0 then
-					SlidingSystem:StartSlideBuffer(movementDirection, false)
-				end
 				return
 			end
 		end

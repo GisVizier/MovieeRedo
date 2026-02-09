@@ -16,6 +16,9 @@ KnockbackService._registry = nil
 KnockbackService._net = nil
 
 local MAX_KNOCKBACK_MAGNITUDE = 500  -- Increased for strong knockbacks like Fling
+local DEFAULT_PLAYER_ROOT_MASS = 70
+local NPC_MASS_SCALE_MIN = 1
+local NPC_MASS_SCALE_MAX = 8
 
 function KnockbackService:Init(registry, net)
 	self._registry = registry
@@ -29,6 +32,45 @@ end
 
 function KnockbackService:Start()
 	-- Nothing to do on start
+end
+
+local function getRootFromCharacter(character: Model?)
+	if not character then return nil end
+	return character:FindFirstChild("Root") or character.PrimaryPart
+end
+
+local function getRootMass(root: BasePart?)
+	if not root then
+		return 0
+	end
+
+	local mass = root.AssemblyMass
+	if typeof(mass) ~= "number" or mass <= 0 then
+		return 0
+	end
+
+	return mass
+end
+
+local function getSourcePlayerMass(sourcePlayer: Player)
+	local character = sourcePlayer and sourcePlayer.Character
+	local root = getRootFromCharacter(character)
+	local mass = getRootMass(root)
+	if mass > 0 then
+		return mass
+	end
+	return DEFAULT_PLAYER_ROOT_MASS
+end
+
+local function getNpcKnockbackScale(sourcePlayer: Player, npcRoot: BasePart)
+	local npcMass = getRootMass(npcRoot)
+	if npcMass <= 0 then
+		return NPC_MASS_SCALE_MIN
+	end
+
+	local playerMass = getSourcePlayerMass(sourcePlayer)
+	local scale = playerMass / npcMass
+	return math.clamp(scale, NPC_MASS_SCALE_MIN, NPC_MASS_SCALE_MAX)
 end
 
 --[[
@@ -73,7 +115,7 @@ function KnockbackService:_handleKnockbackRequest(sourcePlayer: Player, data)
 		if targetType == "player" then
 			self:_handlePlayerKnockbackVelocity(sourcePlayer, data.targetUserId, vel, preserveMomentum)
 		elseif targetType == "dummy" then
-			self:_handleDummyKnockbackVelocity(sourcePlayer, data.targetName, vel)
+			self:_handleDummyKnockbackVelocity(sourcePlayer, data.targetName, vel, preserveMomentum)
 		end
 		return
 	end
@@ -183,15 +225,23 @@ end
 --[[
 	Apply velocity-based knockback to a dummy directly (NEW)
 ]]
-function KnockbackService:_handleDummyKnockbackVelocity(sourcePlayer: Player, targetName: string, velocity: Vector3)
+function KnockbackService:_handleDummyKnockbackVelocity(sourcePlayer: Player, targetName: string, velocity: Vector3, preserveMomentum: number)
 	local dummy = self:_findDummy(targetName)
 	if not dummy or not dummy:IsA("Model") then return end
 	
-	local root = dummy:FindFirstChild("Root") or dummy.PrimaryPart
+	local root = getRootFromCharacter(dummy)
 	if not root then return end
 	
-	-- Apply velocity directly (no normalization!)
-	root.AssemblyLinearVelocity = velocity
+	preserveMomentum = preserveMomentum or 0.0
+
+	-- Light NPC roots can overreact; scale down by player-to-NPC mass ratio.
+	local scale = getNpcKnockbackScale(sourcePlayer, root)
+	local adjustedVelocity = velocity / scale
+
+	-- Keep some existing horizontal momentum, same pattern as player knockback.
+	local currentVel = root.AssemblyLinearVelocity
+	local preserved = Vector3.new(currentVel.X, 0, currentVel.Z) * preserveMomentum
+	root.AssemblyLinearVelocity = adjustedVelocity + preserved
 end
 
 --[[
@@ -201,7 +251,7 @@ function KnockbackService:_handleDummyKnockback(sourcePlayer: Player, targetName
 	local dummy = self:_findDummy(targetName)
 	if not dummy or not dummy:IsA("Model") then return end
 	
-	local root = dummy:FindFirstChild("Root") or dummy.PrimaryPart
+	local root = getRootFromCharacter(dummy)
 	if not root then return end
 	
 	-- Normalize direction
@@ -212,8 +262,9 @@ function KnockbackService:_handleDummyKnockback(sourcePlayer: Player, targetName
 		dir = dir.Unit
 	end
 	
-	-- Apply knockback velocity
-	root.AssemblyLinearVelocity = dir * magnitude
+	-- Light NPC roots can overreact; scale down by player-to-NPC mass ratio.
+	local scale = getNpcKnockbackScale(sourcePlayer, root)
+	root.AssemblyLinearVelocity = (dir * magnitude) / scale
 end
 
 --[[
@@ -227,7 +278,7 @@ end
 function KnockbackService:ApplyKnockback(character: Model, direction: Vector3, magnitude: number)
 	if not character then return end
 	
-	local root = character:FindFirstChild("Root") or character.PrimaryPart
+	local root = getRootFromCharacter(character)
 	if not root then return end
 	
 	-- Normalize direction
@@ -249,8 +300,9 @@ function KnockbackService:ApplyKnockback(character: Model, direction: Vector3, m
 			sourceUserId = 0, -- Server-initiated
 		})
 	else
-		-- Dummy/NPC - apply directly on server
-		root.AssemblyLinearVelocity = direction * magnitude
+		-- Dummy/NPC - apply directly on server with mass compensation.
+		local scale = math.clamp(DEFAULT_PLAYER_ROOT_MASS / math.max(getRootMass(root), 0.001), NPC_MASS_SCALE_MIN, NPC_MASS_SCALE_MAX)
+		root.AssemblyLinearVelocity = (direction * magnitude) / scale
 	end
 end
 
