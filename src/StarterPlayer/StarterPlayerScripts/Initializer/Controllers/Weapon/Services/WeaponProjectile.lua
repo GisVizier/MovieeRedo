@@ -863,6 +863,17 @@ function WeaponProjectile:_createRaycastParams(projectile)
 		table.insert(filterList, rigContainer)
 	end
 
+	-- Exclude destruction system folders so projectiles pass through them
+	local destructionFolder = workspace:FindFirstChild("__Destruction")
+	if destructionFolder then
+		table.insert(filterList, destructionFolder)
+	end
+
+	local voxelCache = workspace:FindFirstChild("VoxelCache")
+	if voxelCache then
+		table.insert(filterList, voxelCache)
+	end
+
 	params.FilterDescendantsInstances = filterList
 
 	return params
@@ -1093,20 +1104,20 @@ end
 function WeaponProjectile:_spawnVisual(projectile, gunModel, playMuzzle)
 	-- Get tracer ID from weapon config (or use default)
 	local tracerId = projectile.projectileConfig.tracerId or projectile.weaponConfig.tracerId
-	
+
 	-- Resolve tracer (weapon config > player cosmetic > default)
 	local resolvedTracerId = Tracers:Resolve(tracerId, nil)
-	
+
 	-- Fire tracer - get attachment handle (playMuzzle controls muzzle FX)
 	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel, playMuzzle)
 	if not handle then
 		warn("[WeaponProjectile] Failed to get tracer handle")
 		return
 	end
-	
+
 	-- Store the tracer handle
 	projectile.tracerHandle = handle
-	
+
 	-- Update initial position
 	handle.attachment.WorldPosition = projectile.position
 end
@@ -1118,7 +1129,7 @@ function WeaponProjectile:_updateVisual(projectile)
 	if not projectile.tracerHandle or not projectile.tracerHandle.attachment then
 		return
 	end
-	
+
 	-- Update attachment WorldPosition to match projectile
 	projectile.tracerHandle.attachment.WorldPosition = projectile.position
 end

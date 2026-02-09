@@ -564,7 +564,8 @@ function Destroy(
 			end
 
 			-- Skip wedges/ramps - they don't voxelize cleanly
-			local isWedge = wall:IsA("WedgePart") or wall:IsA("CornerWedgePart")
+			local isWedge = wall:IsA("WedgePart")
+				or wall:IsA("CornerWedgePart")
 				or (wall:IsA("Part") and wall.Shape == Enum.PartType.Wedge)
 
 			-- Skip MeshParts - they can't be voxelized into simple Part pieces
@@ -632,92 +633,7 @@ function Destroy(
 						end
 
 						pieces = { piece }
-
-						coroutine.resume(coroutine.create(function()
-							if
-								(
-									game:GetService("RunService"):IsServer()
-									or Settings.OnClient and not Settings.OnServer
-								)
-								and reset ~= nil
-								and reset >= 0
-							then
-								if not container:GetAttribute(Settings.Tag .. "Locked" .. clientID) then
-									container:SetAttribute(Settings.Tag .. "Locked" .. clientID, false)
-								end
-
-								if not container:GetAttribute(Settings.Tag .. "Freeze" .. clientID) then
-									container:SetAttribute(Settings.Tag .. "Freeze" .. clientID, false)
-								end
-
-								if not container:GetAttribute(Settings.Tag .. "Destroy" .. clientID) then
-									container:SetAttribute(Settings.Tag .. "Destroy" .. clientID, false)
-								end
-
-							if container:GetAttribute(Settings.Tag .. "Timer" .. clientID) == nil then
-								container:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
-							end
-
-							-- Only start a new timer coroutine if one isn't already running
-							local timerInit = container:GetAttribute(Settings.Tag .. "TimerActive" .. clientID) ~= true
-
-							container:SetAttribute(Settings.Tag .. "Timer" .. clientID, math.floor(reset + 0.5))
-
-							if not timerInit then
-								return
-								else
-									container:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, true)
-
-									repeat
-										task.wait()
-										repeat
-											task.wait(1)
-											if
-												container:GetAttribute(Settings.Tag .. "Freeze" .. clientID)
-													== false
-												and container:GetAttribute(Settings.Tag .. "Timer" .. clientID) > 0
-											then
-												container:SetAttribute(
-													Settings.Tag .. "Timer" .. clientID,
-													container:GetAttribute(Settings.Tag .. "Timer" .. clientID) - 1
-												)
-											end
-										until container:GetAttribute(Settings.Tag .. "Timer" .. clientID) <= 0
-
-										if Settings.ResetYields then
-											local found = {}
-											if Settings.ResetModel and container:IsA("Model") then
-												local cframe, size = container:GetBoundingBox()
-												found = game:GetService("Workspace"):GetPartBoundsInBox(cframe, size)
-											else
-												found = game:GetService("Workspace"):GetPartsInPart(wall)
-											end
-
-											for i, found in ipairs(found) do
-												if found.Parent:FindFirstChildOfClass("Humanoid") then
-													container:SetAttribute(
-														Settings.Tag .. "Timer" .. clientID,
-														math.floor(reset + 0.5)
-													)
-													break
-												end
-											end
-										end
-									until container:GetAttribute(Settings.Tag .. "Timer" .. clientID) <= 0
-								end
-
-								container:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, nil)
-								Repair(container, true)
-
-								if queue.IsRunning then
-									queue.Completed:Wait()
-								end
-							end
-						end))
 					elseif wall:GetAttribute("__" .. Settings.Tag .. clientID) == false then
-						if reset then
-							wall:SetAttribute(Settings.Tag .. "Timer" .. clientID, reset)
-						end
 
 						local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
 						local folderParent = getVoxelFolderParent()
@@ -856,6 +772,26 @@ function Destroy(
 								child.Transparency = 1
 							end
 						end
+
+						-- Immediately destroy all leftover voxel pieces on the wall
+						for _, child in ipairs(wall:GetChildren()) do
+							if child:HasTag(Settings.Tag .. "Piece") then
+								Cleanup(child)
+							end
+						end
+
+						-- Destroy the voxel folder if it exists
+						local voxelFolderId = wall:GetAttribute("__VoxelDestructID" .. clientID)
+						if voxelFolderId then
+							local folderParent = getVoxelFolderParent()
+							local voxelFolder = folderParent:FindFirstChild(voxelFolderId)
+							if voxelFolder then
+								for _, child in ipairs(voxelFolder:GetChildren()) do
+									Cleanup(child)
+								end
+								voxelFolder:Destroy()
+							end
+						end
 					end
 				end, true, true)
 
@@ -945,67 +881,32 @@ function Destroy(
 			end
 		end
 
-		if previous and clone and reset ~= nil and reset > 0 then
-			if clone:GetAttribute(Settings.Tag .. "Timer") == nil then
-				clone:SetAttribute(Settings.Tag .. "Timer", reset)
-
-				coroutine.resume(coroutine.create(function()
-					repeat
-						task.wait()
-						repeat
-							task.wait(1)
-							if clone:GetAttribute(Settings.Tag .. "Timer") > 0 then
-								clone:SetAttribute(
-									Settings.Tag .. "Timer",
-									clone:GetAttribute(Settings.Tag .. "Timer") - 1
-								)
-							end
-						until clone:GetAttribute(Settings.Tag .. "Timer") <= 0
-
-						if Settings.ResetModel then
-							local largest = nil
-
-							for model, _ in pairs(storage.Models) do
-								local modelTimer = model:GetAttribute(Settings.Tag .. "Timer")
-
-								if model.Parent and modelTimer ~= nil and modelTimer > 0 then
-									if largest == nil or modelTimer > largest:GetAttribute(Settings.Tag .. "Timer") then
-										largest = model
-									end
-								else
-									storage.Models[model] = nil
-								end
-							end
-
-							local modelTimer = if largest then largest:GetAttribute(Settings.Tag .. "Timer") else nil
-							if modelTimer then
-								clone:SetAttribute(Settings.Tag .. "Timer", modelTimer)
-							end
-						end
-					until clone:GetAttribute(Settings.Tag .. "Timer") <= 0
-
-					local cloneID = clone:GetAttribute("__DestructionID")
-					if cloneID then
-						storage.CFrames[cloneID] = nil
-					end
-					clone:Destroy()
-					if storage.Previous == previous then
-						storage.Previous = nil
-					end
-
-					local empty = true
-					for i, _ in pairs(storage.CFrames) do
-						empty = false
-						break
-					end
-
-					if empty then
-						Storage[id] = nil
-					end
-				end))
-			else
-				clone:SetAttribute(Settings.Tag .. "Timer", reset)
+		-- Immediately destroy the RecordDestruction clone (no timer/repair)
+		if clone then
+			local cloneID = clone:GetAttribute("__DestructionID")
+			if cloneID and storage.CFrames[cloneID] then
+				storage.CFrames[cloneID] = nil
 			end
+			clone:Destroy()
+			if storage.Previous == previous then
+				storage.Previous = nil
+			end
+
+			local empty = true
+			for i, _ in pairs(storage.CFrames) do
+				empty = false
+				break
+			end
+
+			if empty then
+				Storage[id] = nil
+			end
+		end
+
+		-- Clean up the __Destruction folder if it's now empty
+		local destructionFolder = workspace:FindFirstChild("__Destruction")
+		if destructionFolder and #destructionFolder:GetChildren() == 0 then
+			destructionFolder:Destroy()
 		end
 	end
 
