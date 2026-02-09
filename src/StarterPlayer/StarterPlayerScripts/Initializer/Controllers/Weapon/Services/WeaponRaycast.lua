@@ -213,6 +213,18 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	if character then
 		table.insert(filterList, character)
 	end
+
+	-- Exclude destruction system folders so hitscan rays pass through them
+	local destructionFolder = Workspace:FindFirstChild("__Destruction")
+	if destructionFolder then
+		table.insert(filterList, destructionFolder)
+	end
+
+	local voxelCache = Workspace:FindFirstChild("VoxelCache")
+	if voxelCache then
+		table.insert(filterList, voxelCache)
+	end
+
 	raycastParams.FilterDescendantsInstances = filterList
 
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
@@ -220,7 +232,8 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	if result then
 		if not TrainingRangeShot then
 			local ReplicatedStorage = game:GetService("ReplicatedStorage")
-			local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+			local Locations =
+				require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 			TrainingRangeShot = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRangeShot"))
 		end
 		if TrainingRangeShot then
