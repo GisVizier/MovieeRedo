@@ -140,11 +140,23 @@ function CombatController:_onDamageDealt(data)
 
 	if not data.isHeal and data.attackerUserId == LocalPlayer.UserId and data.targetUserId ~= LocalPlayer.UserId then
 		local hitPos = data.position
+		if typeof(hitPos) ~= "Vector3" and data.targetUserId then
+			local targetPlayer = Players:GetPlayerByUserId(data.targetUserId)
+			local targetCharacter = targetPlayer and targetPlayer.Character
+			local targetRoot = targetCharacter and (targetCharacter.PrimaryPart or targetCharacter:FindFirstChild("HumanoidRootPart"))
+			hitPos = targetRoot and targetRoot.Position or nil
+		end
+
 		if typeof(hitPos) == "Vector3" then
-			DamageNumbers:ShowForTarget(data.targetUserId, hitPos, data.damage, {
+			local targetKey = tonumber(data.targetUserId)
+			if not targetKey then
+				targetKey = -1
+			end
+
+			DamageNumbers:ShowForTarget(targetKey, hitPos, data.damage, {
 				isHeadshot = data.isHeadshot,
 				isCritical = data.isCritical,
-				targetUserId = data.targetUserId,
+				targetUserId = targetKey,
 			})
 		end
 	end

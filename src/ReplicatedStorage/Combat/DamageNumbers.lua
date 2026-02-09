@@ -14,11 +14,17 @@ local DamageNumbers = {}
 DamageNumbers._initialized = false
 DamageNumbers._template = nil
 DamageNumbers._activeByTarget = {} -- [targetUserId] = state
+DamageNumbers._pendingByTarget = {} -- [targetUserId] = { damage, position, options, scheduled }
 
 local APPEAR_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local EXIT_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local HOLD_TIME = 0.36
-local FLOAT_OFFSET = Vector3.new(0, 2.5, 0)
+local EXIT_TWEEN = TweenInfo.new(
+	math.max(0.55, tonumber(CombatConfig.DamageNumbers.FadeDuration) or 0.3),
+	Enum.EasingStyle.Quad,
+	Enum.EasingDirection.Out
+)
+local HOLD_TIME = math.max(2.5, tonumber(CombatConfig.DamageNumbers.FadeTime) or 1.0)
+local FLOAT_OFFSET = Vector3.new(0, 3.4, 0)
+local BURST_ACCUMULATION_WINDOW = 0.06
 
 local function createFallbackTemplate(): Attachment
 	local attachment = Instance.new("Attachment")
@@ -120,6 +126,7 @@ function DamageNumbers:Init()
 	end
 
 	self._template = getTemplate()
+	self._pendingByTarget = {}
 	self._initialized = true
 end
 
@@ -188,48 +195,7 @@ function DamageNumbers:_applyStyle(state, options)
 	end
 end
 
-function DamageNumbers:ShowForTarget(targetUserId: number, position: Vector3, damage: number, options)
-	if not self._initialized then
-		self:Init()
-	end
-
-	if not CombatConfig.DamageNumbers.Enabled then
-		return
-	end
-
-	if typeof(position) ~= "Vector3" or type(targetUserId) ~= "number" then
-		return
-	end
-
-	local addDamage = math.max(0, math.floor(tonumber(damage) or 0))
-	if addDamage <= 0 then
-		return
-	end
-
-	local previous = self._activeByTarget[targetUserId]
-	local runningTotal = addDamage
-	if previous then
-		runningTotal += previous.totalDamage or 0
-		cleanupState(previous)
-	end
-
-	local state = self:_createState(position)
-	state.totalDamage = runningTotal
-	self:_applyStyle(state, options)
-	self._activeByTarget[targetUserId] = state
-
-	if state.mainText then
-		state.mainText.Text = tostring(runningTotal)
-	end
-
-	if state.frame and state.frame:IsA("CanvasGroup") then
-		state.frame.GroupTransparency = 1
-		state.appearTween = TweenService:Create(state.frame, APPEAR_TWEEN, {
-			GroupTransparency = 0,
-		})
-		state.appearTween:Play()
-	end
-
+function DamageNumbers:_scheduleExit(targetUserId: number, state)
 	local serialAtStart = state.serialRef.value
 	task.delay(HOLD_TIME, function()
 		local live = self._activeByTarget[targetUserId]
@@ -263,12 +229,110 @@ function DamageNumbers:ShowForTarget(targetUserId: number, position: Vector3, da
 	end)
 end
 
+function DamageNumbers:_flushPendingTarget(targetUserId: number)
+	local pending = self._pendingByTarget[targetUserId]
+	if not pending then
+		return
+	end
+
+	self._pendingByTarget[targetUserId] = nil
+
+	local addDamage = math.max(0, math.floor(tonumber(pending.damage) or 0))
+	if addDamage <= 0 then
+		return
+	end
+
+	local state = self._activeByTarget[targetUserId]
+	if not state then
+		state = self:_createState(pending.position)
+		self._activeByTarget[targetUserId] = state
+
+		if state.frame and state.frame:IsA("CanvasGroup") then
+			state.frame.GroupTransparency = 1
+			state.appearTween = TweenService:Create(state.frame, APPEAR_TWEEN, {
+				GroupTransparency = 0,
+			})
+			state.appearTween:Play()
+		end
+	else
+		if state.anchorPart then
+			state.anchorPart.CFrame = CFrame.new(pending.position)
+		end
+		if state.moveTween then
+			state.moveTween:Cancel()
+		end
+		if state.fadeTween then
+			state.fadeTween:Cancel()
+		end
+		if state.frame and state.frame:IsA("CanvasGroup") then
+			state.frame.GroupTransparency = 0
+		end
+		state.serialRef.value += 1
+	end
+
+	state.totalDamage = (state.totalDamage or 0) + addDamage
+	self:_applyStyle(state, pending.options)
+
+	if state.mainText then
+		state.mainText.Text = tostring(state.totalDamage)
+	end
+
+	self:_scheduleExit(targetUserId, state)
+end
+
+function DamageNumbers:ShowForTarget(targetUserId: number, position: Vector3, damage: number, options)
+	if not self._initialized then
+		self:Init()
+	end
+
+	if not CombatConfig.DamageNumbers.Enabled then
+		return
+	end
+
+	if typeof(position) ~= "Vector3" or type(targetUserId) ~= "number" then
+		return
+	end
+
+	local addDamage = math.max(0, math.floor(tonumber(damage) or 0))
+	if addDamage <= 0 then
+		return
+	end
+
+	local pending = self._pendingByTarget[targetUserId]
+	if not pending then
+		pending = {
+			damage = 0,
+			position = position,
+			options = options or {},
+			scheduled = false,
+		}
+		self._pendingByTarget[targetUserId] = pending
+	end
+	pending.damage += addDamage
+	pending.position = position
+
+	local mergedOptions = pending.options or {}
+	local incomingOptions = options or {}
+	mergedOptions.isCritical = mergedOptions.isCritical == true or incomingOptions.isCritical == true
+	mergedOptions.isHeadshot = mergedOptions.isHeadshot == true or incomingOptions.isHeadshot == true
+	mergedOptions.color = incomingOptions.color or mergedOptions.color
+	pending.options = mergedOptions
+
+	if not pending.scheduled then
+		pending.scheduled = true
+		task.delay(BURST_ACCUMULATION_WINDOW, function()
+			self:_flushPendingTarget(targetUserId)
+		end)
+	end
+end
+
 function DamageNumbers:Show(position: Vector3, damage: number, options)
 	local fallbackTarget = (options and options.targetUserId) or -1
 	self:ShowForTarget(fallbackTarget, position, damage, options)
 end
 
 function DamageNumbers:ClearTarget(targetUserId: number)
+	self._pendingByTarget[targetUserId] = nil
 	local state = self._activeByTarget[targetUserId]
 	if not state then
 		return
@@ -278,6 +342,10 @@ function DamageNumbers:ClearTarget(targetUserId: number)
 end
 
 function DamageNumbers:ClearAll()
+	for targetUserId in self._pendingByTarget do
+		self._pendingByTarget[targetUserId] = nil
+	end
+
 	for targetUserId, state in self._activeByTarget do
 		cleanupState(state)
 		self._activeByTarget[targetUserId] = nil
