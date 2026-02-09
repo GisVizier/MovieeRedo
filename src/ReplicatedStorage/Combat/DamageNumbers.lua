@@ -268,7 +268,9 @@ function DamageNumbers:_playSpawnAnimation(state, isUpdate)
 			GroupTransparency = 0,
 		})
 		state.appearTween:Play()
+	end
 
+	if state.frame and state.frame:IsA("CanvasGroup") then
 		state.rotateTween = TweenService:Create(state.frame, POP_IN_TWEEN, {
 			Rotation = 0,
 		})
@@ -347,14 +349,16 @@ function DamageNumbers:_flushPendingTarget(targetUserId: number)
 		self._activeByTarget[targetUserId] = state
 		isNewState = true
 	else
-		if state.anchorPart then
-			state.anchorPart.CFrame = CFrame.new(anchoredPosition)
-		end
 		if state.moveTween then
 			state.moveTween:Cancel()
+			state.moveTween = nil
 		end
 		if state.fadeTween then
 			state.fadeTween:Cancel()
+			state.fadeTween = nil
+		end
+		if state.anchorPart then
+			state.anchorPart.CFrame = CFrame.new(anchoredPosition)
 		end
 		if state.frame and state.frame:IsA("CanvasGroup") then
 			state.frame.GroupTransparency = 0

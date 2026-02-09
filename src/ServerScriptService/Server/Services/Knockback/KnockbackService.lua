@@ -18,7 +18,7 @@ KnockbackService._net = nil
 local MAX_KNOCKBACK_MAGNITUDE = 500  -- Increased for strong knockbacks like Fling
 local DEFAULT_PLAYER_ROOT_MASS = 70
 local NPC_MASS_SCALE_MIN = 1
-local NPC_MASS_SCALE_MAX = 8
+local NPC_MASS_SCALE_MAX = 3
 
 function KnockbackService:Init(registry, net)
 	self._registry = registry
@@ -69,7 +69,13 @@ local function getNpcKnockbackScale(sourcePlayer: Player, npcRoot: BasePart)
 	end
 
 	local playerMass = getSourcePlayerMass(sourcePlayer)
-	local scale = playerMass / npcMass
+	local ratio = playerMass / npcMass
+	if ratio <= 1 then
+		return NPC_MASS_SCALE_MIN
+	end
+
+	-- Use sqrt so very light NPCs are damped, but not over-nerfed.
+	local scale = math.sqrt(ratio)
 	return math.clamp(scale, NPC_MASS_SCALE_MIN, NPC_MASS_SCALE_MAX)
 end
 

@@ -570,10 +570,13 @@ function CharacterController:UpdateMovement(deltaTime)
 		end
 
 		local currentDirection = self:CalculateMovementDirection()
+		if currentDirection.Magnitude <= 0 and SlidingSystem.BufferedSlideDirection.Magnitude > 0 then
+			currentDirection = SlidingSystem.BufferedSlideDirection
+		end
 		local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 
 		if currentDirection.Magnitude > 0 then
-			SlidingSystem:StartSlide(currentDirection, currentCameraAngle)
+			SlidingSystem:StartSlide(currentDirection.Unit, currentCameraAngle)
 		else
 			SlidingSystem:CancelSlideBuffer("No movement input at landing")
 		end
@@ -1688,10 +1691,22 @@ function CharacterController:HandleSlideInput(isSliding)
 		if canSlide then
 			local currentCameraAngle = math_deg(self.CachedCameraYAngle)
 			SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
+			return
+		end
+
+		if not self.IsGrounded then
+			local canBufferSlide = SlidingSystem:CanBufferSlide(self.MovementInput, true, self.IsGrounded, self)
+			if canBufferSlide then
+				SlidingSystem:StartSlideBuffer(movementDirection, false)
+				return
+			end
 		end
 	else
 		if SlidingSystem.IsSliding then
 			SlidingSystem:StopSlide(false, true, "ManualRelease")
+		end
+		if SlidingSystem.IsSlideBuffered then
+			SlidingSystem:CancelSlideBuffer("Slide input released during buffer")
 		end
 
 		self:StopUncrouchChecking()
