@@ -318,7 +318,6 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	wall:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
-	wall:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, nil)
 
 	if wall:IsA("Model") then
 		for i, child in ipairs(wall:GetChildren()) do
@@ -350,17 +349,17 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	wall.CanCollide = wall:GetAttribute("__OriginalCanCollide") or wall.CanCollide
-	wall.CanQuery = wall:GetAttribute("__OriginalCanQuery") or wall.CanQuery
+	wall.CanQuery = wall:GetAttribute("__OriginalCanQuery") ~= false
 	wall.Transparency = wall:GetAttribute("__OriginalTransparency") or wall.Transparency
 
-	-- Restore any hidden textures/decals on the repaired wall
+	-- Restore textures/decals that were hidden during destruction
 	for _, child in ipairs(wall:GetChildren()) do
-		if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceGui") then
-			local originalTrans = child:GetAttribute("__OriginalTransparency")
-			if originalTrans ~= nil then
-				child.Transparency = originalTrans
-				child:SetAttribute("__OriginalTransparency", nil)
-			end
+		if child:IsA("Texture") or child:IsA("Decal") then
+			child.Transparency = child:GetAttribute("__OriginalTransparency") or 0
+			child:SetAttribute("__OriginalTransparency", nil)
+		elseif child:IsA("SurfaceGui") then
+			child.Enabled = child:GetAttribute("__OriginalEnabled") ~= false
+			child:SetAttribute("__OriginalEnabled", nil)
 		end
 	end
 
@@ -457,7 +456,6 @@ function Destroy(
 	part.Anchored = true
 	part.CanCollide = false
 	part.CanQuery = false
-	part.CanTouch = false
 	part.Transparency = 1
 	part.Locked = true
 
@@ -569,7 +567,7 @@ function Destroy(
 				or wall:IsA("CornerWedgePart")
 				or (wall:IsA("Part") and wall.Shape == Enum.PartType.Wedge)
 
-			-- Skip MeshParts - they can't be voxelized into simple Part pieces
+			-- Skip MeshParts - mesh geometry can't be sliced/voxelized
 			local isMeshPart = wall:IsA("MeshPart")
 
 			if
@@ -582,15 +580,15 @@ function Destroy(
 				local queue = Queuer.Fetch(wall) or Queuer.New(wall, false)
 
 				queue:Add(function()
-					if not wall:GetAttribute("__OriginalCanCollide") then
-						wall:SetAttribute("__OriginalCanCollide", wall.CanCollide)
-					end
-					if not wall:GetAttribute("__OriginalCanQuery") then
-						wall:SetAttribute("__OriginalCanQuery", wall.CanQuery)
-					end
-					if not wall:GetAttribute("__OriginalTransparency") then
-						wall:SetAttribute("__OriginalTransparency", wall.Transparency)
-					end
+				if not wall:GetAttribute("__OriginalCanCollide") then
+					wall:SetAttribute("__OriginalCanCollide", wall.CanCollide)
+				end
+				if not wall:GetAttribute("__OriginalCanQuery") then
+					wall:SetAttribute("__OriginalCanQuery", wall.CanQuery)
+				end
+				if not wall:GetAttribute("__OriginalTransparency") then
+					wall:SetAttribute("__OriginalTransparency", wall.Transparency)
+				end
 
 					local pieces = {}
 					if wall:GetAttribute("__" .. Settings.Tag .. clientID) == true then
@@ -607,7 +605,6 @@ function Destroy(
 						local originalCanCollide = wall:GetAttribute("__OriginalCanCollide")
 						piece.Transparency = originalTransparency or piece.Transparency
 						piece.CanCollide = originalCanCollide or piece.CanCollide
-						piece.CanQuery = false
 
 						Clone.wipeAttributes(piece)
 						piece:AddTag(Settings.Tag .. "Piece")
@@ -664,17 +661,19 @@ function Destroy(
 									container:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
 								end
 
-								-- Only start a new timer coroutine if one isn't already running
-								local timerInit = container:GetAttribute(Settings.Tag .. "TimerActive" .. clientID)
-									~= true
+								local timerInit = false
+								if
+									container:IsA("Part")
+									or container:GetAttribute(Settings.Tag .. "Timer" .. clientID) == 0
+								then
+									timerInit = true
+								end
 
 								container:SetAttribute(Settings.Tag .. "Timer" .. clientID, math.floor(reset + 0.5))
 
 								if not timerInit then
 									return
 								else
-									container:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, true)
-
 									repeat
 										task.wait()
 										repeat
@@ -713,7 +712,6 @@ function Destroy(
 									until container:GetAttribute(Settings.Tag .. "Timer" .. clientID) <= 0
 								end
 
-								container:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, nil)
 								Repair(container, true)
 
 								if queue.IsRunning then
@@ -780,6 +778,7 @@ function Destroy(
 
 						local function handleDebris(debri)
 							debri.Name = "Debris"
+							debri.CanQuery = false
 							game:GetService("CollectionService"):AddTag(debri, "Debris")
 							debri.Parent = Settings.DebrisContainer
 							table.insert(debris, debri)
@@ -851,21 +850,26 @@ function Destroy(
 							GreedyMesh(children, Cache)
 						end
 
-						wall.CanCollide = false
-						wall.CanQuery = false
-						wall.Transparency = 1
+					wall.CanCollide = false
+					wall.CanQuery = false
+					wall.Transparency = 1
 
-						-- Hide any textures/decals on the now-invisible original wall
-						for _, child in ipairs(wall:GetChildren()) do
-							if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceGui") then
-								if not child:GetAttribute("__OriginalTransparency") then
-									child:SetAttribute("__OriginalTransparency", child.Transparency)
-								end
-								child.Transparency = 1
+					-- Hide textures/decals so they don't float where the wall used to be
+					for _, child in ipairs(wall:GetChildren()) do
+						if child:IsA("Texture") or child:IsA("Decal") then
+							if not child:GetAttribute("__OriginalTransparency") then
+								child:SetAttribute("__OriginalTransparency", child.Transparency)
 							end
+							child.Transparency = 1
+						elseif child:IsA("SurfaceGui") then
+							if not child:GetAttribute("__OriginalEnabled") then
+								child:SetAttribute("__OriginalEnabled", child.Enabled)
+							end
+							child.Enabled = false
 						end
 					end
-				end, true, true)
+				end
+			end, true, true)
 
 				table.insert(walls, wall)
 			end
@@ -1558,18 +1562,17 @@ coroutine.resume(coroutine.create(function()
 
 				if typeof(focusOrData) == "table" and focusOrData.CFrame and focusOrData.Size then
 					-- Server sent serializable data, create a local hitbox Part
-					local hitbox = Instance.new("Part")
-					hitbox.CFrame = focusOrData.CFrame
-					hitbox.Size = focusOrData.Size
-					if focusOrData.Shape then
-						hitbox.Shape = focusOrData.Shape
-					end
-					hitbox.Anchored = true
-					hitbox.CanCollide = false
-					hitbox.CanQuery = false
-					hitbox.CanTouch = false
-					hitbox.Transparency = 1
-					hitbox.Parent = game:GetService("Workspace")
+				local hitbox = Instance.new("Part")
+				hitbox.CFrame = focusOrData.CFrame
+				hitbox.Size = focusOrData.Size
+				if focusOrData.Shape then
+					hitbox.Shape = focusOrData.Shape
+				end
+				hitbox.Anchored = true
+				hitbox.CanCollide = false
+				hitbox.CanQuery = false
+				hitbox.Transparency = 1
+				hitbox.Parent = game:GetService("Workspace")
 
 					Destroy(hitbox, args[2], args[3], args[4], args[5])
 					hitbox:Destroy()

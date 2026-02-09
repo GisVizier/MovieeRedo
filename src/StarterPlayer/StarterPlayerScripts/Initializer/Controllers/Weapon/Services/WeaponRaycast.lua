@@ -213,7 +213,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	if character then
 		table.insert(filterList, character)
 	end
-
+	-- Exclude effects folder (kit VFX, blue projectile, etc.)
 	local effectsFolder = Workspace:FindFirstChild("Effects")
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)
