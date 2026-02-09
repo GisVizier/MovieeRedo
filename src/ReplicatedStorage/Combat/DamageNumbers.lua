@@ -346,7 +346,7 @@ function DamageNumbers:_flushPendingTarget(targetUserId: number)
 	self:_scheduleExit(targetUserId, state)
 end
 
-function DamageNumbers:ShowForTarget(targetUserId: number, position: Vector3, damage: number, options)
+function DamageNumbers:ShowForTarget(targetUserId, position: Vector3, damage: number, options)
 	if not self._initialized then
 		self:Init()
 	end
@@ -355,7 +355,8 @@ function DamageNumbers:ShowForTarget(targetUserId: number, position: Vector3, da
 		return
 	end
 
-	if typeof(position) ~= "Vector3" or type(targetUserId) ~= "number" then
+	local keyType = type(targetUserId)
+	if typeof(position) ~= "Vector3" or (keyType ~= "number" and keyType ~= "string") then
 		return
 	end
 

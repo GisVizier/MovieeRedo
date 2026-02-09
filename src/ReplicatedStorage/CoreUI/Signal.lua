@@ -24,7 +24,7 @@ end
 function Signal:fire(...)
 	for i = #self._listeners, 1, -1 do
 		local connection = self._listeners[i]
-		if connection._connected then
+		if connection and connection._connected and type(connection._callback) == "function" then
 			task.spawn(connection._callback, ...)
 		else
 			table.remove(self._listeners, i)

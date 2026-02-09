@@ -747,7 +747,14 @@ function CombatService:_broadcastDamage(
 	options = options or {}
 
 	local character = target.Character
-	local position = options.hitPosition or (character and character.PrimaryPart and character.PrimaryPart.Position)
+	local position = options.hitPosition
+	if not position and character then
+		local root = character.PrimaryPart
+			or character:FindFirstChild("HumanoidRootPart")
+			or character:FindFirstChild("Root")
+			or character:FindFirstChildWhichIsA("BasePart", true)
+		position = root and root.Position or nil
+	end
 	if not position then
 		return
 	end
@@ -769,8 +776,17 @@ function CombatService:_broadcastDamage(
 		end
 	end
 
+	local targetEntityKey = nil
+	if not target.UserId then
+		targetEntityKey = tostring(target.Name or "entity")
+		if character and character.GetDebugId then
+			targetEntityKey = character:GetDebugId(0)
+		end
+	end
+
 	self._net:FireAllClients("DamageDealt", {
 		targetUserId = target.UserId,
+		targetEntityKey = targetEntityKey,
 		attackerUserId = options.source and options.source.UserId or nil,
 		damage = damage,
 		isHeadshot = options.isHeadshot or false,
@@ -788,13 +804,21 @@ function CombatService:_broadcastHeal(target: Player, amount: number, options: {
 	options = options or {}
 
 	local character = target.Character
-	local position = character and character.PrimaryPart and character.PrimaryPart.Position
+	local position = nil
+	if character then
+		local root = character.PrimaryPart
+			or character:FindFirstChild("HumanoidRootPart")
+			or character:FindFirstChild("Root")
+			or character:FindFirstChildWhichIsA("BasePart", true)
+		position = root and root.Position or nil
+	end
 	if not position then
 		return
 	end
 
 	self._net:FireAllClients("DamageDealt", {
 		targetUserId = target.UserId,
+		targetEntityKey = target.UserId and nil or tostring(target.Name or "entity"),
 		attackerUserId = options.source and options.source.UserId or nil,
 		damage = amount,
 		isHeadshot = false,

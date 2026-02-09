@@ -148,9 +148,17 @@ function CombatController:_onDamageDealt(data)
 		end
 
 		if typeof(hitPos) == "Vector3" then
-			local targetKey = tonumber(data.targetUserId)
-			if not targetKey then
-				targetKey = -1
+			local targetKey = data.targetUserId
+			if targetKey == nil then
+				targetKey = data.targetEntityKey
+			end
+			if targetKey == nil then
+				targetKey = string.format(
+					"pos:%d:%d:%d",
+					math.floor(hitPos.X + 0.5),
+					math.floor(hitPos.Y + 0.5),
+					math.floor(hitPos.Z + 0.5)
+				)
 			end
 
 			DamageNumbers:ShowForTarget(targetKey, hitPos, data.damage, {
