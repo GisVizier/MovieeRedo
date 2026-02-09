@@ -214,17 +214,10 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		table.insert(filterList, character)
 	end
 
-	-- Exclude destruction system folders so hitscan rays pass through them
-	local destructionFolder = Workspace:FindFirstChild("__Destruction")
-	if destructionFolder then
-		table.insert(filterList, destructionFolder)
+	local effectsFolder = Workspace:FindFirstChild("Effects")
+	if effectsFolder then
+		table.insert(filterList, effectsFolder)
 	end
-
-	local voxelCache = Workspace:FindFirstChild("VoxelCache")
-	if voxelCache then
-		table.insert(filterList, voxelCache)
-	end
-
 	raycastParams.FilterDescendantsInstances = filterList
 
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)

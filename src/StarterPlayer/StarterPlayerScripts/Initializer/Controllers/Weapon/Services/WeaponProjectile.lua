@@ -863,15 +863,9 @@ function WeaponProjectile:_createRaycastParams(projectile)
 		table.insert(filterList, rigContainer)
 	end
 
-	-- Exclude destruction system folders so projectiles pass through them
-	local destructionFolder = workspace:FindFirstChild("__Destruction")
-	if destructionFolder then
-		table.insert(filterList, destructionFolder)
-	end
-
-	local voxelCache = workspace:FindFirstChild("VoxelCache")
-	if voxelCache then
-		table.insert(filterList, voxelCache)
+	local effectsFolder = workspace:FindFirstChild("Effects")
+	if effectsFolder then
+		table.insert(filterList, effectsFolder)
 	end
 
 	params.FilterDescendantsInstances = filterList
