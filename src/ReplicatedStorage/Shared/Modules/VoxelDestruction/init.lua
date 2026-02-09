@@ -1,5 +1,23 @@
+-- Settings are in the Settings module
+
+--[[
+
+A voxel based destruction tool utilizing greedy meshing, function queueing, 
+and EgoMoose's part splitter algorithm. Allows simple destruction as well as moveable hitbox destruction.
+
+Please check out the DevForum page for more information on proper usage!
+https://devforum.roblox.com/t/voxeldestruct-voxelated-destruction-physics-with-greedy-meshing-hitboxes-and-more/3044264
+
+By: @ SalvatoreScripts
+Last Updated: July 2025
+
+Verion: 2.1
+
+]]
+
 type Signal<T...> = {
 	Connect: (self: Signal<T...>, fn: (T...) -> ()) -> RBXScriptConnection,
+	-- optional: Fire, Once, DisconnectAll, etc.
 }
 
 export type _breaker = {
@@ -59,17 +77,8 @@ end
 Remote = script:WaitForChild(RemoteName) :: RemoteEvent
 
 local Settings = Settings
-local RunService = game:GetService("RunService")
 local Storage = {}
 local Hitboxes = {}
-
-local function getVoxelFolderParent()
-	if RunService:IsServer() then
-		return workspace
-	end
-
-	return workspace.CurrentCamera or workspace
-end
 
 local Cache = nil
 if Settings.PartCache then
@@ -309,6 +318,8 @@ function Repair(wall: Part | Model, __self: boolean?)
 		return
 	end
 
+	-- Client
+
 	if not __self and game:GetService("RunService"):IsServer() and Settings.OnClient then
 		Remote:FireAllClients("Repair", wall)
 
@@ -316,6 +327,8 @@ function Repair(wall: Part | Model, __self: boolean?)
 			return
 		end
 	end
+
+	--
 
 	wall:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
 
@@ -335,12 +348,13 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
-	local folderParent = getVoxelFolderParent()
-	local folder = if id then folderParent:FindFirstChild(id) else nil
+	local folder = if id then workspace.Camera:FindFirstChild(id) else nil
 	local parent = wall
 	if game:GetService("RunService"):IsServer() and Settings.OnClient and Settings.OnServer and folder then
 		parent = folder
 	end
+
+	-- Main logic
 
 	for i, child in ipairs(parent:GetChildren()) do
 		if child:HasTag(Settings.Tag .. "Piece") then
@@ -349,21 +363,11 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	wall.CanCollide = wall:GetAttribute("__OriginalCanCollide") or wall.CanCollide
-	wall.CanQuery = wall:GetAttribute("__OriginalCanQuery") ~= false
 	wall.Transparency = wall:GetAttribute("__OriginalTransparency") or wall.Transparency
 
-	-- Restore textures/decals that were hidden during destruction
-	for _, child in ipairs(wall:GetChildren()) do
-		if child:IsA("Texture") or child:IsA("Decal") then
-			child.Transparency = child:GetAttribute("__OriginalTransparency") or 0
-			child:SetAttribute("__OriginalTransparency", nil)
-		elseif child:IsA("SurfaceGui") then
-			child.Enabled = child:GetAttribute("__OriginalEnabled") ~= false
-			child:SetAttribute("__OriginalEnabled", nil)
-		end
-	end
-
 	wall:SetAttribute("__" .. Settings.Tag .. clientID, true)
+
+	--
 
 	if parent and parent:IsA("Folder") then
 		parent:Destroy()
@@ -382,15 +386,7 @@ function Destroy(
 
 	if focus:GetAttribute("__HitboxID") == nil and game:GetService("RunService"):IsServer() and Settings.OnClient then
 		task.wait()
-		-- Send serializable data instead of Instance reference to avoid race condition
-		-- where the Part hasn't replicated to clients yet when the remote arrives
-		local focusData = {
-			CFrame = focus.CFrame,
-			Size = focus.Size,
-			Shape = if focus:IsA("Part") then focus.Shape else nil,
-		}
-
-		Remote:FireAllClients("Destroy", focusData, parameters, voxelSize, debrisCount, reset)
+		Remote:FireAllClients("Destroy", focus, parameters, voxelSize, debrisCount, reset)
 
 		if not Settings.RecordDestruction then
 			return
@@ -455,13 +451,15 @@ function Destroy(
 	part.Name = "Hitbox"
 	part.Anchored = true
 	part.CanCollide = false
-	part.CanQuery = false
+	part.CanQuery = true
 	part.Transparency = 1
 	part.Locked = true
 
 	part.CFrame = cframe
 	part.Size = size
 	part.Parent = game:GetService("Workspace")
+
+	-- Store destruction info
 
 	if Settings.RecordDestruction and game:GetService("RunService"):IsServer() and Settings.OnClient then
 		if not workspace:FindFirstChild("__Destruction") then
@@ -537,10 +535,14 @@ function Destroy(
 		end
 	end
 
+	--
+
 	local debris, walls = {}, {}
 
 	if not Settings.OnClient or game:GetService("RunService"):IsClient() or Settings.OnServer then
 		for i, wall in ipairs(game:GetService("Workspace"):GetPartsInPart(part, parameters)) do
+			-- Is part inside tagged model?
+
 			local container = wall
 			if
 				not wall:HasTag(Settings.Tag)
@@ -562,33 +564,28 @@ function Destroy(
 				container = wall
 			end
 
-			-- Skip wedges/ramps - they don't voxelize cleanly
-			local isWedge = wall:IsA("WedgePart")
-				or wall:IsA("CornerWedgePart")
-				or (wall:IsA("Part") and wall.Shape == Enum.PartType.Wedge)
+			-- Begin queue
 
-			-- Skip MeshParts - mesh geometry can't be sliced/voxelized
-			local isMeshPart = wall:IsA("MeshPart")
+			local isUnsupportedShape = wall:IsA("MeshPart")
+				or wall:IsA("WedgePart")
+				or wall:IsA("CornerWedgePart")
+				or (wall:IsA("Part") and (wall.Shape == Enum.PartType.Wedge or wall.Shape == Enum.PartType.CornerWedge))
 
 			if
-				not isWedge
-				and not isMeshPart
-				and (wall:HasTag(Settings.Tag) or wall:GetAttribute("__" .. Settings.Tag .. clientID) ~= nil)
+				(wall:HasTag(Settings.Tag) or wall:GetAttribute("__" .. Settings.Tag .. clientID) ~= nil)
+				and not isUnsupportedShape
 				and not wall:HasTag(Settings.Tag .. "Piece")
 				and wall:GetAttribute(Settings.Tag .. "Locked" .. clientID) ~= true
 			then
 				local queue = Queuer.Fetch(wall) or Queuer.New(wall, false)
 
 				queue:Add(function()
-				if not wall:GetAttribute("__OriginalCanCollide") then
-					wall:SetAttribute("__OriginalCanCollide", wall.CanCollide)
-				end
-				if not wall:GetAttribute("__OriginalCanQuery") then
-					wall:SetAttribute("__OriginalCanQuery", wall.CanQuery)
-				end
-				if not wall:GetAttribute("__OriginalTransparency") then
-					wall:SetAttribute("__OriginalTransparency", wall.Transparency)
-				end
+					if not wall:GetAttribute("__OriginalCanCollide") then
+						wall:SetAttribute("__OriginalCanCollide", wall.CanCollide)
+					end
+					if not wall:GetAttribute("__OriginalTransparency") then
+						wall:SetAttribute("__OriginalTransparency", wall.Transparency)
+					end
 
 					local pieces = {}
 					if wall:GetAttribute("__" .. Settings.Tag .. clientID) == true then
@@ -616,8 +613,7 @@ function Destroy(
 								wall:SetAttribute("__VoxelDestructID" .. clientID, id)
 							end
 
-							local folderParent = getVoxelFolderParent()
-							local folder = folderParent:FindFirstChild(id)
+							local folder = workspace.Camera:FindFirstChild(id)
 							if not folder then
 								folder = Instance.new("Folder")
 
@@ -626,7 +622,7 @@ function Destroy(
 								end)
 
 								folder.Name = id
-								folder.Parent = folderParent
+								folder.Parent = workspace.Camera
 							end
 
 							piece.Parent = folder
@@ -725,9 +721,8 @@ function Destroy(
 						end
 
 						local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
-						local folderParent = getVoxelFolderParent()
 						local folder = if id
-							then folderParent:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
+							then workspace.Camera:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
 							else nil
 
 						local parent = wall
@@ -850,29 +845,22 @@ function Destroy(
 							GreedyMesh(children, Cache)
 						end
 
-					wall.CanCollide = false
-					wall.CanQuery = false
-					wall.Transparency = 1
+						wall.CanCollide = false
+						wall.Transparency = 1
 
-					-- Hide textures/decals so they don't float where the wall used to be
-					for _, child in ipairs(wall:GetChildren()) do
-						if child:IsA("Texture") or child:IsA("Decal") then
-							if not child:GetAttribute("__OriginalTransparency") then
-								child:SetAttribute("__OriginalTransparency", child.Transparency)
+						-- Remove textures/decals from the now-invisible wall
+						for _, child in ipairs(wall:GetChildren()) do
+							if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceAppearance") then
+								child:Destroy()
 							end
-							child.Transparency = 1
-						elseif child:IsA("SurfaceGui") then
-							if not child:GetAttribute("__OriginalEnabled") then
-								child:SetAttribute("__OriginalEnabled", child.Enabled)
-							end
-							child.Enabled = false
 						end
 					end
-				end
-			end, true, true)
+				end, true, true)
 
 				table.insert(walls, wall)
 			end
+
+			-- Store models
 
 			local id = focus:GetAttribute("__DestructionID")
 			if
@@ -886,8 +874,12 @@ function Destroy(
 			then
 				Storage[id].Models[container] = true
 			end
+
+			--
 		end
 	end
+
+	-- Store cframe
 
 	local id = focus:GetAttribute("__DestructionID")
 	if
@@ -1021,6 +1013,8 @@ function Destroy(
 		end
 	end
 
+	--
+
 	part:Destroy()
 
 	return unsparse(debris), unsparse(walls)
@@ -1086,6 +1080,8 @@ function Hitbox(
 	hitbox.Collision = Signal.new()
 	hitbox.Ceiling = Signal.new()
 
+	-- Client initialize
+
 	if game:GetService("RunService"):IsServer() and Settings.OnClient then
 		if #game:GetService("Players"):GetChildren() == 0 then
 			repeat
@@ -1105,6 +1101,8 @@ function Hitbox(
 			end))
 		end
 	end
+
+	--
 
 	function hitbox:IsActive()
 		return hitbox.active ~= false
@@ -1177,6 +1175,8 @@ function Hitbox(
 	function hitbox:Stop()
 		hitbox.active = false
 
+		-- Client
+
 		if game:GetService("RunService"):IsServer() and Settings.OnClient then
 			for i, player in pairs(game:GetService("Players"):GetChildren()) do
 				coroutine.resume(coroutine.create(function()
@@ -1194,6 +1194,8 @@ function Hitbox(
 				return
 			end
 		end
+
+		--
 
 		if hitbox.connections ~= nil and #hitbox.connections > 0 then
 			wipeConnections()
@@ -1231,6 +1233,8 @@ function Hitbox(
 	function hitbox:Fire(__self: boolean)
 		assert(hitbox.focus, "Hitbox 'focus' cannot be nil.")
 
+		-- Client
+
 		if not __self and game:GetService("RunService"):IsServer() and Settings.OnClient then
 			for i, player in pairs(game:GetService("Players"):GetChildren()) do
 				coroutine.resume(coroutine.create(function()
@@ -1248,6 +1252,8 @@ function Hitbox(
 				return
 			end
 		end
+
+		--
 
 		if not dictionary then
 			dictionary = createDictionary(hitbox.focus)
@@ -1364,6 +1370,8 @@ function Hitbox(
 			hitbox.Started:Fire()
 		end))
 
+		-- Client
+
 		if game:GetService("RunService"):IsServer() and Settings.OnClient then
 			for i, player in pairs(game:GetService("Players"):GetChildren()) do
 				coroutine.resume(coroutine.create(function()
@@ -1381,6 +1389,8 @@ function Hitbox(
 				return
 			end
 		end
+
+		--
 
 		local debounce = false
 		local function Fire(bypass)
@@ -1557,29 +1567,7 @@ coroutine.resume(coroutine.create(function()
 
 		Remote.OnClientEvent:Connect(function(key, ...)
 			if key == "Destroy" then
-				local args = { ... }
-				local focusOrData = args[1]
-
-				if typeof(focusOrData) == "table" and focusOrData.CFrame and focusOrData.Size then
-					-- Server sent serializable data, create a local hitbox Part
-				local hitbox = Instance.new("Part")
-				hitbox.CFrame = focusOrData.CFrame
-				hitbox.Size = focusOrData.Size
-				if focusOrData.Shape then
-					hitbox.Shape = focusOrData.Shape
-				end
-				hitbox.Anchored = true
-				hitbox.CanCollide = false
-				hitbox.CanQuery = false
-				hitbox.Transparency = 1
-				hitbox.Parent = game:GetService("Workspace")
-
-					Destroy(hitbox, args[2], args[3], args[4], args[5])
-					hitbox:Destroy()
-				elseif typeof(focusOrData) == "Instance" then
-					-- Legacy: Instance reference passed directly
-					Destroy(...)
-				end
+				Destroy(...)
 			elseif key == "Repair" then
 				Repair(...)
 			end

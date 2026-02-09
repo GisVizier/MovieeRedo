@@ -78,10 +78,12 @@ local BLUE_CONFIG = {
 
 	-- Debris orbit (swirling rubble effect)
 	DEBRIS_CAPTURE_RADIUS = 20,  -- Capture debris within this radius
-	DEBRIS_ORBIT_SPEED = 2.5,    -- Base orbit speed (radians/sec)
+	DEBRIS_ORBIT_SPEED_MIN = 1.5, -- Min orbit speed (radians/sec)
+	DEBRIS_ORBIT_SPEED_MAX = 3.5, -- Max orbit speed (radians/sec)
 	DEBRIS_SPIRAL_RATE = 1.5,    -- How fast debris spirals inward
-	DEBRIS_MIN_RADIUS = 2,       -- Inner orbit limit
+	DEBRIS_ORBIT_RADIUS_MIN = 2, -- Inner orbit limit
 	DEBRIS_MAX_COUNT = 55,       -- Cap orbiting pieces for perf
+	DEBRIS_LIFETIME_OVERRIDE = 10, -- Keep debris alive during orbit
 
 	-- Technical
 	TICK_RATE = 0.03,            -- Seconds between each tick (~33hz)
@@ -687,7 +689,7 @@ local function runBlueHitbox(state)
 					local dist = (debrisPart.Position - currentPosition).Magnitude
 					if dist <= BLUE_CONFIG.DEBRIS_CAPTURE_RADIUS then
 						-- Prevent cleanup timer from destroying it mid-orbit
-						debrisPart:SetAttribute("BreakableTimer", 999)
+						debrisPart:SetAttribute("BreakableTimer", BLUE_CONFIG.DEBRIS_LIFETIME_OVERRIDE)
 						debrisPart.Anchored = true
 						
 						capturedDebris[debrisPart] = {
@@ -695,9 +697,10 @@ local function runBlueHitbox(state)
 								debrisPart.Position.Z - currentPosition.Z,
 								debrisPart.Position.X - currentPosition.X
 							),
-							radius = math.max(BLUE_CONFIG.DEBRIS_MIN_RADIUS, dist),
+							radius = math.max(BLUE_CONFIG.DEBRIS_ORBIT_RADIUS_MIN, dist),
 							height = debrisPart.Position.Y - currentPosition.Y,
-							speed = BLUE_CONFIG.DEBRIS_ORBIT_SPEED * (0.7 + math.random() * 0.6),
+							speed = BLUE_CONFIG.DEBRIS_ORBIT_SPEED_MIN
+								+ math.random() * (BLUE_CONFIG.DEBRIS_ORBIT_SPEED_MAX - BLUE_CONFIG.DEBRIS_ORBIT_SPEED_MIN),
 							dir = math.random() > 0.5 and 1 or -1,
 							spinAxis = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5).Unit,
 						}
@@ -723,7 +726,10 @@ local function runBlueHitbox(state)
 			data.angle += data.speed * data.dir * dt
 			
 			-- Spiral inward gradually
-			data.radius = math.max(BLUE_CONFIG.DEBRIS_MIN_RADIUS, data.radius - BLUE_CONFIG.DEBRIS_SPIRAL_RATE * dt)
+			data.radius = math.max(
+				BLUE_CONFIG.DEBRIS_ORBIT_RADIUS_MIN,
+				data.radius - BLUE_CONFIG.DEBRIS_SPIRAL_RATE * dt
+			)
 			
 			-- Dampen height toward center + slight bobbing
 			data.height = data.height * 0.97 + math.sin(data.angle * 0.7) * 0.3

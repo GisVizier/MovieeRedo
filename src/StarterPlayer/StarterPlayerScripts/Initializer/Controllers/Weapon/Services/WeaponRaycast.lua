@@ -218,9 +218,31 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)
 	end
+	-- Exclude VoxelDestruction cached/debris parts so hitscan passes through rubble
+	local voxelCache = Workspace:FindFirstChild("VoxelCache")
+	if voxelCache then
+		table.insert(filterList, voxelCache)
+	end
 	raycastParams.FilterDescendantsInstances = filterList
 
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
+
+	-- Skip through destroyed breakable walls and VoxelDestruction debris/pieces
+	local CollectionService = game:GetService("CollectionService")
+	while result do
+		local hitInst = result.Instance
+		local isDestroyedWall = hitInst:GetAttribute("__Breakable") == false
+			or hitInst:GetAttribute("__BreakableClient") == false
+		local isDebris = hitInst:HasTag("Debris") or hitInst:HasTag("BreakablePiece")
+
+		if isDestroyedWall or isDebris then
+			table.insert(filterList, hitInst)
+			raycastParams.FilterDescendantsInstances = filterList
+			result = Workspace:Raycast(origin, direction * range, raycastParams)
+		else
+			break
+		end
+	end
 
 	if result then
 		if not TrainingRangeShot then

@@ -601,6 +601,16 @@ end
 function WeaponProjectile:_handleCollision(projectile, hitResult)
 	local hitInstance = hitResult.Instance
 
+	-- Pass through destroyed breakable walls (invisible remnants from VoxelDestruction)
+	if hitInstance:GetAttribute("__Breakable") == false or hitInstance:GetAttribute("__BreakableClient") == false then
+		return true, nil
+	end
+
+	-- Pass through VoxelDestruction debris pieces
+	if hitInstance:HasTag("Debris") or hitInstance:HasTag("BreakablePiece") then
+		return true, nil
+	end
+
 	-- Check if it's a player or rig hitbox
 	local hitPlayer, hitCharacter, isHeadshot = self:_getPlayerFromHit(hitInstance)
 
@@ -867,6 +877,12 @@ function WeaponProjectile:_createRaycastParams(projectile)
 	local effectsFolder = workspace:FindFirstChild("Effects")
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)
+	end
+
+	-- Exclude VoxelDestruction cached/debris parts so projectiles pass through rubble
+	local voxelCache = workspace:FindFirstChild("VoxelCache")
+	if voxelCache then
+		table.insert(filterList, voxelCache)
 	end
 
 	params.FilterDescendantsInstances = filterList
