@@ -569,8 +569,9 @@ function WeaponProjectile:_simulateProjectile(projectile, dt)
 			return true, reason
 		end
 
-		-- Update position to just before hit (for ricochet)
-		projectile.position = hitResult.Position
+		-- Nudge position past the hit point so the next frame's raycast
+		-- doesn't re-detect the same surface (pierce, destroyed wall, etc.)
+		projectile.position = hitResult.Position + projectile.velocity.Unit * 0.1
 		-- Velocity already updated by ricochet handler if applicable
 	else
 		-- No collision, update state
@@ -602,12 +603,11 @@ function WeaponProjectile:_handleCollision(projectile, hitResult)
 	local hitInstance = hitResult.Instance
 
 	-- Pass through destroyed breakable walls (invisible remnants from VoxelDestruction)
-	if hitInstance:GetAttribute("__Breakable") == false or hitInstance:GetAttribute("__BreakableClient") == false then
-		return true, nil
-	end
-
-	-- Pass through VoxelDestruction debris pieces
-	if hitInstance:HasTag("Debris") or hitInstance:HasTag("BreakablePiece") then
+	-- Also pass through loose debris (flying rubble)
+	if hitInstance:GetAttribute("__Breakable") == false
+		or hitInstance:GetAttribute("__BreakableClient") == false
+		or hitInstance:HasTag("Debris")
+	then
 		return true, nil
 	end
 

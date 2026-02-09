@@ -227,18 +227,23 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
 
-	-- Skip through destroyed breakable walls and VoxelDestruction debris/pieces
-	local CollectionService = game:GetService("CollectionService")
+	-- Skip through destroyed breakable walls (invisible) and loose debris (flying rubble).
+	-- Re-raycast from just past the hit point instead of filtering the instance,
+	-- because filtering a destroyed wall would also exclude its visible children (BreakablePiece).
 	while result do
 		local hitInst = result.Instance
 		local isDestroyedWall = hitInst:GetAttribute("__Breakable") == false
 			or hitInst:GetAttribute("__BreakableClient") == false
-		local isDebris = hitInst:HasTag("Debris") or hitInst:HasTag("BreakablePiece")
+		local isDebris = hitInst:HasTag("Debris")
 
 		if isDestroyedWall or isDebris then
-			table.insert(filterList, hitInst)
-			raycastParams.FilterDescendantsInstances = filterList
-			result = Workspace:Raycast(origin, direction * range, raycastParams)
+			local hitPos = result.Position
+			local remaining = range - (hitPos - origin).Magnitude
+			if remaining <= 0.1 then
+				result = nil
+				break
+			end
+			result = Workspace:Raycast(hitPos + direction * 0.1, direction * remaining, raycastParams)
 		else
 			break
 		end
