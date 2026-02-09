@@ -140,14 +140,18 @@ function CombatController:_onDamageDealt(data)
 
 	if not data.isHeal and data.attackerUserId == LocalPlayer.UserId and data.targetUserId ~= LocalPlayer.UserId then
 		local hitPos = data.position
-		if typeof(hitPos) ~= "Vector3" and data.targetUserId then
+		local anchorPos = data.targetPivotPosition
+		if typeof(anchorPos) ~= "Vector3" and data.targetUserId then
 			local targetPlayer = Players:GetPlayerByUserId(data.targetUserId)
 			local targetCharacter = targetPlayer and targetPlayer.Character
 			local targetRoot = targetCharacter and (targetCharacter.PrimaryPart or targetCharacter:FindFirstChild("HumanoidRootPart"))
-			hitPos = targetRoot and targetRoot.Position or nil
+			anchorPos = targetRoot and targetRoot.Position or nil
+		end
+		if typeof(anchorPos) ~= "Vector3" then
+			anchorPos = hitPos
 		end
 
-		if typeof(hitPos) == "Vector3" then
+		if typeof(anchorPos) == "Vector3" then
 			local targetKey = data.targetUserId
 			if targetKey == nil then
 				targetKey = data.targetEntityKey
@@ -155,13 +159,13 @@ function CombatController:_onDamageDealt(data)
 			if targetKey == nil then
 				targetKey = string.format(
 					"pos:%d:%d:%d",
-					math.floor(hitPos.X + 0.5),
-					math.floor(hitPos.Y + 0.5),
-					math.floor(hitPos.Z + 0.5)
+					math.floor(anchorPos.X + 0.5),
+					math.floor(anchorPos.Y + 0.5),
+					math.floor(anchorPos.Z + 0.5)
 				)
 			end
 
-			DamageNumbers:ShowForTarget(targetKey, hitPos, data.damage, {
+			DamageNumbers:ShowForTarget(targetKey, anchorPos, data.damage, {
 				isHeadshot = data.isHeadshot,
 				isCritical = data.isCritical,
 				targetUserId = targetKey,

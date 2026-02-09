@@ -747,13 +747,18 @@ function CombatService:_broadcastDamage(
 	options = options or {}
 
 	local character = target.Character
-	local position = options.hitPosition
-	if not position and character then
+	local targetPivotPosition = nil
+	if character then
 		local root = character.PrimaryPart
 			or character:FindFirstChild("HumanoidRootPart")
 			or character:FindFirstChild("Root")
 			or character:FindFirstChildWhichIsA("BasePart", true)
-		position = root and root.Position or nil
+		targetPivotPosition = root and root.Position or nil
+	end
+
+	local position = options.hitPosition
+	if not position then
+		position = targetPivotPosition
 	end
 	if not position then
 		return
@@ -765,14 +770,6 @@ function CombatService:_broadcastDamage(
 		local sourceRoot = sourceCharacter.PrimaryPart or sourceCharacter:FindFirstChild("HumanoidRootPart")
 		if sourceRoot then
 			sourcePosition = sourceRoot.Position
-		end
-	end
-
-	-- Fallback offset when hit position is unavailable.
-	if not options.hitPosition and character then
-		local head = character:FindFirstChild("Head")
-		if head then
-			position = head.Position + Vector3.new(0, 1, 0)
 		end
 	end
 
@@ -792,6 +789,7 @@ function CombatService:_broadcastDamage(
 		isHeadshot = options.isHeadshot or false,
 		isCritical = options.isCritical or false,
 		position = position,
+		targetPivotPosition = targetPivotPosition,
 		sourcePosition = sourcePosition,
 	})
 end
