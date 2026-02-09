@@ -18,6 +18,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local ContentProvider = game:GetService("ContentProvider")
+local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -35,6 +37,24 @@ local MAX_RANGE = 125
 local BITE_RADIUS = 12
 local BITE_KNOCKBACK_PRESET = "Fling"
 local VM_ANIM_NAME = "Kon"
+
+-- Sound Configuration & Preloading
+local SOUND_CONFIG = {
+	start = { id = "rbxassetid://105009462750670", volume = 1 },
+}
+
+local preloadItems = {}
+for name, config in pairs(SOUND_CONFIG) do
+	if not script:FindFirstChild(name) then
+		local sound = Instance.new("Sound")
+		sound.Name = name
+		sound.SoundId = config.id
+		sound.Volume = config.volume
+		sound.Parent = script
+	end
+	table.insert(preloadItems, script:FindFirstChild(name))
+end
+ContentProvider:PreloadAsync(preloadItems)
 
 -- Voice Lines with subtitles
 local ABILITY_VOICE_LINES = {
@@ -82,10 +102,11 @@ local function playVoiceLine(voiceData: { soundId: string, text: string }, paren
 	sound.RollOffMode = Enum.RollOffMode.Linear
 	sound.RollOffMaxDistance = 50
 	sound.Parent = parent or root
+	if not sound.IsLoaded then
+		ContentProvider:PreloadAsync({ sound })
+	end
 	sound:Play()
-	sound.Ended:Once(function()
-		sound:Destroy()
-	end)
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 	
 	-- Show subtitle
 	if voiceData.text then
@@ -116,17 +137,11 @@ local function playStartSound(viewmodelRig: any): Sound?
 	local sound = startSound:Clone()
 	sound.Parent = rootPart
 	sound:Play()
-	
+
 	-- Track for cleanup
 	table.insert(activeSounds, sound)
-	
-	sound.Ended:Once(function()
-		-- Remove from tracking
-		local idx = table.find(activeSounds, sound)
-		if idx then table.remove(activeSounds, idx) end
-		sound:Destroy()
-	end)
-	
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+
 	return sound
 end
 
@@ -142,16 +157,14 @@ local function playAbilityVoice(viewmodelRig: any): Sound?
 	sound.SoundId = voiceData.soundId
 	sound.Volume = 1
 	sound.Parent = rootPart
+	if not sound.IsLoaded then
+		ContentProvider:PreloadAsync({ sound })
+	end
 	sound:Play()
-	
+
 	-- Track for cleanup
 	table.insert(activeSounds, sound)
-	
-	sound.Ended:Once(function()
-		local idx = table.find(activeSounds, sound)
-		if idx then table.remove(activeSounds, idx) end
-		sound:Destroy()
-	end)
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 	
 	-- Show subtitle
 	if voiceData.text then

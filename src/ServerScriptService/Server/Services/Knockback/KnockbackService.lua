@@ -16,9 +16,6 @@ KnockbackService._registry = nil
 KnockbackService._net = nil
 
 local MAX_KNOCKBACK_MAGNITUDE = 500  -- Increased for strong knockbacks like Fling
-local DEFAULT_PLAYER_ROOT_MASS = 70
-local NPC_MASS_SCALE_MIN = 1
-local NPC_MASS_SCALE_MAX = 3
 
 function KnockbackService:Init(registry, net)
 	self._registry = registry
@@ -37,46 +34,6 @@ end
 local function getRootFromCharacter(character: Model?)
 	if not character then return nil end
 	return character:FindFirstChild("Root") or character.PrimaryPart
-end
-
-local function getRootMass(root: BasePart?)
-	if not root then
-		return 0
-	end
-
-	local mass = root.AssemblyMass
-	if typeof(mass) ~= "number" or mass <= 0 then
-		return 0
-	end
-
-	return mass
-end
-
-local function getSourcePlayerMass(sourcePlayer: Player)
-	local character = sourcePlayer and sourcePlayer.Character
-	local root = getRootFromCharacter(character)
-	local mass = getRootMass(root)
-	if mass > 0 then
-		return mass
-	end
-	return DEFAULT_PLAYER_ROOT_MASS
-end
-
-local function getNpcKnockbackScale(sourcePlayer: Player, npcRoot: BasePart)
-	local npcMass = getRootMass(npcRoot)
-	if npcMass <= 0 then
-		return NPC_MASS_SCALE_MIN
-	end
-
-	local playerMass = getSourcePlayerMass(sourcePlayer)
-	local ratio = playerMass / npcMass
-	if ratio <= 1 then
-		return NPC_MASS_SCALE_MIN
-	end
-
-	-- Use sqrt so very light NPCs are damped, but not over-nerfed.
-	local scale = math.sqrt(ratio)
-	return math.clamp(scale, NPC_MASS_SCALE_MIN, NPC_MASS_SCALE_MAX)
 end
 
 --[[
@@ -240,14 +197,10 @@ function KnockbackService:_handleDummyKnockbackVelocity(sourcePlayer: Player, ta
 	
 	preserveMomentum = preserveMomentum or 0.0
 
-	-- Light NPC roots can overreact; scale down by player-to-NPC mass ratio.
-	local scale = getNpcKnockbackScale(sourcePlayer, root)
-	local adjustedVelocity = velocity / scale
-
 	-- Keep some existing horizontal momentum, same pattern as player knockback.
 	local currentVel = root.AssemblyLinearVelocity
 	local preserved = Vector3.new(currentVel.X, 0, currentVel.Z) * preserveMomentum
-	root.AssemblyLinearVelocity = adjustedVelocity + preserved
+	root.AssemblyLinearVelocity = velocity + preserved
 end
 
 --[[
@@ -268,9 +221,7 @@ function KnockbackService:_handleDummyKnockback(sourcePlayer: Player, targetName
 		dir = dir.Unit
 	end
 	
-	-- Light NPC roots can overreact; scale down by player-to-NPC mass ratio.
-	local scale = getNpcKnockbackScale(sourcePlayer, root)
-	root.AssemblyLinearVelocity = (dir * magnitude) / scale
+	root.AssemblyLinearVelocity = dir * magnitude
 end
 
 --[[
@@ -306,9 +257,8 @@ function KnockbackService:ApplyKnockback(character: Model, direction: Vector3, m
 			sourceUserId = 0, -- Server-initiated
 		})
 	else
-		-- Dummy/NPC - apply directly on server with mass compensation.
-		local scale = math.clamp(DEFAULT_PLAYER_ROOT_MASS / math.max(getRootMass(root), 0.001), NPC_MASS_SCALE_MIN, NPC_MASS_SCALE_MAX)
-		root.AssemblyLinearVelocity = (direction * magnitude) / scale
+		-- Dummy/NPC - apply directly on server.
+		root.AssemblyLinearVelocity = direction * magnitude
 	end
 end
 
