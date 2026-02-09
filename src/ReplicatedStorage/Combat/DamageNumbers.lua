@@ -25,6 +25,12 @@ local EXIT_TWEEN = TweenInfo.new(
 local HOLD_TIME = math.max(2.5, tonumber(CombatConfig.DamageNumbers.FadeTime) or 1.0)
 local FLOAT_OFFSET = Vector3.new(0, 3.4, 0)
 local BURST_ACCUMULATION_WINDOW = 0.06
+local POP_START_SCALE = 0.45
+local POP_OVERSHOOT_SCALE = 1.1
+local POP_SETTLE_SCALE = 1.0
+local POP_ROTATION_MAX = 16
+local POP_IN_TWEEN = TweenInfo.new(0.075, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local POP_SETTLE_TWEEN = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local function createFallbackTemplate(): Attachment
 	local attachment = Instance.new("Attachment")
@@ -114,6 +120,15 @@ local function cleanupState(state)
 	if state.fadeTween then
 		state.fadeTween:Cancel()
 	end
+	if state.rotateTween then
+		state.rotateTween:Cancel()
+	end
+	if state.popTween then
+		state.popTween:Cancel()
+	end
+	if state.popSettleTween then
+		state.popSettleTween:Cancel()
+	end
 
 	if state.anchorPart and state.anchorPart.Parent then
 		state.anchorPart:Destroy()
@@ -150,6 +165,17 @@ function DamageNumbers:_createState(position: Vector3)
 	local frame = billboard and billboard:FindFirstChild("Frame")
 	local mainText = frame and frame:FindFirstChild("MainText")
 	local glow = frame and frame:FindFirstChild("Glow")
+	local popScale = nil
+
+	if frame then
+		popScale = frame:FindFirstChild("PopScale")
+		if not popScale then
+			popScale = Instance.new("UIScale")
+			popScale.Name = "PopScale"
+			popScale.Scale = 1
+			popScale.Parent = frame
+		end
+	end
 
 	if billboard and billboard:IsA("BillboardGui") then
 		billboard.Adornee = attachment
@@ -164,11 +190,15 @@ function DamageNumbers:_createState(position: Vector3)
 		frame = frame,
 		mainText = mainText,
 		glow = glow,
+		popScale = popScale,
 		totalDamage = 0,
 		serialRef = { value = 0 },
 		appearTween = nil,
 		moveTween = nil,
 		fadeTween = nil,
+		rotateTween = nil,
+		popTween = nil,
+		popSettleTween = nil,
 	}
 end
 
@@ -192,6 +222,49 @@ function DamageNumbers:_applyStyle(state, options)
 
 	if state.glow then
 		state.glow.ImageColor3 = color
+	end
+end
+
+function DamageNumbers:_playSpawnAnimation(state)
+	if not state then
+		return
+	end
+
+	if state.frame and state.frame:IsA("CanvasGroup") then
+		state.frame.GroupTransparency = 1
+		state.frame.Rotation = (math.random() * 2 - 1) * POP_ROTATION_MAX
+	end
+
+	if state.popScale then
+		state.popScale.Scale = POP_START_SCALE
+	end
+
+	if state.frame and state.frame:IsA("CanvasGroup") then
+		state.appearTween = TweenService:Create(state.frame, APPEAR_TWEEN, {
+			GroupTransparency = 0,
+		})
+		state.appearTween:Play()
+
+		state.rotateTween = TweenService:Create(state.frame, POP_IN_TWEEN, {
+			Rotation = 0,
+		})
+		state.rotateTween:Play()
+	end
+
+	if state.popScale then
+		state.popTween = TweenService:Create(state.popScale, POP_IN_TWEEN, {
+			Scale = POP_OVERSHOOT_SCALE,
+		})
+		state.popTween:Play()
+		state.popTween.Completed:Once(function()
+			if not state.popScale then
+				return
+			end
+			state.popSettleTween = TweenService:Create(state.popScale, POP_SETTLE_TWEEN, {
+				Scale = POP_SETTLE_SCALE,
+			})
+			state.popSettleTween:Play()
+		end)
 	end
 end
 
@@ -246,14 +319,7 @@ function DamageNumbers:_flushPendingTarget(targetUserId: number)
 	if not state then
 		state = self:_createState(pending.position)
 		self._activeByTarget[targetUserId] = state
-
-		if state.frame and state.frame:IsA("CanvasGroup") then
-			state.frame.GroupTransparency = 1
-			state.appearTween = TweenService:Create(state.frame, APPEAR_TWEEN, {
-				GroupTransparency = 0,
-			})
-			state.appearTween:Play()
-		end
+		self:_playSpawnAnimation(state)
 	else
 		if state.anchorPart then
 			state.anchorPart.CFrame = CFrame.new(pending.position)
