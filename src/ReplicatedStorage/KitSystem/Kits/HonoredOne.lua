@@ -25,8 +25,8 @@ local RED_BODY_DAMAGE = 35
 local RED_HEADSHOT_DAMAGE = 90
 local RED_EXPLOSION_DAMAGE = 10
 
-local MAX_RANGE = 3000           -- Max distance from player for validation
-local MAX_TARGETS = 15           -- Max targets to accept per ability use
+local MAX_RANGE = 3000 -- Max distance from player for validation
+local MAX_TARGETS = 15 -- Max targets to accept per ability use
 local RED_MAX_HIT_DISTANCE = 700 -- Plausible distance from attacker to victim/hit
 local RED_EXPLOSION_RADIUS = 20
 local RED_EXPLOSION_HIT_BUFFER = 6
@@ -79,14 +79,11 @@ function Kit:SetCharacter(character)
 	self._ctx.character = character
 end
 
-function Kit:Destroy()
-end
+function Kit:Destroy() end
 
-function Kit:OnEquipped()
-end
+function Kit:OnEquipped() end
 
-function Kit:OnUnequipped()
-end
+function Kit:OnUnequipped() end
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -95,9 +92,7 @@ end
 local function getPlayerRoot(player)
 	local character = player.Character
 	if character then
-		return character:FindFirstChild("HumanoidRootPart")
-			or character:FindFirstChild("Root")
-			or character.PrimaryPart
+		return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root") or character.PrimaryPart
 	end
 	return nil
 end
@@ -118,13 +113,17 @@ local function findTargetCharacter(hit)
 			local dummySpawns = world:FindFirstChild("DummySpawns")
 			if dummySpawns then
 				local found = dummySpawns:FindFirstChild(hit.characterName)
-				if found then return found, nil end
+				if found then
+					return found, nil
+				end
 			end
 		end
 
 		-- Recursive fallback for dummies nested under maps/folders.
 		local found = workspace:FindFirstChild(hit.characterName, true)
-		if found then return found, nil end
+		if found then
+			return found, nil
+		end
 
 		-- Tagged dummy fallback used elsewhere in the framework.
 		for _, tagged in CollectionService:GetTagged("AimAssistTarget") do
@@ -156,9 +155,7 @@ local function getCharacterRoot(character)
 	if not character then
 		return nil
 	end
-	return character:FindFirstChild("HumanoidRootPart")
-		or character:FindFirstChild("Root")
-		or character.PrimaryPart
+	return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root") or character.PrimaryPart
 end
 
 local function toVector3(data)
@@ -225,7 +222,16 @@ local function isSameMatchContext(self, attacker, targetPlayer)
 	return false
 end
 
-local function applyValidatedDamage(self, attacker, targetCharacter, targetPlayer, damage, isHeadshot, sourcePos, hitPos)
+local function applyValidatedDamage(
+	self,
+	attacker,
+	targetCharacter,
+	targetPlayer,
+	damage,
+	isHeadshot,
+	sourcePos,
+	hitPos
+)
 	local humanoid = targetCharacter and targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
 		return
@@ -293,7 +299,13 @@ local function handleBlueProjectileUpdate(self, clientData)
 
 	local pivot, pivotSource = resolveBlueUpdatePivot(clientData)
 	if typeof(pivot) ~= "CFrame" then
-		relayDebugLog("blue_bad_pivot_" .. tostring(player.UserId), "blueProjectileUpdate reject bad pivot", player.Name, "source=", pivotSource)
+		relayDebugLog(
+			"blue_bad_pivot_" .. tostring(player.UserId),
+			"blueProjectileUpdate reject bad pivot",
+			player.Name,
+			"source=",
+			pivotSource
+		)
 		return
 	end
 
@@ -306,7 +318,14 @@ local function handleBlueProjectileUpdate(self, clientData)
 	-- VFX replication state should not hard-reject by distance; apply directly.
 	player:SetAttribute("blue_projectile_activeCFR", pivot)
 
-	relayDebugLog("blue_ok_" .. tostring(player.UserId), "blueProjectileUpdate relay", player.Name, "source=", pivotSource, tostring(pivot.Position))
+	relayDebugLog(
+		"blue_ok_" .. tostring(player.UserId),
+		"blueProjectileUpdate relay",
+		player.Name,
+		"source=",
+		pivotSource,
+		tostring(pivot.Position)
+	)
 	relayHonoredOneVfx(self, player, "UpdateBlue", {
 		Player = player,
 		playerId = player.UserId,
@@ -337,7 +356,13 @@ local function handleRedProjectileUpdate(self, clientData)
 
 	local pivot, pivotSource = resolveRedUpdatePivot(clientData)
 	if typeof(pivot) ~= "CFrame" then
-		relayDebugLog("red_bad_pivot_" .. tostring(player.UserId), "redProjectileUpdate reject bad pivot", player.Name, "source=", pivotSource)
+		relayDebugLog(
+			"red_bad_pivot_" .. tostring(player.UserId),
+			"redProjectileUpdate reject bad pivot",
+			player.Name,
+			"source=",
+			pivotSource
+		)
 		return
 	end
 
@@ -350,7 +375,14 @@ local function handleRedProjectileUpdate(self, clientData)
 	-- VFX replication state should not hard-reject by distance; apply directly.
 	player:SetAttribute("red_projectile_activeCFR", pivot)
 
-	relayDebugLog("red_ok_" .. tostring(player.UserId), "redProjectileUpdate relay", player.Name, "source=", pivotSource, tostring(pivot.Position))
+	relayDebugLog(
+		"red_ok_" .. tostring(player.UserId),
+		"redProjectileUpdate relay",
+		player.Name,
+		"source=",
+		pivotSource,
+		tostring(pivot.Position)
+	)
 	relayHonoredOneVfx(self, player, "UpdateProj", {
 		Player = player,
 		playerId = player.UserId,
@@ -368,7 +400,12 @@ local function handleUserVfxRelay(self, clientData)
 
 	local forceAction = clientData and clientData.forceAction
 	if type(forceAction) ~= "string" or not ALLOWED_RELAY_FORCE_ACTION[forceAction] then
-		relayDebugLog("user_bad_action_" .. tostring(player.UserId), "relayUserVfx reject action", player.Name, tostring(forceAction))
+		relayDebugLog(
+			"user_bad_action_" .. tostring(player.UserId),
+			"relayUserVfx reject action",
+			player.Name,
+			tostring(forceAction)
+		)
 		return
 	end
 
@@ -387,7 +424,12 @@ local function handleUserVfxRelay(self, clientData)
 		payload.radius = clientData.radius
 	end
 
-	relayDebugLog("user_ok_" .. tostring(player.UserId) .. "_" .. forceAction, "relayUserVfx relay", player.Name, forceAction)
+	relayDebugLog(
+		"user_ok_" .. tostring(player.UserId) .. "_" .. forceAction,
+		"relayUserVfx relay",
+		player.Name,
+		forceAction
+	)
 	relayHonoredOneVfx(self, player, "User", payload)
 end
 
@@ -400,7 +442,10 @@ local function handleBlueHit(self, clientData)
 	local service = self._ctx.service
 
 	log("=== BLUE HIT ===", player.Name)
-	log("Blue hit payload:", clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition")
+	log(
+		"Blue hit payload:",
+		clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition"
+	)
 
 	-- Cooldown already started at "open" event via startCooldown action
 
@@ -442,10 +487,10 @@ local function handleBlueHit(self, clientData)
 		hitbox.Shape = Enum.PartType.Ball
 		hitbox.Anchored = true
 		hitbox.CanCollide = false
-		hitbox.CanQuery = true
+		hitbox.CanQuery = false
 		hitbox.Transparency = 1
 		hitbox.Parent = workspace
-		
+
 		-- excludePlayer = player: the originating client already did local destruction
 		-- for instant feedback, so only replicate to other clients
 		VoxelDestruction.Destroy(
@@ -455,7 +500,7 @@ local function handleBlueHit(self, clientData)
 			8, -- debrisCount
 			nil -- reset (uses default)
 		)
-		
+
 		-- Delay cleanup so clients have time to receive and process the replicated hitbox
 		task.delay(2, function()
 			if hitbox and hitbox.Parent then
@@ -505,7 +550,7 @@ local function handleBlueDestruction(self, clientData)
 		hitbox.Shape = Enum.PartType.Ball
 		hitbox.Anchored = true
 		hitbox.CanCollide = false
-		hitbox.CanQuery = true
+		hitbox.CanQuery = false
 		hitbox.Transparency = 1
 		hitbox.Parent = workspace
 
@@ -560,7 +605,7 @@ local function handleRedDestruction(self, clientData)
 		hitbox.Shape = Enum.PartType.Ball
 		hitbox.Anchored = true
 		hitbox.CanCollide = false
-		hitbox.CanQuery = true
+		hitbox.CanQuery = false
 		hitbox.Transparency = 1
 		hitbox.Parent = workspace
 
@@ -589,7 +634,10 @@ local function handleRedHit(self, clientData)
 	local character = self._ctx.character or player.Character
 
 	log("=== RED HIT ===", player.Name)
-	log("Red hit payload:", clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition")
+	log(
+		"Red hit payload:",
+		clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition"
+	)
 
 	if not clientData.hits or type(clientData.hits) ~= "table" then
 		log("Invalid hit list")
@@ -624,15 +672,23 @@ local function handleRedHit(self, clientData)
 	local seenTargets = {}
 
 	for i, hit in ipairs(clientData.hits) do
-		if i > MAX_TARGETS then break end
-		if type(hit) ~= "table" then continue end
+		if i > MAX_TARGETS then
+			break
+		end
+		if type(hit) ~= "table" then
+			continue
+		end
 
 		local targetChar, targetPlayer = findTargetCharacter(hit)
-		if not targetChar then continue end
-		if targetPlayer == player then continue end
+		if not targetChar then
+			continue
+		end
+		if targetPlayer == player then
+			continue
+		end
 
 		-- Dedup by target identity
-		local targetKey = targetPlayer and (`plr:{targetPlayer.UserId}`) or (`char:{targetChar:GetFullName()}`)
+		local targetKey = targetPlayer and `plr:{targetPlayer.UserId}` or `char:{targetChar:GetFullName()}`
 		if seenTargets[targetKey] then
 			continue
 		end
@@ -689,7 +745,11 @@ local function handleRedHit(self, clientData)
 		})
 		seenTargets[targetKey] = true
 
-		log("Validated:", targetChar.Name, hit.isHeadshot and "(HEADSHOT)" or (hit.isExplosion and "(explosion)" or "(body)"))
+		log(
+			"Validated:",
+			targetChar.Name,
+			hit.isHeadshot and "(HEADSHOT)" or (hit.isExplosion and "(explosion)" or "(body)")
+		)
 	end
 
 	log("Valid hits:", #validHits)

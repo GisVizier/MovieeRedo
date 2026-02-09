@@ -863,6 +863,7 @@ function WeaponProjectile:_createRaycastParams(projectile)
 		table.insert(filterList, rigContainer)
 	end
 
+	-- Exclude effects folder (kit VFX, blue projectile, etc.)
 	local effectsFolder = workspace:FindFirstChild("Effects")
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)

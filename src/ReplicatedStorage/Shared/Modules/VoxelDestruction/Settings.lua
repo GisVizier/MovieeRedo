@@ -4,7 +4,7 @@ Settings.Tag = "Breakable"
 
 Settings.OnClient = true
 Settings.OnServer = true
-Settings.RecordDestruction = true
+Settings.RecordDestruction = false
 
 Settings.ResetModel = false
 Settings.ResetYields = false
