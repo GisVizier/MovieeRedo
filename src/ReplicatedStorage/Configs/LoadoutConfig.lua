@@ -165,8 +165,11 @@ LoadoutConfig.Weapons = {
 		damage = 15, -- Per pellet
 		pelletsPerShot = 8,
 		headshotMultiplier = 1.5,
-		range = 50,
+		range = 250,
 		fireRate = 75, -- Rounds per minute
+		minRange = 20, -- Full damage under this distance
+		maxRange = 250, -- Pellets die here
+		minDamage = 5, -- Damage per pellet at max range
 		tracerColor = Color3.fromRGB(255, 150, 50),
 
 		crosshair = {
@@ -198,46 +201,48 @@ LoadoutConfig.Weapons = {
 			},
 		},
 
-		-- PROJECTILE CONFIG (pellets with visible travel time)
+		-- PROJECTILE CONFIG (fast pellets, near-hitscan at close range)
 		projectile = {
-			-- Core physics (slower pellets for visible travel)
-			speed = 200, -- studs/second (visible travel)
-			gravity = 80, -- noticeable drop at range
-			drag = 0.08, -- pellet air resistance
-			lifetime = 1.0, -- 1 sec max flight
-			inheritVelocity = 0, -- don't inherit shooter velocity
+			-- Core physics
+			speed = 600, -- studs/second (fast, near-instant at close range)
+			gravity = 0, -- no drop at shotgun distances
+			drag = 0, -- no air resistance
+			lifetime = 1, -- full lifetime
+			inheritVelocity = 0,
 
-			-- Pellet spread (tighter spread)
-			spreadMode = "Cone", -- Cone spread pattern
-			baseSpread = 0.06, -- reduced spread angle (radians)
-			crosshairSpreadScale = 0.03, -- alignment with crosshair visual
-			movementSpreadMult = 1.1, -- 10% more spread while moving
-			hipfireSpreadMult = 1.0, -- same spread hipfire
-			airSpreadMult = 1.2, -- 20% more spread while airborne
-			crouchSpreadMult = 0.9, -- 10% less spread while crouching
-			slideSpreadMult = 1.0, -- normal spread while sliding
+			-- Pellet spread
+			spreadMode = "Cone",
+			baseSpread = 0.06,
+			crosshairSpreadScale = 0.03,
+			movementSpreadMult = 1.1,
+			hipfireSpreadMult = 1.0,
+			airSpreadMult = 1.2,
+			crouchSpreadMult = 0.9,
+			slideSpreadMult = 1.0,
 
 			-- Multi-pellet config
-			pelletsPerShot = 8, -- 8 pellets per shot
-			pelletDamage = 15, -- damage per pellet
+			pelletsPerShot = 8,
+			pelletDamage = 15,
 
-			-- Behaviors (no pierce/ricochet by default)
+			-- Damage falloff (per pellet)
+			minRange = 20, -- Full 15 damage per pellet within 20 studs
+			maxRange = 250, -- Drops to minDamage at 250 studs
+			minDamage = 5, -- 5 damage per pellet at max range
+
+			-- Behaviors
 			pierce = 0,
 			pierceDamageMult = 1.0,
 			ricochet = 0,
 			ricochetDamageMult = 0.7,
 			ricochetSpeedMult = 0.9,
 
-			-- No AoE
 			aoe = nil,
-
-			-- No charge
 			charge = nil,
 
 			-- Visual
 			visual = "Pellet",
 			tracerColor = Color3.fromRGB(255, 150, 50),
-			tracerLength = 1.5,
+			tracerLength = 2,
 			trailEnabled = true,
 		},
 	},

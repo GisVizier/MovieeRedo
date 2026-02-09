@@ -17,6 +17,8 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider = game:GetService("ContentProvider")
+local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -32,6 +34,38 @@ local DialogueService = require(ReplicatedStorage:WaitForChild("Dialogue"))
 
 local DIALOGUE_COOLDOWN = 8
 local _lastDialogueTime = 0
+
+--------------------------------------------------------------------------------
+-- Ability Start Sounds (preloaded)
+--------------------------------------------------------------------------------
+
+local ABILITY_SOUNDS = {
+	updraft = { id = "rbxassetid://116592400788380", volume = 1 },
+	dash = { id = "rbxassetid://95386134717900", volume = 1 },
+}
+
+local preloadItems = {}
+for name, config in pairs(ABILITY_SOUNDS) do
+	if not script:FindFirstChild(name) then
+		local sound = Instance.new("Sound")
+		sound.Name = name
+		sound.SoundId = config.id
+		sound.Volume = config.volume
+		sound.Parent = script
+	end
+	table.insert(preloadItems, script:FindFirstChild(name))
+end
+ContentProvider:PreloadAsync(preloadItems)
+
+local function playAbilitySound(soundName, parent)
+	local template = script:FindFirstChild(soundName)
+	if not template then return end
+
+	local sound = template:Clone()
+	sound.Parent = parent or workspace
+	sound:Play()
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+end
 
 -- Animation IDs
 local VM_ANIMS = {
@@ -635,7 +669,9 @@ function Airborne.Ability:OnStart(abilityRequest)
 			priority = Enum.AnimationPriority.Action4,
 			stopOthers = true,
 		})
-		
+
+		playAbilitySound("updraft", hrp)
+
 		VFXRep:Fire("Me", { Module = "Cloudskip", Function = "User" }, {
 			position = hrp.Position,
 			ViewModel = Viewmodelrig,
@@ -648,7 +684,9 @@ function Airborne.Ability:OnStart(abilityRequest)
 			priority = Enum.AnimationPriority.Action4,
 			stopOthers = true,
 		})
-		
+
+		playAbilitySound("dash", hrp)
+
 		VFXRep:Fire("Me", { Module = "Cloudskip", Function = "User" }, {
 			position = hrp.Position,
 			ViewModel = Viewmodelrig,
