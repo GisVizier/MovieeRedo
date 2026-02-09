@@ -31,6 +31,7 @@ local POP_SETTLE_SCALE = 1.0
 local POP_ROTATION_MAX = 16
 local POP_IN_TWEEN = TweenInfo.new(0.075, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local POP_SETTLE_TWEEN = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PIVOT_RANDOM_OFFSET_BOUNDS = 1
 
 local function createFallbackTemplate(): Attachment
 	local attachment = Instance.new("Attachment")
@@ -227,13 +228,34 @@ function DamageNumbers:_applyStyle(state, options)
 	end
 end
 
-function DamageNumbers:_playSpawnAnimation(state)
+function DamageNumbers:_getRandomPivotOffset(): Vector3
+	return Vector3.new(
+		(math.random() * 2 - 1) * PIVOT_RANDOM_OFFSET_BOUNDS,
+		(math.random() * 2 - 1) * PIVOT_RANDOM_OFFSET_BOUNDS,
+		(math.random() * 2 - 1) * PIVOT_RANDOM_OFFSET_BOUNDS
+	)
+end
+
+function DamageNumbers:_playSpawnAnimation(state, isUpdate)
 	if not state then
 		return
 	end
 
+	if state.rotateTween then
+		state.rotateTween:Cancel()
+	end
+	if state.popTween then
+		state.popTween:Cancel()
+	end
+	if state.popSettleTween then
+		state.popSettleTween:Cancel()
+	end
+	if state.appearTween then
+		state.appearTween:Cancel()
+	end
+
 	if state.frame and state.frame:IsA("CanvasGroup") then
-		state.frame.GroupTransparency = 1
+		state.frame.GroupTransparency = isUpdate and 0 or 1
 		state.frame.Rotation = (math.random() * 2 - 1) * POP_ROTATION_MAX
 	end
 
@@ -241,7 +263,7 @@ function DamageNumbers:_playSpawnAnimation(state)
 		state.popScale.Scale = POP_START_SCALE
 	end
 
-	if state.frame and state.frame:IsA("CanvasGroup") then
+	if not isUpdate and state.frame and state.frame:IsA("CanvasGroup") then
 		state.appearTween = TweenService:Create(state.frame, APPEAR_TWEEN, {
 			GroupTransparency = 0,
 		})
@@ -316,15 +338,17 @@ function DamageNumbers:_flushPendingTarget(targetUserId: number)
 	if addDamage <= 0 then
 		return
 	end
+	local anchoredPosition = pending.position + self:_getRandomPivotOffset()
+	local isNewState = false
 
 	local state = self._activeByTarget[targetUserId]
 	if not state then
-		state = self:_createState(pending.position)
+		state = self:_createState(anchoredPosition)
 		self._activeByTarget[targetUserId] = state
-		self:_playSpawnAnimation(state)
+		isNewState = true
 	else
 		if state.anchorPart then
-			state.anchorPart.CFrame = CFrame.new(pending.position)
+			state.anchorPart.CFrame = CFrame.new(anchoredPosition)
 		end
 		if state.moveTween then
 			state.moveTween:Cancel()
@@ -344,6 +368,7 @@ function DamageNumbers:_flushPendingTarget(targetUserId: number)
 	if state.mainText then
 		state.mainText.Text = tostring(state.totalDamage)
 	end
+	self:_playSpawnAnimation(state, not isNewState)
 
 	self:_scheduleExit(targetUserId, state)
 end
