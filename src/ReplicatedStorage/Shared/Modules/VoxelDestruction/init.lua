@@ -318,6 +318,7 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	wall:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
+	wall:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, nil)
 
 	if wall:IsA("Model") then
 		for i, child in ipairs(wall:GetChildren()) do
@@ -350,6 +351,17 @@ function Repair(wall: Part | Model, __self: boolean?)
 
 	wall.CanCollide = wall:GetAttribute("__OriginalCanCollide") or wall.CanCollide
 	wall.Transparency = wall:GetAttribute("__OriginalTransparency") or wall.Transparency
+
+	-- Restore any hidden textures/decals on the repaired wall
+	for _, child in ipairs(wall:GetChildren()) do
+		if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceGui") then
+			local originalTrans = child:GetAttribute("__OriginalTransparency")
+			if originalTrans ~= nil then
+				child.Transparency = originalTrans
+				child:SetAttribute("__OriginalTransparency", nil)
+			end
+		end
+	end
 
 	wall:SetAttribute("__" .. Settings.Tag .. clientID, true)
 
@@ -443,7 +455,8 @@ function Destroy(
 	part.Name = "Hitbox"
 	part.Anchored = true
 	part.CanCollide = false
-	part.CanQuery = true
+	part.CanQuery = false
+	part.CanTouch = false
 	part.Transparency = 1
 	part.Locked = true
 
@@ -554,8 +567,12 @@ function Destroy(
 			local isWedge = wall:IsA("WedgePart") or wall:IsA("CornerWedgePart")
 				or (wall:IsA("Part") and wall.Shape == Enum.PartType.Wedge)
 
+			-- Skip MeshParts - they can't be voxelized into simple Part pieces
+			local isMeshPart = wall:IsA("MeshPart")
+
 			if
 				not isWedge
+				and not isMeshPart
 				and (wall:HasTag(Settings.Tag) or wall:GetAttribute("__" .. Settings.Tag .. clientID) ~= nil)
 				and not wall:HasTag(Settings.Tag .. "Piece")
 				and wall:GetAttribute(Settings.Tag .. "Locked" .. clientID) ~= true
@@ -637,23 +654,20 @@ function Destroy(
 									container:SetAttribute(Settings.Tag .. "Destroy" .. clientID, false)
 								end
 
-								if container:GetAttribute(Settings.Tag .. "Timer" .. clientID) == nil then
-									container:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
-								end
+							if container:GetAttribute(Settings.Tag .. "Timer" .. clientID) == nil then
+								container:SetAttribute(Settings.Tag .. "Timer" .. clientID, 0)
+							end
 
-								local timerInit = false
-								if
-									container:IsA("Part")
-									or container:GetAttribute(Settings.Tag .. "Timer" .. clientID) == 0
-								then
-									timerInit = true
-								end
+							-- Only start a new timer coroutine if one isn't already running
+							local timerInit = container:GetAttribute(Settings.Tag .. "TimerActive" .. clientID) ~= true
 
-								container:SetAttribute(Settings.Tag .. "Timer" .. clientID, math.floor(reset + 0.5))
+							container:SetAttribute(Settings.Tag .. "Timer" .. clientID, math.floor(reset + 0.5))
 
-								if not timerInit then
-									return
+							if not timerInit then
+								return
 								else
+									container:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, true)
+
 									repeat
 										task.wait()
 										repeat
@@ -692,6 +706,7 @@ function Destroy(
 									until container:GetAttribute(Settings.Tag .. "Timer" .. clientID) <= 0
 								end
 
+								container:SetAttribute(Settings.Tag .. "TimerActive" .. clientID, nil)
 								Repair(container, true)
 
 								if queue.IsRunning then
@@ -831,6 +846,16 @@ function Destroy(
 
 						wall.CanCollide = false
 						wall.Transparency = 1
+
+						-- Hide any textures/decals on the now-invisible original wall
+						for _, child in ipairs(wall:GetChildren()) do
+							if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceGui") then
+								if not child:GetAttribute("__OriginalTransparency") then
+									child:SetAttribute("__OriginalTransparency", child.Transparency)
+								end
+								child.Transparency = 1
+							end
+						end
 					end
 				end, true, true)
 
@@ -1533,7 +1558,8 @@ coroutine.resume(coroutine.create(function()
 					end
 					hitbox.Anchored = true
 					hitbox.CanCollide = false
-					hitbox.CanQuery = true
+					hitbox.CanQuery = false
+					hitbox.CanTouch = false
 					hitbox.Transparency = 1
 					hitbox.Parent = game:GetService("Workspace")
 
