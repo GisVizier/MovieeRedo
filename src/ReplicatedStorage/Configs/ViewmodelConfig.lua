@@ -227,12 +227,18 @@ ViewmodelConfig.Skins = {
 		OGPump = {
 			-- OG Pump model under Shotguns folder
 			ModelPath = "Shotguns/OGPump",
-			-- Animations: If the OGPump folder has animations, they'll be auto-detected.
-			-- You can also override specific animations here:
-			-- Animations = {
-			--     Fire = "OGPumpFire", -- Looks in Assets/Animations/ViewModel/Shotgun/OGPump/OGPumpFire
-			--     Reload = "OGPumpReload",
-			-- },
+		},
+	},
+
+	Tomahawk = {
+		Cleaver = {
+			ModelPath = "Melee/Tomahawk_Cleaver",
+		},
+		ForestAxe = {
+			ModelPath = "Melee/Tomahawk_ForestAxe",
+		},
+		BasicAxe = {
+			ModelPath = "Melee/Tomahawk_BsicAxe",
 		},
 	},
 }
