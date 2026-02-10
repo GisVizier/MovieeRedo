@@ -490,9 +490,10 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 		end
 	end
 
-	-- Determine kill effect and execute through the KillEffects registry
 	local effectId = self:_getKillEffect(killer, weaponId)
-	KillEffects:Execute(effectId, victim, killer, weaponId)
+	if typeof(victim) == "Instance" and victim:IsA("Player") then
+		KillEffects:Execute(effectId, victim, killer, weaponId)
+	end
 
 	-- Clear status effects
 	local effectManager = self._statusEffects[victim]

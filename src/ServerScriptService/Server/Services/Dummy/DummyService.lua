@@ -524,6 +524,9 @@ local function spawnDummy(spawnIndex)
 	-- This is more reliable than humanoid.Died since CombatService tracks health separately
 	if resource then
 		resource.OnDeath:once(function(killer, weaponId)
+			print(string.format("[DummyService] OnDeath fired for %s (killer=%s, weapon=%s)",
+				dummy.Name, killer and killer.Name or "nil", tostring(weaponId)))
+
 			local dummyInfo = _activeDummies[dummy]
 			if not dummyInfo then
 				warn("[DummyService] OnDeath: dummyInfo not found for", dummy.Name)
@@ -532,25 +535,21 @@ local function spawnDummy(spawnIndex)
 
 			local savedSpawnIndex = dummyInfo.spawnIndex
 			local savedPseudoPlayer = dummyInfo.pseudoPlayer
+			print(string.format("[DummyService] %s died, savedSpawnIndex=%d, scheduling respawn in %ds",
+				dummy.Name, savedSpawnIndex, DummyConfig.RespawnDelay))
 
-			-- Stop any playing emote
 			stopEmote(dummy)
-
-			-- Cleanup combat
 			cleanupCombat(savedPseudoPlayer)
-
-			-- Remove from active
 			_activeDummies[dummy] = nil
 
-			-- Respawn after delay
 			task.delay(DummyConfig.RespawnDelay, function()
-				-- Destroy old dummy
+				print(string.format("[DummyService] Respawn timer fired for spawnIndex=%d", savedSpawnIndex))
 				if dummy and dummy.Parent then
 					dummy:Destroy()
 				end
-
-				-- Spawn new dummy at same position
-				spawnDummy(savedSpawnIndex)
+				local newDummy = spawnDummy(savedSpawnIndex)
+				print(string.format("[DummyService] Respawn result for spawnIndex=%d: %s",
+					savedSpawnIndex, newDummy and newDummy.Name or "FAILED"))
 			end)
 		end)
 	else
@@ -558,32 +557,30 @@ local function spawnDummy(spawnIndex)
 		warn(string.format("[DummyService] No CombatResource for %s - using humanoid.Died fallback", dummy.Name))
 		if humanoid then
 			humanoid.Died:Once(function()
+				print(string.format("[DummyService] Humanoid.Died fallback fired for %s", dummy.Name))
+
 				local dummyInfo = _activeDummies[dummy]
 				if not dummyInfo then
+					warn("[DummyService] Humanoid.Died: dummyInfo not found for", dummy.Name)
 					return
 				end
 
 				local savedSpawnIndex = dummyInfo.spawnIndex
 				local savedPseudoPlayer = dummyInfo.pseudoPlayer
+				print(string.format("[DummyService] %s died (fallback), savedSpawnIndex=%d", dummy.Name, savedSpawnIndex))
 
-				-- Stop any playing emote
 				stopEmote(dummy)
-
-				-- Cleanup combat
 				cleanupCombat(savedPseudoPlayer)
-
-				-- Remove from active
 				_activeDummies[dummy] = nil
 
-				-- Respawn after delay
 				task.delay(DummyConfig.RespawnDelay, function()
-					-- Destroy old dummy
+					print(string.format("[DummyService] Respawn timer (fallback) fired for spawnIndex=%d", savedSpawnIndex))
 					if dummy and dummy.Parent then
 						dummy:Destroy()
 					end
-
-					-- Spawn new dummy at same position
-					spawnDummy(savedSpawnIndex)
+					local newDummy = spawnDummy(savedSpawnIndex)
+					print(string.format("[DummyService] Respawn result (fallback) for spawnIndex=%d: %s",
+						savedSpawnIndex, newDummy and newDummy.Name or "FAILED"))
 				end)
 			end)
 		end
