@@ -118,12 +118,12 @@ KitConfig.Kits = {
 
 		Ability = {
 			Name = "AEGIS WALL",
-			Description = "Raise a massive wall that blocks bullets and abilities, protecting you and your allies.",
+			Description = "Raise a massive wall that blocks bullets and abilities, protecting you and your allies. After 3 seconds, activate again while looking at your wall to launch it forward as deadly debris.",
 			Video = "",
 			Damage = 32.5,
 			DamageType = "AOE",
 			Destruction = "Big",
-			Cooldown = 10,
+			Cooldown = 0.5,
 		},
 
 		Passive = {
