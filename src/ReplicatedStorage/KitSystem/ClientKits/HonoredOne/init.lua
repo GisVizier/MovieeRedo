@@ -38,6 +38,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
+local VoxelDestruction = require(Locations.Shared.Modules.VoxelDestruction)
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 
@@ -1020,7 +1021,8 @@ local function runRedProjectile(state)
 	local distanceTraveled = 0
 	local exploded = false
 	local explosionPivot = nil -- CFrame oriented to hit surface
-	local lastRedDestructionTime = 0
+	local destructionDistanceAccumulator = 0
+	local DESTRUCTION_STEP = 8 -- Every 8 studs, destroy terrain
 	
 	-- Use Heartbeat for smooth physics
 	local connection
@@ -1121,6 +1123,34 @@ local function runRedProjectile(state)
 
 				if isBreakable then
 					local hitPos = hitResult.Position
+					
+					-- Local destruction on pierce impact
+					task.spawn(function()
+						local hitbox = Instance.new("Part")
+						hitbox.Size = Vector3.new(RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2)
+						hitbox.Position = hitPos
+						hitbox.Shape = Enum.PartType.Ball
+						hitbox.Anchored = true
+						hitbox.CanCollide = false
+						hitbox.CanQuery = false
+						hitbox.Transparency = 1
+						hitbox.Parent = workspace
+						
+						VoxelDestruction.Destroy(
+							hitbox,
+							nil,
+							RED_CONFIG.DESTRUCTION_VOXEL_SIZE,
+							8, -- Higher debris count for impact
+							nil
+						)
+						
+						task.delay(1, function()
+							if hitbox and hitbox.Parent then
+								hitbox:Destroy()
+							end
+						end)
+					end)
+
 					abilityRequest.Send({
 						action = "redDestruction",
 						position = { X = hitPos.X, Y = hitPos.Y, Z = hitPos.Z },
@@ -1153,12 +1183,45 @@ local function runRedProjectile(state)
 		
 		if not piercedWall then
 			position = newPosition
+		else
+			-- Reset accumulator on pierce so we destroy immediately after pass-through
+			destructionDistanceAccumulator = DESTRUCTION_STEP 
 		end
 		velocity = newVelocity
 
-		local elapsed = os.clock()
-		if elapsed - lastRedDestructionTime >= RED_CONFIG.DESTRUCTION_INTERVAL then
-			lastRedDestructionTime = elapsed
+		-- Continuous destruction based on distance traveled (prevents gaps at high speed)
+		destructionDistanceAccumulator += moveDistance
+		if destructionDistanceAccumulator >= DESTRUCTION_STEP then
+			destructionDistanceAccumulator = 0
+			
+			-- Local destruction for instant feedback
+			task.spawn(function()
+				local hitbox = Instance.new("Part")
+				hitbox.Size = Vector3.new(RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2)
+				hitbox.Position = position
+				hitbox.Shape = Enum.PartType.Ball
+				hitbox.Anchored = true
+				hitbox.CanCollide = false
+				hitbox.CanQuery = false
+				hitbox.Transparency = 1
+				hitbox.Parent = workspace
+				
+				VoxelDestruction.Destroy(
+					hitbox,
+					nil,
+					RED_CONFIG.DESTRUCTION_VOXEL_SIZE,
+					3, -- Lower debris count for trail to avoid lag
+					nil
+				)
+				
+				task.delay(1, function()
+					if hitbox and hitbox.Parent then
+						hitbox:Destroy()
+					end
+				end)
+			end)
+
+			-- Send to server
 			abilityRequest.Send({
 				action = "redDestruction",
 				position = { X = position.X, Y = position.Y, Z = position.Z },
