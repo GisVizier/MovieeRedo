@@ -134,11 +134,11 @@ local function setupDummyPhysics(dummy)
 	root.Massless = false
 
 	root.CustomPhysicalProperties = PhysicalProperties.new(
-		50,
-		2,
-		0,
-		100,
-		0
+		0.7, -- Density (match player)
+		0, -- Friction (match player)
+		0, -- Elasticity (match player)
+		100, -- FrictionWeight (match player)
+		100 -- ElasticityWeight (match player)
 	)
 
 	local attachment = root:FindFirstChild("YAttachment")

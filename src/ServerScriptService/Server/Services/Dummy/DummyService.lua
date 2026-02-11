@@ -210,11 +210,11 @@ local function setupDummyPhysics(dummy)
 
 	-- Make dummy heavy and grippy (hard to push)
 	root.CustomPhysicalProperties = PhysicalProperties.new(
-		50, -- Density (high = heavy, default ~0.7)
-		2, -- Friction (high = grippy)
-		0, -- Elasticity (no bounce)
-		100, -- FrictionWeight
-		0 -- ElasticityWeight
+		0.7, -- Density (match player)
+		0, -- Friction (match player)
+		0, -- Elasticity (match player)
+		100, -- FrictionWeight (match player)
+		100 -- ElasticityWeight (match player)
 	)
 
 	-- Keep dummy upright with AlignOrientation

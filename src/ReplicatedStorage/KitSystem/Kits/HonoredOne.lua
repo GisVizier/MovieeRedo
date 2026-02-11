@@ -595,8 +595,14 @@ local function handleRedDestruction(self, clientData)
 		return
 	end
 
-	local radius = tonumber(clientData and clientData.radius) or RED_EXPLOSION_RADIUS
-	radius = math.clamp(radius, 4, 30)
+	local kitData = KitConfig.getKit("HonoredOne")
+	local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
+	local configRadius = destructionLevel and DESTRUCTION_RADIUS[destructionLevel] or 10
+
+	local clientRadius = tonumber(clientData and clientData.radius) or RED_EXPLOSION_RADIUS
+	clientRadius = math.clamp(clientRadius, 4, 30)
+
+	local radius = math.max(configRadius, clientRadius)
 
 	task.spawn(function()
 		local hitbox = Instance.new("Part")
@@ -611,10 +617,10 @@ local function handleRedDestruction(self, clientData)
 
 		VoxelDestruction.Destroy(
 			hitbox,
-			nil, -- OverlapParams
-			2, -- voxelSize
-			5, -- debrisCount
-			nil -- reset (uses default)
+			nil,
+			2,
+			10,
+			nil
 		)
 
 		task.delay(2, function()
@@ -623,6 +629,8 @@ local function handleRedDestruction(self, clientData)
 			end
 		end)
 	end)
+
+	log("Red destruction at", position, "radius:", radius)
 end
 
 --------------------------------------------------------------------------------

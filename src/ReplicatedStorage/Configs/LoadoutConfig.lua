@@ -70,31 +70,34 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 		},
 
-		-- Speed settings
-		speedMultiplier = 0.85, -- 15% slower when holding
+		speedMultiplier = 0.80,
 
-		-- ADS settings
-		adsFOV = 35,
-		adsSpeedMultiplier = 0.5,
+		adsFOV = 30,
+		adsSpeedMultiplier = 0.4,
 
-		-- Weapon ballistics
 		damage = 80,
 		headshotMultiplier = 2.0,
 		range = 500,
-		fireRate = 60, -- Rounds per minute
-		projectileSpeed = 500, -- studs/second (nil = hitscan)
-		bulletDrop = true,
-		gravity = 196.2,
-		minRange = 100, -- Full damage under this distance
+		fireRate = 50,
+		projectileSpeed = nil,
+		bulletDrop = false,
+		spread = 0.04,
+		minRange = 60,
 		maxRange = 500,
-		minDamage = 35, -- Damage at max range
+		minDamage = 25,
 		tracerColor = Color3.fromRGB(255, 200, 100),
+
+		recoil = {
+			pitchUp = 5.5,
+			yawRandom = 0.3,
+			recoverySpeed = 4,
+		},
 
 		crosshair = {
 			type = "Default",
-			spreadX = 0.5,
-			spreadY = 0.5,
-			recoilMultiplier = 2.5,
+			spreadX = 0.3,
+			spreadY = 0.3,
+			recoilMultiplier = 3.0,
 		},
 
 		-- Aim Assist settings (sniper: precise, narrow FOV, smooth pull)
@@ -167,10 +170,16 @@ LoadoutConfig.Weapons = {
 		headshotMultiplier = 1.5,
 		range = 250,
 		fireRate = 75, -- Rounds per minute
-		minRange = 20, -- Full damage under this distance
-		maxRange = 250, -- Pellets die here
-		minDamage = 5, -- Damage per pellet at max range
+		minRange = 10,
+		maxRange = 200,
+		minDamage = 3,
 		tracerColor = Color3.fromRGB(255, 150, 50),
+
+		recoil = {
+			pitchUp = 5,
+			yawRandom = 2,
+			recoverySpeed = 8,
+		},
 
 		crosshair = {
 			type = "Shotgun",
@@ -225,9 +234,9 @@ LoadoutConfig.Weapons = {
 			pelletDamage = 15,
 
 			-- Damage falloff (per pellet)
-			minRange = 20, -- Full 15 damage per pellet within 20 studs
-			maxRange = 250, -- Drops to minDamage at 250 studs
-			minDamage = 5, -- 5 damage per pellet at max range
+			minRange = 10,
+			maxRange = 200,
+			minDamage = 3,
 
 			-- Behaviors
 			pierce = 0,
@@ -285,10 +294,16 @@ LoadoutConfig.Weapons = {
 		projectileSpeed = nil, -- Hitscan
 		bulletDrop = false,
 		spread = 0.02,
-		minRange = 50,
-		maxRange = 300,
-		minDamage = 12,
+		minRange = 30,
+		maxRange = 250,
+		minDamage = 8,
 		tracerColor = Color3.fromRGB(255, 230, 150),
+
+		recoil = {
+			pitchUp = 1.2,
+			yawRandom = 0.6,
+			recoverySpeed = 10,
+		},
 
 		crosshair = {
 			type = "Default",
@@ -374,58 +389,63 @@ LoadoutConfig.Weapons = {
 		adsFOV = 55,
 		adsSpeedMultiplier = 0.75,
 
-		-- Weapon ballistics
 		damage = 45,
 		headshotMultiplier = 2.0,
 		range = 200,
-		fireRate = 75, -- Rounds per minute (slower, more deliberate revolver feel)
+		fireRate = 90,
+		minRange = 15,
+		maxRange = 150,
+		minDamage = 15,
 		tracerColor = Color3.fromRGB(255, 100, 50),
+
+		recoil = {
+			pitchUp = 4.0,
+			yawRandom = 1.2,
+			recoverySpeed = 6,
+		},
 
 		crosshair = {
 			type = "Default",
-			spreadX = 1.5,
-			spreadY = 1.5,
-			recoilMultiplier = 1.8,
+			spreadX = 1.2,
+			spreadY = 1.2,
+			recoilMultiplier = 2.0,
 		},
 
-		-- PROJECTILE CONFIG (single accurate bullet)
 		projectile = {
-			-- Core physics (fast bullet with slight drop)
-			speed = 350, -- studs/second (fast but visible)
-			gravity = 30, -- slight drop at range
-			drag = 0.01, -- minimal air resistance
-			lifetime = 2.0, -- 2 sec max flight
+			speed = 500,
+			gravity = 50,
+			drag = 0.008,
+			lifetime = 2.0,
 			inheritVelocity = 0,
 
-			-- Spread (very accurate)
 			spreadMode = "Cone",
-			baseSpread = 0.015, -- tight spread
-			crosshairSpreadScale = 0.01,
+			baseSpread = 0.002,
+			crosshairSpreadScale = 0.002,
 			movementSpreadMult = 1.1,
-			hipfireSpreadMult = 1.3,
-			airSpreadMult = 1.5,
-			crouchSpreadMult = 0.8,
-			slideSpreadMult = 1.2,
+			hipfireSpreadMult = 1.2,
+			airSpreadMult = 1.3,
+			crouchSpreadMult = 0.9,
+			slideSpreadMult = 1.1,
 
-			-- Single bullet
 			pelletsPerShot = 1,
 
-			-- No pierce/ricochet
 			pierce = 0,
 			pierceDamageMult = 1.0,
 			ricochet = 0,
 			ricochetDamageMult = 0.7,
 			ricochetSpeedMult = 0.9,
 
-			-- No AoE/charge
 			aoe = nil,
 			charge = nil,
 
-			-- Visual
 			visual = "Bullet",
 			tracerColor = Color3.fromRGB(255, 100, 50),
-			tracerLength = 3,
+			tracerLength = 4,
 			trailEnabled = true,
+
+			minRange = 15,
+			maxRange = 150,
+			minDamage = 15,
 		},
 
 		-- Aim Assist settings (revolver: precise secondary with smooth pull)
