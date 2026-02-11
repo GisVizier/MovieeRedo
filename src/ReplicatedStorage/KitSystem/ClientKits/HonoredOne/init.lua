@@ -112,6 +112,11 @@ local RED_CONFIG = {
 	
 	-- Hold limit
 	MAX_HOLD_TIME = 10,          -- Max seconds player can hold before auto-fire
+
+	-- Destruction (pierce through breakable walls)
+	DESTRUCTION_INTERVAL = 0.15,
+	DESTRUCTION_RADIUS = 10,
+	DESTRUCTION_VOXEL_SIZE = 2,
 }
 
 -- ProjectilePhysics config for Red (straight line, no gravity)
@@ -1015,6 +1020,7 @@ local function runRedProjectile(state)
 	local distanceTraveled = 0
 	local exploded = false
 	local explosionPivot = nil -- CFrame oriented to hit surface
+	local lastRedDestructionTime = 0
 	
 	-- Use Heartbeat for smooth physics
 	local connection
@@ -1039,6 +1045,8 @@ local function runRedProjectile(state)
 		local moveDistance = (newPosition - position).Magnitude
 		distanceTraveled += moveDistance
 		
+		local piercedWall = false
+
 		-- Check if hit something
 		if hitResult then
 			local hitPlayer, hitCharacter, isHeadshot = getPlayerFromHit(hitResult.Instance)
@@ -1100,25 +1108,52 @@ local function runRedProjectile(state)
 				end
 				
 			else
-				-- Hit world/environment - explode here
-				position = hitResult.Position
-				
-				-- Create pivot CFrame oriented to hit surface (normal pointing outward)
-				local hitNormal = hitResult.Normal
-				explosionPivot = CFrame.lookAt(position, position + hitNormal)
-				
-				if projectileViz and projectileViz.Parent then
-					projectileViz.CFrame = CFrame.new(position)
+				-- Hit world/environment - check if breakable
+				local hitPart = hitResult.Instance
+				local isBreakable = false
+				if hitPart then
+					if hitPart:HasTag("Breakable") then
+						isBreakable = true
+					elseif hitPart:FindFirstAncestorOfClass("Model") and hitPart:FindFirstAncestorOfClass("Model"):HasTag("Breakable") then
+						isBreakable = true
+					end
 				end
-				
-				connection:Disconnect()
-				exploded = true
-				return
+
+				if isBreakable then
+					local hitPos = hitResult.Position
+					abilityRequest.Send({
+						action = "redDestruction",
+						position = { X = hitPos.X, Y = hitPos.Y, Z = hitPos.Z },
+						radius = RED_CONFIG.DESTRUCTION_RADIUS,
+						allowMultiple = true,
+					})
+
+					local filter = rayParams.FilterDescendantsInstances
+					table.insert(filter, hitPart)
+					rayParams.FilterDescendantsInstances = filter
+
+					position = hitPos + velocity.Unit * 0.5
+					piercedWall = true
+				else
+					position = hitResult.Position
+
+					local hitNormal = hitResult.Normal
+					explosionPivot = CFrame.lookAt(position, position + hitNormal)
+
+					if projectileViz and projectileViz.Parent then
+						projectileViz.CFrame = CFrame.new(position)
+					end
+
+					connection:Disconnect()
+					exploded = true
+					return
+				end
 			end
 		end
 		
-		-- Update state
-		position = newPosition
+		if not piercedWall then
+			position = newPosition
+		end
 		velocity = newVelocity
 		
 		-- Update visual
