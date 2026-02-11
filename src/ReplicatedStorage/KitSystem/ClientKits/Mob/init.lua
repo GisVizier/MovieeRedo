@@ -31,6 +31,7 @@ local ContentProvider = game:GetService("ContentProvider")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 
 -- VFX replication (for future VFX calls)
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
@@ -46,9 +47,14 @@ local WALL_CONFIG = {
 	MAX_PLACEMENT_DISTANCE = 75,      -- Max distance to place wall
 	RAYCAST_DOWN_DISTANCE = 100,      -- How far to raycast down to find floor
 	
-	-- Push timing
-	PUSH_UNLOCK_TIME = 3,             -- Seconds after spawn before can push wall
+	-- Grace period - time after wall spawn before cooldown kicks in
+	GRACE_PERIOD = 3,                 -- Seconds to use second ability before cooldown
 	PUSH_CHECK_DISTANCE = 100,        -- Max distance to detect if looking at wall
+	
+	-- Knockback on spawn (applied by client)
+	KNOCKBACK_RADIUS = 12.5,          -- Radius for knockback hitbox
+	KNOCKBACK_UPWARD = 120,           -- Upward velocity
+	KNOCKBACK_OUTWARD = 30,           -- Outward velocity from wall center
 }
 
 --------------------------------------------------------------------------------
@@ -56,6 +62,43 @@ local WALL_CONFIG = {
 --------------------------------------------------------------------------------
 
 local ANIM_NAME = "MobAbilityStart"
+
+--------------------------------------------------------------------------------
+-- Knockback Helper
+--------------------------------------------------------------------------------
+
+local function applyWallKnockback(pivotPosition, casterPlayer)
+	local knockbackController = ServiceRegistry:GetController("Knockback")
+	if not knockbackController then return end
+	
+	-- Get all characters in knockback radius (including self)
+	local targets = Hitbox.GetCharactersInSphere(pivotPosition, WALL_CONFIG.KNOCKBACK_RADIUS, {
+		-- Don't exclude anyone - hit everyone including caster
+	})
+	
+	for _, targetChar in ipairs(targets) do
+		local targetRoot = targetChar:FindFirstChild("Root") 
+			or targetChar:FindFirstChild("HumanoidRootPart")
+			or targetChar.PrimaryPart
+		
+		if targetRoot then
+			-- Calculate knockback direction (away from wall center)
+			local awayDir = (targetRoot.Position - pivotPosition)
+			awayDir = Vector3.new(awayDir.X, 0, awayDir.Z) -- Horizontal only
+			if awayDir.Magnitude > 0.1 then
+				awayDir = awayDir.Unit
+			else
+				awayDir = Vector3.new(1, 0, 0)
+			end
+			
+			local knockbackVelocity = (awayDir * WALL_CONFIG.KNOCKBACK_OUTWARD) 
+				+ Vector3.new(0, WALL_CONFIG.KNOCKBACK_UPWARD, 0)
+			
+			-- Apply knockback
+			knockbackController:_sendKnockbackVelocity(targetChar, knockbackVelocity, 0)
+		end
+	end
+end
 
 --------------------------------------------------------------------------------
 -- Sound Configuration
@@ -88,9 +131,40 @@ end
 
 local function createMapOnlyParams()
 	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Include
-	local mapFolder = Workspace:FindFirstChild("Map")
-	params.FilterDescendantsInstances = { mapFolder or Workspace }
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	
+	-- Exclude all players, characters, dummies, and effects
+	local excludeList = {}
+	
+	-- Exclude all player characters
+	for _, player in Players:GetPlayers() do
+		if player.Character then
+			table.insert(excludeList, player.Character)
+		end
+	end
+	
+	-- Exclude effects folder
+	local effectsFolder = Workspace:FindFirstChild("Effects")
+	if effectsFolder then
+		table.insert(excludeList, effectsFolder)
+	end
+	
+	-- Exclude dummies
+	local world = Workspace:FindFirstChild("World")
+	if world then
+		local dummySpawns = world:FindFirstChild("DummySpawns")
+		if dummySpawns then
+			table.insert(excludeList, dummySpawns)
+		end
+	end
+	
+	-- Exclude Collider folder (hitboxes)
+	local colliders = Workspace:FindFirstChild("Colliders")
+	if colliders then
+		table.insert(excludeList, colliders)
+	end
+	
+	params.FilterDescendantsInstances = excludeList
 	return params
 end
 
@@ -147,26 +221,36 @@ end
 -- Wall Push Detection (for second use)
 --------------------------------------------------------------------------------
 
-local function isLookingAtOwnWall()
-	local camera = Workspace.CurrentCamera
-	if not camera then return false end
-	
+local function getOwnActiveWall()
 	-- Check if player has an active wall attribute
 	local wallId = LocalPlayer:GetAttribute("MobActiveWallId")
-	if not wallId then return false end
+	if not wallId then return nil end
 	
 	-- Find the wall in workspace
 	local effectsFolder = Workspace:FindFirstChild("Effects")
-	if not effectsFolder then return false end
+	if not effectsFolder then return nil end
 	
 	local wall = effectsFolder:FindFirstChild("MobWall_" .. tostring(LocalPlayer.UserId))
+	return wall
+end
+
+local function isInGracePeriod()
+	local wall = getOwnActiveWall()
 	if not wall then return false end
 	
-	-- Check wall age
 	local spawnTime = wall:GetAttribute("SpawnTime")
-	if not spawnTime or (os.clock() - spawnTime) < WALL_CONFIG.PUSH_UNLOCK_TIME then
-		return false
-	end
+	if not spawnTime then return false end
+	
+	-- Grace period: can use second ability within GRACE_PERIOD seconds of spawn
+	return (os.clock() - spawnTime) < WALL_CONFIG.GRACE_PERIOD
+end
+
+local function isLookingAtOwnWall()
+	local camera = Workspace.CurrentCamera
+	if not camera then return false, nil end
+	
+	local wall = getOwnActiveWall()
+	if not wall then return false, nil end
 	
 	-- Raycast to check if looking at wall
 	local rayOrigin = camera.CFrame.Position
@@ -181,7 +265,17 @@ local function isLookingAtOwnWall()
 		return true, wall
 	end
 	
-	return false
+	-- Also check dot product for more forgiving detection
+	local toWall = (wall.Position - rayOrigin)
+	local distance = toWall.Magnitude
+	if distance <= WALL_CONFIG.PUSH_CHECK_DISTANCE then
+		local dotProduct = camera.CFrame.LookVector:Dot(toWall.Unit)
+		if dotProduct > 0.6 then  -- Looking roughly toward wall
+			return true, wall
+		end
+	end
+	
+	return false, nil
 end
 
 --------------------------------------------------------------------------------
@@ -211,12 +305,26 @@ function Mob.Ability:OnStart(abilityRequest)
 	
 	if kitController:IsAbilityActive() then return end
 	
-	-- TODO: Check for second ability (push wall)
-	-- local canPush, wallToPush = isLookingAtOwnWall()
-	-- if canPush and wallToPush then
-	-- 	Mob.Ability:_pushWall(wallToPush, abilityRequest)
-	-- 	return
-	-- end
+	-- Check if there's an active wall we can push
+	local activeWall = getOwnActiveWall()
+	
+	if activeWall then
+		-- Wall exists - check if we're looking at it to push
+		local canPush, wallToPush = isLookingAtOwnWall()
+		if canPush and wallToPush then
+			-- Looking at wall - push it!
+			Mob.Ability:_pushWall(wallToPush, abilityRequest, kitController)
+			return
+		end
+		
+		-- Not looking at wall - check if in grace period
+		if isInGracePeriod() then
+			-- During grace period, can't create new wall if not looking at current one
+			-- Just do nothing
+			return
+		end
+		-- After grace period, fall through to create new wall (destroys old)
+	end
 	
 	-- Normal ability: create wall
 	if abilityRequest.IsOnCooldown() then return end
@@ -257,14 +365,14 @@ function Mob.Ability:OnStart(abilityRequest)
 	-- Animation event handlers
 	local Events = {
 		["chargeaem"] = function()
-			-- Arm VFX start
 			if state.cancelled then return end
-			
-			VFXRep:Fire("Me", { Module = "Mob", Function = "User" }, {
+
+			VFXRep:Fire("Me", { Module = "MobAbility", Function = "Execute" }, {
 				Character = character,
 				ViewModel = viewmodelRig,
 				forceAction = "arm",
 			})
+
 			abilityRequest.Send({
 				action = "relayUserVfx",
 				forceAction = "arm",
@@ -273,7 +381,6 @@ function Mob.Ability:OnStart(abilityRequest)
 		end,
 		
 		["charge"] = function()
-			-- Get target location and show charge VFX
 			if state.cancelled then return end
 			
 			-- Calculate wall placement
@@ -292,12 +399,13 @@ function Mob.Ability:OnStart(abilityRequest)
 			end
 			
 			-- Fire charge VFX at pivot location
-			VFXRep:Fire("Me", { Module = "Mob", Function = "User" }, {
+			VFXRep:Fire("All", { Module = "MobAbility", Function = "Execute" }, {
 				Character = character,
 				ViewModel = viewmodelRig,
 				Pivot = state.pivot,
 				forceAction = "charge",
 			})
+
 			abilityRequest.Send({
 				action = "relayUserVfx",
 				forceAction = "charge",
@@ -307,20 +415,17 @@ function Mob.Ability:OnStart(abilityRequest)
 		end,
 		
 		["start"] = function()
-			-- Spawn wall on server
 			if state.cancelled then return end
 			if not state.pivot then return end
 			
+			-- Apply knockback FIRST (before wall spawns) - client-side
+			applyWallKnockback(state.pivot.Position, abilityRequest.player)
+			
 			-- Send spawn request to server with placement CFrame
+			-- Server will start grace period timer (cooldown after 3s unless pushed)
 			abilityRequest.Send({
 				action = "spawnWall",
 				pivot = state.pivot,
-				allowMultiple = true,
-			})
-			
-			-- Start cooldown now that wall is spawning
-			abilityRequest.Send({
-				action = "startCooldown",
 				allowMultiple = true,
 			})
 			
@@ -340,7 +445,6 @@ function Mob.Ability:OnStart(abilityRequest)
 		end,
 		
 		["_finish"] = function()
-			-- Cleanup animation, unholster weapon
 			if not state.active then return end
 			state.active = false
 			
@@ -414,19 +518,191 @@ function Mob.Ability:OnInterrupt(abilityRequest, reason)
 	Mob._abilityState = nil
 end
 
---[[
-	TODO: Push wall second use
+--------------------------------------------------------------------------------
+-- Push Wall (Second Use)
+--------------------------------------------------------------------------------
+
+local PUSH_ANIM_NAME = "MobAbilitySecond"
+
+function Mob.Ability:_pushWall(wall, abilityRequest, kitController)
+	local character = abilityRequest.character
+	local viewmodelController = abilityRequest.viewmodelController
+	local viewmodelRig = viewmodelController and viewmodelController:GetActiveRig()
 	
-function Mob.Ability:_pushWall(wall, abilityRequest)
-	-- Send push request to server
-	abilityRequest.Send({
-		action = "pushWall",
-		wallId = wall:GetAttribute("WallId"),
+	-- Start ability (holster weapon)
+	local ctx = abilityRequest.StartAbility()
+	kitController:LockWeaponSwitch()
+	
+	local viewmodelAnimator = ctx.viewmodelAnimator
+	
+	-- Play push animation
+	local animation = viewmodelAnimator:PlayKitAnimation(PUSH_ANIM_NAME, {
+		priority = Enum.AnimationPriority.Action4,
+		stopOthers = true,
 	})
 	
-	-- Cooldown will be triggered by server
+	if not animation then
+		kitController:UnlockWeaponSwitch()
+		kitController:_unholsterWeapon()
+		return
+	end
+
+	-- State tracking
+	local state = {
+		active = true,
+		cancelled = false,
+		wall = wall,
+		pivot = nil,
+		wallId = wall:GetAttribute("WallId"),
+		animation = animation,
+		abilityRequest = abilityRequest,
+		character = character,
+		viewmodelRig = viewmodelRig,
+		connections = {},
+	}
+	Mob._abilityState = state
+	
+	-- Animation event handlers for push
+	local rayOrigin = wall.Position
+	local rayDirection = Vector3.new(0, -25, 0)
+
+	local mapParams = createMapOnlyParams()
+	local result = Workspace:Raycast(rayOrigin, rayDirection, mapParams)
+
+	local hitPos
+	if result then
+		hitPos = result.Position
+	else
+		hitPos = wall.Position
+	end
+	
+	
+	local Events = {
+		["start"] = function()
+			if state.cancelled then return end
+			
+			-- Tell server to cancel grace timer - push is happening
+			abilityRequest.Send({
+				action = "pushStarted",
+				allowMultiple = true,
+			})
+			
+			-- VFX: Start push visual
+			VFXRep:Fire("All", { Module = "MobAbility", Function = "Execute" }, {
+				Character = character,
+				ViewModel = viewmodelRig,
+				forceAction = "seewall",
+				Pivot = CFrame.new(hitPos),
+			})
+
+			VFXRep:Fire("All", { Module = "MobAbility", Function = "Execute" }, {
+				Character = character,
+				ViewModel = viewmodelRig,
+				Pivot = CFrame.new(hitPos),
+				forceAction = "charge",
+			})
+
+			abilityRequest.Send({
+				action = "relayUserVfx",
+				forceAction = "pushStart",
+				allowMultiple = true,
+			})
+		end,
+		
+		["charge"] = function()
+			if state.cancelled then return end
+			
+			-- VFX: Charge visual
+			VFXRep:Fire("Me", { Module = "Mob", Function = "User" }, {
+				Character = character,
+				ViewModel = viewmodelRig,
+				forceAction = "pushCharge",
+			})
+			
+			abilityRequest.Send({
+				action = "relayUserVfx",
+				forceAction = "pushCharge",
+				allowMultiple = true,
+			})
+			
+			VFXRep:Fire("Me", { Module = "MobAbility", Function = "Execute" }, {
+				Character = character,
+				ViewModel = viewmodelRig,
+				forceAction = "arm",
+			})
+		end,
+		
+		["push"] = function()
+			if state.cancelled then return end
+			
+			-- Get camera direction for push
+			local camera = Workspace.CurrentCamera
+			local pushDirection = camera and camera.CFrame.LookVector or Vector3.new(0, 0, -1)
+			
+			-- Send push request to server
+			abilityRequest.Send({
+				action = "pushWall",
+				wallId = state.wallId,
+				direction = pushDirection,
+				allowMultiple = true,
+			})
+			
+			-- VFX: Push visual
+			VFXRep:Fire("Me", { Module = "Mob", Function = "User" }, {
+				Character = character,
+				ViewModel = viewmodelRig,
+				forceAction = "push",
+			})
+			
+			abilityRequest.Send({
+				action = "relayUserVfx",
+				forceAction = "push",
+				allowMultiple = true,
+			})
+		end,
+		
+		["_finish"] = function()
+			if not state.active then return end
+			state.active = false
+			
+			-- Cleanup connections
+			for _, conn in ipairs(state.connections) do
+				if typeof(conn) == "RBXScriptConnection" then
+					conn:Disconnect()
+				end
+			end
+			state.connections = {}
+			
+			-- Restore weapon
+			kitController:UnlockWeaponSwitch()
+			kitController:_unholsterWeapon()
+			
+			if Mob._abilityState == state then
+				Mob._abilityState = nil
+			end
+		end,
+	}
+	
+	-- Connect to animation events
+	table.insert(state.connections, animation:GetMarkerReachedSignal("Event"):Connect(function(eventName)
+		if Events[eventName] then
+			Events[eventName]()
+		end
+	end))
+	
+	-- Safety cleanup on animation end
+	table.insert(state.connections, animation.Stopped:Once(function()
+		if state.active then
+			Events["_finish"]()
+		end
+	end))
+	
+	table.insert(state.connections, animation.Ended:Once(function()
+		if state.active then
+			Events["_finish"]()
+		end
+	end))
 end
-]]
 
 --------------------------------------------------------------------------------
 -- Ultimate (placeholder)
