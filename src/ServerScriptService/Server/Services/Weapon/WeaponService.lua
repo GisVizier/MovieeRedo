@@ -388,6 +388,20 @@ function WeaponService:_validatePellets(shotData, weaponConfig)
 	return true
 end
 
+local function applyDistanceFalloff(baseDamage, distance, config)
+	local minR = config.minRange
+	local maxR = config.maxRange
+	if not minR or not maxR or distance <= minR then
+		return baseDamage
+	end
+	local minD = config.minDamage or (baseDamage * 0.3)
+	if distance >= maxR then
+		return minD
+	end
+	local t = (distance - minR) / (maxR - minR)
+	return baseDamage - (baseDamage - minD) * t
+end
+
 function WeaponService:_processPellets(player, shotData, weaponConfig)
 	local origin = shotData.origin
 	if typeof(origin) ~= "Vector3" then
@@ -463,7 +477,9 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 				end
 
 				local isHeadshot = result.Instance.Name == "Head"
-				local pelletDamage = isHeadshot and (damagePerPellet * headshotMultiplier) or damagePerPellet
+				local distance = (result.Position - origin).Magnitude
+				local falloffDamage = applyDistanceFalloff(damagePerPellet, distance, weaponConfig)
+				local pelletDamage = isHeadshot and (falloffDamage * headshotMultiplier) or falloffDamage
 				damageByCharacter[character] = (damageByCharacter[character] or 0) + pelletDamage
 				headshotByCharacter[character] = (headshotByCharacter[character] or 0) + (isHeadshot and 1 or 0)
 			end
@@ -1023,6 +1039,12 @@ function WeaponService:CalculateProjectileDamage(hitData, weaponConfig, extraDat
 			local falloffFactor = 1 - (distance / radius) * (1 - falloffMin)
 			baseDamage = baseDamage * math.max(falloffFactor, falloffMin)
 		end
+	end
+
+	if hitData.origin and hitData.hitPosition then
+		local distance = (hitData.hitPosition - hitData.origin).Magnitude
+		local falloffConfig = projectileConfig.minRange and projectileConfig or weaponConfig
+		baseDamage = applyDistanceFalloff(baseDamage, distance, falloffConfig)
 	end
 
 	-- Charge scaling (based on chargePercent stored in projectile tracking)

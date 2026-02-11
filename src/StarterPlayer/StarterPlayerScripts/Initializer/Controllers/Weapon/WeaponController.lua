@@ -14,6 +14,11 @@ local RunService = game:GetService("RunService")
 local workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 
+local _recoilPitch = 0
+local _recoilYaw = 0
+local _recoilConfig = nil
+local _recoilConnection = nil
+
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
@@ -113,6 +118,33 @@ function WeaponController:Init(registry, net)
 
 	-- Initialize Aim Assist
 	self:_initializeAimAssist()
+
+	_recoilConnection = RunService.Heartbeat:Connect(function(dt)
+		if _recoilPitch == 0 and _recoilYaw == 0 then
+			return
+		end
+		local speed = _recoilConfig and _recoilConfig.recoverySpeed or 10
+		local decay = math.min(1, speed * dt)
+
+		local pitchRecover = _recoilPitch * decay
+		local yawRecover = _recoilYaw * decay
+
+		_recoilPitch = _recoilPitch - pitchRecover
+		_recoilYaw = _recoilYaw - yawRecover
+
+		if math.abs(_recoilPitch) < 0.01 then
+			_recoilPitch = 0
+		end
+		if math.abs(_recoilYaw) < 0.01 then
+			_recoilYaw = 0
+		end
+
+		local cam = ServiceRegistry:GetController("CameraController")
+		if cam then
+			cam.TargetAngleX = cam.TargetAngleX - pitchRecover
+			cam.TargetAngleY = cam.TargetAngleY - yawRecover
+		end
+	end)
 
 	LogService:Info("WEAPON", "WeaponController initialized")
 end
@@ -391,6 +423,33 @@ function WeaponController:_applyCrosshairRecoil()
 	end
 end
 
+function WeaponController:_applyCameraRecoil()
+	if not self._equippedWeaponId then
+		return
+	end
+	local weaponConfig = LoadoutConfig.getWeapon(self._equippedWeaponId)
+	local recoilData = weaponConfig and weaponConfig.recoil
+	if not recoilData then
+		return
+	end
+
+	_recoilConfig = recoilData
+
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if not cameraController then
+		return
+	end
+
+	local pitchKick = recoilData.pitchUp or 1
+	local yawKick = (math.random() * 2 - 1) * (recoilData.yawRandom or 0.5)
+
+	_recoilPitch = _recoilPitch + pitchKick
+	_recoilYaw = _recoilYaw + yawKick
+
+	cameraController.TargetAngleX = cameraController.TargetAngleX + pitchKick
+	cameraController.TargetAngleY = cameraController.TargetAngleY + yawKick
+end
+
 -- =============================================================================
 -- EQUIP / UNEQUIP
 -- =============================================================================
@@ -433,6 +492,10 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	end
 
 	self:_applyCrosshairForWeapon(weaponId)
+
+	_recoilConfig = weaponConfig and weaponConfig.recoil or nil
+	_recoilPitch = 0
+	_recoilYaw = 0
 
 	-- Setup Aim Assist for this weapon
 	self:_setupAimAssistForWeapon(weaponConfig)
@@ -563,6 +626,10 @@ function WeaponController:_unequipCurrentWeapon()
 	self._equippedWeaponId = nil
 	self._weaponInstance = nil
 	self._isReloading = false
+
+	_recoilConfig = nil
+	_recoilPitch = 0
+	_recoilYaw = 0
 end
 
 -- =============================================================================
@@ -743,6 +810,7 @@ function WeaponController:_onFirePressed()
 	end
 
 	self:_applyCrosshairRecoil()
+	self:_applyCameraRecoil()
 
 	-- Update state after attack
 	self._lastFireTime = currentTime
