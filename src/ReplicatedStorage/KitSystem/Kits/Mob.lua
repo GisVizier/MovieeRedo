@@ -72,6 +72,8 @@ local ALLOWED_RELAY_ACTIONS = {
 	pushStart = true,
 	pushCharge = true,
 	push = true,
+	projectileImpact = true,
+	wallPushed = true,
 }
 
 --------------------------------------------------------------------------------
@@ -433,7 +435,8 @@ function Kit:_pushWall(direction)
 	
 	-- Get services
 	local registry = getKitRegistry(self)
-	local combatService = registry and registry:TryGet("CombatService")
+	local weaponService = registry and registry:TryGet("WeaponService")
+	local knockbackService = registry and registry:TryGet("KnockbackService")
 	
 	-- Raycast params - exclude caster and effects
 	local rayParams = RaycastParams.new()
@@ -479,77 +482,60 @@ function Kit:_pushWall(direction)
 		local function onImpact(hitPosition, hitInstance)
 			if destroyed then return end
 			destroyed = true
+			
+			-- Create impact pivot (at hit position, facing travel direction)
+			local impactPivot = CFrame.lookAt(hitPosition, hitPosition + pieceDir)
 		
 			-- Use Hitbox utility to find ALL characters (players AND dummies)
 			local targets = Hitbox.GetCharactersInSphere(hitPosition, WALL_CONFIG.IMPACT_RADIUS, {
 				Exclude = character,  -- Exclude caster
-				-- Visualize = PUSH_DEBUG,
-				VisualizeDuration = 2,
-				VisualizeColor = Color3.fromRGB(255, 150, 0),
 			})
 			
-			local targetsHit = 0
-			
 			for _, targetChar in ipairs(targets) do
-				if hitTargets[targetChar] then 
-					continue 
-				end
-				
+				if hitTargets[targetChar] then continue end
 				hitTargets[targetChar] = true
-				targetsHit = targetsHit + 1
 				
-				-- Get target position
+				-- Get target position for knockback direction
 				local targetRoot = targetChar:FindFirstChild("Root") 
 					or targetChar:FindFirstChild("HumanoidRootPart")
 					or targetChar.PrimaryPart
-				
 				local targetPosition = targetRoot and targetRoot.Position or hitPosition
 				
-				-- Check if it's a player or dummy
-				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-				
-				-- Apply damage
-				if targetPlayer then
-					-- It's a player
-					if combatService and combatService.Damage then
-						local success, err = pcall(function()
-							combatService:Damage(player, targetPlayer, WALL_CONFIG.IMPACT_DAMAGE, "MobWallImpact")
-						end)
-					end
-				else
-					-- It's a dummy - try to damage the humanoid directly
-					local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid")
-					if humanoid then
-						humanoid:TakeDamage(WALL_CONFIG.IMPACT_DAMAGE)
-					end
+				-- DAMAGE (handles players AND dummies)
+				if weaponService then
+					weaponService:ApplyDamageToCharacter(
+						targetChar, 
+						WALL_CONFIG.IMPACT_DAMAGE, 
+						player,              -- shooter
+						false,               -- isHeadshot
+						"MobWallImpact",     -- weaponId
+						hitPosition,         -- source position
+						hitPosition          -- hit position
+					)
 				end
 				
-				-- Apply knockback (away from impact + upward)
-				local awayDir = (targetPosition - hitPosition)
-				awayDir = Vector3.new(awayDir.X, 0, awayDir.Z)
-				if awayDir.Magnitude > 0.1 then
-					awayDir = awayDir.Unit
-				else
-					awayDir = pieceDir
-				end
-				
-				local knockbackVel = awayDir * WALL_CONFIG.IMPACT_KNOCKBACK 
-					+ Vector3.new(0, WALL_CONFIG.IMPACT_UPWARD, 0)
-				
-				if targetPlayer then
-					-- Player knockback via combat service
-					if combatService and combatService.ApplyKnockback then
-						local success, err = pcall(function()
-							combatService:ApplyKnockback(targetPlayer, knockbackVel)
-						end)
+				-- KNOCKBACK (handles players AND dummies via character Model)
+				if knockbackService then
+					local awayDir = (targetPosition - hitPosition)
+					awayDir = Vector3.new(awayDir.X, 0, awayDir.Z)
+					if awayDir.Magnitude > 0.1 then
+						awayDir = awayDir.Unit
+					else
+						awayDir = pieceDir
 					end
-				else
-					-- Dummy knockback - apply velocity directly if it has a root
-					if targetRoot and not targetRoot.Anchored then
-						targetRoot.AssemblyLinearVelocity = knockbackVel
-					end
+					
+					-- Add upward component
+					local knockbackDir = (awayDir + Vector3.new(0, 0.5, 0)).Unit
+					knockbackService:ApplyKnockback(targetChar, knockbackDir, WALL_CONFIG.IMPACT_KNOCKBACK)
 				end
 			end
+			
+			-- Fire VFX to all clients
+			relayMobVfx(self, player, "Execute", {
+				Character = character,
+				forceAction = "projectileImpact",
+				Pivot = impactPivot,
+			})
 			
 			-- Destroy piece
 			if piece and piece.Parent then
@@ -691,20 +677,27 @@ function Kit:OnAbility(inputState, clientData)
 		-- Cancel grace timer - push animation has started
 		self:_cancelGraceThread()
 		return false
-		
+
 	elseif action == "pushWall" then
 		local direction = toVector3(clientData.direction)
+
+		-- Get wall position BEFORE pushing (since push destroys it)
+		local wallPosition = self._activeWall and self._activeWall.Position or Vector3.zero
+
 		local success = self:_pushWall(direction)
-		
+
 		if success then
+			-- Create pivot at wall origin facing throw direction
+			local pivot = CFrame.lookAt(wallPosition, wallPosition + direction)
+
 			-- Relay push VFX to other clients
-			relayMobVfx(self, player, "User", {
+			relayMobVfx(self, player, "Execute", {
 				Character = character,
 				forceAction = "wallPushed",
-				direction = direction,
+				Pivot = pivot,
 			})
 		end
-		
+
 		return false
 	end
 	
