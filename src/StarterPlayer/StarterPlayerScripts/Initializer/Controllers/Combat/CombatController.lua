@@ -138,13 +138,23 @@ end
 function CombatController:_onDamageDealt(data)
 	if not data then return end
 
-	if not data.isHeal and data.attackerUserId == LocalPlayer.UserId and data.targetUserId ~= LocalPlayer.UserId then
+	local localUserId = LocalPlayer and LocalPlayer.UserId or nil
+	local attackerUserId = tonumber(data.attackerUserId)
+	local targetUserId = tonumber(data.targetUserId)
+	local isSelfTarget = targetUserId ~= nil and targetUserId == localUserId
+
+	if not data.isHeal and attackerUserId == localUserId and not isSelfTarget then
 		local hitPos = data.position
 		local anchorPos = data.targetPivotPosition
-		if typeof(anchorPos) ~= "Vector3" and data.targetUserId then
-			local targetPlayer = Players:GetPlayerByUserId(data.targetUserId)
+		if typeof(anchorPos) ~= "Vector3" and targetUserId then
+			local targetPlayer = Players:GetPlayerByUserId(targetUserId)
 			local targetCharacter = targetPlayer and targetPlayer.Character
-			local targetRoot = targetCharacter and (targetCharacter.PrimaryPart or targetCharacter:FindFirstChild("HumanoidRootPart"))
+			local targetRoot = targetCharacter
+				and (
+					targetCharacter:FindFirstChild("Root")
+					or targetCharacter.PrimaryPart
+					or targetCharacter:FindFirstChild("HumanoidRootPart")
+				)
 			anchorPos = targetRoot and targetRoot.Position or nil
 		end
 		if typeof(anchorPos) ~= "Vector3" then
@@ -152,7 +162,7 @@ function CombatController:_onDamageDealt(data)
 		end
 
 		if typeof(anchorPos) == "Vector3" then
-			local targetKey = data.targetUserId
+			local targetKey = targetUserId
 			if targetKey == nil then
 				targetKey = data.targetEntityKey
 			end
@@ -165,7 +175,7 @@ function CombatController:_onDamageDealt(data)
 				)
 			end
 
-			DamageNumbers:ShowForTarget(targetKey, anchorPos, data.damage, {
+			DamageNumbers:ShowForTarget(targetKey, anchorPos, tonumber(data.damage) or 0, {
 				isHeadshot = data.isHeadshot,
 				isCritical = data.isCritical,
 				targetUserId = targetKey,
@@ -173,12 +183,17 @@ function CombatController:_onDamageDealt(data)
 		end
 	end
 
-	if not data.isHeal and data.targetUserId == LocalPlayer.UserId then
+	if not data.isHeal and isSelfTarget then
 		local sourcePosition = data.sourcePosition
-		if not sourcePosition and data.attackerUserId then
-			local attacker = Players:GetPlayerByUserId(data.attackerUserId)
+		if not sourcePosition and attackerUserId then
+			local attacker = Players:GetPlayerByUserId(attackerUserId)
 			local attackerCharacter = attacker and attacker.Character
-			local attackerRoot = attackerCharacter and (attackerCharacter.PrimaryPart or attackerCharacter:FindFirstChild("HumanoidRootPart"))
+			local attackerRoot = attackerCharacter
+				and (
+					attackerCharacter:FindFirstChild("Root")
+					or attackerCharacter.PrimaryPart
+					or attackerCharacter:FindFirstChild("HumanoidRootPart")
+				)
 			sourcePosition = attackerRoot and attackerRoot.Position or nil
 		end
 

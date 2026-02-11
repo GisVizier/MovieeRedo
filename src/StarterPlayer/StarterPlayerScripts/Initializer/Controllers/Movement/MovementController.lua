@@ -1018,16 +1018,20 @@ function CharacterController:TryStepUp(deltaTime)
 	local feetBottomY = feet.Position.Y - (feetSize.Y * 0.5)
 
 	local midOrigin = Vector3.new(feet.Position.X, feetBottomY + 0.9, feet.Position.Z)
+	local castRadius = math.max(0.18, math.min(feetSize.X, feetSize.Z) * 0.35)
 
-	local hitLow = workspace:Raycast(midOrigin, forward * forwardDistance, self.RaycastParams)
+	-- Use spherecasts around the feet so we detect block edges more reliably than thin rays.
+	local hitLow = workspace:Spherecast(midOrigin, castRadius, forward * forwardDistance, self.RaycastParams)
 	if hitLow then
 		local highOrigin = Vector3.new(feet.Position.X, feetBottomY + stepHeight, feet.Position.Z)
-		local hitHigh = workspace:Raycast(highOrigin, forward * forwardDistance, self.RaycastParams)
+		local highCastRadius = math.max(0.1, castRadius * 0.6)
+		local hitHigh = workspace:Spherecast(highOrigin, highCastRadius, forward * forwardDistance, self.RaycastParams)
 		if not hitHigh then
 			local downOrigin = Vector3.new(feet.Position.X, feetBottomY + stepHeight + 0.5, feet.Position.Z)
 				+ (forward * forwardDistance)
 			local downDistance = stepHeight + 1
-			local hitDown = workspace:Raycast(downOrigin, Vector3.new(0, -downDistance, 0), self.RaycastParams)
+			local downCastRadius = math.max(0.1, castRadius * 0.75)
+			local hitDown = workspace:Spherecast(downOrigin, downCastRadius, Vector3.new(0, -downDistance, 0), self.RaycastParams)
 			if hitDown and hitDown.Normal.Y >= 0.6 then
 				local stepDelta = hitDown.Position.Y - feetBottomY
 				if stepDelta > 0.05 and stepDelta <= stepHeight then

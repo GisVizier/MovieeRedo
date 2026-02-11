@@ -391,8 +391,18 @@ if IsClient then
 		local cloneHRP = ragdollClone:FindFirstChild("HumanoidRootPart")
 		if cloneHRP and knockbackForce then
 			task.defer(function()
-				local force = typeof(knockbackForce) == "Vector3" and knockbackForce or cloneHRP.CFrame.LookVector * (knockbackForce or 0)
-				cloneHRP:ApplyImpulse(force)
+				local velocity = nil
+				if typeof(knockbackForce) == "Vector3" then
+					velocity = knockbackForce
+				else
+					velocity = cloneHRP.CFrame.LookVector * (tonumber(knockbackForce) or 0)
+				end
+
+				if typeof(velocity) == "Vector3" and velocity.Magnitude > 0.001 then
+					cloneHRP.AssemblyLinearVelocity = velocity
+					cloneHRP:ApplyImpulse(velocity * math.max(cloneHRP.AssemblyMass, 1))
+				end
+
 				cloneHRP.AssemblyAngularVelocity = Vector3.new(math.random() * 4 - 2, math.random() * 2 - 1, math.random() * 4 - 2)
 			end)
 		end

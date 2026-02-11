@@ -14,6 +14,25 @@ local function isPlayerInstance(entity)
 	return typeof(entity) == "Instance" and entity:IsA("Player")
 end
 
+local function resolveRootPosition(character)
+	if typeof(character) ~= "Instance" or not character:IsA("Model") then
+		return nil
+	end
+
+	local root = character:FindFirstChild("Root")
+		or character.PrimaryPart
+		or character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChild("Torso")
+		or character:FindFirstChildWhichIsA("BasePart", true)
+
+	return root and root.Position or nil
+end
+
+local function randomHorizontalDirection()
+	local angle = math.random() * math.pi * 2
+	return Vector3.new(math.cos(angle), 0, math.sin(angle))
+end
+
 local function resolveCharacter(entity, fallbackCharacter)
 	if typeof(fallbackCharacter) == "Instance" and fallbackCharacter:IsA("Model") then
 		return fallbackCharacter
@@ -68,23 +87,34 @@ function Ragdoll:Execute(victim: Player, killer: Player?, _weaponId: string?, _o
 	-- Build knockback direction
 	local ragdollOptions = {}
 	local sourcePosition = options.sourcePosition
-	local hitPosition = options.hitPosition
+	local hitPosition = options.hitPosition or resolveRootPosition(victimCharacter)
 
-	-- Prefer hit-detection positions from WeaponService over server character positions.
+	-- If we didn't get hit-detection positions, fall back to live character locations.
+	if typeof(sourcePosition) ~= "Vector3" and isPlayerInstance(killer) then
+		sourcePosition = resolveRootPosition(killer.Character)
+	end
+
+	local launchDirection = nil
 	if typeof(sourcePosition) == "Vector3" and typeof(hitPosition) == "Vector3" then
 		local delta = hitPosition - sourcePosition
 		if delta.Magnitude > 0.001 then
-			local direction = delta.Unit
-			ragdollOptions.Velocity = direction * 85 + Vector3.new(0, 45, 0)
+			launchDirection = delta.Unit
 		end
 	end
 
-	-- If no directional knockback from hit-detection,
-	-- apply a random horizontal force so the ragdoll doesn't just sit in place
-	if not ragdollOptions.Velocity then
-		local angle = math.random() * math.pi * 2
-		local horizontalForce = Vector3.new(math.cos(angle) * 55, 0, math.sin(angle) * 55)
-		ragdollOptions.Velocity = horizontalForce + Vector3.new(0, 45, 0)
+	local horizontalDirection = launchDirection
+		and Vector3.new(launchDirection.X, 0, launchDirection.Z)
+		or Vector3.zero
+
+	-- If no valid horizontal direction, apply a random push so ragdolls still fling on death.
+	if horizontalDirection.Magnitude <= 0.001 then
+		horizontalDirection = randomHorizontalDirection()
+	end
+
+	ragdollOptions.Velocity = horizontalDirection.Unit * 95 + Vector3.new(0, 45, 0)
+
+	if ragdollOptions.Velocity.Magnitude > 170 then
+		ragdollOptions.Velocity = ragdollOptions.Velocity.Unit * 170
 	end
 
 	-- Real players use the existing player ragdoll path.

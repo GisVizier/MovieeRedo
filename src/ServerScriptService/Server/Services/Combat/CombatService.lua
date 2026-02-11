@@ -822,9 +822,9 @@ function CombatService:_broadcastDamage(
 	local character = target.Character
 	local targetPivotPosition = nil
 	if character then
-		local root = character.PrimaryPart
+		local root = character:FindFirstChild("Root")
+			or character.PrimaryPart
 			or character:FindFirstChild("HumanoidRootPart")
-			or character:FindFirstChild("Root")
 			or character:FindFirstChildWhichIsA("BasePart", true)
 		targetPivotPosition = root and root.Position or nil
 	end
@@ -840,7 +840,9 @@ function CombatService:_broadcastDamage(
 	local sourcePosition = options.sourcePosition
 	if not sourcePosition and options.source and options.source.Character then
 		local sourceCharacter = options.source.Character
-		local sourceRoot = sourceCharacter.PrimaryPart or sourceCharacter:FindFirstChild("HumanoidRootPart")
+		local sourceRoot = sourceCharacter:FindFirstChild("Root")
+			or sourceCharacter.PrimaryPart
+			or sourceCharacter:FindFirstChild("HumanoidRootPart")
 		if sourceRoot then
 			sourcePosition = sourceRoot.Position
 		end
@@ -877,9 +879,9 @@ function CombatService:_broadcastHeal(target: Player, amount: number, options: {
 	local character = target.Character
 	local position = nil
 	if character then
-		local root = character.PrimaryPart
+		local root = character:FindFirstChild("Root")
+			or character.PrimaryPart
 			or character:FindFirstChild("HumanoidRootPart")
-			or character:FindFirstChild("Root")
 			or character:FindFirstChildWhichIsA("BasePart", true)
 		position = root and root.Position or nil
 	end

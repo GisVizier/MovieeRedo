@@ -432,6 +432,30 @@ local function setRedCrouchGate()
 	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", true)
 end
 
+local function getBlueDurabilitySnapshot(character: Model?, humanoid: Humanoid?): number?
+	local health = LocalPlayer:GetAttribute("Health")
+	local shield = LocalPlayer:GetAttribute("Shield")
+	local overshield = LocalPlayer:GetAttribute("Overshield")
+
+	if type(health) == "number" and type(shield) == "number" and type(overshield) == "number" then
+		return health + shield + overshield
+	end
+
+	if type(health) == "number" then
+		return health
+	end
+
+	local resolvedHumanoid = humanoid
+	if not resolvedHumanoid and character then
+		resolvedHumanoid = character:FindFirstChildWhichIsA("Humanoid")
+	end
+	if resolvedHumanoid then
+		return resolvedHumanoid.Health
+	end
+
+	return nil
+end
+
 local function endBlue(state)
 	if not state then return end
 	state.hitboxActive = false
@@ -1603,19 +1627,44 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 
 			-- Cancel Blue instantly if we take damage
 			local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+			local function onDurabilityChanged(newDurability)
+				if type(newDurability) ~= "number" then
+					return
+				end
+
+				if state.cancelled or state.isCrouching or not state.committed then
+					state.blueLastDurability = newDurability
+					return
+				end
+
+				local lastDurability = state.blueLastDurability or newDurability
+				if newDurability < lastDurability then
+					cancelBlue("blue_cancel_damage")
+				end
+				state.blueLastDurability = newDurability
+			end
+
+			state.blueLastDurability = getBlueDurabilitySnapshot(character, humanoid) or 0
+			table.insert(state.connections, LocalPlayer:GetAttributeChangedSignal("Health"):Connect(function()
+				local snapshot = getBlueDurabilitySnapshot(character, humanoid)
+				onDurabilityChanged(snapshot)
+			end))
+			table.insert(state.connections, LocalPlayer:GetAttributeChangedSignal("Shield"):Connect(function()
+				local snapshot = getBlueDurabilitySnapshot(character, humanoid)
+				onDurabilityChanged(snapshot)
+			end))
+			table.insert(state.connections, LocalPlayer:GetAttributeChangedSignal("Overshield"):Connect(function()
+				local snapshot = getBlueDurabilitySnapshot(character, humanoid)
+				onDurabilityChanged(snapshot)
+			end))
+
+			-- Fallback for contexts that still use humanoid health directly.
 			if humanoid then
-				state.blueLastHealth = humanoid.Health
 				table.insert(state.connections, humanoid.HealthChanged:Connect(function(newHealth)
-					if state.cancelled or state.isCrouching or not state.committed then
-						state.blueLastHealth = newHealth
+					if type(LocalPlayer:GetAttribute("Health")) == "number" then
 						return
 					end
-
-					local lastHealth = state.blueLastHealth or newHealth
-					if newHealth < lastHealth then
-						cancelBlue("blue_cancel_damage")
-					end
-					state.blueLastHealth = newHealth
+					onDurabilityChanged(newHealth)
 				end))
 			end
 
@@ -1731,6 +1780,15 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	-- Hard cancel - stops everything including hitbox/projectile
 	state.cancelled = true
 	state.active = false
+	LocalPlayer:SetAttribute(`blue_projectile_activeCFR`, nil)
+	local request = abilityRequest or state.abilityRequest
+	if request and request.Send then
+		request.Send({
+			action = "blueProjectileUpdate",
+			debris = true,
+			allowMultiple = true,
+		})
+	end
 	endBlue(state)
 	endRed(state)
 	HonoredOne._abilityState = nil
