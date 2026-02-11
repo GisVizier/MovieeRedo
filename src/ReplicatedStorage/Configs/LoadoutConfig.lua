@@ -82,9 +82,9 @@ LoadoutConfig.Weapons = {
 		projectileSpeed = nil,
 		bulletDrop = false,
 		spread = 0.04,
-		minRange = 60,
+		minRange = 40,
 		maxRange = 500,
-		minDamage = 25,
+		minDamage = 20,
 		tracerColor = Color3.fromRGB(255, 200, 100),
 
 		recoil = {
@@ -170,9 +170,9 @@ LoadoutConfig.Weapons = {
 		headshotMultiplier = 1.5,
 		range = 250,
 		fireRate = 75, -- Rounds per minute
-		minRange = 10,
+		minRange = 5,
 		maxRange = 200,
-		minDamage = 3,
+		minDamage = 2,
 		tracerColor = Color3.fromRGB(255, 150, 50),
 
 		recoil = {
@@ -234,9 +234,9 @@ LoadoutConfig.Weapons = {
 			pelletDamage = 15,
 
 			-- Damage falloff (per pellet)
-			minRange = 10,
+			minRange = 5,
 			maxRange = 200,
-			minDamage = 3,
+			minDamage = 2,
 
 			-- Behaviors
 			pierce = 0,
@@ -294,9 +294,9 @@ LoadoutConfig.Weapons = {
 		projectileSpeed = nil, -- Hitscan
 		bulletDrop = false,
 		spread = 0.02,
-		minRange = 30,
+		minRange = 15,
 		maxRange = 250,
-		minDamage = 8,
+		minDamage = 5,
 		tracerColor = Color3.fromRGB(255, 230, 150),
 
 		recoil = {
@@ -393,9 +393,9 @@ LoadoutConfig.Weapons = {
 		headshotMultiplier = 2.0,
 		range = 200,
 		fireRate = 90,
-		minRange = 15,
+		minRange = 8,
 		maxRange = 150,
-		minDamage = 15,
+		minDamage = 12,
 		tracerColor = Color3.fromRGB(255, 100, 50),
 
 		recoil = {
@@ -419,13 +419,13 @@ LoadoutConfig.Weapons = {
 			inheritVelocity = 0,
 
 			spreadMode = "Cone",
-			baseSpread = 0.002,
-			crosshairSpreadScale = 0.002,
-			movementSpreadMult = 1.1,
-			hipfireSpreadMult = 1.2,
-			airSpreadMult = 1.3,
-			crouchSpreadMult = 0.9,
-			slideSpreadMult = 1.1,
+			baseSpread = 0,
+			crosshairSpreadScale = 0,
+			movementSpreadMult = 1.05,
+			hipfireSpreadMult = 1.05,
+			airSpreadMult = 1.1,
+			crouchSpreadMult = 0.95,
+			slideSpreadMult = 1.05,
 
 			pelletsPerShot = 1,
 
@@ -443,9 +443,9 @@ LoadoutConfig.Weapons = {
 			tracerLength = 4,
 			trailEnabled = true,
 
-			minRange = 15,
+			minRange = 8,
 			maxRange = 150,
-			minDamage = 15,
+			minDamage = 12,
 		},
 
 		-- Aim Assist settings (revolver: precise secondary with smooth pull)

@@ -51,6 +51,7 @@ function MatchService:ClearPlayerState(player)
 	self._loadouts[userId] = nil
 	self._pendingTrainingEntry[userId] = nil
 	player:SetAttribute("CurrentArea", nil)
+	player:SetAttribute("SelectedLoadout", nil)
 end
 
 function MatchService:Start() end
