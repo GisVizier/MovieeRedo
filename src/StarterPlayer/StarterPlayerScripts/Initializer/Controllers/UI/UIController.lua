@@ -549,6 +549,14 @@ function UIController:_onTrainingLoadoutConfirmed(data)
 		cameraController:SetCameraMode("FirstPerson")
 	end
 
+	-- Reset crosshair so it matches the newly selected loadout
+	task.delay(0.2, function()
+		local weaponController = self._registry and self._registry:TryGet("Weapon")
+		if weaponController and type(weaponController.RefreshCrosshair) == "function" then
+			weaponController:RefreshCrosshair()
+		end
+	end)
+
 	self._pendingTrainingAreaId = nil
 end
 
