@@ -23,15 +23,57 @@ local KillEffects = require(ReplicatedStorage.Combat:WaitForChild("KillEffects")
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 
 local CombatService = {}
+local DEBUG_LOGGING = false
 
 CombatService._registry = nil
 CombatService._net = nil
 CombatService._playerResources = {} -- [Player] = CombatResource
 CombatService._statusEffects = {} -- [Player] = StatusEffectManager
 CombatService._assistTracking = {} -- [Player] = { [attackerUserId] = lastDamageTime }
+CombatService._deathHandled = {} -- [Player|PseudoPlayer] = boolean
 
 local ASSIST_WINDOW = 10 -- Seconds to qualify for assist
 local DEATH_RAGDOLL_DURATION = CombatConfig.Death.RagdollDuration or 3
+
+local function isRealPlayer(entity)
+	return typeof(entity) == "Instance" and entity:IsA("Player")
+end
+
+local function resolveVictimCharacter(entity)
+	if isRealPlayer(entity) then
+		return entity.Character
+	end
+
+	if typeof(entity) == "Instance" and entity:IsA("Model") then
+		return entity
+	end
+
+	if type(entity) == "table" then
+		local character = rawget(entity, "Character")
+		if typeof(character) == "Instance" and character:IsA("Model") then
+			return character
+		end
+	end
+
+	return nil
+end
+
+local function safeAddUltimate(resource, amount, context)
+	if not resource then
+		return false
+	end
+
+	local ok, err = pcall(function()
+		resource:AddUltimate(amount)
+	end)
+
+	if not ok then
+		warn(string.format("[CombatService] Failed to add ultimate (%s): %s", tostring(context), tostring(err)))
+		return false
+	end
+
+	return true
+end
 
 function CombatService:Init(registry, net)
 	self._registry = registry
@@ -90,7 +132,9 @@ function CombatService:InitializePlayer(
 
 	-- Debug: Log registration
 	local charName = player.Character and player.Character.Name or "no character"
-	print(string.format("[CombatService] InitializePlayer: Registered '%s' (Character: %s)", player.Name, charName))
+	if DEBUG_LOGGING then
+		print(string.format("[CombatService] InitializePlayer: Registered '%s' (Character: %s)", player.Name, charName))
+	end
 
 	-- Create status effect manager
 	local effectManager = StatusEffectManager.new(player, resource)
@@ -101,8 +145,10 @@ function CombatService:InitializePlayer(
 
 	-- Connect death event
 	resource.OnDeath:connect(function(killer, weaponId)
-		self:_handleDeath(player, killer, weaponId)
+		self:_handleDeath(player, killer, weaponId, nil)
 	end)
+
+	self._deathHandled[player] = false
 
 	-- Sync initial state to client
 	self:_syncCombatState(player)
@@ -126,6 +172,7 @@ function CombatService:_cleanupPlayer(player: Player)
 	end
 
 	self._assistTracking[player] = nil
+	self._deathHandled[player] = nil
 end
 
 --[[
@@ -170,27 +217,11 @@ function CombatService:GetPlayerByCharacter(character)
 	end
 
 	-- Check all registered players/pseudo-players
-	local count = 0
 	for player, _ in self._playerResources do
-		count = count + 1
 		local playerChar = player.Character
 		if playerChar == character then
-			print(string.format("[CombatService] GetPlayerByCharacter: Found '%s' for character '%s'", 
-				player.Name, character.Name))
 			return player
 		end
-	end
-
-	-- Debug: print registered characters if not found
-	print(string.format("[CombatService] GetPlayerByCharacter: Looking for '%s' (%s), checked %d registered players, not found",
-		character.Name, tostring(character), count))
-	
-	-- List all registered characters for debugging
-	print("[CombatService] Registered characters:")
-	for player, _ in self._playerResources do
-		local charName = player.Character and player.Character.Name or "nil"
-		local charRef = player.Character and tostring(player.Character) or "nil"
-		print(string.format("  - %s: Character=%s (%s)", player.Name, charName, charRef))
 	end
 
 	return nil
@@ -228,6 +259,10 @@ function CombatService:ApplyDamage(
 		return nil
 	end
 
+	if self._deathHandled[targetPlayer] then
+		self._deathHandled[targetPlayer] = false
+	end
+
 	-- Apply damage through resource
 	local result = resource:TakeDamage(damage, options)
 
@@ -251,22 +286,36 @@ function CombatService:ApplyDamage(
 		local attackerResource = self._playerResources[options.source]
 		if attackerResource then
 			local ultGain = result.healthDamage * CombatConfig.UltGain.DamageDealt
-			attackerResource:AddUltimate(ultGain)
-			self:_syncCombatState(options.source)
+			if safeAddUltimate(attackerResource, ultGain, "damage_dealt") then
+				self:_syncCombatState(options.source)
+			end
 		end
 	end
 
-	-- Grant ultimate to victim for damage taken
-	if result.healthDamage > 0 then
+	-- Grant ultimate to victim for damage taken (skip killing blow to avoid cleanup races)
+	if result.healthDamage > 0 and not result.killed then
 		local ultGain = result.healthDamage * CombatConfig.UltGain.DamageTaken
-		resource:AddUltimate(ultGain)
+		-- Re-read in case the original resource got cleaned up by death handlers.
+		local victimResource = self._playerResources[targetPlayer]
+		if victimResource then
+			safeAddUltimate(victimResource, ultGain, "damage_taken")
+		end
 	end
 
 	-- Sync state to client
 	self:_syncCombatState(targetPlayer)
 
 	-- Broadcast damage for client combat UI
-	self:_broadcastDamage(targetPlayer, damage, options)
+	local dealtDamage = (result.healthDamage or 0) + (result.shieldDamage or 0) + (result.overshieldDamage or 0)
+	self:_broadcastDamage(targetPlayer, dealtDamage, options)
+
+	-- Handle death synchronously to avoid races with async OnDeath listeners.
+	if result.killed then
+		self:_handleDeath(targetPlayer, options.source, options.weaponId, {
+			sourcePosition = options.sourcePosition,
+			hitPosition = options.hitPosition,
+		})
+	end
 
 	return result
 end
@@ -309,6 +358,7 @@ function CombatService:Kill(player: Player, killer: Player?, killEffect: string?
 	end
 
 	resource:Kill(killer, killEffect)
+	self:_handleDeath(player, killer, killEffect, nil)
 end
 
 -- =============================================================================
@@ -470,13 +520,20 @@ end
 -- INTERNAL - DEATH HANDLING
 -- =============================================================================
 
-function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: string?)
+function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
+	if self._deathHandled[victim] then
+		return
+	end
+	self._deathHandled[victim] = true
+	deathContext = deathContext or {}
+
 	-- Grant ult to killer
 	if killer and killer ~= victim then
 		local killerResource = self._playerResources[killer]
 		if killerResource then
-			killerResource:AddUltimate(CombatConfig.UltGain.Kill)
-			self:_syncCombatState(killer)
+			if safeAddUltimate(killerResource, CombatConfig.UltGain.Kill, "kill_bonus") then
+				self:_syncCombatState(killer)
+			end
 		end
 	end
 
@@ -485,15 +542,29 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 	for _, assister in ipairs(assists) do
 		local assisterResource = self._playerResources[assister]
 		if assisterResource then
-			assisterResource:AddUltimate(CombatConfig.UltGain.Assist)
-			self:_syncCombatState(assister)
+			if safeAddUltimate(assisterResource, CombatConfig.UltGain.Assist, "assist_bonus") then
+				self:_syncCombatState(assister)
+			end
 		end
 	end
 
 	local effectId = self:_getKillEffect(killer, weaponId)
-	if typeof(victim) == "Instance" and victim:IsA("Player") then
-		KillEffects:Execute(effectId, victim, killer, weaponId)
+	local victimIsRealPlayer = isRealPlayer(victim)
+	local victimCharacter = resolveVictimCharacter(victim)
+	if not victimIsRealPlayer then
+		print(string.format(
+			"[CombatService] Executing kill effect '%s' for non-player victim %s (character=%s)",
+			tostring(effectId),
+			tostring(victim and victim.Name),
+			tostring(victimCharacter and victimCharacter:GetFullName() or "nil")
+		))
 	end
+	KillEffects:Execute(effectId, victim, killer, weaponId, {
+		victimCharacter = victimCharacter,
+		victimIsPlayer = victimIsRealPlayer,
+		sourcePosition = deathContext.sourcePosition,
+		hitPosition = deathContext.hitPosition,
+	})
 
 	-- Clear status effects
 	local effectManager = self._statusEffects[victim]
@@ -515,7 +586,7 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 	end
 
 	-- Notify MatchManager for scoring/round reset (only for real players)
-	if typeof(victim) == "Instance" and victim:IsA("Player") then
+	if victimIsRealPlayer then
 		local matchManager = self._registry:TryGet("MatchManager")
 		if matchManager then
 			matchManager:OnPlayerKilled(killer, victim)
@@ -526,7 +597,7 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 
 	-- Server-controlled respawn after ragdoll plays out (only for real players)
 	local characterService = self._registry:TryGet("CharacterService")
-	if typeof(victim) == "Instance" and victim:IsA("Player") and characterService then
+	if victimIsRealPlayer and characterService then
 		local roundService = self._registry:TryGet("Round")
 		local matchManager = self._registry:TryGet("MatchManager")
 
@@ -599,6 +670,7 @@ function CombatService:_handleDeath(victim: Player, killer: Player?, weaponId: s
 				local resource = self._playerResources[victim]
 				if resource then
 					resource:Revive()
+					self._deathHandled[victim] = false
 					self:_syncCombatState(victim)
 				end
 

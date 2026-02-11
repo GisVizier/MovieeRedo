@@ -638,6 +638,20 @@ end
 	Handle hitting a target (player or rig/dummy)
 ]]
 function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hitCharacter, isHeadshot)
+	-- Normalize nested rig hits to canonical character model (e.g. Dummy/Rig -> Dummy)
+	if hitCharacter and hitCharacter:IsA("Model") then
+		local parentModel = hitCharacter.Parent
+		if
+			hitCharacter.Name == "Rig"
+			and parentModel
+			and parentModel:IsA("Model")
+			and parentModel:FindFirstChild("Root")
+			and parentModel:FindFirstChild("Collider")
+		then
+			hitCharacter = parentModel
+		end
+	end
+
 	-- Use userId for players, fullName for rigs
 	local targetId = hitPlayer and hitPlayer.UserId or hitCharacter:GetFullName()
 
@@ -984,17 +998,30 @@ function WeaponProjectile:_getPlayerFromHit(hitInstance)
 					return nil, nil, false
 				end
 
-				-- It's a rig/dummy - return nil player but valid character
+				-- It's a rig/dummy - normalize to the outer character model when possible.
+				-- This prevents targeting nested appearance rigs (e.g. Dummy/Rig).
+				local resolvedCharacter = current
+				local parentModel = current.Parent
+				if
+					current.Name == "Rig"
+					and parentModel
+					and parentModel:IsA("Model")
+					and parentModel:FindFirstChild("Root")
+					and parentModel:FindFirstChild("Collider")
+				then
+					resolvedCharacter = parentModel
+				end
+
 				if CONFIG.DebugLogging then
 					print(
 						string.format(
 							"[WeaponProjectile] _getPlayerFromHit: Found dummy/rig '%s' (Humanoid at %s)",
-							current.Name,
+							resolvedCharacter.Name,
 							humanoid:GetFullName()
 						)
 					)
 				end
-				return nil, current, isHeadshot
+				return nil, resolvedCharacter, isHeadshot
 			end
 		end
 		current = current.Parent

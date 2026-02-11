@@ -10,6 +10,7 @@ local GadgetBase = require(script.Parent:WaitForChild("GadgetBase"))
 
 local TrainingRange = setmetatable({}, { __index = GadgetBase })
 TrainingRange.__index = TrainingRange
+local DEBUG_LOGGING = false
 
 local DEFAULT_COUNT = 4
 local MIN_COUNT = 1
@@ -199,34 +200,46 @@ function TrainingRange:onUseRequest(player, payload)
 	print("[TrainingRange] Payload:", payload)
 	
 	if typeof(payload) ~= "table" then
-		print("[TrainingRange] REJECTED: payload is not a table")
+		if DEBUG_LOGGING then
+			print("[TrainingRange] REJECTED: payload is not a table")
+		end
 		return { approved = false }
 	end
 
 	if not self._ownerUserId then
 		self._ownerUserId = player.UserId
-		print("[TrainingRange] Set owner to:", player.Name, player.UserId)
+		if DEBUG_LOGGING then
+			print("[TrainingRange] Set owner to:", player.Name, player.UserId)
+		end
 	end
 
 	if self._ownerUserId ~= player.UserId then
-		print("[TrainingRange] REJECTED: wrong owner (expected:", self._ownerUserId, "got:", player.UserId, ")")
+		if DEBUG_LOGGING then
+			print("[TrainingRange] REJECTED: wrong owner (expected:", self._ownerUserId, "got:", player.UserId, ")")
+		end
 		return { approved = false }
 	end
 
 	local registry = self.context and self.context.registry
 	local practiceService = registry and registry:TryGet("PracticeDummyService")
 	if not practiceService then
-		print("[TrainingRange] REJECTED: PracticeDummyService not found in registry")
-		print("[TrainingRange]   registry:", registry)
-		print("[TrainingRange]   context:", self.context)
+		if DEBUG_LOGGING then
+			print("[TrainingRange] REJECTED: PracticeDummyService not found in registry")
+			print("[TrainingRange]   registry:", registry)
+			print("[TrainingRange]   context:", self.context)
+		end
 		return { approved = false }
 	end
 
 	local action = payload.action
-	print("[TrainingRange] Action:", action)
+	if DEBUG_LOGGING then
+		print("[TrainingRange] Action:", action)
+	end
 	
 	if action == "stop" then
-		print("[TrainingRange] Calling practiceService:Stop()")
+		if DEBUG_LOGGING then
+			print("[TrainingRange] Calling practiceService:Stop()")
+		end
 		practiceService:Stop()
 		self._ownerUserId = nil
 		return { approved = true }
@@ -236,7 +249,9 @@ function TrainingRange:onUseRequest(player, payload)
 	count = math.clamp(count, MIN_COUNT, MAX_COUNT)
 	local moveEnabled = payload.move == true
 	
-	print("[TrainingRange] Calling practiceService:Reset(", count, ",", moveEnabled, ")")
+	if DEBUG_LOGGING then
+		print("[TrainingRange] Calling practiceService:Reset(", count, ",", moveEnabled, ")")
+	end
 	practiceService:Reset(count, moveEnabled)
 
 	return { approved = true }

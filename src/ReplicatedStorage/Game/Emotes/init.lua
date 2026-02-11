@@ -71,6 +71,16 @@ local function getEmoteData(emoteClass: { [string]: any }): { [string]: any }
 	}
 end
 
+local function setupAutoStopIfNeeded(emote, loopable, hasMainTrack)
+	if not emote or loopable == true or not hasMainTrack then
+		return
+	end
+
+	if type(emote.SetupAutoStop) == "function" then
+		emote:SetupAutoStop("Main")
+	end
+end
+
 -- Initialize the emote service
 function EmoteService.init()
 	if EmoteService._initialized then
@@ -234,12 +244,15 @@ function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 	end
 
 	-- Play animation using the emote's helper (respects looping)
+	local hasMainTrack = false
 	if emoteClass.Animations and emoteClass.Animations.Main then
 		local track = emote:PlayAnimation("Main")
 		if track then
 			track.Looped = loopable
+			hasMainTrack = true
 		end
 	end
+	setupAutoStopIfNeeded(emote, loopable, hasMainTrack)
 
 	-- Store emote for cleanup
 	EmoteService._activeByPlayer[playerId] = emote
@@ -321,12 +334,15 @@ function EmoteService._playForRig(rig: Model, emoteId: string)
 	end
 
 	-- Play animation using the emote's helper (respects looping)
+	local hasMainTrack = false
 	if emoteClass.Animations and emoteClass.Animations.Main then
 		local track = emote:PlayAnimation("Main")
 		if track then
 			track.Looped = loopable
+			hasMainTrack = true
 		end
 	end
+	setupAutoStopIfNeeded(emote, loopable, hasMainTrack)
 
 	-- Store emote for cleanup (keyed by rig instance)
 	EmoteService._activeByRig[rig] = EmoteService._activeByRig[rig] or {}
@@ -498,15 +514,19 @@ function EmoteService.play(emoteId: string): boolean
 
 	-- Check if animation was already played by start(), if not play it now
 	local existingTrack = emote:GetTrack("Main")
+	local hasMainTrack = false
 	if not existingTrack and emoteClass.Animations and emoteClass.Animations.Main then
 		local track = emote:PlayAnimation("Main")
 		if track then
 			track.Looped = loopable
+			hasMainTrack = true
 		end
 	elseif existingTrack then
 		-- Ensure looping is set correctly even if start() played it
 		existingTrack.Looped = loopable
+		hasMainTrack = true
 	end
+	setupAutoStopIfNeeded(emote, loopable, hasMainTrack)
 
 	-- Setup finished callback
 	emote:onFinished(function()
@@ -729,9 +749,19 @@ function EmoteService.playOnRig(emoteId: string, rig: Model): boolean
 	emote:start()
 
 	-- Play animation if available
-	if emoteClass.Animations and emoteClass.Animations.Main then
-		emote:PlayAnimation("Main")
+	local loopable = emoteData.Loopable
+	if loopable == nil then
+		loopable = EmoteConfig.Defaults.Loopable
 	end
+	local hasMainTrack = false
+	if emoteClass.Animations and emoteClass.Animations.Main then
+		local track = emote:PlayAnimation("Main")
+		if track then
+			track.Looped = loopable
+			hasMainTrack = true
+		end
+	end
+	setupAutoStopIfNeeded(emote, loopable, hasMainTrack)
 
 	-- Store emote instance (not just track)
 	if not EmoteService._activeByRig[rig] then

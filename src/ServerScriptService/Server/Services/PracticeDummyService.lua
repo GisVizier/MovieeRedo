@@ -10,6 +10,7 @@ local Net = require(Locations.Shared.Net.Net)
 
 local PracticeDummyService = {}
 PracticeDummyService.__index = PracticeDummyService
+local DEBUG_LOGGING = false
 
 local _initialized = false
 local _registry = nil
@@ -257,15 +258,50 @@ local function setupDummyPhysics(dummy)
 	return true
 end
 
+local function getCharacterWorldPosition(character)
+	if not character or not character:IsA("Model") then
+		return nil
+	end
+
+	local root = character.PrimaryPart
+		or character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChild("Root")
+		or character:FindFirstChildWhichIsA("BasePart", true)
+
+	if root then
+		return root.Position
+	end
+
+	local ok, pivot = pcall(function()
+		return character:GetPivot()
+	end)
+	if ok then
+		return pivot.Position
+	end
+
+	return nil
+end
+
 local function fireEmoteToNearbyPlayers(dummyPosition, emoteId, action, rig)
-	local replicateDistance = DummyConfig.SpawnEmote.ReplicateDistance or 150
-	for _, player in Players:GetPlayers() do
-		local char = player.Character
-		if char and char.PrimaryPart then
-			local distance = (char.PrimaryPart.Position - dummyPosition).Magnitude
-			if distance <= replicateDistance then
-				Net:FireClient("EmoteReplicate", player, 0, emoteId, action, rig)
-			end
+	local recipients = nil
+
+	local roundService = _registry and (_registry:TryGet("Round") or _registry:TryGet("RoundService"))
+	if roundService and type(roundService.GetTrainingPlayers) == "function" then
+		local ok, trainingPlayers = pcall(function()
+			return roundService:GetTrainingPlayers()
+		end)
+		if ok and type(trainingPlayers) == "table" and #trainingPlayers > 0 then
+			recipients = trainingPlayers
+		end
+	end
+
+	if not recipients then
+		recipients = Players:GetPlayers()
+	end
+
+	for _, player in recipients do
+		if player and player.Parent == Players then
+			Net:FireClient("EmoteReplicate", player, 0, emoteId, action, rig)
 		end
 	end
 end
@@ -306,8 +342,9 @@ local function playSpawnEmote(dummy)
 		dummyPosition = dummyPosition,
 	}
 
-	if isLoopable then
-		task.delay(DummyConfig.SpawnEmote.LoopDuration, function()
+	local stopDelay = tonumber(DummyConfig.SpawnEmote.LoopDuration) or 10
+	if stopDelay > 0 then
+		task.delay(stopDelay, function()
 			fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "stop", rig)
 		end)
 	end
@@ -524,14 +561,18 @@ function PracticeDummyService:Stop()
 end
 
 function PracticeDummyService:Reset(count, moveEnabled)
-	print("[PracticeDummyService] Reset called with count:", count, "moveEnabled:", moveEnabled)
-	
+	if DEBUG_LOGGING then
+		print("[PracticeDummyService] Reset called with count:", count, "moveEnabled:", moveEnabled)
+	end
+
 	self:Stop()
 	scanPracticeSpawns()
 
-	print("[PracticeDummyService] Found", #_spawnPositions, "spawn positions")
-	for i, pos in ipairs(_spawnPositions) do
-		print("[PracticeDummyService]   Spawn", i, ":", pos.name)
+	if DEBUG_LOGGING then
+		print("[PracticeDummyService] Found", #_spawnPositions, "spawn positions")
+		for i, pos in ipairs(_spawnPositions) do
+			print("[PracticeDummyService]   Spawn", i, ":", pos.name)
+		end
 	end
 
 	local maxCount = #_spawnPositions
@@ -542,14 +583,20 @@ function PracticeDummyService:Reset(count, moveEnabled)
 		spawnCount = 0
 	end
 
-	print("[PracticeDummyService] Will spawn", spawnCount, "dummies (max available:", maxCount, ")")
+	if DEBUG_LOGGING then
+		print("[PracticeDummyService] Will spawn", spawnCount, "dummies (max available:", maxCount, ")")
+	end
 
 	for i = 1, spawnCount do
 		local dummy = spawnDummyAt(i)
 		if dummy then
-			print("[PracticeDummyService] Spawned dummy", i, ":", dummy.Name)
+			if DEBUG_LOGGING then
+				print("[PracticeDummyService] Spawned dummy", i, ":", dummy.Name)
+			end
 		else
-			print("[PracticeDummyService] FAILED to spawn dummy", i)
+			if DEBUG_LOGGING then
+				print("[PracticeDummyService] FAILED to spawn dummy", i)
+			end
 		end
 	end
 

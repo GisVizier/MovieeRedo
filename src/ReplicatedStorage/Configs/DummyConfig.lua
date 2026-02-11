@@ -22,7 +22,7 @@ DummyConfig.RespawnDelay = 3  -- Seconds after death before respawn
 -- Spawn emote settings
 DummyConfig.SpawnEmote = {
 	Enabled = true,
-	LoopDuration = 30,  -- Stop looped emotes after this many seconds
+	LoopDuration = 10,  -- Stop dummy spawn emotes after this many seconds
 	ReplicateDistance = 150,  -- Only send emote to players within this distance (studs)
 }
 

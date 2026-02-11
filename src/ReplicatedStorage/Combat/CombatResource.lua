@@ -12,6 +12,18 @@ local CombatConfig = require(script.Parent:WaitForChild("CombatConfig"))
 local CombatResource = {}
 CombatResource.__index = CombatResource
 
+local function fireSignal(signal, ...)
+	if signal and type(signal.fire) == "function" then
+		signal:fire(...)
+	end
+end
+
+local function destroySignal(signal)
+	if signal and type(signal.destroy) == "function" then
+		signal:destroy()
+	end
+end
+
 --[[
 	Creates a new CombatResource for a player
 	@param player Player - The player this resource belongs to
@@ -113,12 +125,12 @@ function CombatResource:SetHealth(value: number)
 	
 	if self._health ~= oldHealth then
 		self._player:SetAttribute("Health", self._health)
-		self.OnHealthChanged:fire(self._health, oldHealth, nil)
+		fireSignal(self.OnHealthChanged, self._health, oldHealth, nil)
 	end
 	
 	if self._health <= 0 and not self._isDead then
 		self._isDead = true
-		self.OnDeath:fire(nil, nil)
+		fireSignal(self.OnDeath, nil, nil)
 	end
 end
 
@@ -128,7 +140,7 @@ function CombatResource:SetMaxHealth(value: number)
 	
 	if self._maxHealth ~= oldMax then
 		self._player:SetAttribute("MaxHealth", self._maxHealth)
-		self.OnMaxHealthChanged:fire(self._maxHealth, oldMax)
+		fireSignal(self.OnMaxHealthChanged, self._maxHealth, oldMax)
 	end
 	
 	-- Clamp current health to new max
@@ -153,8 +165,8 @@ function CombatResource:Heal(amount: number, options: {source: Player?, healType
 	if actualHeal > 0 then
 		self._health = newHealth
 		self._player:SetAttribute("Health", self._health)
-		self.OnHealthChanged:fire(self._health, oldHealth, options and options.source)
-		self.OnHealed:fire(actualHeal, options and options.source)
+		fireSignal(self.OnHealthChanged, self._health, oldHealth, options and options.source)
+		fireSignal(self.OnHealed, actualHeal, options and options.source)
 	end
 	
 	return actualHeal
@@ -209,7 +221,7 @@ function CombatResource:TakeDamage(amount: number, options: {
 		self._overshield = self._overshield - overshieldDamage
 		remainingDamage = remainingDamage - overshieldDamage
 		self._player:SetAttribute("Overshield", self._overshield)
-		self.OnOvershieldChanged:fire(self._overshield, self._overshield + overshieldDamage)
+		fireSignal(self.OnOvershieldChanged, self._overshield, self._overshield + overshieldDamage)
 	end
 	
 	-- 2. Shield absorbs next (if enabled)
@@ -218,7 +230,7 @@ function CombatResource:TakeDamage(amount: number, options: {
 		self._shield = self._shield - shieldDamage
 		remainingDamage = remainingDamage - shieldDamage
 		self._player:SetAttribute("Shield", self._shield)
-		self.OnShieldChanged:fire(self._shield, self._shield + shieldDamage)
+		fireSignal(self.OnShieldChanged, self._shield, self._shield + shieldDamage)
 	end
 	
 	-- 3. Health takes remaining
@@ -227,7 +239,7 @@ function CombatResource:TakeDamage(amount: number, options: {
 		healthDamage = math.min(self._health, remainingDamage)
 		self._health = self._health - healthDamage
 		self._player:SetAttribute("Health", self._health)
-		self.OnHealthChanged:fire(self._health, oldHealth, options.source)
+		fireSignal(self.OnHealthChanged, self._health, oldHealth, options.source)
 	end
 	
 	-- Track damage time for shield regen
@@ -236,7 +248,7 @@ function CombatResource:TakeDamage(amount: number, options: {
 	-- Fire damaged event
 	local totalDamage = overshieldDamage + shieldDamage + healthDamage
 	if totalDamage > 0 then
-		self.OnDamaged:fire(totalDamage, options.source, {
+		fireSignal(self.OnDamaged, totalDamage, options.source, {
 			isHeadshot = options.isHeadshot,
 			weaponId = options.weaponId,
 			damageType = options.damageType,
@@ -248,7 +260,7 @@ function CombatResource:TakeDamage(amount: number, options: {
 	if self._health <= 0 and not self._isDead then
 		self._isDead = true
 		killed = true
-		self.OnDeath:fire(options.source, options.weaponId)
+		fireSignal(self.OnDeath, options.source, options.weaponId)
 	end
 	
 	return {
@@ -272,8 +284,8 @@ function CombatResource:Kill(killer: Player?, killEffect: string?)
 	self._health = 0
 	self._isDead = true
 	self._player:SetAttribute("Health", 0)
-	self.OnHealthChanged:fire(0, oldHealth, killer)
-	self.OnDeath:fire(killer, killEffect)
+	fireSignal(self.OnHealthChanged, 0, oldHealth, killer)
+	fireSignal(self.OnDeath, killer, killEffect)
 end
 
 function CombatResource:IsAlive(): boolean
@@ -294,7 +306,7 @@ function CombatResource:Revive(health: number?)
 	self._isDead = false
 	self._health = health or self._maxHealth
 	self._player:SetAttribute("Health", self._health)
-	self.OnHealthChanged:fire(self._health, 0, nil)
+	fireSignal(self.OnHealthChanged, self._health, 0, nil)
 end
 
 -- =============================================================================
@@ -315,7 +327,7 @@ function CombatResource:SetShield(value: number)
 	
 	if self._shield ~= oldShield then
 		self._player:SetAttribute("Shield", self._shield)
-		self.OnShieldChanged:fire(self._shield, oldShield)
+		fireSignal(self.OnShieldChanged, self._shield, oldShield)
 	end
 end
 
@@ -338,7 +350,7 @@ function CombatResource:AddOvershield(amount: number)
 	
 	if self._overshield ~= oldOvershield then
 		self._player:SetAttribute("Overshield", self._overshield)
-		self.OnOvershieldChanged:fire(self._overshield, oldOvershield)
+		fireSignal(self.OnOvershieldChanged, self._overshield, oldOvershield)
 	end
 end
 
@@ -381,11 +393,11 @@ function CombatResource:SetUltimate(value: number)
 	
 	if self._ultimate ~= oldUlt then
 		self._player:SetAttribute("Ultimate", self._ultimate)
-		self.OnUltimateChanged:fire(self._ultimate, oldUlt)
+		fireSignal(self.OnUltimateChanged, self._ultimate, oldUlt)
 		
 		-- Fire full event if just became full
 		if self._ultimate >= self._maxUltimate and not wasFull then
-			self.OnUltimateFull:fire()
+			fireSignal(self.OnUltimateFull)
 		end
 	end
 end
@@ -416,8 +428,8 @@ function CombatResource:SpendUltimate(amount: number): boolean
 	local oldUlt = self._ultimate
 	self._ultimate = self._ultimate - amount
 	self._player:SetAttribute("Ultimate", self._ultimate)
-	self.OnUltimateChanged:fire(self._ultimate, oldUlt)
-	self.OnUltimateSpent:fire(amount)
+	fireSignal(self.OnUltimateChanged, self._ultimate, oldUlt)
+	fireSignal(self.OnUltimateSpent, amount)
 	
 	return true
 end
@@ -446,7 +458,7 @@ function CombatResource:GrantIFrames(duration: number)
 	
 	if not self._isInvulnerable then
 		self._isInvulnerable = true
-		self.OnInvulnerabilityChanged:fire(true)
+		fireSignal(self.OnInvulnerabilityChanged, true)
 	end
 end
 
@@ -463,7 +475,7 @@ function CombatResource:SetInvulnerable(invulnerable: boolean)
 		self._iFrameEndTime = 0
 	end
 	
-	self.OnInvulnerabilityChanged:fire(self._isInvulnerable)
+	fireSignal(self.OnInvulnerabilityChanged, self._isInvulnerable)
 end
 
 function CombatResource:IsInvulnerable(): boolean
@@ -472,7 +484,7 @@ function CombatResource:IsInvulnerable(): boolean
 		if self._isInvulnerable then
 			self._isInvulnerable = false
 			self._iFrameEndTime = 0
-			self.OnInvulnerabilityChanged:fire(false)
+			fireSignal(self.OnInvulnerabilityChanged, false)
 		end
 	end
 	
@@ -527,17 +539,17 @@ end
 	Destroys the combat resource and cleans up events
 ]]
 function CombatResource:Destroy()
-	self.OnHealthChanged:destroy()
-	self.OnMaxHealthChanged:destroy()
-	self.OnShieldChanged:destroy()
-	self.OnOvershieldChanged:destroy()
-	self.OnUltimateChanged:destroy()
-	self.OnUltimateFull:destroy()
-	self.OnUltimateSpent:destroy()
-	self.OnDamaged:destroy()
-	self.OnHealed:destroy()
-	self.OnDeath:destroy()
-	self.OnInvulnerabilityChanged:destroy()
+	destroySignal(self.OnHealthChanged)
+	destroySignal(self.OnMaxHealthChanged)
+	destroySignal(self.OnShieldChanged)
+	destroySignal(self.OnOvershieldChanged)
+	destroySignal(self.OnUltimateChanged)
+	destroySignal(self.OnUltimateFull)
+	destroySignal(self.OnUltimateSpent)
+	destroySignal(self.OnDamaged)
+	destroySignal(self.OnHealed)
+	destroySignal(self.OnDeath)
+	destroySignal(self.OnInvulnerabilityChanged)
 end
 
 return CombatResource

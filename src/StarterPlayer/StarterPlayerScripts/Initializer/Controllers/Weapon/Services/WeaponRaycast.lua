@@ -5,7 +5,7 @@ local WeaponRaycast = {}
 local TrainingRangeShot = nil
 
 -- Debug flag (set to true to see hit logs)
-local DEBUG_LOGGING = true
+local DEBUG_LOGGING = false
 
 -- =============================================================================
 -- HELPER FUNCTIONS

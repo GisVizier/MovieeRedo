@@ -82,6 +82,57 @@ local RAGDOLL_PHYSICS = {
 	HeadFriction = 0.3,
 }
 
+local function findRigHumanoidRootPart(rig)
+	if not rig then
+		return nil
+	end
+
+	local direct = rig:FindFirstChild("HumanoidRootPart")
+	if direct and direct:IsA("BasePart") then
+		return direct
+	end
+
+	local recursive = rig:FindFirstChild("HumanoidRootPart", true)
+	if recursive and recursive:IsA("BasePart") then
+		return recursive
+	end
+
+	return nil
+end
+
+local function isAccessoryOrToolDescendant(part, rig)
+	if not part or not rig then
+		return false
+	end
+
+	local node = part
+	while node and node ~= rig do
+		if node:IsA("Accessory") or node:IsA("Tool") then
+			return true
+		end
+		node = node.Parent
+	end
+
+	return false
+end
+
+local function shouldRagdollMotor(motor, rig)
+	if not motor:IsA("Motor6D") or not motor.Part0 or not motor.Part1 then
+		return false
+	end
+	if not motor.Part0:IsDescendantOf(rig) or not motor.Part1:IsDescendantOf(rig) then
+		return false
+	end
+	if motor.Part0.Name == "Handle" or motor.Part1.Name == "Handle" then
+		return false
+	end
+	if isAccessoryOrToolDescendant(motor.Part0, rig) or isAccessoryOrToolDescendant(motor.Part1, rig) then
+		return false
+	end
+
+	return true
+end
+
 --[[
 	Sets up collision groups for ragdolls (only runs once)
 ]]
@@ -153,9 +204,56 @@ function RagdollSystem:RagdollRig(rig, options)
 	local motorStates = {}
 	local constraints = {}
 	local characterState = nil
+	local humanoidState = nil
 	
 	-- Get the rig's HumanoidRootPart
-	local rigHRP = rig:FindFirstChild("HumanoidRootPart")
+	local rigHRP = findRigHumanoidRootPart(rig)
+	local rigHumanoid = rig:FindFirstChildOfClass("Humanoid") or rig:FindFirstChildWhichIsA("Humanoid", true)
+
+	-- Ragdoll body motors while excluding accessory/tool motors.
+	local ragdollMotors = {}
+	local ragdollPartSet = {}
+	for _, motor in ipairs(rig:GetDescendants()) do
+		if shouldRagdollMotor(motor, rig) then
+			table.insert(ragdollMotors, motor)
+			ragdollPartSet[motor.Part0] = true
+			ragdollPartSet[motor.Part1] = true
+		end
+	end
+
+	if rigHumanoid then
+		humanoidState = {
+			PlatformStand = rigHumanoid.PlatformStand,
+			AutoRotate = rigHumanoid.AutoRotate,
+			GettingUp = rigHumanoid:GetStateEnabled(Enum.HumanoidStateType.GettingUp),
+			Running = rigHumanoid:GetStateEnabled(Enum.HumanoidStateType.Running),
+		}
+
+		rigHumanoid.PlatformStand = true
+		rigHumanoid.AutoRotate = false
+		rigHumanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+		rigHumanoid:SetStateEnabled(Enum.HumanoidStateType.Running, false)
+		pcall(function()
+			rigHumanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end)
+	end
+	if #ragdollMotors == 0 then
+		for _, motor in ipairs(rig:GetDescendants()) do
+			if motor:IsA("Motor6D")
+				and motor.Part0
+				and motor.Part1
+				and motor.Part0:IsDescendantOf(rig)
+				and motor.Part1:IsDescendantOf(rig)
+			then
+				table.insert(ragdollMotors, motor)
+				ragdollPartSet[motor.Part0] = true
+				ragdollPartSet[motor.Part1] = true
+			end
+		end
+	end
+	if rigHRP then
+		ragdollPartSet[rigHRP] = true
+	end
 	
 	-- Handle character Root (anchor it, don't weld)
 	local character = options.Character
@@ -189,36 +287,43 @@ function RagdollSystem:RagdollRig(rig, options)
 		characterRoot.Anchored = true
 	end
 
-	-- Apply physics properties and unanchor all rig parts FIRST
+	-- Apply physics properties. Body parts get full ragdoll physics;
+	-- cosmetic parts stay non-collideable so attachments/accessories remain stable.
 	for _, part in ipairs(rig:GetDescendants()) do
 		if part:IsA("BasePart") then
-			part.CanCollide = true
+			local isBodyPart = ragdollPartSet[part] == true
+
 			part.CanQuery = false
 			part.CanTouch = false
-			part.Massless = false
 			part.Anchored = false
-			
-			-- Set collision group
-			pcall(function()
-				part.CollisionGroup = RAGDOLL_COLLISION_GROUP
-			end)
-			
-			-- Apply physical properties
-			local density = RAGDOLL_PHYSICS.Density
-			local friction = RAGDOLL_PHYSICS.Friction
-			
-			if part.Name == "Head" then
-				density = RAGDOLL_PHYSICS.HeadDensity
-				friction = RAGDOLL_PHYSICS.HeadFriction
+
+			if isBodyPart then
+				part.CanCollide = true
+				part.Massless = false
+
+				pcall(function()
+					part.CollisionGroup = RAGDOLL_COLLISION_GROUP
+				end)
+
+				local density = RAGDOLL_PHYSICS.Density
+				local friction = RAGDOLL_PHYSICS.Friction
+
+				if part.Name == "Head" then
+					density = RAGDOLL_PHYSICS.HeadDensity
+					friction = RAGDOLL_PHYSICS.HeadFriction
+				end
+
+				part.CustomPhysicalProperties = PhysicalProperties.new(
+					density,
+					friction,
+					RAGDOLL_PHYSICS.Elasticity,
+					RAGDOLL_PHYSICS.FrictionWeight,
+					RAGDOLL_PHYSICS.ElasticityWeight
+				)
+			else
+				part.CanCollide = false
+				part.Massless = true
 			end
-			
-			part.CustomPhysicalProperties = PhysicalProperties.new(
-				density,
-				friction,
-				RAGDOLL_PHYSICS.Elasticity,
-				RAGDOLL_PHYSICS.FrictionWeight,
-				RAGDOLL_PHYSICS.ElasticityWeight
-			)
 		end
 	end
 
@@ -226,62 +331,63 @@ function RagdollSystem:RagdollRig(rig, options)
 	if rigHRP then
 		if options.Velocity then
 			rigHRP.AssemblyLinearVelocity = options.Velocity
+			rigHRP:ApplyImpulse(options.Velocity * math.max(rigHRP.AssemblyMass, 1))
 		elseif options.FlingDirection then
 			local strength = options.FlingStrength or 50
 			local direction = options.FlingDirection
 			if typeof(direction) == "Vector3" and direction.Magnitude > 0 then
-				rigHRP.AssemblyLinearVelocity = direction.Unit * strength
+				local flingVelocity = direction.Unit * strength
+				rigHRP.AssemblyLinearVelocity = flingVelocity
+				rigHRP:ApplyImpulse(flingVelocity * math.max(rigHRP.AssemblyMass, 1))
 			end
 		end
 		
 		-- Add some tumble for natural ragdoll feel
 		if options.FlingDirection or options.Velocity then
 			rigHRP.AssemblyAngularVelocity = Vector3.new(
-				math.random() * 8 - 4,
-				math.random() * 4 - 2,
-				math.random() * 8 - 4
+				math.random() * 12 - 6,
+				math.random() * 6 - 3,
+				math.random() * 12 - 6
 			)
 		end
 	end
 
-	-- Convert all Motor6Ds to BallSocketConstraints
-	for _, motor in ipairs(rig:GetDescendants()) do
-		if motor:IsA("Motor6D") and motor.Part0 and motor.Part1 then
-			-- Save motor state for restoration
-			motorStates[motor] = {
-				Enabled = motor.Enabled,
-				C0 = motor.C0,
-				C1 = motor.C1,
-				Part0 = motor.Part0,
-			}
+	-- Convert body Motor6Ds to BallSocketConstraints
+	for _, motor in ipairs(ragdollMotors) do
+		-- Save motor state for restoration
+		motorStates[motor] = {
+			Enabled = motor.Enabled,
+			C0 = motor.C0,
+			C1 = motor.C1,
+			Part0 = motor.Part0,
+		}
 
-			-- Create attachments
-			local att0, att1 = createAttachments(motor.Part0, motor.Part1, motor)
-			
-			-- Create BallSocketConstraint with limits
-			local constraint = Instance.new("BallSocketConstraint")
-			constraint.Name = "Ragdoll_" .. motor.Name
-			constraint.Attachment0 = att0
-			constraint.Attachment1 = att1
-			
-			-- Apply joint limits
-			local limits = JOINT_LIMITS[motor.Name]
-			if limits then
-				constraint.LimitsEnabled = true
-				constraint.UpperAngle = limits.UpperAngle
-				constraint.TwistLimitsEnabled = true
-				constraint.TwistLowerAngle = limits.TwistLowerAngle
-				constraint.TwistUpperAngle = limits.TwistUpperAngle
-				constraint.MaxFrictionTorque = limits.MaxFrictionTorque or 0
-				constraint.Restitution = 0
-			end
-			
-			constraint.Parent = motor.Part0
-			constraints[motor] = { Constraint = constraint, Att0 = att0, Att1 = att1 }
-			
-			-- Disable the motor
-			motor.Enabled = false
+		-- Create attachments
+		local att0, att1 = createAttachments(motor.Part0, motor.Part1, motor)
+		
+		-- Create BallSocketConstraint with limits
+		local constraint = Instance.new("BallSocketConstraint")
+		constraint.Name = "Ragdoll_" .. motor.Name
+		constraint.Attachment0 = att0
+		constraint.Attachment1 = att1
+		
+		-- Apply joint limits
+		local limits = JOINT_LIMITS[motor.Name]
+		if limits then
+			constraint.LimitsEnabled = true
+			constraint.UpperAngle = limits.UpperAngle
+			constraint.TwistLimitsEnabled = true
+			constraint.TwistLowerAngle = limits.TwistLowerAngle
+			constraint.TwistUpperAngle = limits.TwistUpperAngle
+			constraint.MaxFrictionTorque = limits.MaxFrictionTorque or 0
+			constraint.Restitution = 0
 		end
+		
+		constraint.Parent = motor.Part0
+		constraints[motor] = { Constraint = constraint, Att0 = att0, Att1 = att1 }
+		
+		-- Disable the motor
+		motor.Enabled = false
 	end
 
 	-- Store state
@@ -291,6 +397,7 @@ function RagdollSystem:RagdollRig(rig, options)
 		MotorStates = motorStates,
 		Constraints = constraints,
 		CharacterState = characterState,
+		HumanoidState = humanoidState,
 		Character = character,
 	}
 
@@ -309,9 +416,11 @@ function RagdollSystem:UnragdollRig(rig)
 		return false
 	end
 
-	local rigHRP = rig:FindFirstChild("HumanoidRootPart")
+	local rigHRP = findRigHumanoidRootPart(rig)
+	local rigHumanoid = rig:FindFirstChildOfClass("Humanoid") or rig:FindFirstChildWhichIsA("Humanoid", true)
 	local character = state.Character
 	local characterState = state.CharacterState
+	local humanoidState = state.HumanoidState
 	
 	-- Get the rig's current position (where ragdoll ended up)
 	local finalRigCFrame = rigHRP and rigHRP.CFrame or nil
@@ -390,10 +499,20 @@ function RagdollSystem:UnragdollRig(rig)
 			end)
 			
 			-- Re-anchor HumanoidRootPart
-			if part.Name == "HumanoidRootPart" and part.Parent == rig then
+			if part.Name == "HumanoidRootPart" and part:IsDescendantOf(rig) then
 				part.Anchored = true
 			end
 		end
+	end
+
+	if rigHumanoid and humanoidState then
+		rigHumanoid.PlatformStand = humanoidState.PlatformStand
+		rigHumanoid.AutoRotate = humanoidState.AutoRotate
+		rigHumanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, humanoidState.GettingUp)
+		rigHumanoid:SetStateEnabled(Enum.HumanoidStateType.Running, humanoidState.Running)
+		pcall(function()
+			rigHumanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end)
 	end
 
 	-- Restart collision enforcement

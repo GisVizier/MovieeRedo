@@ -9,6 +9,7 @@ local CollectionService = game:GetService("CollectionService")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local RagdollModule = require(ReplicatedStorage:WaitForChild("Ragdoll"):WaitForChild("Ragdoll"))
+local RagdollSystem = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RagdollSystem"))
 
 CharacterService.ActiveCharacters = {}
 CharacterService.IsClientSetupComplete = {}
@@ -317,6 +318,113 @@ function CharacterService:Ragdoll(player, duration, options)
 		self._net:FireAllClients("RagdollStarted", player, {
 			Velocity = knockbackForce,
 		})
+	end
+
+	return true
+end
+
+function CharacterService:RagdollCharacter(character, duration, options)
+	options = options or {}
+
+	if typeof(character) ~= "Instance" or not character:IsA("Model") then
+		return false
+	end
+
+	local rig = character:FindFirstChild("Rig")
+	if not rig then
+		rig = character:FindFirstChild("Rig", true)
+	end
+	if not rig or not (rig:IsA("Model") or rig:IsA("Folder")) then
+		warn(string.format("[CharacterService] RagdollCharacter: rig container not found for %s", character:GetFullName()))
+		return false
+	end
+
+	if RagdollSystem:IsRagdolled(rig) then
+		return false
+	end
+
+	local characterRoot = character:FindFirstChild("Root")
+	if characterRoot then
+		characterRoot.CanCollide = false
+		characterRoot.CanQuery = false
+		characterRoot.CanTouch = false
+		for _, descendant in ipairs(characterRoot:GetDescendants()) do
+			if descendant:IsA("AlignOrientation") or descendant:IsA("VectorForce") then
+				descendant.Enabled = false
+			end
+		end
+	end
+
+	local rigRoot = rig:FindFirstChild("HumanoidRootPart", true)
+	if not rigRoot or not rigRoot:IsA("BasePart") then
+		warn(string.format("[CharacterService] RagdollCharacter: HumanoidRootPart missing in %s", rig:GetFullName()))
+		return false
+	end
+
+	if characterRoot then
+		-- Ensure the non-ragdoll body shell cannot pin the visual rig.
+		for _, descendant in ipairs(character:GetDescendants()) do
+			if descendant:IsA("BasePart") and not descendant:IsDescendantOf(rig) then
+				descendant.CanCollide = false
+				descendant.CanQuery = false
+				descendant.CanTouch = false
+				descendant.AssemblyLinearVelocity = Vector3.zero
+				descendant.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+
+		-- Break any direct joints that could keep rig bound to Root.
+		for _, descendant in ipairs(character:GetDescendants()) do
+			if descendant:IsA("WeldConstraint") then
+				if (descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
+					or (descendant.Part0 == rigRoot and descendant.Part1 == characterRoot)
+				then
+					descendant:Destroy()
+				end
+			elseif descendant:IsA("Motor6D") then
+				if (descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
+					or (descendant.Part0 == rigRoot and descendant.Part1 == characterRoot)
+				then
+					descendant:Destroy()
+				end
+			elseif descendant:IsA("Weld") then
+				if (descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
+					or (descendant.Part0 == rigRoot and descendant.Part1 == characterRoot)
+				then
+					descendant:Destroy()
+				end
+			end
+		end
+	end
+
+	local ragdollOptions = {}
+	for key, value in pairs(options) do
+		ragdollOptions[key] = value
+	end
+	ragdollOptions.Character = character
+
+	local started = RagdollSystem:RagdollRig(rig, ragdollOptions)
+	if not started then
+		warn(string.format("[CharacterService] RagdollCharacter: RagdollSystem failed to start for %s", rig:GetFullName()))
+		return false
+	end
+
+	character:SetAttribute("KillEffectRagdollActive", true)
+
+	if duration and duration > 0 then
+		task.delay(duration, function()
+			if not rig or not rig.Parent then
+				return
+			end
+
+			if RagdollSystem:IsRagdolled(rig) then
+				RagdollSystem:UnragdollRig(rig)
+			end
+
+			if character and character.Parent then
+				character:SetAttribute("KillEffectRagdollActive", false)
+			end
+		end)
 	end
 
 	return true

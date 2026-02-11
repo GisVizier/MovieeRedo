@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 local workspace = game:GetService("Workspace")
 
 -- Debug logging toggle
-local DEBUG_LOGGING = true
+local DEBUG_LOGGING = false
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
@@ -15,6 +15,8 @@ local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 -- Projectile system modules
 local ProjectileAPI = require(script.Parent.Parent.Combat.ProjectileAPI)
 local ProjectilePacketUtils = require(Locations.Shared.Util:WaitForChild("ProjectilePacketUtils"))
+
+local normalizeCharacterModel
 
 -- Traverse up from a hit part to find the character model (has Humanoid)
 local function getCharacterFromPart(part)
@@ -45,7 +47,7 @@ local function getCharacterFromPart(part)
 						)
 					)
 				end
-				return current
+				return normalizeCharacterModel(current)
 			end
 		end
 		current = current.Parent
@@ -61,6 +63,40 @@ local function getCharacterFromPart(part)
 		)
 	end
 	return nil
+end
+
+-- Normalize nested/cosmetic rig models to canonical character models.
+-- This keeps damage/state writes on the actual gameplay character.
+normalizeCharacterModel = function(character)
+	if not character or not character:IsA("Model") then
+		return character
+	end
+
+	-- Dummy structure: DummyModel/Rig -> use DummyModel.
+	local parentModel = character.Parent
+	if
+		character.Name == "Rig"
+		and parentModel
+		and parentModel:IsA("Model")
+		and parentModel:FindFirstChild("Root")
+		and parentModel:FindFirstChild("Collider")
+	then
+		return parentModel
+	end
+
+	-- Cosmetic player rig in workspace.Rigs -> resolve back to live player character.
+	local parent = character.Parent
+	if parent and parent:IsA("Folder") and parent.Name == "Rigs" then
+		local ownerUserId = character:GetAttribute("OwnerUserId")
+		if type(ownerUserId) == "number" then
+			local ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
+			if ownerPlayer and ownerPlayer.Character then
+				return ownerPlayer.Character
+			end
+		end
+	end
+
+	return character
 end
 
 function WeaponService:Init(registry, net)
@@ -521,6 +557,8 @@ function WeaponService:CalculateDamage(shotData, weaponConfig)
 end
 
 function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHeadshot, weaponId, damageSourcePosition, damageHitPosition)
+	character = normalizeCharacterModel(character)
+
 	if not character or not character.Parent then
 		if DEBUG_LOGGING then
 			print("[WeaponService] ApplyDamageToCharacter: character is nil or has no parent")
@@ -783,6 +821,7 @@ function WeaponService:OnProjectileHit(player, data)
 		end
 		hitCharacter = self:_findRigByName(data.rigName, hitData.hitPosition)
 		if hitCharacter then
+			hitCharacter = normalizeCharacterModel(hitCharacter)
 			if DEBUG_LOGGING then
 				print(
 					string.format(
@@ -865,29 +904,34 @@ function WeaponService:_findRigByName(rigName, hitPosition)
 	if hitPosition then
 		local closest = nil
 		local closestDist = 15 -- Max distance to consider (studs)
+		local closestMap = {}
 
 		-- Search all descendants with humanoids (use recursive search for nested Humanoids)
 		for _, descendant in ipairs(workspace:GetDescendants()) do
 			if descendant:IsA("Model") and descendant:FindFirstChildWhichIsA("Humanoid", true) then
-				-- Skip player characters
-				local isPlayerChar = false
-				for _, player in ipairs(Players:GetPlayers()) do
-					if player.Character == descendant then
-						isPlayerChar = true
-						break
+				local candidate = normalizeCharacterModel(descendant)
+				if candidate then
+					-- Skip player characters/cosmetic rigs owned by players
+					local isPlayerChar = false
+					for _, player in ipairs(Players:GetPlayers()) do
+						if player.Character == candidate then
+							isPlayerChar = true
+							break
+						end
 					end
-				end
 
-				if not isPlayerChar then
-					local hrp = descendant:FindFirstChild("HumanoidRootPart")
-						or descendant:FindFirstChild("Torso")
-						or descendant.PrimaryPart
+					if not isPlayerChar and not closestMap[candidate] then
+						closestMap[candidate] = true
+						local hrp = candidate:FindFirstChild("HumanoidRootPart")
+							or candidate:FindFirstChild("Torso")
+							or candidate.PrimaryPart
 
-					if hrp then
-						local dist = (hrp.Position - hitPosition).Magnitude
-						if dist < closestDist then
-							closest = descendant
-							closestDist = dist
+						if hrp then
+							local dist = (hrp.Position - hitPosition).Magnitude
+							if dist < closestDist then
+								closest = candidate
+								closestDist = dist
+							end
 						end
 					end
 				end
@@ -901,23 +945,28 @@ function WeaponService:_findRigByName(rigName, hitPosition)
 
 	-- Fallback: search by name
 	local candidates = {}
+	local candidateMap = {}
 
 	for _, descendant in ipairs(workspace:GetDescendants()) do
 		if descendant:IsA("Model") and descendant.Name == rigName then
 			-- Use recursive search for nested Humanoids (e.g., inside Rig subfolder)
 			local humanoid = descendant:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid then
-				-- Skip player characters
-				local isPlayerChar = false
-				for _, player in ipairs(Players:GetPlayers()) do
-					if player.Character == descendant then
-						isPlayerChar = true
-						break
+				local candidate = normalizeCharacterModel(descendant)
+				if candidate then
+					-- Skip player characters
+					local isPlayerChar = false
+					for _, player in ipairs(Players:GetPlayers()) do
+						if player.Character == candidate then
+							isPlayerChar = true
+							break
+						end
 					end
-				end
 
-				if not isPlayerChar then
-					table.insert(candidates, descendant)
+					if not isPlayerChar and not candidateMap[candidate] then
+						candidateMap[candidate] = true
+						table.insert(candidates, candidate)
+					end
 				end
 			end
 		end

@@ -2,11 +2,11 @@
 	Attack.lua (Shotgun)
 
 	Client-side attack checks + ammo consumption.
-	
+
 	Uses the PROJECTILE SYSTEM for pellet physics simulation.
 	Each pellet travels with visible speed and gravity drop.
 	Server validates each pellet hit independently.
-	
+
 	Flow:
 	1. Client fires -> spawns 8 pellets with cone spread
 	2. Each pellet simulates with physics (200 studs/sec, gravity drop)
@@ -74,24 +74,24 @@ function Attack.Execute(weaponInstance, currentTime)
 	-- Fire pellets using projectile system
 	local projectileConfig = config.projectile
 	local projectileService = getWeaponProjectile()
-	
+
 	if not projectileService then
 		warn("[Shotgun Attack] WeaponProjectile service not found")
 		return false, "ServiceNotFound"
 	end
-	
+
 	-- Initialize if needed
 	if not projectileService._initialized and weaponInstance.Net then
 		projectileService:Init(weaponInstance.Net)
 		projectileService._initialized = true
 	end
-	
+
 	-- Fire pellets (each pellet is a projectile)
 	local pelletsPerShot = (projectileConfig and projectileConfig.pelletsPerShot) or config.pelletsPerShot or 8
 	local projectileIds = projectileService:FirePellets(weaponInstance, {
 		pelletsPerShot = pelletsPerShot,
 	})
-	
+
 	if not projectileIds or #projectileIds == 0 then
 		warn("[Shotgun Attack] Failed to fire pellets")
 		return false, "FireFailed"
