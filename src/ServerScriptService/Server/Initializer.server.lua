@@ -115,3 +115,12 @@ do
 		end
 	end
 end
+
+-- Connect Hitbox utility to ReplicationService for server-side position lookups
+do
+	local Hitbox = require(Locations.Shared.Util.Hitbox)
+	local replicationService = registry:TryGet("ReplicationService")
+	if replicationService then
+		Hitbox.SetReplicationService(replicationService)
+	end
+end

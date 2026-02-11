@@ -38,15 +38,119 @@
         
         -- Instant box check returning characters (players AND dummies)
         local characters = Hitbox.GetCharactersInBox({...})
+        
+        -- SERVER-SIDE: Magnitude-based sphere check using ReplicationService positions
+        -- (Use this on server where Collider CanQuery may not be set)
+        Hitbox.SetReplicationService(replicationService) -- Call once in Initializer
+        local characters = Hitbox.GetCharactersInRadius(position, radius, excludePlayer?)
 ]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
+local CollectionService = game:GetService("CollectionService")
 
 local Hitbox = {}
 
 local CHECK_INTERVAL = 0.03 -- ~30hz
+
+----------------------------------------------------------------
+-- SERVER-SIDE REPLICATION SERVICE INTEGRATION
+----------------------------------------------------------------
+
+-- Server-side service reference (set via Hitbox.SetReplicationService)
+local _replicationService = nil
+
+--[[
+    Set ReplicationService for server-side position lookups.
+    Call this from server Initializer after services are loaded.
+]]
+function Hitbox.SetReplicationService(service)
+    _replicationService = service
+end
+
+--[[
+    Get player position using ReplicationService (server) or Root (fallback).
+]]
+local function getReplicatedPlayerPosition(player)
+    -- Try ReplicationService first (accurate client-replicated position)
+    if _replicationService and _replicationService.PlayerStates then
+        local state = _replicationService.PlayerStates[player]
+        if state and state.LastState and state.LastState.Position then
+            return state.LastState.Position
+        end
+    end
+    
+    -- Fallback to character Root
+    local character = player.Character
+    if character then
+        local root = character:FindFirstChild("Root") 
+            or character:FindFirstChild("HumanoidRootPart")
+            or character.PrimaryPart
+        if root then
+            return root.Position
+        end
+    end
+    
+    return nil
+end
+
+--[[
+    Server-friendly sphere check using magnitude (no CanQuery dependency).
+    Uses ReplicationService for accurate player positions.
+    
+    @param position Vector3 - Center of sphere
+    @param radius number - Radius of sphere
+    @param excludePlayer Player? - Player to exclude (typically caster)
+    @return {Model} - Array of character Models (players AND dummies)
+]]
+function Hitbox.GetCharactersInRadius(position: Vector3, radius: number, excludePlayer: Player?)
+    local found = {}
+    local seen = {}
+    
+    -- Check all players using replicated positions
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == excludePlayer then continue end
+        
+        local character = player.Character
+        if not character then continue end
+        
+        -- Check if character has a valid humanoid
+        local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
+        if not humanoid or humanoid.Health <= 0 then continue end
+        
+        local playerPos = getReplicatedPlayerPosition(player)
+        if not playerPos then continue end
+        
+        local dist = (playerPos - position).Magnitude
+        if dist <= radius then
+            if not seen[character] then
+                seen[character] = true
+                table.insert(found, character)
+            end
+        end
+    end
+    
+    -- Check dummies (tagged as AimAssistTarget, their Root.Position is accurate on server)
+    for _, dummy in ipairs(CollectionService:GetTagged("AimAssistTarget")) do
+        if not dummy:IsA("Model") then continue end
+        if seen[dummy] then continue end
+        
+        local humanoid = dummy:FindFirstChildWhichIsA("Humanoid", true)
+        if not humanoid or humanoid.Health <= 0 then continue end
+        
+        local root = dummy:FindFirstChild("Root") or dummy.PrimaryPart
+        if not root then continue end
+        
+        local dist = (root.Position - position).Magnitude
+        if dist <= radius then
+            seen[dummy] = true
+            table.insert(found, dummy)
+        end
+    end
+    
+    return found
+end
 
 ----------------------------------------------------------------
 -- INTERNAL HELPERS

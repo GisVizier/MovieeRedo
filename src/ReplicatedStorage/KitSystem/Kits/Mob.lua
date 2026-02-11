@@ -487,9 +487,8 @@ function Kit:_pushWall(direction)
 			local impactPivot = CFrame.lookAt(hitPosition, hitPosition + pieceDir)
 		
 			-- Use Hitbox utility to find ALL characters (players AND dummies)
-			local targets = Hitbox.GetCharactersInSphere(hitPosition, WALL_CONFIG.IMPACT_RADIUS, {
-				Exclude = character,  -- Exclude caster
-			})
+			-- GetCharactersInRadius uses ReplicationService for accurate server-side positions
+			local targets = Hitbox.GetCharactersInRadius(hitPosition, WALL_CONFIG.IMPACT_RADIUS, player)
 			
 			for _, targetChar in ipairs(targets) do
 				if hitTargets[targetChar] then continue end
@@ -712,3 +711,4 @@ function Kit:OnUltimate(inputState, clientData)
 end
 
 return Kit
+
