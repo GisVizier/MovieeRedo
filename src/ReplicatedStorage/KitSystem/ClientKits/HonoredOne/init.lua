@@ -1155,6 +1155,17 @@ local function runRedProjectile(state)
 			position = newPosition
 		end
 		velocity = newVelocity
+
+		local elapsed = os.clock()
+		if elapsed - lastRedDestructionTime >= RED_CONFIG.DESTRUCTION_INTERVAL then
+			lastRedDestructionTime = elapsed
+			abilityRequest.Send({
+				action = "redDestruction",
+				position = { X = position.X, Y = position.Y, Z = position.Z },
+				radius = RED_CONFIG.DESTRUCTION_RADIUS,
+				allowMultiple = true,
+			})
+		end
 		
 		-- Update visual
 		local redPivot = CFrame.lookAt(position, position + velocity.Unit)
