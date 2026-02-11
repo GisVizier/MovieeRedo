@@ -918,6 +918,12 @@ function WeaponProjectile:_createRaycastParams(projectile)
 		table.insert(filterList, voxelCache)
 	end
 
+	-- Exclude voxel destruction record clones (debris/pieces use CanQuery=false)
+	local destructionFolder = workspace:FindFirstChild("__Destruction")
+	if destructionFolder then
+		table.insert(filterList, destructionFolder)
+	end
+
 	params.FilterDescendantsInstances = filterList
 
 	return params

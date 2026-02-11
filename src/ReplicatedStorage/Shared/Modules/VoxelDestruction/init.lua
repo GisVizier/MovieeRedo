@@ -88,6 +88,7 @@ if Settings.PartCache then
 
 	local template = Instance.new("Part")
 	template.Anchored = true
+	template.CanQuery = false -- Voxel debris/pieces should not be hit by projectiles
 
 	Cache = PartCache.new(template, Settings.CachePrecreated, container)
 	Cache.ExpansionSize = Settings.CacheExtra
@@ -508,6 +509,7 @@ function Destroy(
 			clone:SetAttribute("__DestructionID", cloneID)
 			clone:AddTag(cloneID)
 			clone.Name = cloneID
+			clone.CanQuery = false -- Record destruction clones should not be hit by projectiles
 			Storage[id].CFrames[cloneID] = {}
 			Storage[id].Previous = cloneID
 			clone.Parent = workspace:FindFirstChild("__Destruction") or workspace:WaitForChild("__Destruction")
@@ -528,6 +530,7 @@ function Destroy(
 				clone:SetAttribute("__DestructionID", cloneID)
 				clone:AddTag(cloneID)
 				clone.Name = cloneID
+				clone.CanQuery = false -- Record destruction clones should not be hit by projectiles
 				Storage[id].CFrames[cloneID] = {}
 				Storage[id].Previous = cloneID
 				clone.Parent = workspace:FindFirstChild("__Destruction") or workspace:WaitForChild("__Destruction")
@@ -605,6 +608,7 @@ function Destroy(
 
 						Clone.wipeAttributes(piece)
 						piece:AddTag(Settings.Tag .. "Piece")
+						piece.CanQuery = false -- Voxel pieces should not be hit by projectiles
 
 						if game:GetService("RunService"):IsServer() and Settings.OnClient and Settings.OnServer then
 							local id = wall:GetAttribute("__VoxelDestructID" .. clientID)

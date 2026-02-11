@@ -223,6 +223,11 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	if voxelCache then
 		table.insert(filterList, voxelCache)
 	end
+	-- Exclude voxel destruction record clones
+	local destructionFolder = Workspace:FindFirstChild("__Destruction")
+	if destructionFolder then
+		table.insert(filterList, destructionFolder)
+	end
 	raycastParams.FilterDescendantsInstances = filterList
 
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
