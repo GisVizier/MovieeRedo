@@ -1114,9 +1114,9 @@ local function runRedProjectile(state)
 				local hitPart = hitResult.Instance
 				local isBreakable = false
 				if hitPart then
-					if hitPart:HasTag("Breakable") then
+					if hitPart:HasTag("Breakable") or hitPart:HasTag("BreakablePiece") or hitPart:HasTag("Debris") then
 						isBreakable = true
-					elseif hitPart:FindFirstAncestorOfClass("Model") and hitPart:FindFirstAncestorOfClass("Model"):HasTag("Breakable") then
+					elseif hitPart:FindFirstAncestorOfClass("Model") and (hitPart:FindFirstAncestorOfClass("Model"):HasTag("Breakable") or hitPart:FindFirstAncestorOfClass("Model"):HasTag("BreakablePiece")) then
 						isBreakable = true
 					end
 				end
@@ -1125,32 +1125,36 @@ local function runRedProjectile(state)
 					local hitPos = hitResult.Position
 					
 					-- Local destruction on pierce impact
-					task.spawn(function()
-						local hitbox = Instance.new("Part")
-						hitbox.Size = Vector3.new(RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2)
-						hitbox.Position = hitPos
-						hitbox.Shape = Enum.PartType.Ball
-						hitbox.Anchored = true
-						hitbox.CanCollide = false
-						hitbox.CanQuery = false
-						hitbox.Transparency = 1
-						hitbox.Parent = workspace
-						
-						VoxelDestruction.Destroy(
-							hitbox,
-							nil,
-							RED_CONFIG.DESTRUCTION_VOXEL_SIZE,
-							8, -- Higher debris count for impact
-							nil
-						)
-						
-						task.delay(1, function()
-							if hitbox and hitbox.Parent then
-								hitbox:Destroy()
-							end
+					-- Only spawn if it's a solid block (Breakable) to avoid spam on debris
+					if hitPart:HasTag("Breakable") then
+						task.spawn(function()
+							local hitbox = Instance.new("Part")
+							hitbox.Size = Vector3.new(RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2)
+							hitbox.Position = hitPos
+							hitbox.Shape = Enum.PartType.Ball
+							hitbox.Anchored = true
+							hitbox.CanCollide = false
+							hitbox.CanQuery = false
+							hitbox.Transparency = 1
+							hitbox.Parent = workspace
+							
+							VoxelDestruction.Destroy(
+								hitbox,
+								nil,
+								RED_CONFIG.DESTRUCTION_VOXEL_SIZE,
+								8, -- Higher debris count for impact
+								nil
+							)
+							
+							task.delay(1, function()
+								if hitbox and hitbox.Parent then
+									hitbox:Destroy()
+								end
+							end)
 						end)
-					end)
+					end
 
+					-- Send to server regardless (consistency)
 					abilityRequest.Send({
 						action = "redDestruction",
 						position = { X = hitPos.X, Y = hitPos.Y, Z = hitPos.Z },
