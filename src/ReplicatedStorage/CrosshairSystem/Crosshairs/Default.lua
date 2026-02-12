@@ -11,8 +11,10 @@ module.Config = {
 	verticalVelocityWeight = 0.035, -- Adds Y velocity influence into spread.
 	velocityMinSpread = 0,
 	velocityMaxSpread = 10,
+	adsVelocitySensitivityMult = 1.2,
 	
 	velocityRecoveryRate = 12,
+	adsVelocityRecoveryMult = 1.35,
 	movingBaseSpread = .85,
 	movingThreshold = 1,
 
@@ -47,6 +49,7 @@ module.Config = {
 
 	crouchGapMult = 0.5, -- Crouch pulls lines slightly inward.
 	adsGapMult = 0.3, -- ADS pulls lines inward more.
+	adsSpreadResponseMult = 1.12,
 }
 
 local function applyStrokeProps(instance, color, thickness, transparency)
@@ -197,14 +200,16 @@ function module:Update(dt, state)
 		if effectiveSpeed > self.Config.movingThreshold then
 			movingBase = self.Config.movingBaseSpread
 		end
+		local adsVelocitySensitivityMult = state.isADS and self.Config.adsVelocitySensitivityMult or 1
 		targetVelocitySpread = math.clamp(
-			movingBase + (effectiveSpeed * self.Config.velocitySensitivity),
+			movingBase + (effectiveSpeed * self.Config.velocitySensitivity * adsVelocitySensitivityMult),
 			self.Config.velocityMinSpread,
 			self.Config.velocityMaxSpread
 		)
 	end
 
-	local velocityAlpha = math.clamp(frameDt * self.Config.velocityRecoveryRate, 0, 1)
+	local adsVelocityRecoveryMult = state.isADS and self.Config.adsVelocityRecoveryMult or 1
+	local velocityAlpha = math.clamp(frameDt * self.Config.velocityRecoveryRate * adsVelocityRecoveryMult, 0, 1)
 	self._velocitySpread += (targetVelocitySpread - self._velocitySpread) * velocityAlpha
 
 	local crouchMult = positiveMultiplier(weaponData.crouchMult, self.Config.crouchMult)
@@ -248,7 +253,8 @@ function module:Update(dt, state)
 		0
 	)
 
-	local spreadAmount = (self._velocitySpread + self._currentRecoil) * spreadStateMult
+	local adsSpreadResponseMult = state.isADS and self.Config.adsSpreadResponseMult or 1
+	local spreadAmount = (self._velocitySpread + self._currentRecoil) * spreadStateMult * adsSpreadResponseMult
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 

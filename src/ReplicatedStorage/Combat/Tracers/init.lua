@@ -225,6 +225,29 @@ function Tracers:FindMuzzleAttachment(gunModel: Model?): Attachment?
 			return descendant
 		end
 	end
+
+	-- Fallback: accept muzzle/barrel parts and attach FX to a child attachment
+	for _, descendant in gunModel:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			local lowerName = string.lower(descendant.Name)
+			local isMuzzlePart = lowerName == "muzzle"
+				or lowerName == "barrel"
+				or lowerName == "firepoint"
+				or lowerName:find("muzzle")
+				or lowerName:find("barrel")
+			if isMuzzlePart then
+				local childAttachment = descendant:FindFirstChildWhichIsA("Attachment")
+				if childAttachment then
+					return childAttachment
+				end
+
+				local createdAttachment = Instance.new("Attachment")
+				createdAttachment.Name = "MuzzleAttachment"
+				createdAttachment.Parent = descendant
+				return createdAttachment
+			end
+		end
+	end
 	
 	return nil
 end

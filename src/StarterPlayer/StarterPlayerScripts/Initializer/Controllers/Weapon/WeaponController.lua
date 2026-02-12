@@ -186,6 +186,13 @@ function WeaponController:Start()
 	if crosshairConfig and crosshairConfig.DefaultCustomization then
 		self._crosshair:SetCustomization(crosshairConfig.DefaultCustomization)
 	end
+	if self._crosshair and type(self._crosshair.SetHideReticleInADS) == "function" then
+		local hideInADS = true
+		if crosshairConfig and crosshairConfig.HideInADS ~= nil then
+			hideInADS = crosshairConfig.HideInADS == true
+		end
+		self._crosshair:SetHideReticleInADS(hideInADS)
+	end
 
 	self:_connectInputs()
 	self:_connectSlotChanges()
@@ -402,6 +409,13 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 	local crosshairType = (weaponData and weaponData.type) or "Default"
 	UserInputService.MouseIconEnabled = false
 	self._crosshair:ApplyCrosshair(crosshairType, weaponData)
+	if type(self._crosshair.SetHideReticleInADS) == "function" then
+		local hideInADS = true
+		if crosshairConfig.HideInADS ~= nil then
+			hideInADS = crosshairConfig.HideInADS == true
+		end
+		self._crosshair:SetHideReticleInADS(hideInADS)
+	end
 	self._crosshairRotationTarget = self._crosshairSlidingRotation
 	self._crosshairRotation = self._crosshairRotationTarget
 	self._crosshair:SetRotation(self._crosshairRotation)
@@ -1089,6 +1103,7 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	
 	-- Render tracer immediately (client-side prediction)
 	if SHOW_TRACERS and hitData then
+		hitData._localShot = true
 		hitData.weaponId = weaponId
 		-- Populate gunModel from viewmodel rig so muzzle FX can find the attachment
 		if not hitData.gunModel then
@@ -1123,6 +1138,19 @@ function WeaponController:_onHitConfirmed(hitData)
 end
 
 function WeaponController:_renderBulletTracer(hitData)
+	if not hitData then
+		return
+	end
+
+	if not hitData.weaponId and self._equippedWeaponId then
+		hitData.weaponId = self._equippedWeaponId
+	end
+
+	if not hitData.gunModel and hitData._localShot == true and self._viewmodelController then
+		local rig = self._viewmodelController:GetActiveRig()
+		hitData.gunModel = rig and rig.Model or nil
+	end
+
 	if self._fx then
 		self._fx:RenderBulletTracer(hitData)
 	end

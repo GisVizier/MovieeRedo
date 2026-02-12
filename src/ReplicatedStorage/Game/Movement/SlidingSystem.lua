@@ -618,26 +618,6 @@ function SlidingSystem:UpdateSlide(deltaTime)
 			self.AirbornePeakY = math.max(self.AirbornePeakY, self.PrimaryPart.Position.Y)
 		end
 
-		if self.PrimaryPart and not self:CheckGroundedForSliding() then
-			local airborneTime = tick() - self.AirborneStartTime
-			local baseDownforce = Config.Gameplay.Character.AirborneSlideDownforce or 600
-			local floatDuration = Config.Gameplay.Sliding.FloatDuration or 0.7
-			local effectiveDownforce
-
-			if airborneTime < floatDuration then
-				local floatMultiplier = Config.Gameplay.Sliding.FloatGravityMultiplier or 0.3
-				effectiveDownforce = baseDownforce * floatMultiplier
-			else
-				local timeAfterFloat = airborneTime - floatDuration
-				local progressiveMultiplier = 2 + (timeAfterFloat * 8)
-				effectiveDownforce = baseDownforce * math.min(progressiveMultiplier, 10)
-			end
-
-			local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
-			local newYVelocity = currentVelocity.Y - (effectiveDownforce * deltaTime)
-			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, newYVelocity, currentVelocity.Z)
-		end
-
 		return
 	end
 

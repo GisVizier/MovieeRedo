@@ -199,6 +199,15 @@ function Kit:_destroyActiveWall(skipCooldown)
 	
 	-- Cancel grace timer
 	self:_cancelGraceThread()
+
+	-- Capture visual reference first; if missing, try deterministic fallback.
+	local wallVisual = self._activeWallVisual
+	if not wallVisual and player then
+		local effectsFolder = workspace:FindFirstChild("Effects")
+		if effectsFolder then
+			wallVisual = effectsFolder:FindFirstChild("MobWallVisual_" .. tostring(player.UserId))
+		end
+	end
 	
 	-- Disconnect visual connection
 	if self._visualDestroyConn then
@@ -208,6 +217,9 @@ function Kit:_destroyActiveWall(skipCooldown)
 	
 	if self._activeWall and self._activeWall.Parent then
 		self._activeWall:Destroy()
+	end
+	if wallVisual and wallVisual.Parent then
+		wallVisual:Destroy()
 	end
 	self._activeWall = nil
 	self._activeWallVisual = nil
@@ -270,6 +282,7 @@ function Kit:_spawnWall(pivot)
 	if wallModelTemplate then
 		wallVisual = wallModelTemplate:Clone()
 		wallVisual.Name = "MobWallVisual_" .. tostring(player.UserId)
+		wallVisual:SetAttribute("OwnerUserId", player.UserId)
 		
 		-- Position at pivot
 		if wallVisual.PrimaryPart or wallVisual:FindFirstChild("Root") then

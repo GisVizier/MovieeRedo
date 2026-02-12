@@ -66,10 +66,6 @@ function Attack.Execute(weaponInstance, currentTime)
 		if weaponInstance.PlayFireEffects then
 			weaponInstance.PlayFireEffects(hitData)
 		end
-
-		if weaponInstance.RenderTracer then
-			weaponInstance.RenderTracer(hitData)
-		end
 	end
 
 	return true

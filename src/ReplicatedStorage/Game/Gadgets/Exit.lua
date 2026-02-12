@@ -144,10 +144,27 @@ function Exit:onUseRequest(player, _payload)
 
 	-- Destroy Mob wall for player leaving training
 	do
+		local effectsFolder = workspace:FindFirstChild("Effects")
 		local walls = CollectionService:GetTagged("MobWall")
 		for _, wall in walls do
 			if wall:GetAttribute("OwnerUserId") == player.UserId then
+				if effectsFolder then
+					local visualId = wall:GetAttribute("VisualId")
+					if type(visualId) == "string" and visualId ~= "" then
+						local visual = effectsFolder:FindFirstChild(visualId)
+						if visual then
+							visual:Destroy()
+						end
+					end
+				end
 				wall:Destroy()
+			end
+		end
+		-- Fallback cleanup for any orphaned visual model.
+		if effectsFolder then
+			local orphanVisual = effectsFolder:FindFirstChild("MobWallVisual_" .. tostring(player.UserId))
+			if orphanVisual then
+				orphanVisual:Destroy()
 			end
 		end
 	end

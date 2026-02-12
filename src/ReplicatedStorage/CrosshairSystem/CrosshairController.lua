@@ -81,6 +81,9 @@ function CrosshairController.new(player: Player?)
 	self._hitmarkerStack = 0
 	self._moduleCache = {}
 	self._moduleCacheWarmed = false
+	self._hideReticleInADS = true
+	self._reticleHidden = false
+	self._reticleVisibilitySnapshot = {}
 
 	self:_bindCharacter()
 	self:_warmModuleCache()
@@ -301,6 +304,7 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 	self._weaponData = weaponData or CrosshairController.Mock.weaponData
 	self._customization = self._customization or CrosshairController.Mock.customization
 	self:_cacheHitmarker()
+	self:_setReticleHidden(false)
 	
 	if DEBUG_CROSSHAIR then
 		print("[Crosshair] WeaponData:", self._weaponData)
@@ -340,6 +344,8 @@ function CrosshairController:RemoveCrosshair()
 	self._hitmarkerHideSeq = 0
 	self._hitmarkerLastHitTime = 0
 	self._hitmarkerStack = 0
+	self._reticleHidden = false
+	self._reticleVisibilitySnapshot = {}
 
 	if self._updateConnection then
 		self._updateConnection:Disconnect()
@@ -353,6 +359,64 @@ function CrosshairController:RemoveCrosshair()
 
 	self._module = nil
 	self._weaponData = nil
+end
+
+function CrosshairController:_getReticleProtectedSet()
+	local protected = {}
+
+	if not self._hitmarker or not self._hitmarker.Parent then
+		return protected
+	end
+
+	protected[self._hitmarker] = true
+
+	for _, descendant in self._hitmarker:GetDescendants() do
+		protected[descendant] = true
+	end
+
+	local current = self._hitmarker.Parent
+	while current and current ~= self._frame do
+		protected[current] = true
+		current = current.Parent
+	end
+
+	return protected
+end
+
+function CrosshairController:_setReticleHidden(hidden: boolean)
+	hidden = hidden == true
+
+	if not self._frame then
+		self._reticleHidden = false
+		self._reticleVisibilitySnapshot = {}
+		return
+	end
+
+	if self._reticleHidden == hidden then
+		return
+	end
+
+	if hidden then
+		self._reticleVisibilitySnapshot = {}
+		local protected = self:_getReticleProtectedSet()
+		for _, descendant in self._frame:GetDescendants() do
+			if descendant:IsA("GuiObject") and not protected[descendant] then
+				self._reticleVisibilitySnapshot[descendant] = descendant.Visible
+				descendant.Visible = false
+			end
+		end
+		self._reticleHidden = true
+		return
+	end
+
+	for guiObject, wasVisible in pairs(self._reticleVisibilitySnapshot) do
+		if guiObject and guiObject.Parent and guiObject:IsA("GuiObject") then
+			guiObject.Visible = wasVisible
+		end
+	end
+
+	self._reticleVisibilitySnapshot = {}
+	self._reticleHidden = false
 end
 
 function CrosshairController:_startUpdateLoop()
@@ -494,6 +558,9 @@ function CrosshairController:_update(dt: number)
 		isADS = movementState.isADS,
 	}
 
+	local shouldHideReticle = self._hideReticleInADS and movementState.isADS == true
+	self:_setReticleHidden(shouldHideReticle)
+
 	self._module:Update(dt, state)
 end
 
@@ -509,6 +576,10 @@ function CrosshairController:SetCustomization(customizationData: any)
 	self._customization = customizationData or self._customization
 	if self._module and self._module.ApplyCustomization and self._customization then
 		self._module:ApplyCustomization(self._customization)
+		if self._reticleHidden then
+			self:_setReticleHidden(false)
+			self:_setReticleHidden(true)
+		end
 	end
 end
 
@@ -519,7 +590,22 @@ function CrosshairController:SetRotation(rotationDeg: number)
 	self._customization.rotation = rotationDeg or 0
 	if self._module and self._module.ApplyCustomization then
 		self._module:ApplyCustomization(self._customization)
+		if self._reticleHidden then
+			self:_setReticleHidden(false)
+			self:_setReticleHidden(true)
+		end
 	end
+end
+
+function CrosshairController:SetHideReticleInADS(enabled: boolean?)
+	self._hideReticleInADS = enabled ~= false
+	if not self._hideReticleInADS then
+		self:_setReticleHidden(false)
+	end
+end
+
+function CrosshairController:GetHideReticleInADS(): boolean
+	return self._hideReticleInADS == true
 end
 
 function CrosshairController:ShowHitmarker(isHeadshot: boolean?)

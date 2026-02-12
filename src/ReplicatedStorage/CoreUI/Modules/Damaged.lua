@@ -6,7 +6,7 @@ module.__index = module
 local HEALTH_FADE_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FLASH_OUT_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-local LOW_HEALTH_START = 60
+local LOW_HEALTH_START = 80
 local FLASH_SOFT_TRANSPARENCY = 0.55
 local FLASH_HARD_TRANSPARENCY = 0.3
 

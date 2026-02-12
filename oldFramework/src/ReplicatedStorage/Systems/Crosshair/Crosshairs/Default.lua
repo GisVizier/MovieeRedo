@@ -117,7 +117,7 @@ function module:ApplyCustomization(customization)
 end
 
 function module:Update(dt, state)
-	task.wait();
+	task.wait(); --heyy
 
 	local velocity = state.velocity or Vector3.zero
 	local speed = state.speed or velocity.Magnitude

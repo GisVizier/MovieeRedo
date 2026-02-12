@@ -88,6 +88,39 @@ CharacterController.JumpFatigueRecoveryStartTime = nil
 CharacterController.JumpFatigueFloorVelocity = 0
 CharacterController.JumpFatigueFloorUntil = 0
 
+function CharacterController:ResetRespawnLocalState()
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		localPlayer:SetAttribute("WeaponSpeedMultiplier", 1)
+		localPlayer:SetAttribute("ADSSpeedMultiplier", 1)
+		localPlayer:SetAttribute("EmoteSpeedMultiplier", 1)
+		localPlayer:SetAttribute("ExternalMoveMult", 1)
+	end
+
+	if self.InputManager then
+		self.InputManager:ResetInputState()
+		if self.InputManager.FireCallbacks then
+			self.InputManager:FireCallbacks("Special", false)
+		end
+	end
+
+	MovementStateManager:Reset()
+
+	local baseFOV = Config.Camera and Config.Camera.FOV and Config.Camera.FOV.Base or 80
+	if FOVController.SetBaseFOV then
+		FOVController:SetBaseFOV(baseFOV)
+	end
+	if FOVController.Reset then
+		FOVController:Reset()
+	end
+	if FOVController.ClearFOVOverride then
+		FOVController:ClearFOVOverride(0)
+	end
+	if FOVController.StartUpdateLoop then
+		FOVController:StartUpdateLoop()
+	end
+end
+
 function CharacterController:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -356,6 +389,7 @@ end
 function CharacterController:OnLocalCharacterRemoving()
 	self:StopUncrouchChecking()
 	SlidingSystem:Cleanup()
+	self:ResetRespawnLocalState()
 
 	if self.FallSound then
 		self.FallSound:Stop()
@@ -1515,6 +1549,7 @@ function CharacterController:UpdateFootsteps()
 	local feetPart = CharacterLocations:GetFeet(self.Character) or self.PrimaryPart
 	local pitch = 0.9 + math.random() * 0.2
 	self:PlayMovementSound(soundName, feetPart.Position, pitch)
+	VFXRep:Fire("Others", { Module = "Sound" }, { sound = soundName, pitch = pitch })
 end
 
 function CharacterController:UpdateMovementAudio()
@@ -2072,11 +2107,7 @@ function CharacterController:CheckDeath()
 			SlidingSystem:StopSlide(false, true, "Death")
 		end
 		SlidingSystem:Cleanup()
-		MovementStateManager:Reset()
-
-		if self.InputManager then
-			self.InputManager:ResetInputState()
-		end
+		self:ResetRespawnLocalState()
 
 		if self.VectorForce then
 			self.VectorForce.Force = Vector3.zero

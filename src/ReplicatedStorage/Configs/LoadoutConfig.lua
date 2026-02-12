@@ -633,6 +633,7 @@ LoadoutConfig.Weapons = {
 }
 
 LoadoutConfig.Crosshair = {
+	HideInADS = true,
 	DefaultCustomization = {
 		showDot = true,
 		showTopLine = true,
