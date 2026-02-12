@@ -120,11 +120,10 @@ function WeaponFX:RenderBulletTracer(hitData)
 	
 	-- Determine hit type (works for players and dummies)
 	local hitCharacter = findCharacterFromPart(hitData.hitPart)
-	
-	-- Call hit effects
-	if hitCharacter then
-		Tracers:HitPlayer(handle, hitData.hitPosition, hitData.hitPart, hitCharacter)
-	else
+
+	-- Call world hit effects only - player hit effects are triggered by
+	-- CombatController when damage is actually confirmed by the server
+	if not hitCharacter then
 		Tracers:HitWorld(handle, hitData.hitPosition, hitData.hitNormal or Vector3.yAxis, hitData.hitPart)
 	end
 	

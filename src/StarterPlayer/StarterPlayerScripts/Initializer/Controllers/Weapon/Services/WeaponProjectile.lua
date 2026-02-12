@@ -1181,12 +1181,10 @@ end
 	@param hitCharacter Model? - The character that was hit (if any)
 ]]
 function WeaponProjectile:_playImpactEffect(projectile, hitResult, isTarget, hitCharacter)
-	-- Use tracer system for impact effects
+	-- Use tracer system for world impact effects only
+	-- Player hit effects are triggered by CombatController when damage is confirmed by the server
 	if projectile.tracerHandle then
-		if isTarget and hitCharacter then
-			-- Hit player/dummy - call tracer HitPlayer
-			Tracers:HitPlayer(projectile.tracerHandle, hitResult.Position, hitResult.Instance, hitCharacter)
-		else
+		if not isTarget or not hitCharacter then
 			-- Hit world - call tracer HitWorld
 			Tracers:HitWorld(projectile.tracerHandle, hitResult.Position, hitResult.Normal, hitResult.Instance)
 		end

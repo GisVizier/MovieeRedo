@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local DamageNumbers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("DamageNumbers"))
+local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("Tracers"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local LocalPlayer = Players.LocalPlayer
@@ -229,6 +230,11 @@ function CombatController:_onDamageDealt(data)
 				targetUserId = targetKey,
 			})
 		end
+
+		-- Damage confirmed by server — run tracer HitPlayer effect on the target
+		if targetCharacter then
+			self:_runHitPlayerEffect(targetCharacter, hitPos)
+		end
 	end
 
 	if not data.isHeal and isSelfTarget then
@@ -282,6 +288,46 @@ function CombatController:_onPlayerKilled(data)
 		-- We died
 		self._lastHealth = nil
 	end
+end
+
+-- =============================================================================
+-- TRACER HIT PLAYER (damage-confirmed)
+-- =============================================================================
+
+--[[
+	Runs the tracer HitPlayer effect on a target character.
+	Uses the player's equipped tracer if available, otherwise falls back to Default.
+	@param targetCharacter Model - The character that was hit
+	@param hitPosition Vector3? - Where the hit landed
+]]
+function CombatController:_runHitPlayerEffect(targetCharacter, hitPosition)
+	if not Tracers._initialized then
+		Tracers:Init()
+	end
+
+	-- Resolve tracer: try to get from the weapon controller's current weapon
+	local tracerId = nil
+	local weaponController = ServiceRegistry:GetController("Weapon")
+	if weaponController then
+		local weaponFx = weaponController.GetFX and weaponController:GetFX()
+		if weaponFx then
+			local tracers = weaponFx:GetTracers()
+			if tracers then
+				-- Get weapon tracer from current weapon config
+				local weaponInstance = weaponController:GetWeaponInstance()
+				local weaponTracerId = weaponInstance and weaponInstance.State and weaponInstance.State.tracerId
+				tracerId = tracers:Resolve(weaponTracerId, nil)
+			end
+		end
+	end
+
+	-- Get the tracer module (falls back to Default if tracerId is nil or not found)
+	local tracerModule = Tracers:Get(tracerId)
+	if not tracerModule or not tracerModule.HitPlayer then
+		return
+	end
+
+	tracerModule:HitPlayer(hitPosition, nil, targetCharacter, nil, Tracers)
 end
 
 -- =============================================================================
