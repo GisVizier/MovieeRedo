@@ -709,8 +709,16 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 						spawnLookVector = spawnLookVector,
 					})
 				end
+
+				-- Full kit refresh: re-create kit, reset weapons/ammo
+				-- (training doesn't create a new character, so CharacterAdded won't fire)
+				local kitService = self._registry:TryGet("KitService")
+				if kitService and kitService.OnPlayerRespawn then
+					kitService:OnPlayerRespawn(victim)
+				end
 			else
 				-- Lobby/no match: spawn new character normally (resets to "Lobby")
+				-- (CharacterAdded in KitService will handle kit re-creation)
 				characterService:SpawnCharacter(victim)
 			end
 		end)

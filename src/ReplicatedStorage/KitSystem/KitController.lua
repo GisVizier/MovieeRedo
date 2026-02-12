@@ -186,20 +186,59 @@ function KitController:_interruptClientKit(reason: string)
 end
 
 --[[
-	Called when the local player dies. Force-interrupts all active kit abilities,
-	resets controller state, and ensures a clean slate for respawn.
+	Called when the local player dies. Performs a FULL client-side kit reset:
+	- Interrupts all active kit abilities (stops animations, VFX, sounds, loops)
+	- Destroys the client kit instance entirely
+	- Clears ALL kit-related player attributes (movement, VFX, ability state)
+	- Clears activeKitId so the kit is re-created fresh on "Respawned" state
+	- Resets all controller state for a completely clean slate on respawn
 ]]
 function KitController:_onLocalPlayerDied()
 	-- Interrupt any active client kit abilities (stops animations, VFX, sounds, loops)
 	self:_interruptClientKit("Death")
 
+	-- Destroy the client kit entirely (not just interrupt — full teardown)
+	if self._clientKit and self._clientKit.Destroy then
+		pcall(function()
+			self._clientKit:Destroy()
+		end)
+	end
+	self._clientKit = nil
+	self._clientKitId = nil
+
+	-- Clear activeKitId so the next _onKitState will force-reload the client kit
+	-- (even if equippedKitId hasn't changed, the kit needs to be re-created fresh)
+	self._activeKitId = nil
+
 	-- Force-reset controller state so nothing lingers into the next life
 	self._abilityActive = false
 	self._holsteredSlot = nil
 	self._weaponSwitchLocked = false
+
+	-- Clear ALL kit-related player attributes that could linger after death
+	-- (movement multipliers, crouch gates, VFX state, projectile state, etc.)
+	local player = self._player
+	if player then
+		-- Movement / input attributes
+		player:SetAttribute("ExternalMoveMult", 1)
+		player:SetAttribute("ForceUncrouch", nil)
+		player:SetAttribute("BlockCrouchWhileAbility", nil)
+
+		-- Projectile / VFX replication attributes
+		player:SetAttribute("blue_projectile_activeCFR", nil)
+		player:SetAttribute("red_charge", nil)
+		player:SetAttribute("red_projectile_activeCFR", nil)
+		player:SetAttribute("red_explosion_pivot", nil)
+		player:SetAttribute("cleanupblueFX", nil)
+	end
 end
 
 function KitController:_onAbilityInput(abilityType: string, inputState)
+	-- Don't allow abilities when dead
+	if (self._player:GetAttribute("Health") or 0) <= 0 then
+		return
+	end
+
 	-- Safety: if _abilityActive is stuck true but we're no longer on Fists,
 	-- a previous ability was interrupted without proper cleanup — reset the state.
 	if self._abilityActive then
@@ -484,6 +523,13 @@ end
 function KitController:_onKitState(state)
 	state.receivedAt = os.clock() -- Track when we received this state
 	self._state = state
+
+	-- During death reset, don't re-create the kit - the player is still ragdolled.
+	-- Just clear activeKitId so the kit gets re-created when "Respawned" arrives.
+	if state.lastAction == "DeathReset" then
+		self._activeKitId = nil
+		return
+	end
 
 	local kitId = state.equippedKitId
 	if kitId ~= self._activeKitId then

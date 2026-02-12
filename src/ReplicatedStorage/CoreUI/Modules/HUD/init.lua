@@ -131,6 +131,7 @@ function module.start(export, ui: UI)
 
 	self:_cacheWeaponUI()
 	self:_cacheMatchUI()
+	self:_cacheKillfeedUI()
 	self:_setupMatchListeners()
 
 	return self
@@ -198,6 +199,11 @@ function module:_setupMatchListeners()
 
 	self._export:on("ReturnToLobby", function()
 		self:_clearMatchTeams()
+		self:_clearKillfeedEntries()
+	end)
+
+	self._export:on("PlayerKilled", function(data)
+		self:_onPlayerKilled(data)
 	end)
 end
 
@@ -334,6 +340,150 @@ function module:_clearTeamSlots(slotCache)
 	for i = #slotCache, 1, -1 do
 		slotCache[i]:Destroy()
 		table.remove(slotCache, i)
+	end
+end
+
+-- =============================================================================
+-- KILLFEED
+-- =============================================================================
+
+local KILLFEED_ENTRY_DURATION = 5
+
+function module:_cacheKillfeedUI()
+	local screenGui = self._ui and self._ui.Parent
+	if not screenGui or not screenGui:IsA("ScreenGui") then
+		return
+	end
+
+	local killfeed = screenGui:FindFirstChild("Killfeed")
+	if not killfeed and self._playerSpace then
+		killfeed = self._playerSpace:FindFirstChild("Killfeed")
+	end
+	if not killfeed then
+		return
+	end
+
+	self._killfeedContainer = killfeed
+	self._killfeedContainer.Visible = true
+
+	self._killfeedTemplate = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Gui"):WaitForChild("KillfeedTemplate")
+	self._killfeedEntries = {}
+end
+
+function module:_onPlayerKilled(data)
+	if not data or not self._killfeedContainer or not self._killfeedTemplate then
+		return
+	end
+
+	local entry = self._killfeedTemplate:Clone()
+	entry.Name = "KillfeedEntry"
+	entry.Visible = true
+	entry.Parent = self._killfeedContainer
+
+	self._killfeedEntries = self._killfeedEntries or {}
+	table.insert(self._killfeedEntries, entry)
+
+	self:_populateKillEntry(entry, data)
+	self:_scheduleEntryHide(entry)
+end
+
+function module:_populateKillEntry(entry, data)
+	local killerUserId = data.killerUserId
+	local victimUserId = data.victimUserId
+	local weaponId = data.weaponId
+
+	local killer = killerUserId and Players:GetPlayerByUserId(killerUserId)
+	local killerName = killer and killer.Name or "Unknown"
+	local killerPremium = killer and killer.MembershipType == Enum.MembershipType.Premium
+
+	local victim = victimUserId and Players:GetPlayerByUserId(victimUserId)
+	local victimName = victim and victim.Name or "Unknown"
+	local victimPremium = victim and victim.MembershipType == Enum.MembershipType.Premium
+
+	local attacker = entry:FindFirstChild("Attacker", true)
+	if attacker then
+		self:_setKillfeedPlayerSection(attacker, killerUserId, killerName, killerPremium)
+	end
+
+	local attacked = entry:FindFirstChild("Attacked", true)
+	if attacked then
+		self:_setKillfeedPlayerSection(attacked, victimUserId, victimName, victimPremium)
+	end
+
+	local weaponFrame = entry:FindFirstChild("Weapon", true)
+	if weaponFrame then
+		local icon = weaponFrame:FindFirstChildWhichIsA("ImageLabel") or (weaponFrame:IsA("ImageLabel") and weaponFrame)
+		if icon and icon:IsA("ImageLabel") then
+			local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+			icon.Image = weaponConfig and weaponConfig.imageId or ""
+		end
+	end
+end
+
+function module:_setKillfeedPlayerSection(section, userId, name, isPremium)
+	local playerImage = section:FindFirstChild("PlayerImage", true)
+	if playerImage and playerImage:IsA("ImageLabel") and userId then
+		task.spawn(function()
+			local ok, thumb = pcall(function()
+				return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+			end)
+			if ok and thumb then
+				playerImage.Image = thumb
+			end
+		end)
+	end
+
+	local info = section:FindFirstChild("Info", true)
+	if not info then
+		local mainFrame = section:FindFirstChild("Frame")
+		info = mainFrame and mainFrame:FindFirstChild("Info")
+	end
+	if info then
+		local textLabel = info:FindFirstChild("Text")
+		if textLabel and textLabel:IsA("TextLabel") then
+			textLabel.Text = name
+		end
+
+		local premiumLabel = info:FindFirstChild("Premium")
+		if premiumLabel then
+			premiumLabel.Visible = isPremium
+		end
+	end
+end
+
+function module:_scheduleEntryHide(entry)
+	task.delay(KILLFEED_ENTRY_DURATION, function()
+		if not entry or not entry.Parent then
+			return
+		end
+		self:_hideKillfeedEntry(entry)
+	end)
+end
+
+function module:_clearKillfeedEntries()
+	if not self._killfeedEntries then
+		return
+	end
+	for i = #self._killfeedEntries, 1, -1 do
+		local entry = self._killfeedEntries[i]
+		if entry and entry.Parent then
+			entry:Destroy()
+		end
+		table.remove(self._killfeedEntries, i)
+	end
+end
+
+function module:_hideKillfeedEntry(entry)
+	if self._killfeedEntries then
+		for i, e in ipairs(self._killfeedEntries) do
+			if e == entry then
+				table.remove(self._killfeedEntries, i)
+				break
+			end
+		end
+	end
+	if entry and entry.Parent then
+		entry:Destroy()
 	end
 end
 
@@ -1619,6 +1769,10 @@ function module:show()
 	self:_setUltBar(ult, true)
 
 	self._ui.Visible = true
+
+	if self._killfeedContainer then
+		self._killfeedContainer.Visible = true
+	end
 
 	self:_setInitialState()
 	self:_animateShow()

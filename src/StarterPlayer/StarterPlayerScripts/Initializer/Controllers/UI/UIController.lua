@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ContentProvider = game:GetService("ContentProvider")
 local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
 
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local DialogueConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DialogueConfig"))
@@ -121,6 +122,12 @@ function UIController:Init(registry, net)
 		self:_onTrainingLoadoutConfirmed(data)
 	end)
 
+	self._net:ConnectClient("PlayerKilled", function(data)
+		if self._coreUi then
+			self._coreUi:emit("PlayerKilled", data)
+		end
+	end)
+
 	-- Listen for client-side trigger from AreaTeleport gadget
 	if player then
 		player:GetAttributeChangedSignal("_showTrainingLoadout"):Connect(function()
@@ -209,6 +216,8 @@ function UIController:_bootstrapUi()
 
 	-- Emote wheel input wiring
 	self:_setupEmoteWheelInput(ui)
+
+	-- Kill feed test: H key triggers test death; server sends PlayerKilled, so we don't emit here (avoids duplicate entries)
 
 	-- No UI shown on init - gameplay is enabled by default
 end

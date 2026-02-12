@@ -99,11 +99,11 @@ LoadoutConfig.Weapons = {
 			spreadY = 2.0,
 			recoilMultiplier = 4.0,
 			-- Sniper: tight when still, EXTREMELY punishing when moving
-			crouchMult = 0.15,     -- 85% reduction when crouching
-			sprintMult = 3.0,      -- 200% more spread when sprinting
-			airMult = 4.0,         -- 4x spread in air!
-			adsMult = 0.05,        -- 95% reduction when ADS (pinpoint)
-			baseGap = 10,          -- Base gap
+			crouchMult = 0.15, -- 85% reduction when crouching
+			sprintMult = 3.0, -- 200% more spread when sprinting
+			airMult = 4.0, -- 4x spread in air!
+			adsMult = 0.05, -- 95% reduction when ADS (pinpoint)
+			baseGap = 10, -- Base gap
 		},
 
 		-- Aim Assist settings (sniper: precise, narrow FOV, smooth pull)
@@ -111,18 +111,18 @@ LoadoutConfig.Weapons = {
 			enabled = true,
 			range = 500,
 			minRange = 10,
-			fov = 20,                  -- Narrow cone for precision
+			fov = 20, -- Narrow cone for precision
 			sortingBehavior = "angle",
-			friction = 0.3,            -- Moderate slowdown
-			tracking = 0.4,            -- Moderate tracking
-			centering = 0.7,           -- Strong magnetic pull
+			friction = 0.3, -- Moderate slowdown
+			tracking = 0.4, -- Moderate tracking
+			centering = 0.7, -- Strong magnetic pull
 			adsBoost = {
 				Friction = 1.6,
 				Tracking = 1.5,
-				Centering = 2.0,       -- Strong centering during scope
+				Centering = 2.0, -- Strong centering during scope
 			},
 			adsSnap = {
-				enabled = false,       -- DISABLED - no snap, smooth pull only
+				enabled = false, -- DISABLED - no snap, smooth pull only
 				strength = 0,
 				maxAngle = 0,
 			},
@@ -193,11 +193,11 @@ LoadoutConfig.Weapons = {
 			spreadY = 3.5,
 			recoilMultiplier = 3.0,
 			-- Shotgun: naturally wide, visible movement reactions
-			crouchMult = 0.5,      -- 50% reduction when crouching
-			sprintMult = 1.8,      -- 80% more spread when sprinting
-			airMult = 2.0,         -- 100% more spread in air
-			adsMult = 0.4,         -- 60% reduction when ADS
-			baseGap = 8,           -- Base gap for shotgun
+			crouchMult = 0.5, -- 50% reduction when crouching
+			sprintMult = 1.8, -- 80% more spread when sprinting
+			airMult = 2.0, -- 100% more spread in air
+			adsMult = 0.4, -- 60% reduction when ADS
+			baseGap = 8, -- Base gap for shotgun
 		},
 
 		-- Aim Assist settings (shotgun: close range, wide FOV, strong smooth pull)
@@ -205,18 +205,18 @@ LoadoutConfig.Weapons = {
 			enabled = true,
 			range = 100,
 			minRange = 2,
-			fov = 45,                  -- Wide cone for close combat
+			fov = 45, -- Wide cone for close combat
 			sortingBehavior = "distance",
-			friction = 0.5,            -- Strong friction
-			tracking = 0.5,            -- Strong tracking
-			centering = 0.85,          -- Very strong magnetic pull for close range
+			friction = 0.5, -- Strong friction
+			tracking = 0.5, -- Strong tracking
+			centering = 0.85, -- Very strong magnetic pull for close range
 			adsBoost = {
 				Friction = 1.3,
 				Tracking = 1.2,
 				Centering = 1.5,
 			},
 			adsSnap = {
-				enabled = false,       -- DISABLED - no snap, smooth pull only
+				enabled = false, -- DISABLED - no snap, smooth pull only
 				strength = 0,
 				maxAngle = 0,
 			},
@@ -323,11 +323,11 @@ LoadoutConfig.Weapons = {
 			spreadY = 2.5,
 			recoilMultiplier = 2.0,
 			-- Movement state spread modifiers (VERY NOTICEABLE)
-			crouchMult = 0.25,     -- 75% reduction when crouching
-			sprintMult = 2.2,      -- 120% more spread when sprinting
-			airMult = 2.5,         -- 150% more spread in air
-			adsMult = 0.15,        -- 85% reduction when ADS
-			baseGap = 8,           -- Base gap for crosshair
+			crouchMult = 0.25, -- 75% reduction when crouching
+			sprintMult = 2.2, -- 120% more spread when sprinting
+			airMult = 2.5, -- 150% more spread in air
+			adsMult = 0.15, -- 85% reduction when ADS
+			baseGap = 8, -- Base gap for crosshair
 		},
 
 		-- Aim Assist settings (assault rifle: balanced, medium range)
@@ -335,18 +335,18 @@ LoadoutConfig.Weapons = {
 			enabled = true,
 			range = 200,
 			minRange = 3,
-			fov = 35,                  -- Medium cone
+			fov = 35, -- Medium cone
 			sortingBehavior = "angle",
-			friction = 0.4,            -- Balanced friction
-			tracking = 0.4,            -- Balanced tracking
-			centering = 0.8,           -- Strong magnetic pull
+			friction = 0.4, -- Balanced friction
+			tracking = 0.4, -- Balanced tracking
+			centering = 0.8, -- Strong magnetic pull
 			adsBoost = {
 				Friction = 1.4,
 				Tracking = 1.3,
 				Centering = 1.5,
 			},
 			adsSnap = {
-				enabled = false,       -- DISABLED - no snap, smooth pull only
+				enabled = false, -- DISABLED - no snap, smooth pull only
 				strength = 0,
 				maxAngle = 0,
 			},
@@ -428,16 +428,16 @@ LoadoutConfig.Weapons = {
 			spreadY = 2.2,
 			recoilMultiplier = 3.0,
 			-- Revolver: precision secondary with big kick
-			crouchMult = 0.25,     -- 75% reduction when crouching
-			sprintMult = 2.5,      -- 150% more spread when sprinting
-			airMult = 3.0,         -- Triple spread in air
-			adsMult = 0.2,         -- 80% reduction when ADS
-			baseGap = 10,          -- Base gap
+			crouchMult = 0.25, -- 75% reduction when crouching
+			sprintMult = 2.5, -- 150% more spread when sprinting
+			airMult = 3.0, -- Triple spread in air
+			adsMult = 0.2, -- 80% reduction when ADS
+			baseGap = 10, -- Base gap
 		},
 
 		projectile = {
 			speed = 700,
-			gravity = 50,
+			gravity = 20,
 			drag = 0.008,
 			lifetime = 2.0,
 			inheritVelocity = 0,
@@ -477,18 +477,18 @@ LoadoutConfig.Weapons = {
 			enabled = true,
 			range = 150,
 			minRange = 3,
-			fov = 25,                  -- Medium cone
+			fov = 25, -- Medium cone
 			sortingBehavior = "angle",
-			friction = 0.35,           -- Moderate friction
-			tracking = 0.4,            -- Moderate tracking
-			centering = 0.7,           -- Strong magnetic pull
+			friction = 0.35, -- Moderate friction
+			tracking = 0.4, -- Moderate tracking
+			centering = 0.7, -- Strong magnetic pull
 			adsBoost = {
 				Friction = 1.5,
 				Tracking = 1.4,
 				Centering = 1.6,
 			},
 			adsSnap = {
-				enabled = false,       -- DISABLED - no snap, smooth pull only
+				enabled = false, -- DISABLED - no snap, smooth pull only
 				strength = 0,
 				maxAngle = 0,
 			},
@@ -561,15 +561,15 @@ LoadoutConfig.Weapons = {
 		-- Aim Assist settings (tomahawk: light melee assist, no snap)
 		aimAssist = {
 			enabled = true,
-			range = 15,                -- Melee range only
+			range = 15, -- Melee range only
 			minRange = 0,
-			fov = 60,                  -- Wide cone for melee
+			fov = 60, -- Wide cone for melee
 			sortingBehavior = "distance",
 			friction = 0.3,
 			tracking = 0.4,
 			centering = 0.2,
 			adsSnap = {
-				enabled = false,       -- No ADS for melee
+				enabled = false, -- No ADS for melee
 			},
 		},
 	},
@@ -618,15 +618,15 @@ LoadoutConfig.Weapons = {
 		-- Aim Assist settings (blade: melee-focused, no snap)
 		aimAssist = {
 			enabled = true,
-			range = 25,                -- Melee range
+			range = 25, -- Melee range
 			minRange = 0,
-			fov = 55,                  -- Wide cone for melee
+			fov = 55, -- Wide cone for melee
 			sortingBehavior = "distance",
 			friction = 0.4,
 			tracking = 0.5,
 			centering = 0.3,
 			adsSnap = {
-				enabled = false,       -- No ADS for melee
+				enabled = false, -- No ADS for melee
 			},
 		},
 	},
@@ -640,14 +640,14 @@ LoadoutConfig.Crosshair = {
 		showLeftLine = true,
 		showRightLine = true,
 		lineThickness = 2,
-		lineLength = 6,           -- Shorter lines for cleaner look
-		gapFromCenter = 10,       -- Wider gap - more spread out
-		dotSize = 3,              -- Small centered dot
+		lineLength = 6, -- Shorter lines for cleaner look
+		gapFromCenter = 10, -- Wider gap - more spread out
+		dotSize = 3, -- Small centered dot
 		rotation = 0,
 		cornerRadius = 0,
 		mainColor = Color3.fromRGB(255, 255, 255),
 		outlineColor = Color3.fromRGB(0, 0, 0),
-		outlineThickness = 0,     -- NO outline for cleaner look
+		outlineThickness = 0, -- NO outline for cleaner look
 		opacity = 0.95,
 		scale = 1,
 		dynamicSpreadEnabled = true,

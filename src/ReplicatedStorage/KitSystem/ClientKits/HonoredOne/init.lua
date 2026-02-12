@@ -90,17 +90,17 @@ local BLUE_CONFIG = {
 	HITBOX_LERP_SPEED = 6.5,       -- How fast hitbox follows aim (higher = faster)
 }
 
--- RED ABILITY (Piercing Projectile) - Uses ProjectilePhysics
+-- RED ABILITY (Explosive Projectile) - Uses ProjectilePhysics
 local RED_CONFIG = {
 	-- Projectile settings (FAST!)
-	PROJECTILE_SPEED = 400,      -- Studs per second (was 200, now 2x faster)
+	PROJECTILE_SPEED = 400,      -- Studs per second
 	MAX_RANGE = 321,             -- Max distance before despawn
-	PROJECTILE_RADIUS = 1.5,     -- Visual size (smaller, was 3)
+	PROJECTILE_RADIUS = 1.5,     -- Visual size
 	
 	-- Damage
-	BODY_DAMAGE = 35,            -- Normal hit damage
+	BODY_DAMAGE = 35,            -- Direct hit damage
 	HEADSHOT_DAMAGE = 90,        -- Crit/headshot damage
-	EXPLOSION_DAMAGE = 10,       -- AoE explosion damage
+	EXPLOSION_DAMAGE = 10,       -- AoE splash damage (targets near impact)
 	
 	-- Explosion
 	EXPLOSION_RADIUS = 20,       -- Studs
@@ -113,10 +113,8 @@ local RED_CONFIG = {
 	-- Hold limit
 	MAX_HOLD_TIME = 10,          -- Max seconds player can hold before auto-fire
 
-	-- Destruction (pierce through breakable walls)
-	DESTRUCTION_INTERVAL = 0.15,
-	DESTRUCTION_RADIUS = 10,
-	DESTRUCTION_VOXEL_SIZE = 2,
+	-- Destruction (breakable walls + explosion impact)
+	DESTRUCTION_RADIUS = 6,      -- Radius for breakable wall destruction
 }
 
 -- ProjectilePhysics config for Red (straight line, no gravity)
@@ -908,22 +906,24 @@ local function getPlayerFromHit(hitInstance)
 		or hitInstance.Name == "CrouchHead"
 		or hitInstance.Name == "HitboxHead"
 
-	-- Walk up to find a Collider with Hitbox/Standing or Hitbox/Crouching
+	-- Walk up to find a Collider with Hitbox/Standing, Hitbox/Crouching, or legacy Default/Crouch
 	local current = hitInstance
 	while current and current ~= Workspace do
 		if current.Name == "Collider" then
+			-- New structure: Collider/Hitbox/Standing or Collider/Hitbox/Crouching
 			local hitboxFolder = current:FindFirstChild("Hitbox")
-			if not hitboxFolder or not hitInstance:IsDescendantOf(hitboxFolder) then
-				return nil, nil, false
-			end
+			local standingFolder = hitboxFolder and hitboxFolder:FindFirstChild("Standing")
+			local crouchingFolder = hitboxFolder and hitboxFolder:FindFirstChild("Crouching")
+			local inNewHitbox = (standingFolder and hitInstance:IsDescendantOf(standingFolder))
+				or (crouchingFolder and hitInstance:IsDescendantOf(crouchingFolder))
 
-			local standingFolder = hitboxFolder:FindFirstChild("Standing")
-			local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
-			if standingFolder and hitInstance:IsDescendantOf(standingFolder) then
-				-- valid
-			elseif crouchingFolder and hitInstance:IsDescendantOf(crouchingFolder) then
-				-- valid
-			else
+			-- Legacy structure: Collider/Default or Collider/Crouch (used by CharacterLocations for players)
+			local defaultFolder = current:FindFirstChild("Default")
+			local crouchFolder = current:FindFirstChild("Crouch")
+			local inLegacyHitbox = (defaultFolder and hitInstance:IsDescendantOf(defaultFolder))
+				or (crouchFolder and hitInstance:IsDescendantOf(crouchFolder))
+
+			if not inNewHitbox and not inLegacyHitbox then
 				return nil, nil, false
 			end
 
@@ -1070,13 +1070,11 @@ local function runRedProjectile(state)
 	rayParams.FilterDescendantsInstances = filterList
 	
 	-- Track state
-	local piercedTargets = {} -- { [userId or charName] = true }
 	local hitList = {}
 	local distanceTraveled = 0
 	local exploded = false
 	local explosionPivot = nil -- CFrame oriented to hit surface
-	local destructionDistanceAccumulator = 0
-	local DESTRUCTION_STEP = 8 -- Every 8 studs, destroy terrain
+	local directHitTarget = nil -- The character/player directly hit (for body/headshot damage)
 	
 	-- Use Heartbeat for smooth physics
 	local connection
@@ -1100,70 +1098,41 @@ local function runRedProjectile(state)
 		local newPosition, newVelocity, hitResult = physics:Step(position, velocity, dt, rayParams)
 		local moveDistance = (newPosition - position).Magnitude
 		distanceTraveled += moveDistance
-		
-		local piercedWall = false
 
 		-- Check if hit something
 		if hitResult then
 			local hitPlayer, hitCharacter, isHeadshot = getPlayerFromHit(hitResult.Instance)
 			
-			if hitPlayer then
-				-- Hit a player's Collider/Hitbox - pierce through
-				local targetId = hitPlayer.UserId
-				
-				if not piercedTargets[targetId] then
-					piercedTargets[targetId] = true
-					
-					local damage = isHeadshot and RED_CONFIG.HEADSHOT_DAMAGE or RED_CONFIG.BODY_DAMAGE
-					
-					-- Play hit voice line
-					playHitVoice(projectileViz)
-					
-					-- No knockback on pierce (just damage)
-					
-					-- Add to hit list
-					table.insert(hitList, {
-						playerId = targetId,
-						isHeadshot = isHeadshot,
-						damage = damage,
-						hitPosition = { X = hitResult.Position.X, Y = hitResult.Position.Y, Z = hitResult.Position.Z },
-					})
-					
-					-- Add character to filter so we don't hit again
-					local filter = rayParams.FilterDescendantsInstances
-					table.insert(filter, hitPlayer.Character)
-					rayParams.FilterDescendantsInstances = filter
+			if hitPlayer or hitCharacter then
+				-- Hit a player or dummy - EXPLODE at hit point (no pierce)
+				position = hitResult.Position
+				explosionPivot = CFrame.lookAt(position, position + hitResult.Normal)
+
+				-- Play hit voice line
+				playHitVoice(projectileViz)
+
+				-- Build the direct-hit entry (body/headshot damage, NOT explosion damage)
+				local damage = isHeadshot and RED_CONFIG.HEADSHOT_DAMAGE or RED_CONFIG.BODY_DAMAGE
+				local hitEntry = {
+					playerId = hitPlayer and hitPlayer.UserId or nil,
+					characterName = hitCharacter and hitCharacter.Name or (hitPlayer and hitPlayer.Character and hitPlayer.Character.Name) or nil,
+					isDummy = hitPlayer == nil,
+					isHeadshot = isHeadshot,
+					damage = damage,
+					hitPosition = { X = hitResult.Position.X, Y = hitResult.Position.Y, Z = hitResult.Position.Z },
+				}
+				table.insert(hitList, hitEntry)
+
+				-- Remember the direct-hit target so we don't double-damage in explosion
+				directHitTarget = hitPlayer or hitCharacter
+
+				if projectileViz and projectileViz.Parent then
+					projectileViz.CFrame = CFrame.new(position)
 				end
-				
-			elseif hitCharacter then
-				-- Hit a dummy/rig
-				local targetId = hitCharacter:GetFullName()
-				
-				if not piercedTargets[targetId] then
-					piercedTargets[targetId] = true
-					
-					local damage = isHeadshot and RED_CONFIG.HEADSHOT_DAMAGE or RED_CONFIG.BODY_DAMAGE
-					
-					-- Play hit voice line
-					playHitVoice(projectileViz)
-					
-					-- No knockback on pierce (just damage)
-					
-					-- Add to hit list
-					table.insert(hitList, {
-						characterName = hitCharacter.Name,
-						isDummy = true,
-						isHeadshot = isHeadshot,
-						damage = damage,
-						hitPosition = { X = hitResult.Position.X, Y = hitResult.Position.Y, Z = hitResult.Position.Z },
-					})
-					
-					-- Add to filter
-					local filter = rayParams.FilterDescendantsInstances
-					table.insert(filter, hitCharacter)
-					rayParams.FilterDescendantsInstances = filter
-				end
-				
+
+				connection:Disconnect()
+				exploded = true
+				return
 			else
 				-- Hit world/environment - check if breakable
 				local hitPart = hitResult.Instance
@@ -1178,22 +1147,15 @@ local function runRedProjectile(state)
 
 				if isBreakable then
 					local hitPos = hitResult.Position
-					
-					-- Send to server for replication to all clients (like Blue)
-					abilityRequest.Send({
-						action = "redDestruction",
-						position = { X = hitPos.X, Y = hitPos.Y, Z = hitPos.Z },
-						radius = RED_CONFIG.DESTRUCTION_RADIUS,
-						allowMultiple = true,
-					})
+					-- No voxelization during travel - only at explosion point (avoids lag from piercing many breakables)
 
 					local filter = rayParams.FilterDescendantsInstances
 					table.insert(filter, hitPart)
 					rayParams.FilterDescendantsInstances = filter
 
 					position = hitPos + velocity.Unit * 0.5
-					piercedWall = true
 				else
+					-- Solid wall/floor - explode here
 					position = hitResult.Position
 
 					local hitNormal = hitResult.Normal
@@ -1208,29 +1170,11 @@ local function runRedProjectile(state)
 					return
 				end
 			end
-		end
-		
-		if not piercedWall then
-			position = newPosition
 		else
-			-- Reset accumulator on pierce so we destroy immediately after pass-through
-			destructionDistanceAccumulator = DESTRUCTION_STEP 
+			position = newPosition
 		end
-		velocity = newVelocity
 
-		-- Continuous destruction based on distance traveled (prevents gaps at high speed)
-		destructionDistanceAccumulator += moveDistance
-		if destructionDistanceAccumulator >= DESTRUCTION_STEP then
-			destructionDistanceAccumulator = 0
-			
-			-- Send to server for replication to all clients (like Blue)
-			abilityRequest.Send({
-				action = "redDestruction",
-				position = { X = position.X, Y = position.Y, Z = position.Z },
-				radius = RED_CONFIG.DESTRUCTION_RADIUS,
-				allowMultiple = true,
-			})
-		end
+		velocity = newVelocity
 		
 		-- Update visual
 		local redPivot = CFrame.lookAt(position, position + velocity.Unit)
@@ -1357,22 +1301,26 @@ local function runRedProjectile(state)
 			knockbackController:_sendKnockbackVelocity(targetChar, explosionVelocity, 0)
 		end
 		
-		-- Add explosion damage if not already pierced
-		local targetId = targetPlayer and targetPlayer.UserId or targetChar:GetFullName()
-		
-		if not piercedTargets[targetId] then
-			table.insert(hitList, {
-				playerId = targetPlayer and targetPlayer.UserId or nil,
-				characterName = targetChar.Name,
-				isDummy = targetPlayer == nil,
-				isHeadshot = false,
-				isExplosion = true,
-				damage = RED_CONFIG.EXPLOSION_DAMAGE,
-			})
+		-- Skip the direct-hit target (already got full body/headshot damage above)
+		if directHitTarget then
+			if (targetPlayer and targetPlayer == directHitTarget)
+				or (targetChar == directHitTarget) then
+				continue
+			end
 		end
+
+		-- Add explosion damage for splash targets
+		table.insert(hitList, {
+			playerId = targetPlayer and targetPlayer.UserId or nil,
+			characterName = targetChar.Name,
+			isDummy = targetPlayer == nil,
+			isHeadshot = false,
+			isExplosion = true,
+			damage = RED_CONFIG.EXPLOSION_DAMAGE,
+		})
 	end
 	
-	-- Send all hits to server
+	-- Send ALL hits to server in one batch (direct hit + explosion splash)
 	if #hitList > 0 then
 		abilityRequest.Send({
 			action = "redHit",
@@ -1746,10 +1694,15 @@ end
 
 function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	local state = HonoredOne._abilityState
-	if not state then return end
+	if not state then
+		-- Even without a state object, always nuke module-level residue
+		cleanupSounds()
+		return
+	end
 	
-	-- Already fully finished
-	if not state.active and not state.hitboxActive and not state.projectileActive then return end
+	-- Always do full cleanup, even if the ability already "finished" its active phase.
+	-- Previous code returned early when active/hitboxActive/projectileActive were all false,
+	-- which left _abilityState, sounds, and attributes lingering across lives.
 	
 	-- Hard cancel - stops everything including hitbox/projectile
 	state.cancelled = true
@@ -1757,11 +1710,13 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	LocalPlayer:SetAttribute(`blue_projectile_activeCFR`, nil)
 	local request = abilityRequest or state.abilityRequest
 	if request and request.Send then
-		request.Send({
-			action = "blueProjectileUpdate",
-			debris = true,
-			allowMultiple = true,
-		})
+		pcall(function()
+			request.Send({
+				action = "blueProjectileUpdate",
+				debris = true,
+				allowMultiple = true,
+			})
+		end)
 	end
 	endBlue(state)
 	endRed(state)
@@ -1782,11 +1737,19 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	-- Cleanup all sounds
 	cleanupSounds()
 
+	-- Clear all ability-related player attributes
+	clearRedStateAttributes()
+	clearExternalMoveMult()
+	clearRedCrouchGate()
+
 	-- Restore weapon (if animation hadn't finished yet)
 	if state.unlockWeapon then
 		state.unlockWeapon()
 	end
-	ServiceRegistry:GetController("Kit"):_unholsterWeapon()
+	local kitController = ServiceRegistry:GetController("Kit")
+	if kitController then
+		kitController:_unholsterWeapon()
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -1818,6 +1781,12 @@ end
 
 function HonoredOne:OnEquip(ctx)
 	self._ctx = ctx
+
+	-- Guarantee clean module-level state for a fresh life.
+	-- Since require() caches the module, residual state from a previous life
+	-- could leak through. Force a clean slate every time the kit is (re-)equipped.
+	HonoredOne._abilityState = nil
+	cleanupSounds()
 end
 
 function HonoredOne:OnUnequip(reason)
@@ -1828,14 +1797,33 @@ function HonoredOne:OnUnequip(reason)
 	end
 	self._connections = {}
 
-	-- Cancel active ability
-	if HonoredOne._abilityState and HonoredOne._abilityState.active then
-		HonoredOne.Ability:OnInterrupt(nil, "unequip")
+	-- Always cancel active ability - don't check .active flag since the state
+	-- might exist with active=false but still hold stale data
+	if HonoredOne._abilityState then
+		HonoredOne.Ability:OnInterrupt(nil, reason or "unequip")
 	end
 end
 
 function HonoredOne:Destroy()
 	self:OnUnequip("Destroy")
+
+	-- UNCONDITIONALLY wipe ALL module-level state.
+	-- Since require() caches the module, these persist across instances.
+	-- Must be forcefully cleared to guarantee a clean slate on re-creation.
+	HonoredOne._abilityState = nil
+
+	-- Kill every active sound (charge, blue idle, cloned sounds, etc.)
+	cleanupSounds()
+
+	-- Clear ALL kit-related player attributes that could linger
+	LocalPlayer:SetAttribute("blue_projectile_activeCFR", nil)
+	LocalPlayer:SetAttribute("red_charge", nil)
+	LocalPlayer:SetAttribute("red_projectile_activeCFR", nil)
+	LocalPlayer:SetAttribute("red_explosion_pivot", nil)
+	LocalPlayer:SetAttribute("cleanupblueFX", nil)
+	LocalPlayer:SetAttribute("ExternalMoveMult", 1)
+	LocalPlayer:SetAttribute("ForceUncrouch", nil)
+	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
 end
 
 return HonoredOne

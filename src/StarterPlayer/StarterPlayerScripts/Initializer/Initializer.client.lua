@@ -1,4 +1,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+
+-- Disable Roblox Core UI (Chat, PlayerList, Backpack, Health, EmotesMenu)
+StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Net = require(Locations.Shared.Net.Net)

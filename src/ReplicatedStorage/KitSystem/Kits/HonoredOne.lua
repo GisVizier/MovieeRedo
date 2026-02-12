@@ -14,6 +14,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local VoxelDestruction = require(ReplicatedStorage.Shared.Modules.VoxelDestruction)
 
 --------------------------------------------------------------------------------
@@ -178,6 +180,31 @@ end
 local function getWeaponService(self)
 	local registry = getKitRegistry(self)
 	return registry and registry:TryGet("WeaponService") or nil
+end
+
+local function getReplicationService(self)
+	local registry = getKitRegistry(self)
+	return registry and registry:TryGet("ReplicationService") or nil
+end
+
+--- Returns the player's **replicated** world position (from client-authoritative
+--- movement updates) rather than the stale server-side HumanoidRootPart.Position.
+--- Falls back to root.Position only if replication data is unavailable.
+local function getPlayerPosition(self, player)
+	local replicationService = getReplicationService(self)
+	if replicationService and replicationService.PlayerStates then
+		local playerData = replicationService.PlayerStates[player]
+		if playerData and playerData.LastState and playerData.LastState.Position then
+			return playerData.LastState.Position
+		end
+	end
+
+	local root = getPlayerRoot(player)
+	if root then
+		return root.Position
+	end
+
+	return nil
 end
 
 local function getMatchManager(self)
@@ -535,14 +562,14 @@ local function handleBlueHit(self, clientData)
 
 	local explosionPos = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
 
-	-- Validate range
-	local root = getPlayerRoot(player)
-	if not root then
-		log("Player has no root part")
+	-- Validate range (use replicated position for accurate server-side check)
+	local playerPosition = getPlayerPosition(self, player)
+	if not playerPosition then
+		log("Player has no replicated/root position")
 		return
 	end
 
-	local distance = (root.Position - explosionPos).Magnitude
+	local distance = (playerPosition - explosionPos).Magnitude
 	if distance > MAX_RANGE then
 		log("Explosion position out of range - skipping destruction", "distance:", math.floor(distance + 0.5))
 		return
@@ -605,13 +632,13 @@ local function handleBlueDestruction(self, clientData)
 	local position = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
 	local radius = clientData.radius or 8
 
-	-- Validate range
-	local root = getPlayerRoot(player)
-	if not root then
+	-- Validate range (use replicated position for accurate server-side check)
+	local playerPosition = getPlayerPosition(self, player)
+	if not playerPosition then
 		return
 	end
 
-	local distance = (root.Position - position).Magnitude
+	local distance = (playerPosition - position).Magnitude
 	if distance > MAX_RANGE then
 		log("Blue destruction out of range", "distance:", math.floor(distance + 0.5))
 		return
@@ -651,13 +678,13 @@ local function handleBlueDestruction(self, clientData)
 end
 
 --------------------------------------------------------------------------------
--- Red Destruction Handler (server-side voxel destruction on red impact)
+-- Red Destruction Handler (server-side voxel at explosion ONLY - no voxel during travel)
 --------------------------------------------------------------------------------
 
 local function handleRedDestruction(self, clientData)
 	local player = self._ctx.player
-	local root = getPlayerRoot(player)
-	if not root then
+	local playerPosition = getPlayerPosition(self, player)
+	if not playerPosition then
 		return
 	end
 
@@ -666,7 +693,7 @@ local function handleRedDestruction(self, clientData)
 		return
 	end
 
-	local distance = (root.Position - position).Magnitude
+	local distance = (playerPosition - position).Magnitude
 	if distance > RED_MAX_HIT_DISTANCE then
 		log("Red destruction out of range", "distance:", math.floor(distance + 0.5))
 		return
@@ -677,7 +704,7 @@ local function handleRedDestruction(self, clientData)
 	local configRadius = destructionLevel and DESTRUCTION_RADIUS[destructionLevel] or 10
 
 	local clientRadius = tonumber(clientData and clientData.radius) or RED_EXPLOSION_RADIUS
-	clientRadius = math.clamp(clientRadius, 4, 30)
+	clientRadius = math.clamp(clientRadius, 4, 25)
 
 	local radius = math.max(configRadius, clientRadius)
 
@@ -695,8 +722,8 @@ local function handleRedDestruction(self, clientData)
 		VoxelDestruction.Destroy(
 			hitbox,
 			nil,
-			2,
-			10,
+			4,    -- voxelSize (larger = fewer chunks, less lag)
+			2,    -- debrisCount (minimal debris at explosion only)
 			nil
 		)
 
@@ -712,6 +739,8 @@ end
 
 --------------------------------------------------------------------------------
 -- Red Ability Handler (Piercing Projectile - damage + explosion)
+-- Uses server-side Hitbox.GetCharactersInRadius (same as Mob kit) - finds both
+-- players and dummies without relying on client hit detection.
 --------------------------------------------------------------------------------
 
 local function handleRedHit(self, clientData)
@@ -719,154 +748,90 @@ local function handleRedHit(self, clientData)
 	local character = self._ctx.character or player.Character
 
 	log("=== RED HIT ===", player.Name)
-	log(
-		"Red hit payload:",
-		clientData and clientData.explosionPosition and "has explosionPosition" or "missing explosionPosition"
-	)
 
-	if not clientData.hits or type(clientData.hits) ~= "table" then
-		log("Invalid hit list")
-		return
-	end
-
-	-- Ownership / identity validation
 	if not character or character ~= player.Character then
 		log("Rejected redHit: attacker character mismatch")
 		return
 	end
 
-	local root = getPlayerRoot(player)
-	local playerPosition = root and root.Position or nil
+	local playerPosition = getPlayerPosition(self, player)
 	if not playerPosition then
-		log("Rejected redHit: attacker has no root")
+		log("Rejected redHit: attacker has no replicated/root position")
 		return
 	end
 
-	local explosionPos = toVector3(clientData.explosionPosition)
+	local explosionPos = toVector3(clientData and clientData.explosionPosition)
 	if not explosionPos then
 		log("Rejected redHit: missing explosionPosition")
 		return
 	end
-	if (explosionPos - playerPosition).Magnitude > RED_MAX_HIT_DISTANCE then
-		log("Rejected redHit: explosion out of plausible range")
+
+	local hitDistance = (explosionPos - playerPosition).Magnitude
+	if hitDistance > RED_MAX_HIT_DISTANCE then
+		log("Rejected redHit: hit position out of plausible range", math.floor(hitDistance + 0.5), ">", RED_MAX_HIT_DISTANCE)
 		return
 	end
 
-	-- Validate and process hits
-	local validHits = {}
-	local seenTargets = {}
+	-- Server-authoritative target finding (same as Mob kit) - finds players AND dummies
+	local radius = RED_EXPLOSION_RADIUS + RED_EXPLOSION_HIT_BUFFER
+	local targets = Hitbox.GetCharactersInRadius(explosionPos, radius, player)
 
-	log("Processing", #clientData.hits, "hits from", player.Name)
+	if #targets == 0 then
+		log("No targets in radius")
+		return
+	end
 
-	for i, hit in ipairs(clientData.hits) do
+	-- Sort by distance from explosion center (closest = direct hit, gets full damage)
+	table.sort(targets, function(a, b)
+		local rootA = getCharacterRoot(a)
+		local rootB = getCharacterRoot(b)
+		local distA = rootA and (rootA.Position - explosionPos).Magnitude or math.huge
+		local distB = rootB and (rootB.Position - explosionPos).Magnitude or math.huge
+		return distA < distB
+	end)
+
+	local weaponService = getWeaponService(self)
+	if not weaponService then
+		log("WeaponService not available")
+		return
+	end
+
+	for i, targetChar in ipairs(targets) do
 		if i > MAX_TARGETS then
-			log("Hit", i, "- exceeded MAX_TARGETS")
 			break
 		end
-		if type(hit) ~= "table" then
-			log("Hit", i, "- not a table, skipping")
-			continue
-		end
 
-		log("Hit", i, "- playerId:", tostring(hit.playerId), "characterName:", tostring(hit.characterName), "isExplosion:", tostring(hit.isExplosion))
-
-		local targetChar, targetPlayer = findTargetCharacter(hit)
-		if not targetChar then
-			log("Hit", i, "- findTargetCharacter returned nil")
-			continue
-		end
+		local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
 		if targetPlayer == player then
-			log("Hit", i, "- target is self, skipping")
 			continue
 		end
 
-		-- Dedup by target identity
-		local targetKey = targetPlayer and `plr:{targetPlayer.UserId}` or `char:{targetChar:GetFullName()}`
-		if seenTargets[targetKey] then
-			log("Hit", i, "- duplicate target:", targetKey)
-			continue
-		end
-
-		-- Range check
-		local targetRoot = getCharacterRoot(targetChar)
-		if targetRoot then
-			local attackerToTarget = (targetRoot.Position - playerPosition).Magnitude
-			if attackerToTarget > RED_MAX_HIT_DISTANCE then
-				log("Hit", i, "- target out of plausible range:", targetChar.Name, "distance:", math.floor(attackerToTarget + 0.5))
-				continue
-			end
-		end
-
-		-- Match-scoped player validation
+		-- Match-scoped validation for players (dummies have nil targetPlayer)
 		if targetPlayer and not isSameMatchContext(self, player, targetPlayer) then
-			log("Hit", i, "- outside match context:", targetPlayer.Name)
+			log("Skip target outside match context:", targetPlayer.Name)
 			continue
 		end
 
-		-- Validate hit entry geometry
-		local hitPos = toVector3(hit.hitPosition)
-		local isExplosion = hit.isExplosion == true
-		if isExplosion then
-			if targetRoot then
-				local distFromExplosion = (targetRoot.Position - explosionPos).Magnitude
-				if distFromExplosion > (RED_EXPLOSION_RADIUS + RED_EXPLOSION_HIT_BUFFER) then
-					log("Hit", i, "- explosion target too far:", math.floor(distFromExplosion + 0.5))
-					continue
-				end
-			end
-		elseif hitPos then
-			if (hitPos - playerPosition).Magnitude > RED_MAX_HIT_DISTANCE then
-				log("Hit", i, "- hitPos out of range")
-				continue
-			end
-		end
-
-		-- Server-authoritative damage
-		local damage
-		if isExplosion then
-			damage = RED_EXPLOSION_DAMAGE
-		elseif hit.isHeadshot then
-			damage = RED_HEADSHOT_DAMAGE
-		else
-			damage = RED_BODY_DAMAGE
-		end
-
-		table.insert(validHits, {
-			character = targetChar,
-			player = targetPlayer,
-			isHeadshot = hit.isHeadshot == true,
-			isExplosion = isExplosion,
-			damage = damage,
-			hitPosition = hitPos,
-		})
-		seenTargets[targetKey] = true
-
-		log(
-			"Validated:",
-			targetChar.Name,
-			hit.isHeadshot and "(HEADSHOT)" or (hit.isExplosion and "(explosion)" or "(body)")
-		)
-	end
-
-	log("Valid hits:", #validHits)
-
-	if #validHits == 0 then
-		return
-	end
-
-	-- Apply damage
-	for _, hit in ipairs(validHits) do
-		applyValidatedDamage(
-			self,
+		-- Direct hit (first in radius) only when client actually hit a character; else all get explosion
+		local hasDirectHit = clientData.hits
+			and type(clientData.hits[1]) == "table"
+			and clientData.hits[1].isExplosion ~= true
+		local isDirectHit = hasDirectHit and (i == 1)
+		local isHeadshot = isDirectHit
+			and clientData.hits[1].isHeadshot == true
+		local damage = isDirectHit
+			and (isHeadshot and RED_HEADSHOT_DAMAGE or RED_BODY_DAMAGE)
+			or RED_EXPLOSION_DAMAGE
+		weaponService:ApplyDamageToCharacter(
+			targetChar,
+			damage,
 			player,
-			hit.character,
-			hit.player,
-			hit.damage,
-			hit.isHeadshot and not hit.isExplosion,
+			isHeadshot,
+			"HonoredOne_Red",
 			playerPosition,
-			hit.hitPosition or explosionPos
+			explosionPos
 		)
-		log("Dealt", hit.damage, "to", hit.character.Name)
+		log("Dealt", damage, "to", targetChar.Name, (i == 1) and "(direct)" or "(explosion)")
 	end
 
 	log("=== RED HIT COMPLETE ===")

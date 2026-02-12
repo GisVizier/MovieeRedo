@@ -309,6 +309,15 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 		return
 	end
 
+	-- Don't allow abilities when dead
+	local combatService = self._registry and self._registry:TryGet("CombatService")
+	if combatService then
+		local resource = combatService:GetResource(player)
+		if resource and resource:IsDead() then
+			return
+		end
+	end
+
 	local kit = self:_ensureKitInstance(player, info)
 	if not kit then
 		return
@@ -571,8 +580,14 @@ function KitService:BroadcastVFXMatchScoped(player: Player, moduleName: string, 
 end
 
 --[[
-	Called when a player dies. Interrupts active abilities and resets server kit state.
-	This ensures moves/VFX don't continue playing after death.
+	Called when a player dies. Performs a FULL kit reset:
+	- Interrupts all active abilities
+	- Resets all cooldowns to 0
+	- Resets ultimate meter to 0
+	- Destroys the kit instance entirely
+	- Applies reset attributes and fires state to client
+
+	The kit will be re-created fresh on respawn via OnPlayerRespawn.
 
 	@param player Player - The player who died
 ]]
@@ -587,11 +602,67 @@ function KitService:OnPlayerDeath(player: Player)
 	self:InterruptAbility(player, "Ability", "death")
 	self:InterruptAbility(player, "Ultimate", "death")
 
-	-- Reset server kit state
-	local kit = self._playerKits[player]
-	if kit and kit.OnDeath then
-		pcall(kit.OnDeath, kit)
+	-- Reset ALL cooldowns
+	info.abilityCooldownEndsAt = 0
+
+	-- Reset ultimate meter
+	info.ultimate = 0
+
+	-- Destroy the kit instance entirely (clean slate for respawn)
+	self:_destroyKit(player, "Death")
+
+	-- Clear ALL server-set kit/ability attributes from the player
+	-- so nothing lingers into the next life
+	player:SetAttribute("blue_projectile_activeCFR", nil)
+	player:SetAttribute("red_projectile_activeCFR", nil)
+	player:SetAttribute("EquippedSlot", nil)
+	player:SetAttribute("LastEquippedSlot", nil)
+
+	-- Apply reset attributes so client sees zeroed-out state
+	self:_applyAttributes(player, info)
+
+	-- Fire state to client so it knows everything is reset
+	self:_fireState(player, info, { lastAction = "DeathReset" })
+end
+
+--[[
+	Called after a player respawns. Re-creates the kit fresh, re-applies
+	all attributes, refreshes the loadout, and fires state to client.
+	This is the second half of the full death reset — everything is re-given.
+
+	@param player Player - The player who respawned
+]]
+function KitService:OnPlayerRespawn(player: Player)
+	local info = self._data[player]
+	if not info then return end
+
+	local kitId = info.equippedKitId
+	if not kitId then return end
+
+	-- Re-create the kit instance from scratch
+	self:_ensureKitInstance(player, info)
+
+	-- Re-apply attributes (fresh state)
+	self:_applyAttributes(player, info)
+
+	-- Reset equipped slot to Primary (fresh start)
+	player:SetAttribute("EquippedSlot", "Primary")
+	player:SetAttribute("LastEquippedSlot", "Primary")
+
+	-- Force-refresh SelectedLoadout to trigger client weapon/ammo re-init
+	-- (clear then re-set so the AttributeChangedSignal fires)
+	local currentLoadout = player:GetAttribute("SelectedLoadout")
+	if currentLoadout and currentLoadout ~= "" then
+		player:SetAttribute("SelectedLoadout", "")
+		task.defer(function()
+			if player.Parent then
+				player:SetAttribute("SelectedLoadout", currentLoadout)
+			end
+		end)
 	end
+
+	-- Fire state to client
+	self:_fireState(player, info, { lastAction = "Respawned" })
 end
 
 function KitService:start()
@@ -606,11 +677,16 @@ function KitService:start()
 		player.CharacterAdded:Connect(function(character)
 			local kit = self._playerKits[player]
 			if kit then
+				-- Kit still exists, just update the character reference
 				pcall(function()
 					if kit.SetCharacter then
 						kit:SetCharacter(character)
 					end
 				end)
+			elseif info.equippedKitId then
+				-- Kit was destroyed (e.g. on death) — re-create it fresh
+				-- This handles lobby/competitive respawn paths where a new character is created
+				self:OnPlayerRespawn(player)
 			end
 		end)
 

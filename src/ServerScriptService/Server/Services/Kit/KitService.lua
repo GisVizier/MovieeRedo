@@ -33,5 +33,11 @@ function KitService:OnPlayerDeath(player)
 	end
 end
 
+function KitService:OnPlayerRespawn(player)
+	if self._impl and self._impl.OnPlayerRespawn then
+		self._impl:OnPlayerRespawn(player)
+	end
+end
+
 return KitService
 
