@@ -4,14 +4,16 @@ local Character = {
 	JumpPower = 35,
 	AutoSprint = false,
 	CoyoteTime = 0.12,
+	
 	JumpFatigue = {
 		Enabled = true,
-		FreeJumps = 2,
-		DecayPerJump = 0.14,
-		MinMultiplier = 0.5,
-		GroundResetTime = 3,
+		FreeJumps = 3,
+		DecayPerJump = 0.09,
+		MinMultiplier = 0.35,
+		GroundResetTime = 2,
 		RecoverWhileFalling = true,
 	},
+
 	WallJump = {
 		Enabled = true,
 		VerticalBoost = 37.74,
