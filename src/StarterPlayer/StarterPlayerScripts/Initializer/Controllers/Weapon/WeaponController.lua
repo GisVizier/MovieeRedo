@@ -1105,7 +1105,10 @@ function WeaponController:_onHitConfirmed(hitData)
 		self:_renderBulletTracer(hitData)
 	end
 
-	if hitData.shooter == LocalPlayer.UserId then
+	local didHitTarget = hitData.hitPlayer ~= nil
+		or (type(hitData.hitCharacterName) == "string" and hitData.hitCharacterName ~= "")
+
+	if hitData.shooter == LocalPlayer.UserId and didHitTarget then
 		self:_showHitmarker(hitData)
 	end
 

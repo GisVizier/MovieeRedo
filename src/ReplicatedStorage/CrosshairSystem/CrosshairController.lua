@@ -496,7 +496,7 @@ function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
 	end
 
 	local now = tick()
-	if now - self._hitmarkerLastHitTime > 0.45 then
+	if now - self._hitmarkerLastHitTime > 1.35 then
 		self._hitmarkerStack = 0
 	end
 	self._hitmarkerLastHitTime = now
@@ -507,10 +507,10 @@ function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
 
 	local stackBoost = math.min((self._hitmarkerStack - 1) * 0.08, 0.4)
 	local startScale = self._hitmarkerBaseScale * (1.45 + stackBoost)
-	local endScale = self._hitmarkerBaseScale
+	local endScale = self._hitmarkerBaseScale * 0.6
 	local showDuration = 0.085
-	local visibleLifetime = 0.17 + math.min(self._hitmarkerStack * 0.02, 0.12)
-	local fadeDuration = 0.1
+	local visibleLifetime = 1.35
+	local fadeDuration = 0.65
 
 	self:_cancelHitmarkerTweens()
 

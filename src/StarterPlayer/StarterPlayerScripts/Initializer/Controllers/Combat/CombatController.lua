@@ -11,7 +11,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local DamageNumbers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("DamageNumbers"))
@@ -236,7 +235,7 @@ function CombatController:_onDamageDealt(data)
 		-- Damage confirmed by server — run tracer HitPlayer effect on the target
 		-- Resolve character for dummies/non-player entities by name in workspace
 		if not targetCharacter and data.targetCharacterName then
-			targetCharacter = Workspace:FindFirstChild(data.targetCharacterName)
+			targetCharacter = Workspace:FindFirstChild(data.targetCharacterName, true)
 			if targetCharacter and not targetCharacter:IsA("Model") then
 				targetCharacter = nil
 			end
