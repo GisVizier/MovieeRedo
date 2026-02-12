@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local ConnectionManager = require(ReplicatedStorage.CoreUI.ConnectionManager)
 local CrosshairSystem = ReplicatedStorage:WaitForChild("CrosshairSystem")
@@ -70,6 +71,14 @@ function CrosshairController.new(player: Player?)
 	self._updateConnection = nil
 	self._screenGui = nil
 	self._templateContainer = nil
+	self._hitmarker = nil
+	self._hitmarkerScale = nil
+	self._hitmarkerTween = nil
+	self._hitmarkerFadeTween = nil
+	self._hitmarkerBaseScale = 1
+	self._hitmarkerHideSeq = 0
+	self._hitmarkerLastHitTime = 0
+	self._hitmarkerStack = 0
 
 	self:_bindCharacter()
 
@@ -136,6 +145,48 @@ function CrosshairController:_loadModule(crosshairName: string)
 	end
 
 	return moduleDef
+end
+
+function CrosshairController:_cancelHitmarkerTweens()
+	if self._hitmarkerTween then
+		self._hitmarkerTween:Cancel()
+		self._hitmarkerTween = nil
+	end
+	if self._hitmarkerFadeTween then
+		self._hitmarkerFadeTween:Cancel()
+		self._hitmarkerFadeTween = nil
+	end
+end
+
+function CrosshairController:_cacheHitmarker()
+	self._hitmarker = nil
+	self._hitmarkerScale = nil
+	self._hitmarkerBaseScale = 1
+	self._hitmarkerHideSeq = 0
+	self._hitmarkerLastHitTime = 0
+	self._hitmarkerStack = 0
+
+	if not self._frame then
+		return
+	end
+
+	local hitmarker = self._frame:FindFirstChild("Hitmarker", true)
+	if not (hitmarker and hitmarker:IsA("ImageLabel")) then
+		return
+	end
+
+	self._hitmarker = hitmarker
+	self._hitmarker.ImageTransparency = 1
+	self._hitmarker.Visible = false
+
+	local markerScale = hitmarker:FindFirstChild("UIScale")
+	if not (markerScale and markerScale:IsA("UIScale")) then
+		markerScale = Instance.new("UIScale")
+		markerScale.Scale = 1
+		markerScale.Parent = hitmarker
+	end
+	self._hitmarkerScale = markerScale
+	self._hitmarkerBaseScale = markerScale.Scale
 end
 
 function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: any?, player: Player?)
@@ -217,6 +268,7 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 	self._module = moduleInstance
 	self._weaponData = weaponData or CrosshairController.Mock.weaponData
 	self._customization = self._customization or CrosshairController.Mock.customization
+	self:_cacheHitmarker()
 	
 	if DEBUG_CROSSHAIR then
 		print("[Crosshair] WeaponData:", self._weaponData)
@@ -250,6 +302,13 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 end
 
 function CrosshairController:RemoveCrosshair()
+	self:_cancelHitmarkerTweens()
+	self._hitmarker = nil
+	self._hitmarkerScale = nil
+	self._hitmarkerHideSeq = 0
+	self._hitmarkerLastHitTime = 0
+	self._hitmarkerStack = 0
+
 	if self._updateConnection then
 		self._updateConnection:Disconnect()
 		self._updateConnection = nil
@@ -429,6 +488,70 @@ function CrosshairController:SetRotation(rotationDeg: number)
 	if self._module and self._module.ApplyCustomization then
 		self._module:ApplyCustomization(self._customization)
 	end
+end
+
+function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
+	if not self._hitmarker then
+		return
+	end
+
+	local now = tick()
+	if now - self._hitmarkerLastHitTime > 0.45 then
+		self._hitmarkerStack = 0
+	end
+	self._hitmarkerLastHitTime = now
+	self._hitmarkerStack = math.clamp(self._hitmarkerStack + 1, 1, 6)
+
+	self._hitmarkerHideSeq += 1
+	local hideSeq = self._hitmarkerHideSeq
+
+	local stackBoost = math.min((self._hitmarkerStack - 1) * 0.08, 0.4)
+	local startScale = self._hitmarkerBaseScale * (1.45 + stackBoost)
+	local endScale = self._hitmarkerBaseScale
+	local showDuration = 0.085
+	local visibleLifetime = 0.17 + math.min(self._hitmarkerStack * 0.02, 0.12)
+	local fadeDuration = 0.1
+
+	self:_cancelHitmarkerTweens()
+
+	self._hitmarker.ImageTransparency = 0
+	self._hitmarker.ImageColor3 = isHeadshot and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(255, 255, 255)
+	self._hitmarker.Visible = true
+
+	if self._hitmarkerScale then
+		self._hitmarkerScale.Scale = startScale
+		self._hitmarkerTween = TweenService:Create(
+			self._hitmarkerScale,
+			TweenInfo.new(showDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Scale = endScale }
+		)
+		self._hitmarkerTween:Play()
+	end
+
+	task.delay(visibleLifetime, function()
+		if self._hitmarkerHideSeq ~= hideSeq then
+			return
+		end
+		if not self._hitmarker then
+			return
+		end
+
+		self._hitmarkerFadeTween = TweenService:Create(
+			self._hitmarker,
+			TweenInfo.new(fadeDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ ImageTransparency = 1 }
+		)
+		self._hitmarkerFadeTween.Completed:Connect(function()
+			if self._hitmarkerHideSeq ~= hideSeq then
+				return
+			end
+			if self._hitmarker then
+				self._hitmarker.Visible = false
+			end
+			self._hitmarkerStack = 0
+		end)
+		self._hitmarkerFadeTween:Play()
+	end)
 end
 
 function CrosshairController:Destroy()

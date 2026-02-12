@@ -10,6 +10,8 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local DamageNumbers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("DamageNumbers"))
@@ -232,6 +234,14 @@ function CombatController:_onDamageDealt(data)
 		end
 
 		-- Damage confirmed by server — run tracer HitPlayer effect on the target
+		-- Resolve character for dummies/non-player entities by name in workspace
+		if not targetCharacter and data.targetCharacterName then
+			targetCharacter = Workspace:FindFirstChild(data.targetCharacterName)
+			if targetCharacter and not targetCharacter:IsA("Model") then
+				targetCharacter = nil
+			end
+		end
+
 		if targetCharacter then
 			self:_runHitPlayerEffect(targetCharacter, hitPos)
 		end
@@ -296,32 +306,26 @@ end
 
 --[[
 	Runs the tracer HitPlayer effect on a target character.
-	Uses the player's equipped tracer if available, otherwise falls back to Default.
-	@param targetCharacter Model - The character that was hit
-	@param hitPosition Vector3? - Where the hit landed
+	Uses the equipped weapon's tracer if it has one, otherwise Default.
 ]]
 function CombatController:_runHitPlayerEffect(targetCharacter, hitPosition)
 	if not Tracers._initialized then
 		Tracers:Init()
 	end
 
-	-- Resolve tracer: try to get from the weapon controller's current weapon
+	-- Try to resolve tracer from the currently equipped weapon
 	local tracerId = nil
 	local weaponController = ServiceRegistry:GetController("Weapon")
-	if weaponController then
-		local weaponFx = weaponController.GetFX and weaponController:GetFX()
-		if weaponFx then
-			local tracers = weaponFx:GetTracers()
-			if tracers then
-				-- Get weapon tracer from current weapon config
-				local weaponInstance = weaponController:GetWeaponInstance()
-				local weaponTracerId = weaponInstance and weaponInstance.State and weaponInstance.State.tracerId
-				tracerId = tracers:Resolve(weaponTracerId, nil)
-			end
+	if weaponController and weaponController.GetWeaponInstance then
+		local inst = weaponController:GetWeaponInstance()
+		-- Weapon instance has Config with the full weapon config
+		local cfg = inst and inst.Config
+		if cfg and cfg.tracerId then
+			tracerId = cfg.tracerId
 		end
 	end
 
-	-- Get the tracer module (falls back to Default if tracerId is nil or not found)
+	-- Get the tracer module (falls back to Default)
 	local tracerModule = Tracers:Get(tracerId)
 	if not tracerModule or not tracerModule.HitPlayer then
 		return

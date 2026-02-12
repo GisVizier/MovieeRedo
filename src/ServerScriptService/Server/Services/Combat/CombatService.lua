@@ -878,6 +878,7 @@ function CombatService:_broadcastDamage(
 	self._net:FireAllClients("DamageDealt", {
 		targetUserId = target.UserId,
 		targetEntityKey = targetEntityKey,
+		targetCharacterName = character and character.Name or nil,
 		attackerUserId = options.source and options.source.UserId or nil,
 		damage = damage,
 		isHeadshot = options.isHeadshot or false,

@@ -1121,6 +1121,9 @@ function WeaponController:_renderBulletTracer(hitData)
 end
 
 function WeaponController:_showHitmarker(hitData)
+	if self._crosshair and type(self._crosshair.ShowHitmarker) == "function" then
+		self._crosshair:ShowHitmarker(hitData and hitData.isHeadshot == true)
+	end
 	if self._fx then
 		self._fx:ShowHitmarker(hitData)
 	end
