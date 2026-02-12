@@ -77,12 +77,13 @@ function CrosshairController:_bindCharacter()
 	end
 
 	self._connections:track(self._player, "CharacterAdded", function(character)
-		self._rootPart = character:FindFirstChild("HumanoidRootPart")
+		-- Support custom character system (Root) and default (HumanoidRootPart)
+		self._rootPart = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 	end, "character")
 
 	local character = self._player.Character or CrosshairController.Mock.character
 	if character then
-		self._rootPart = character:FindFirstChild("HumanoidRootPart")
+		self._rootPart = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 	end
 end
 
@@ -229,7 +230,8 @@ function CrosshairController:_getVelocity()
 	else
 		local character = self._player and self._player.Character
 		if character then
-			rootPart = character:FindFirstChild("HumanoidRootPart")
+			-- Support custom character system (Root) and default (HumanoidRootPart)
+			rootPart = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 		end
 	end
 
@@ -245,7 +247,8 @@ end
 function CrosshairController:_getMovementState()
 	local msm = getMovementStateManager()
 	local characterController = ServiceRegistry:GetController("CharacterController")
-	local weaponController = ServiceRegistry:GetController("WeaponController")
+	-- WeaponController is registered as "Weapon" not "WeaponController"
+	local weaponController = ServiceRegistry:GetController("Weapon")
 	
 	local isCrouching = false
 	local isSliding = false
@@ -253,6 +256,7 @@ function CrosshairController:_getMovementState()
 	local isGrounded = true
 	local isADS = false
 	
+	-- Get movement states from MovementStateManager (primary source)
 	if msm then
 		isCrouching = msm:IsCrouching()
 		isSliding = msm:IsSliding()
@@ -260,14 +264,27 @@ function CrosshairController:_getMovementState()
 		isGrounded = msm:GetIsGrounded()
 	end
 	
+	-- CharacterController has authoritative grounded state
 	if characterController then
 		isGrounded = characterController.IsGrounded
+		-- Fallback: check IsCrouching/IsSprinting flags if msm failed
+		if not msm then
+			if characterController.IsCrouching then
+				isCrouching = characterController.IsCrouching
+			end
+			if characterController.IsSprinting then
+				isSprinting = characterController.IsSprinting
+			end
+		end
 	end
 	
-	if weaponController and type(weaponController.IsADS) == "function" then
-		isADS = weaponController:IsADS()
-	elseif weaponController and weaponController._isADS ~= nil then
-		isADS = weaponController._isADS == true
+	-- Check ADS state from WeaponController
+	if weaponController then
+		if type(weaponController.IsADS) == "function" then
+			isADS = weaponController:IsADS()
+		elseif weaponController._isADS ~= nil then
+			isADS = weaponController._isADS == true
+		end
 	end
 	
 	return {

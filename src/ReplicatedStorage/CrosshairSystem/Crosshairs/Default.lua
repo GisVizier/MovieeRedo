@@ -2,26 +2,26 @@ local module = {}
 module.__index = module
 
 module.Config = {
-	-- Velocity-based spread (INCREASED for visible feedback)
-	velocitySensitivity = 0.8,    -- Much higher sensitivity to movement
+	-- Velocity-based spread (VERY HIGH for visible feedback)
+	velocitySensitivity = 1.5,    -- Very high sensitivity to movement speed
 	velocityMinSpread = 0,        -- Tight when standing still
-	velocityMaxSpread = 35,       -- Higher max spread from velocity
-	velocityRecoveryRate = 4,     -- Slower recovery so changes are visible
-	recoilRecoveryRate = 5,
+	velocityMaxSpread = 60,       -- Large max spread from velocity
+	velocityRecoveryRate = 3,     -- Slower recovery so changes are visible longer
+	recoilRecoveryRate = 4,       -- Slower recoil recovery for visible kick
 	baseScale = 0.5,
-	maxSpread = 80,               -- Allow larger max spread
-	maxRecoil = 5,
+	maxSpread = 120,              -- Allow very large max spread
+	maxRecoil = 8,                -- Higher max recoil for bigger kick
 	
 	-- Base spread when moving (always applied when speed > threshold)
-	movingBaseSpread = 4,         -- Minimum spread when moving at all
-	movingThreshold = 2,          -- Speed threshold to be "moving"
+	movingBaseSpread = 8,         -- Instant spread when you start moving
+	movingThreshold = 1,          -- Low threshold - any movement triggers spread
 	
-	-- Movement state spread multipliers (MORE EXTREME for visibility)
-	crouchMult = 0.4,             -- 60% reduction when crouching (very accurate)
-	slideMult = 0.6,              -- 40% reduction when sliding
-	sprintMult = 1.8,             -- 80% more spread when sprinting
-	airMult = 2.0,                -- 100% more spread in air (double)
-	adsMult = 0.3,                -- 70% reduction when ADS
+	-- Movement state spread multipliers (VERY EXTREME for visibility)
+	crouchMult = 0.3,             -- 70% reduction when crouching
+	slideMult = 0.5,              -- 50% reduction when sliding
+	sprintMult = 2.2,             -- 120% more spread when sprinting
+	airMult = 2.5,                -- 150% more spread in air
+	adsMult = 0.2,                -- 80% reduction when ADS
 }
 
 local function applyStrokeProps(instance, color, thickness, transparency)
@@ -186,10 +186,10 @@ function module:Update(dt, state)
 		stateMult = stateMult * adsMult
 	end
 
-	-- Calculate final spread with state modifier (increased multiplier for visibility)
+	-- Calculate final spread with state modifier (high multiplier for visible spread)
 	local spreadAmount = (self._velocitySpread + self._currentRecoil) * stateMult
-	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 3, 0, self.Config.maxSpread)
-	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 3, 0, self.Config.maxSpread)
+	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 5, 0, self.Config.maxSpread)
+	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 5, 0, self.Config.maxSpread)
 	
 	-- Use weapon-specific base gap or fall back to customization
 	local gap = weaponData.baseGap or (customization and customization.gapFromCenter) or 10

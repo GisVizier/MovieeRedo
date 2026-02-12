@@ -95,15 +95,15 @@ LoadoutConfig.Weapons = {
 
 		crosshair = {
 			type = "Default",
-			spreadX = 1.2,
-			spreadY = 1.2,
-			recoilMultiplier = 3.5,
-			-- Sniper: very tight when still, VERY punishing when moving
-			crouchMult = 0.2,      -- 80% reduction when crouching
-			sprintMult = 2.5,      -- 150% more spread when sprinting
-			airMult = 3.0,         -- Triple spread in air
-			adsMult = 0.1,         -- 90% reduction when ADS (pinpoint)
-			baseGap = 12,          -- Base gap
+			spreadX = 2.0,
+			spreadY = 2.0,
+			recoilMultiplier = 4.0,
+			-- Sniper: tight when still, EXTREMELY punishing when moving
+			crouchMult = 0.15,     -- 85% reduction when crouching
+			sprintMult = 3.0,      -- 200% more spread when sprinting
+			airMult = 4.0,         -- 4x spread in air!
+			adsMult = 0.05,        -- 95% reduction when ADS (pinpoint)
+			baseGap = 10,          -- Base gap
 		},
 
 		-- Aim Assist settings (sniper: precise, narrow FOV, smooth pull)
@@ -189,15 +189,15 @@ LoadoutConfig.Weapons = {
 
 		crosshair = {
 			type = "Shotgun",
-			spreadX = 3.0,
-			spreadY = 3.0,
-			recoilMultiplier = 2.5,
-			-- Shotgun: naturally wide, but still reacts to movement
-			crouchMult = 0.6,      -- 40% reduction when crouching
-			sprintMult = 1.4,      -- 40% more spread when sprinting
-			airMult = 1.6,         -- 60% more spread in air
-			adsMult = 0.5,         -- 50% reduction when ADS
-			baseGap = 10,          -- Base gap for shotgun
+			spreadX = 3.5,
+			spreadY = 3.5,
+			recoilMultiplier = 3.0,
+			-- Shotgun: naturally wide, visible movement reactions
+			crouchMult = 0.5,      -- 50% reduction when crouching
+			sprintMult = 1.8,      -- 80% more spread when sprinting
+			airMult = 2.0,         -- 100% more spread in air
+			adsMult = 0.4,         -- 60% reduction when ADS
+			baseGap = 8,           -- Base gap for shotgun
 		},
 
 		-- Aim Assist settings (shotgun: close range, wide FOV, strong smooth pull)
@@ -319,15 +319,15 @@ LoadoutConfig.Weapons = {
 
 		crosshair = {
 			type = "Default",
-			spreadX = 2.0,
-			spreadY = 2.0,
-			recoilMultiplier = 1.6,
-			-- Movement state spread modifiers (NOTICEABLE)
-			crouchMult = 0.3,      -- 70% reduction when crouching (very accurate)
-			sprintMult = 1.8,      -- 80% more spread when sprinting
-			airMult = 2.0,         -- Double spread in air
-			adsMult = 0.25,        -- 75% reduction when ADS
-			baseGap = 10,          -- Base gap for crosshair
+			spreadX = 2.5,
+			spreadY = 2.5,
+			recoilMultiplier = 2.0,
+			-- Movement state spread modifiers (VERY NOTICEABLE)
+			crouchMult = 0.25,     -- 75% reduction when crouching
+			sprintMult = 2.2,      -- 120% more spread when sprinting
+			airMult = 2.5,         -- 150% more spread in air
+			adsMult = 0.15,        -- 85% reduction when ADS
+			baseGap = 8,           -- Base gap for crosshair
 		},
 
 		-- Aim Assist settings (assault rifle: balanced, medium range)
@@ -424,15 +424,15 @@ LoadoutConfig.Weapons = {
 
 		crosshair = {
 			type = "Default",
-			spreadX = 1.8,
-			spreadY = 1.8,
-			recoilMultiplier = 2.5,
-			-- Revolver: precision secondary
-			crouchMult = 0.3,      -- 70% reduction when crouching
-			sprintMult = 2.0,      -- Double spread when sprinting
-			airMult = 2.2,         -- Large penalty in air
-			adsMult = 0.25,        -- 75% reduction when ADS
-			baseGap = 12,          -- Base gap
+			spreadX = 2.2,
+			spreadY = 2.2,
+			recoilMultiplier = 3.0,
+			-- Revolver: precision secondary with big kick
+			crouchMult = 0.25,     -- 75% reduction when crouching
+			sprintMult = 2.5,      -- 150% more spread when sprinting
+			airMult = 3.0,         -- Triple spread in air
+			adsMult = 0.2,         -- 80% reduction when ADS
+			baseGap = 10,          -- Base gap
 		},
 
 		projectile = {
