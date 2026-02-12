@@ -199,6 +199,9 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 
 	local horizontalVelocity = wallPushVelocity + cameraPushVelocity
 	local verticalVelocity = config.VerticalBoost * jumpFatigueMultiplier
+	if characterController and characterController.ApplyJumpFatigueToVertical then
+		verticalVelocity = characterController:ApplyJumpFatigueToVertical(config.VerticalBoost)
+	end
 
 	local newVelocity = Vector3.new(
 		horizontalVelocity.X,

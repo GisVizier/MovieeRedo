@@ -793,6 +793,9 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 		jumpFatigueMultiplier = movementController:GetJumpFatigueMultiplier()
 	end
 	local jumpPower = JUMP_POWER * jumpFatigueMultiplier
+	if movementController and movementController.ApplyJumpFatigueToVertical then
+		jumpPower = movementController:ApplyJumpFatigueToVertical(JUMP_POWER)
+	end
 
 	local currentVelocity = primaryPart.AssemblyLinearVelocity
 	local jumpVelocity = Vector3.new(currentVelocity.X, jumpPower, currentVelocity.Z)

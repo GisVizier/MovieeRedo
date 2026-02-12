@@ -182,9 +182,15 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	if characterController and characterController.GetJumpFatigueMultiplier then
 		jumpFatigueMultiplier = characterController:GetJumpFatigueMultiplier()
 	end
+	local function applyJumpFatigue(baseVertical)
+		if characterController and characterController.ApplyJumpFatigueToVertical then
+			return characterController:ApplyJumpFatigueToVertical(baseVertical)
+		end
+		return baseVertical * jumpFatigueMultiplier
+	end
 
 	local isUphillBoost = false
-	local verticalBoost = config.JumpHeight * jumpFatigueMultiplier
+	local verticalBoost = applyJumpFatigue(config.JumpHeight)
 	local horizontalPower = 0
 
 	if config.UphillBoost.Enabled then
@@ -225,9 +231,9 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 							direction = (direction * (1 - slopeStrength) + slopeForwardDirection * slopeStrength).Unit
 						end
 
-						verticalBoost = config.UphillBoost.MinVerticalBoost
+						local baseUphillVerticalBoost = config.UphillBoost.MinVerticalBoost
 							+ (config.UphillBoost.MaxVerticalBoost - config.UphillBoost.MinVerticalBoost) * (1 - slopeStrength)
-						verticalBoost = verticalBoost * jumpFatigueMultiplier
+						verticalBoost = applyJumpFatigue(baseUphillVerticalBoost)
 
 						local velocityForScaling = isCurrentlySliding and self.SlidingSystem.SlideVelocity
 							or (isInCoyoteTime and self.SlidingSystem.SlideStopVelocity or self.SlidingSystem.SlideVelocity)

@@ -10,6 +10,7 @@ local Character = {
 		FreeJumps = 3,
 		DecayPerJump = 0.09,
 		MinMultiplier = 0.35,
+		MinVerticalVelocity = 12,
 		GroundResetTime = 2,
 		RecoverWhileFalling = true,
 	},

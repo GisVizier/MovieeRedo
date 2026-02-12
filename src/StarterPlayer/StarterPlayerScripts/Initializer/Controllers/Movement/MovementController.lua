@@ -160,6 +160,24 @@ function CharacterController:GetJumpFatigueMultiplier()
 	return math.clamp(rawMultiplier, minMultiplier, 1)
 end
 
+function CharacterController:ApplyJumpFatigueToVertical(baseVertical)
+	local fatigueConfig = self:GetJumpFatigueConfig()
+	if not fatigueConfig or not fatigueConfig.Enabled then
+		return baseVertical
+	end
+
+	local jumpFatigueMultiplier = self:GetJumpFatigueMultiplier()
+	local fatiguedVertical = baseVertical * jumpFatigueMultiplier
+	local minVertical = fatigueConfig.MinVerticalVelocity
+
+	if type(minVertical) == "number" and minVertical > 0 then
+		local cappedMinVertical = math.min(minVertical, baseVertical)
+		return math.max(fatiguedVertical, cappedMinVertical)
+	end
+
+	return fatiguedVertical
+end
+
 function CharacterController:ConsumeJumpFatigue(_jumpType)
 	local fatigueConfig = self:GetJumpFatigueConfig()
 	if not fatigueConfig or not fatigueConfig.Enabled then
