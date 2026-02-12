@@ -17,6 +17,60 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 
 local LocalPlayer = Players.LocalPlayer
 
+local function toNumber(value)
+	local parsed = tonumber(value)
+	if parsed == nil then
+		return nil
+	end
+	if parsed ~= parsed then
+		return nil
+	end
+	return parsed
+end
+
+local function toVector3(value)
+	if typeof(value) == "Vector3" then
+		return value
+	end
+	if type(value) ~= "table" then
+		return nil
+	end
+
+	local x = tonumber(value.X or value.x)
+	local y = tonumber(value.Y or value.y)
+	local z = tonumber(value.Z or value.z)
+	if x == nil or y == nil or z == nil then
+		return nil
+	end
+
+	return Vector3.new(x, y, z)
+end
+
+local function getPlayerByUserIdSafe(userId)
+	if type(userId) ~= "number" or userId <= 0 then
+		return nil
+	end
+
+	local ok, player = pcall(Players.GetPlayerByUserId, Players, userId)
+	if ok then
+		return player
+	end
+
+	return nil
+end
+
+local function getCharacterPivotPosition(character)
+	if typeof(character) ~= "Instance" or not character:IsA("Model") then
+		return nil
+	end
+
+	local root = character:FindFirstChild("Root")
+		or character.PrimaryPart
+		or character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChildWhichIsA("BasePart", true)
+	return root and root.Position or nil
+end
+
 local CombatController = {}
 
 CombatController._registry = nil
@@ -139,29 +193,23 @@ function CombatController:_onDamageDealt(data)
 	if not data then return end
 
 	local localUserId = LocalPlayer and LocalPlayer.UserId or nil
-	local attackerUserId = tonumber(data.attackerUserId)
-	local targetUserId = tonumber(data.targetUserId)
+	local attackerUserId = toNumber(data.attackerUserId)
+	local targetUserId = toNumber(data.targetUserId)
 	local isSelfTarget = targetUserId ~= nil and targetUserId == localUserId
 
 	if not data.isHeal and attackerUserId == localUserId and not isSelfTarget then
-		local hitPos = data.position
-		local anchorPos = data.targetPivotPosition
-		if typeof(anchorPos) ~= "Vector3" and targetUserId then
-			local targetPlayer = Players:GetPlayerByUserId(targetUserId)
-			local targetCharacter = targetPlayer and targetPlayer.Character
-			local targetRoot = targetCharacter
-				and (
-					targetCharacter:FindFirstChild("Root")
-					or targetCharacter.PrimaryPart
-					or targetCharacter:FindFirstChild("HumanoidRootPart")
-				)
-			anchorPos = targetRoot and targetRoot.Position or nil
-		end
-		if typeof(anchorPos) ~= "Vector3" then
-			anchorPos = hitPos
-		end
+		local hitPos = toVector3(data.position)
+		local targetPivot = toVector3(data.targetPivotPosition)
+		local targetPlayer = getPlayerByUserIdSafe(targetUserId)
+		local targetCharacter = targetPlayer and targetPlayer.Character
 
-		if typeof(anchorPos) == "Vector3" then
+		-- Use server position first (guaranteed when DamageDealt is broadcast),
+		-- then live character pivot for smoother tracking, then targetPivotPosition
+		local anchorPos = getCharacterPivotPosition(targetCharacter)
+			or hitPos
+			or targetPivot
+
+		if anchorPos then
 			local targetKey = targetUserId
 			if targetKey == nil then
 				targetKey = data.targetEntityKey
@@ -184,17 +232,14 @@ function CombatController:_onDamageDealt(data)
 	end
 
 	if not data.isHeal and isSelfTarget then
-		local sourcePosition = data.sourcePosition
-		if not sourcePosition and attackerUserId then
-			local attacker = Players:GetPlayerByUserId(attackerUserId)
+		local sourcePosition = nil
+		if attackerUserId then
+			local attacker = getPlayerByUserIdSafe(attackerUserId)
 			local attackerCharacter = attacker and attacker.Character
-			local attackerRoot = attackerCharacter
-				and (
-					attackerCharacter:FindFirstChild("Root")
-					or attackerCharacter.PrimaryPart
-					or attackerCharacter:FindFirstChild("HumanoidRootPart")
-				)
-			sourcePosition = attackerRoot and attackerRoot.Position or nil
+			sourcePosition = getCharacterPivotPosition(attackerCharacter)
+		end
+		if not sourcePosition then
+			sourcePosition = toVector3(data.sourcePosition)
 		end
 
 		if sourcePosition then

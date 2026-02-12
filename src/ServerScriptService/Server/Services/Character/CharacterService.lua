@@ -9,7 +9,9 @@ local CollectionService = game:GetService("CollectionService")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local RagdollModule = require(ReplicatedStorage:WaitForChild("Ragdoll"):WaitForChild("Ragdoll"))
-local RagdollSystem = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RagdollSystem"))
+local RagdollSystem = require(
+	ReplicatedStorage:WaitForChild("Game"):WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RagdollSystem")
+)
 
 CharacterService.ActiveCharacters = {}
 CharacterService.IsClientSetupComplete = {}
@@ -107,7 +109,6 @@ function CharacterService:_bindRemotes()
 			end
 		end
 	end)
-
 end
 
 function CharacterService:_ensureEntitiesContainer()
@@ -335,7 +336,12 @@ function CharacterService:RagdollCharacter(character, duration, options)
 		rig = character:FindFirstChild("Rig", true)
 	end
 	if not rig or not (rig:IsA("Model") or rig:IsA("Folder")) then
-		warn(string.format("[CharacterService] RagdollCharacter: rig container not found for %s", character:GetFullName()))
+		warn(
+			string.format(
+				"[CharacterService] RagdollCharacter: rig container not found for %s",
+				character:GetFullName()
+			)
+		)
 		return false
 	end
 
@@ -376,19 +382,22 @@ function CharacterService:RagdollCharacter(character, duration, options)
 		-- Break any direct joints that could keep rig bound to Root.
 		for _, descendant in ipairs(character:GetDescendants()) do
 			if descendant:IsA("WeldConstraint") then
-				if (descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
+				if
+					(descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
 					or (descendant.Part0 == rigRoot and descendant.Part1 == characterRoot)
 				then
 					descendant:Destroy()
 				end
 			elseif descendant:IsA("Motor6D") then
-				if (descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
+				if
+					(descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
 					or (descendant.Part0 == rigRoot and descendant.Part1 == characterRoot)
 				then
 					descendant:Destroy()
 				end
 			elseif descendant:IsA("Weld") then
-				if (descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
+				if
+					(descendant.Part0 == characterRoot and descendant.Part1 == rigRoot)
 					or (descendant.Part0 == rigRoot and descendant.Part1 == characterRoot)
 				then
 					descendant:Destroy()
@@ -405,7 +414,12 @@ function CharacterService:RagdollCharacter(character, duration, options)
 
 	local started = RagdollSystem:RagdollRig(rig, ragdollOptions)
 	if not started then
-		warn(string.format("[CharacterService] RagdollCharacter: RagdollSystem failed to start for %s", rig:GetFullName()))
+		warn(
+			string.format(
+				"[CharacterService] RagdollCharacter: RagdollSystem failed to start for %s",
+				rig:GetFullName()
+			)
+		)
 		return false
 	end
 

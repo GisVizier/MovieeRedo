@@ -14,23 +14,35 @@ local function isPlayerInstance(entity)
 	return typeof(entity) == "Instance" and entity:IsA("Player")
 end
 
-local function resolveRootPosition(character)
-	if typeof(character) ~= "Instance" or not character:IsA("Model") then
-		return nil
-	end
-
-	local root = character:FindFirstChild("Root")
-		or character.PrimaryPart
-		or character:FindFirstChild("HumanoidRootPart")
-		or character:FindFirstChild("Torso")
-		or character:FindFirstChildWhichIsA("BasePart", true)
-
+local function getRootPosition(character)
+	if not character then return nil end
+	local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 	return root and root.Position or nil
 end
 
-local function randomHorizontalDirection()
-	local angle = math.random() * math.pi * 2
-	return Vector3.new(math.cos(angle), 0, math.sin(angle))
+local function getDeterministicHorizontalDirection(victim, killer, victimCharacter)
+	local victimPos = getRootPosition(victimCharacter)
+	if victimPos and killer and killer.Character then
+		local killerPos = getRootPosition(killer.Character)
+		if killerPos then
+			local delta = victimPos - killerPos
+			local horiz = Vector3.new(delta.X, 0, delta.Z)
+			if horiz.Magnitude > 0.001 then
+				return horiz.Unit
+			end
+		end
+	end
+	if victimCharacter then
+		local root = victimCharacter:FindFirstChild("Root") or victimCharacter:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") then
+			local look = root.CFrame.LookVector
+			local horiz = Vector3.new(look.X, 0, look.Z)
+			if horiz.Magnitude > 0.001 then
+				return horiz.Unit
+			end
+		end
+	end
+	return Vector3.new(1, 0, 0)
 end
 
 local function resolveCharacter(entity, fallbackCharacter)
@@ -64,7 +76,13 @@ end
 	@param _options table? - Additional options (unused)
 	@param context table? - Contains { registry } for service access
 ]]
-function Ragdoll:Execute(victim: Player, killer: Player?, _weaponId: string?, _options: {[string]: any}?, context: {[string]: any}?)
+function Ragdoll:Execute(
+	victim: Player,
+	killer: Player?,
+	_weaponId: string?,
+	_options: { [string]: any }?,
+	context: { [string]: any }?
+)
 	local registry = context and context.registry
 	if not registry then
 		warn("[KillEffects/Ragdoll] No registry in context — cannot ragdoll")
@@ -84,31 +102,38 @@ function Ragdoll:Execute(victim: Player, killer: Player?, _weaponId: string?, _o
 		return
 	end
 
-	-- Build knockback direction
+	-- Build knockback direction from where they were shot (source -> hit = push away from shooter)
 	local ragdollOptions = {}
 	local sourcePosition = options.sourcePosition
-	local hitPosition = options.hitPosition or resolveRootPosition(victimCharacter)
+	local hitPosition = options.hitPosition
 
-	-- If we didn't get hit-detection positions, fall back to live character locations.
-	if typeof(sourcePosition) ~= "Vector3" and isPlayerInstance(killer) then
-		sourcePosition = resolveRootPosition(killer.Character)
+	-- Use victim/killer positions as fallbacks when shot data is partial
+	if not sourcePosition and killer and killer.Character then
+		sourcePosition = getRootPosition(killer.Character)
+	end
+	if not hitPosition and victimCharacter then
+		hitPosition = getRootPosition(victimCharacter)
 	end
 
 	local launchDirection = nil
-	if typeof(sourcePosition) == "Vector3" and typeof(hitPosition) == "Vector3" then
+	local impactDirection = options.impactDirection
+	if typeof(impactDirection) == "Vector3" and impactDirection.Magnitude > 0.001 then
+		launchDirection = impactDirection.Unit
+	end
+
+	if not launchDirection and typeof(sourcePosition) == "Vector3" and typeof(hitPosition) == "Vector3" then
 		local delta = hitPosition - sourcePosition
 		if delta.Magnitude > 0.001 then
 			launchDirection = delta.Unit
 		end
 	end
 
-	local horizontalDirection = launchDirection
-		and Vector3.new(launchDirection.X, 0, launchDirection.Z)
-		or Vector3.zero
+	local horizontalDirection = launchDirection and Vector3.new(launchDirection.X, 0, launchDirection.Z) or Vector3.zero
 
-	-- If no valid horizontal direction, apply a random push so ragdolls still fling on death.
+	-- If no valid horizontal direction, use full launchDirection (vertical shots) or deterministic fallback
 	if horizontalDirection.Magnitude <= 0.001 then
-		horizontalDirection = randomHorizontalDirection()
+		horizontalDirection = (launchDirection and launchDirection.Magnitude > 0.001 and launchDirection.Unit)
+			or getDeterministicHorizontalDirection(victim, killer, victimCharacter)
 	end
 
 	ragdollOptions.Velocity = horizontalDirection.Unit * 95 + Vector3.new(0, 45, 0)
@@ -121,7 +146,12 @@ function Ragdoll:Execute(victim: Player, killer: Player?, _weaponId: string?, _o
 	if isPlayerInstance(victim) and characterService.Ragdoll then
 		local ok = characterService:Ragdoll(victim, nil, ragdollOptions)
 		if not ok then
-			warn(string.format("[KillEffects/Ragdoll] CharacterService:Ragdoll returned false for %s", tostring(victim and victim.Name)))
+			warn(
+				string.format(
+					"[KillEffects/Ragdoll] CharacterService:Ragdoll returned false for %s",
+					tostring(victim and victim.Name)
+				)
+			)
 		end
 		return
 	end
@@ -130,7 +160,12 @@ function Ragdoll:Execute(victim: Player, killer: Player?, _weaponId: string?, _o
 	if characterService.RagdollCharacter then
 		local ok = characterService:RagdollCharacter(victimCharacter, nil, ragdollOptions)
 		if not ok then
-			warn(string.format("[KillEffects/Ragdoll] RagdollCharacter returned false for %s", victimCharacter:GetFullName()))
+			warn(
+				string.format(
+					"[KillEffects/Ragdoll] RagdollCharacter returned false for %s",
+					victimCharacter:GetFullName()
+				)
+			)
 		end
 		return
 	end

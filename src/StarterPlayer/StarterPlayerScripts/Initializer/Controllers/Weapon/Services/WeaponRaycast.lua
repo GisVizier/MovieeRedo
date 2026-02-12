@@ -308,15 +308,20 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 			if hitCharacter then
 				local hitPlayer = Players:GetPlayerFromCharacter(hitCharacter)
 				if hitPlayer then
-					return {
-						origin = origin,
-						direction = direction,
-						hitPart = nil,
-						hitPosition = targetPosition,
-						hitPlayer = nil,
-						hitCharacter = nil,
-						isHeadshot = false,
-					}
+					-- Reject only when hit is on Rig/cosmetic copy (not the actual character).
+					-- When Collider is missing, we need to accept hits on HumanoidRootPart/Head.
+					if not result.Instance:IsDescendantOf(hitCharacter) then
+						return {
+							origin = origin,
+							direction = direction,
+							hitPart = nil,
+							hitPosition = targetPosition,
+							hitPlayer = nil,
+							hitCharacter = nil,
+							isHeadshot = false,
+						}
+					end
+					-- Hit is on the actual character (e.g. HumanoidRootPart, Head) - accept it
 				end
 			end
 		end

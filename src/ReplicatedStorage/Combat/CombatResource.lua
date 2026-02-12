@@ -260,6 +260,11 @@ function CombatResource:TakeDamage(amount: number, options: {
 	if self._health <= 0 and not self._isDead then
 		self._isDead = true
 		killed = true
+		self._lastDeathContext = {
+			sourcePosition = options.sourcePosition,
+			hitPosition = options.hitPosition,
+			impactDirection = options.impactDirection,
+		}
 		fireSignal(self.OnDeath, options.source, options.weaponId)
 	end
 	

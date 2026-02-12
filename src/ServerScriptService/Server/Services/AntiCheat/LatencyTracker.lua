@@ -35,8 +35,8 @@ local CONFIG = {
 
 -- Base tolerances (scaled by ping)
 local BASE_TOLERANCES = {
-	PositionTolerance = 5,          -- studs
-	HeadTolerance = 2.5,            -- studs (tighter for headshots)
+	PositionTolerance = 8,          -- studs (includes body-surface-to-root offset)
+	HeadTolerance = 5,              -- studs (head is smaller but still offset from root)
 	TimestampTolerance = 0.5,       -- seconds
 }
 

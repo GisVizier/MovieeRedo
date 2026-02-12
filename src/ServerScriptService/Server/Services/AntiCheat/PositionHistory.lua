@@ -22,9 +22,9 @@ local PositionHistory = {}
 
 -- Configuration
 local CONFIG = {
-	HistorySize = 60,       -- 1 second at 60Hz
+	HistorySize = 120,      -- 2 seconds at 60Hz (more rollback headroom for lag compensation)
 	SampleSize = 21,        -- bytes per sample (8 + 12 + 1) - f64 timestamp for precision
-	MaxInterpolationGap = 0.1, -- Max time gap to interpolate across (seconds)
+	MaxInterpolationGap = 0.2, -- Max time gap to interpolate across (seconds)
 }
 
 -- Stance enum
