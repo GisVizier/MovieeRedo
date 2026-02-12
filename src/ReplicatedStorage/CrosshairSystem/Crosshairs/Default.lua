@@ -1,32 +1,52 @@
 local module = {}
 module.__index = module
 
--- DEBUG LOGGING
-local DEBUG_CROSSHAIR = true
+local DEBUG_CROSSHAIR = false
 local DEBUG_LOG_INTERVAL = 1
 local lastDebugTime = 0
 
 module.Config = {
-	-- Velocity-based spread (VERY HIGH for visible feedback)
-	velocitySensitivity = 1.5,    -- Very high sensitivity to movement speed
-	velocityMinSpread = 0,        -- Tight when standing still
-	velocityMaxSpread = 60,       -- Large max spread from velocity
-	velocityRecoveryRate = 3,     -- Slower recovery so changes are visible longer
-	recoilRecoveryRate = 4,       -- Slower recoil recovery for visible kick
-	baseScale = 0.5,
-	maxSpread = 120,              -- Allow very large max spread
-	maxRecoil = 8,                -- Higher max recoil for bigger kick
+	-- Movement spread
+	velocitySensitivity = .035,
+	verticalVelocityWeight = 0.035, -- Adds Y velocity influence into spread.
+	velocityMinSpread = 0,
+	velocityMaxSpread = 10,
 	
-	-- Base spread when moving (always applied when speed > threshold)
-	movingBaseSpread = 8,         -- Instant spread when you start moving
-	movingThreshold = 1,          -- Low threshold - any movement triggers spread
-	
-	-- Movement state spread multipliers (VERY EXTREME for visibility)
-	crouchMult = 0.3,             -- 70% reduction when crouching
-	slideMult = 0.5,              -- 50% reduction when sliding
-	sprintMult = 2.2,             -- 120% more spread when sprinting
-	airMult = 2.5,                -- 150% more spread in air
-	adsMult = 0.2,                -- 80% reduction when ADS
+	velocityRecoveryRate = 12,
+	movingBaseSpread = .85,
+	movingThreshold = 1,
+
+	-- Recoil spread
+	recoilRecoveryRate = 9, -- studs/sec-style decay for recoil spread.
+	maxRecoil = 4,
+
+	-- Final scaling
+	spreadScale = 2.0,
+	maxSpread = 90,
+
+	-- State multipliers (spread)
+	crouchMult = 0.75,
+	slideMult = 0.9,
+	sprintMult = 1.35,
+	airMult = 1.5,
+	adsMult = 0.8,
+
+	-- State multipliers (recoil recovery strength)
+	crouchRecoilMult = 0.8,
+	slideRecoilMult = 0.9,
+	sprintRecoilMult = 1.1,
+	airRecoilMult = 1.2,
+	adsRecoilMult = 0.75,
+
+	-- Gap behavior
+	defaultGap = 25,
+	minGap = 22,
+	maxGap = 45,
+	crouchMinGap = 10,
+	adsMinGap = 8,
+
+	crouchGapMult = 0.5, -- Crouch pulls lines slightly inward.
+	adsGapMult = 0.3, -- ADS pulls lines inward more.
 }
 
 local function applyStrokeProps(instance, color, thickness, transparency)
@@ -45,6 +65,34 @@ local function applyCorner(instance, radius)
 	end
 end
 
+local function positiveMultiplier(value, fallback)
+	if type(value) == "number" and value > 0 then
+		return value
+	end
+	return fallback
+end
+
+local function resolveGap(customization, weaponData, config, state)
+	local rawGap = (customization and customization.gapFromCenter) or weaponData.baseGap or config.defaultGap
+	local minGap = config.minGap
+	local maxGap = config.maxGap
+
+	if state then
+		local gapMult = 1
+		if state.isCrouching then
+			gapMult *= config.crouchGapMult
+			minGap = math.min(minGap, config.crouchMinGap or minGap)
+		end
+		if state.isADS then
+			gapMult *= config.adsGapMult
+			minGap = math.min(minGap, config.adsMinGap or minGap)
+		end
+		rawGap *= gapMult
+	end
+
+	return math.clamp(rawGap, minGap, maxGap)
+end
+
 function module.new(template: Frame)
 	local self = setmetatable({}, module)
 	self._root = template
@@ -58,26 +106,6 @@ function module.new(template: Frame)
 	self._currentRecoil = 0
 	self._velocitySpread = 0
 	self._customization = nil
-	
-	if DEBUG_CROSSHAIR then
-		print("[Default.lua] module.new called")
-		print("[Default.lua]   Template:", template and template:GetFullName() or "nil")
-		print("[Default.lua]   _lines found:", self._lines ~= nil)
-		print("[Default.lua]   _dot found:", self._dot ~= nil)
-		print("[Default.lua]   _top found:", self._top ~= nil)
-		print("[Default.lua]   _bottom found:", self._bottom ~= nil)
-		print("[Default.lua]   _left found:", self._left ~= nil)
-		print("[Default.lua]   _right found:", self._right ~= nil)
-		
-		-- If lines not found, search for any Frame children that might be the lines
-		if not self._lines then
-			print("[Default.lua]   Looking for alternative line structure...")
-			for _, child in template:GetChildren() do
-				print("[Default.lua]     Found child:", child.Name, child.ClassName)
-			end
-		end
-	end
-	
 	return self
 end
 
@@ -130,7 +158,7 @@ function module:ApplyCustomization(customization)
 
 	local thickness = customization.lineThickness or 2
 	local length = customization.lineLength or 10
-	local gap = customization.gapFromCenter or 5
+	local gap = resolveGap(customization, {}, self.Config, nil)
 
 	if self._top then
 		self._top.Size = UDim2.fromOffset(thickness, length)
@@ -154,88 +182,85 @@ function module:ApplyCustomization(customization)
 end
 
 function module:Update(dt, state)
+	local frameDt = math.clamp(dt or 0, 0, 0.1)
 	local velocity = state.velocity or Vector3.zero
-	local speed = state.speed or velocity.Magnitude
 	local customization = state.customization or self._customization
 	local weaponData = state.weaponData or {}
 
-	-- Calculate base velocity spread
+	local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+	local verticalSpeed = math.abs(velocity.Y)
+	local effectiveSpeed = horizontalSpeed + verticalSpeed * self.Config.verticalVelocityWeight
+
 	local targetVelocitySpread = 0
 	if not customization or customization.dynamicSpreadEnabled ~= false then
-		-- Add base spread when moving (immediate feedback)
 		local movingBase = 0
-		if speed > self.Config.movingThreshold then
+		if effectiveSpeed > self.Config.movingThreshold then
 			movingBase = self.Config.movingBaseSpread
 		end
-		
 		targetVelocitySpread = math.clamp(
-			movingBase + (speed * self.Config.velocitySensitivity),
+			movingBase + (effectiveSpeed * self.Config.velocitySensitivity),
 			self.Config.velocityMinSpread,
 			self.Config.velocityMaxSpread
 		)
 	end
 
-	local velocityRate = self.Config.velocityRecoveryRate or 1
-	local velocityAlpha = math.clamp(dt * velocityRate, 0, 1)
+	local velocityAlpha = math.clamp(frameDt * self.Config.velocityRecoveryRate, 0, 1)
 	self._velocitySpread += (targetVelocitySpread - self._velocitySpread) * velocityAlpha
 
-	local recoilRate = self.Config.recoilRecoveryRate or 1
-	self._currentRecoil = math.max(self._currentRecoil - dt * recoilRate, 0)
+	local crouchMult = positiveMultiplier(weaponData.crouchMult, self.Config.crouchMult)
+	local slideMult = positiveMultiplier(weaponData.slideMult, self.Config.slideMult)
+	local sprintMult = positiveMultiplier(weaponData.sprintMult, self.Config.sprintMult)
+	local airMult = positiveMultiplier(weaponData.airMult, self.Config.airMult)
+	local adsMult = positiveMultiplier(weaponData.adsMult, self.Config.adsMult)
 
-	-- Calculate state multiplier based on movement state
-	local stateMult = 1.0
-	
-	-- Get multipliers from weapon data or fall back to config defaults
-	local crouchMult = weaponData.crouchMult or self.Config.crouchMult
-	local slideMult = weaponData.slideMult or self.Config.slideMult
-	local sprintMult = weaponData.sprintMult or self.Config.sprintMult
-	local airMult = weaponData.airMult or self.Config.airMult
-	local adsMult = weaponData.adsMult or self.Config.adsMult
-	
-	-- Apply movement state modifiers (mutually exclusive ground states)
+	local spreadStateMult = 1
 	if state.isCrouching then
-		stateMult = stateMult * crouchMult
+		spreadStateMult *= crouchMult
 	elseif state.isSliding then
-		stateMult = stateMult * slideMult
+		spreadStateMult *= slideMult
 	elseif state.isSprinting then
-		stateMult = stateMult * sprintMult
+		spreadStateMult *= sprintMult
 	end
-	
-	-- Air penalty stacks with other states (big visual feedback)
 	if state.isGrounded == false then
-		stateMult = stateMult * airMult
+		spreadStateMult *= airMult
 	end
-	
-	-- ADS reduces spread
 	if state.isADS then
-		stateMult = stateMult * adsMult
+		spreadStateMult *= adsMult
 	end
 
-	-- Calculate final spread with state modifier (high multiplier for visible spread)
-	local spreadAmount = (self._velocitySpread + self._currentRecoil) * stateMult
-	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 5, 0, self.Config.maxSpread)
-	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 5, 0, self.Config.maxSpread)
-	
-	-- Use weapon-specific base gap or fall back to customization
-	local gap = weaponData.baseGap or (customization and customization.gapFromCenter) or 10
-	
-	-- Debug log periodically
+	local recoilRecoveryMult = 1
+	if state.isCrouching then
+		recoilRecoveryMult *= self.Config.crouchRecoilMult
+	elseif state.isSliding then
+		recoilRecoveryMult *= self.Config.slideRecoilMult
+	elseif state.isSprinting then
+		recoilRecoveryMult *= self.Config.sprintRecoilMult
+	end
+	if state.isGrounded == false then
+		recoilRecoveryMult *= self.Config.airRecoilMult
+	end
+	if state.isADS then
+		recoilRecoveryMult *= self.Config.adsRecoilMult
+	end
+
+	self._currentRecoil = math.max(
+		self._currentRecoil - frameDt * self.Config.recoilRecoveryRate * recoilRecoveryMult,
+		0
+	)
+
+	local spreadAmount = (self._velocitySpread + self._currentRecoil) * spreadStateMult
+	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
+	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
+
+	local gap = resolveGap(customization, weaponData, self.Config, state)
+
 	if DEBUG_CROSSHAIR then
 		local now = tick()
 		if now - lastDebugTime > DEBUG_LOG_INTERVAL then
 			lastDebugTime = now
-			print("[Default.lua] UPDATE called")
-			print("[Default.lua]   Speed:", string.format("%.2f", speed))
-			print("[Default.lua]   VelocitySpread:", string.format("%.2f", self._velocitySpread))
-			print("[Default.lua]   Recoil:", string.format("%.2f", self._currentRecoil))
-			print("[Default.lua]   StateMult:", string.format("%.2f", stateMult))
-			print("[Default.lua]   SpreadAmount:", string.format("%.2f", spreadAmount))
-			print("[Default.lua]   SpreadX/Y:", string.format("%.2f / %.2f", spreadX, spreadY))
-			print("[Default.lua]   Gap:", gap)
-			print("[Default.lua]   Has _top:", self._top ~= nil)
-			print("[Default.lua]   Has _bottom:", self._bottom ~= nil)
-			print("[Default.lua]   Has _left:", self._left ~= nil)
-			print("[Default.lua]   Has _right:", self._right ~= nil)
+			print("[Default.lua] effSpeed:", string.format("%.2f", effectiveSpeed), "h:", string.format("%.2f", horizontalSpeed), "v:", string.format("%.2f", verticalSpeed))
+			print("[Default.lua] recoil:", string.format("%.2f", self._currentRecoil), "recoveryRate:", self.Config.recoilRecoveryRate)
+			print("[Default.lua] gap:", string.format("%.2f", gap), "spreadX/Y:", string.format("%.2f/%.2f", spreadX, spreadY))
 		end
 	end
 
@@ -259,7 +284,12 @@ end
 function module:OnRecoil(recoilData, weaponData)
 	local recoilMultiplier = weaponData and weaponData.recoilMultiplier or 1
 	local amount = recoilData and recoilData.amount or 0
-	self._currentRecoil = math.min(self._currentRecoil + amount * recoilMultiplier, self.Config.maxRecoil)
+	if amount <= 0 then
+		return
+	end
+
+	local recoilDelta = amount * recoilMultiplier
+	self._currentRecoil = math.min(self._currentRecoil + recoilDelta, self.Config.maxRecoil)
 end
 
 return module

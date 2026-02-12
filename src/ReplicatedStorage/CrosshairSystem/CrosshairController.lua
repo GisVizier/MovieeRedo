@@ -8,7 +8,7 @@ local CrosshairsFolder = CrosshairSystem:WaitForChild("Crosshairs")
 local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
 -- DEBUG LOGGING
-local DEBUG_CROSSHAIR = true
+local DEBUG_CROSSHAIR = false
 local DEBUG_LOG_INTERVAL = 1 -- Only log every N seconds to avoid spam
 local lastDebugTime = 0
 
@@ -191,6 +191,11 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 	local clone = template:Clone()
 	clone.Visible = true
 	clone.Parent = self._screenGui
+	
+	-- Hide the template container so only the dynamic clone is visible
+	if self._templateContainer then
+		self._templateContainer.Visible = false
+	end
 
 	local moduleInstance = moduleDef.new(clone)
 	if not moduleInstance then
@@ -330,6 +335,17 @@ function CrosshairController:_getMovementState()
 	if weaponController then
 		if type(weaponController.IsADS) == "function" then
 			isADS = weaponController:IsADS()
+		elseif type(weaponController.GetCurrentActions) == "function" then
+			local actions = weaponController:GetCurrentActions()
+			local special = actions and actions.Special
+			if special and type(special.IsActive) == "function" then
+				local ok, active = pcall(function()
+					return special.IsActive()
+				end)
+				if ok then
+					isADS = active == true
+				end
+			end
 		elseif weaponController._isADS ~= nil then
 			isADS = weaponController._isADS == true
 		end

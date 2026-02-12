@@ -66,6 +66,7 @@ WeaponController._weaponInstance = nil
 
 -- State
 WeaponController._isFiring = false
+WeaponController._isADS = false
 WeaponController._lastFireTime = 0
 WeaponController._isAutomatic = false
 WeaponController._autoFireConn = nil
@@ -450,6 +451,20 @@ function WeaponController:_applyCameraRecoil()
 	cameraController.TargetAngleY = cameraController.TargetAngleY + yawKick
 end
 
+function WeaponController:_resolveADSState(defaultState: boolean?): boolean
+	local fallback = defaultState == true
+	local special = self._currentActions and self._currentActions.Special
+	if special and type(special.IsActive) == "function" then
+		local ok, active = pcall(function()
+			return special.IsActive()
+		end)
+		if ok then
+			return active == true
+		end
+	end
+	return fallback
+end
+
 -- =============================================================================
 -- EQUIP / UNEQUIP
 -- =============================================================================
@@ -469,6 +484,7 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	end
 
 	self._currentActions = actions
+	self._isADS = false
 	self._equippedWeaponId = weaponId
 
 	-- Build weapon instance
@@ -626,6 +642,7 @@ function WeaponController:_unequipCurrentWeapon()
 	self._equippedWeaponId = nil
 	self._weaponInstance = nil
 	self._isReloading = false
+	self._isADS = false
 
 	_recoilConfig = nil
 	_recoilPitch = 0
@@ -791,6 +808,8 @@ function WeaponController:_onFirePressed()
 		then
 			if self._currentActions.Special.Cancel then
 				self._currentActions.Special.Cancel()
+				self._isADS = self:_resolveADSState(false)
+				self:_updateAimAssistADS(self._isADS)
 			end
 		end
 	end
@@ -841,6 +860,8 @@ function WeaponController:Reload()
 		then
 			if self._currentActions.Special.Cancel then
 				self._currentActions.Special.Cancel()
+				self._isADS = self:_resolveADSState(false)
+				self:_updateAimAssistADS(self._isADS)
 			end
 		end
 	end
@@ -907,9 +928,11 @@ function WeaponController:Special(isPressed)
 	if self._currentActions.Special then
 		self._currentActions.Special.Execute(self._weaponInstance, isPressed)
 	end
-	
+
+	self._isADS = self:_resolveADSState(isPressed)
+
 	-- Apply Aim Assist ADS boost
-	self:_updateAimAssistADS(isPressed)
+	self:_updateAimAssistADS(self._isADS)
 end
 
 function WeaponController:_updateAimAssistADS(isADS: boolean)
@@ -1140,6 +1163,11 @@ function WeaponController:GetADSSpeedMultiplier(): number
 		return LocalPlayer:GetAttribute("ADSSpeedMultiplier") or 1.0
 	end
 	return 1.0
+end
+
+function WeaponController:IsADS(): boolean
+	self._isADS = self:_resolveADSState(self._isADS)
+	return self._isADS == true
 end
 
 -- =============================================================================

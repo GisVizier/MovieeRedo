@@ -115,11 +115,18 @@ function module:Update(dt, state)
 	local spreadAmount = self._velocitySpread + self._currentRecoil
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 4, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 4, 0, self.Config.maxSpread)
+	local gap = (customization and customization.gapFromCenter) or weaponData.baseGap or 0
+	local gapOffset = math.max(gap, 0) * 2
 
 	if self._root and self._baseSize then
 		local baseX = self._baseSize.X
 		local baseY = self._baseSize.Y
-		self._root.Size = UDim2.new(baseX.Scale, baseX.Offset + spreadX * 2, baseY.Scale, baseY.Offset + spreadY * 2)
+		self._root.Size = UDim2.new(
+			baseX.Scale,
+			baseX.Offset + gapOffset + spreadX * 2,
+			baseY.Scale,
+			baseY.Offset + gapOffset + spreadY * 2
+		)
 	end
 end
 
