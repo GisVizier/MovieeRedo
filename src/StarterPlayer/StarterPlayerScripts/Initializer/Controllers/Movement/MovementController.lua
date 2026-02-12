@@ -83,6 +83,8 @@ CharacterController.StepUpRemaining = 0
 CharacterController.LastStepUpTime = 0
 CharacterController.StepUpBoostTime = 0
 CharacterController.StepUpRequiredVelocity = 0
+CharacterController.JumpFatigueCount = 0
+CharacterController.JumpFatigueRecoveryStartTime = nil
 
 function CharacterController:Init(registry, net)
 	self._registry = registry
@@ -100,6 +102,7 @@ function CharacterController:Init(registry, net)
 	local currentTime = tick()
 	self.LastCrouchTime = currentTime - 1
 	self.LastGroundedTime = currentTime
+	self:ResetJumpFatigue()
 
 	self.MovementInputProcessor = MovementInputProcessor
 	self.MovementInputProcessor:Init(self)
@@ -136,6 +139,67 @@ function CharacterController:Start()
 	local inputController = self._registry:TryGet("Input")
 	local cameraController = self._registry:TryGet("Camera")
 	self:ConnectToInputs(inputController, cameraController)
+end
+
+function CharacterController:GetJumpFatigueConfig()
+	return Config.Gameplay.Character.JumpFatigue
+end
+
+function CharacterController:GetJumpFatigueMultiplier()
+	local fatigueConfig = self:GetJumpFatigueConfig()
+	if not fatigueConfig or not fatigueConfig.Enabled then
+		return 1
+	end
+
+	local freeJumps = fatigueConfig.FreeJumps or 0
+	local decayPerJump = fatigueConfig.DecayPerJump or 0
+	local minMultiplier = fatigueConfig.MinMultiplier or 0
+	local penaltyJumps = math.max(0, (self.JumpFatigueCount + 1) - freeJumps)
+	local rawMultiplier = 1 - (penaltyJumps * decayPerJump)
+
+	return math.clamp(rawMultiplier, minMultiplier, 1)
+end
+
+function CharacterController:ConsumeJumpFatigue(_jumpType)
+	local fatigueConfig = self:GetJumpFatigueConfig()
+	if not fatigueConfig or not fatigueConfig.Enabled then
+		return
+	end
+
+	self.JumpFatigueCount += 1
+	self.JumpFatigueRecoveryStartTime = nil
+end
+
+function CharacterController:ResetJumpFatigue()
+	self.JumpFatigueCount = 0
+	self.JumpFatigueRecoveryStartTime = nil
+end
+
+function CharacterController:UpdateJumpFatigueRecovery()
+	local fatigueConfig = self:GetJumpFatigueConfig()
+	if not fatigueConfig or not fatigueConfig.Enabled then
+		self.JumpFatigueRecoveryStartTime = nil
+		return
+	end
+
+	local resetTime = fatigueConfig.GroundResetTime or 3
+	local isRecovering = self.IsGrounded
+	if not isRecovering and fatigueConfig.RecoverWhileFalling and self.PrimaryPart then
+		isRecovering = self.PrimaryPart.AssemblyLinearVelocity.Y <= 0
+	end
+
+	if isRecovering then
+		if not self.JumpFatigueRecoveryStartTime then
+			self.JumpFatigueRecoveryStartTime = tick()
+			return
+		end
+
+		if (tick() - self.JumpFatigueRecoveryStartTime) >= resetTime then
+			self:ResetJumpFatigue()
+		end
+	else
+		self.JumpFatigueRecoveryStartTime = nil
+	end
 end
 
 -- Teleport the character to a position cleanly without physics fighting
@@ -225,6 +289,7 @@ function CharacterController:OnLocalCharacterReady(character)
 
 	self.RespawnRequested = false
 	MovementStateManager:Reset()
+	self:ResetJumpFatigue()
 
 	if self.CameraController then
 		local cameraAngles = self.CameraController:GetCameraAngles()
@@ -268,6 +333,7 @@ function CharacterController:OnLocalCharacterRemoving()
 	self.StepUpRequiredVelocity = 0
 	self.JumpExecutedThisInput = false
 	self.LastGroundedTime = 0
+	self:ResetJumpFatigue()
 
 	self.InputsConnected = false
 
@@ -528,6 +594,7 @@ function CharacterController:UpdateMovement(deltaTime)
 	end
 
 	self:CheckGrounded()
+	self:UpdateJumpFatigueRecovery()
 
 	if self.IsGrounded and not self.WasGrounded then
 		local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity

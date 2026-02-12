@@ -110,6 +110,10 @@ end
 
 function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, characterController)
 	local config = Config.Gameplay.Character.WallJump
+	local jumpFatigueMultiplier = 1
+	if characterController and characterController.GetJumpFatigueMultiplier then
+		jumpFatigueMultiplier = characterController:GetJumpFatigueMultiplier()
+	end
 
 	local yaw = math.rad(cameraAngles.X)
 	local cameraDirection = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
@@ -194,7 +198,7 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 	local cameraPushVelocity = cameraDirection * horizontalBoost
 
 	local horizontalVelocity = wallPushVelocity + cameraPushVelocity
-	local verticalVelocity = config.VerticalBoost
+	local verticalVelocity = config.VerticalBoost * jumpFatigueMultiplier
 
 	local newVelocity = Vector3.new(
 		horizontalVelocity.X,
@@ -203,6 +207,9 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 	)
 
 	primaryPart.AssemblyLinearVelocity = newVelocity
+	if characterController and characterController.ConsumeJumpFatigue then
+		characterController:ConsumeJumpFatigue("WallJump")
+	end
 
 	self.RemainingCharges = self.RemainingCharges - 1
 	self.HasResetThisLanding = false
@@ -250,6 +257,7 @@ function WallJumpUtils:ExecuteWallJump(primaryPart, wallData, cameraAngles, char
 			HorizontalVelocity = horizontalVelocity,
 			VerticalVelocity = verticalVelocity,
 			NewVelocity = newVelocity,
+			JumpFatigueMultiplier = jumpFatigueMultiplier,
 			RemainingCharges = self.RemainingCharges,
 		})
 	end

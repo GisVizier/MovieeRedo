@@ -178,9 +178,13 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	local currentHorizontalVelocity = Vector3.new(currentVelocity.X, 0, currentVelocity.Z)
 
 	local config = Config.Gameplay.Sliding.JumpCancel
+	local jumpFatigueMultiplier = 1
+	if characterController and characterController.GetJumpFatigueMultiplier then
+		jumpFatigueMultiplier = characterController:GetJumpFatigueMultiplier()
+	end
 
 	local isUphillBoost = false
-	local verticalBoost = config.JumpHeight
+	local verticalBoost = config.JumpHeight * jumpFatigueMultiplier
 	local horizontalPower = 0
 
 	if config.UphillBoost.Enabled then
@@ -223,6 +227,7 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 
 						verticalBoost = config.UphillBoost.MinVerticalBoost
 							+ (config.UphillBoost.MaxVerticalBoost - config.UphillBoost.MinVerticalBoost) * (1 - slopeStrength)
+						verticalBoost = verticalBoost * jumpFatigueMultiplier
 
 						local velocityForScaling = isCurrentlySliding and self.SlidingSystem.SlideVelocity
 							or (isInCoyoteTime and self.SlidingSystem.SlideStopVelocity or self.SlidingSystem.SlideVelocity)
@@ -272,6 +277,9 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 	)
 
 	self.SlidingSystem.PrimaryPart.AssemblyLinearVelocity = finalVelocity
+	if characterController and characterController.ConsumeJumpFatigue then
+		characterController:ConsumeJumpFatigue("JumpCancel")
+	end
 
 	VFXRep:Fire("All", { Module = "SlideCancel" }, {
 		position = self.SlidingSystem.PrimaryPart.Position,
@@ -294,6 +302,7 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 			CharacterPosition = self.SlidingSystem.PrimaryPart.Position,
 			IsUphillBoost = isUphillBoost,
 			BoostType = isUphillBoost and "Uphill" or "Normal",
+			JumpFatigueMultiplier = jumpFatigueMultiplier,
 		})
 	end
 
@@ -353,6 +362,7 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 			JumpCancelPerformed = self.SlidingSystem.JumpCancelPerformed,
 			IsUphillBoost = isUphillBoost,
 			VerticalBoost = verticalBoost,
+			JumpFatigueMultiplier = jumpFatigueMultiplier,
 		})
 	end
 

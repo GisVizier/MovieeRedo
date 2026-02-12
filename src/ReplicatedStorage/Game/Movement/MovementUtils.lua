@@ -737,6 +737,7 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 	local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 	local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 	local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+	local movementController = ServiceRegistry:GetController("MovementController")
 
 	if TestMode.Logging.LogSlidingSystem then
 		LogService:Info("MOVEMENT", "NORMAL JUMP ATTEMPT", {
@@ -787,8 +788,14 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 		end
 	end
 
+	local jumpFatigueMultiplier = 1
+	if movementController and movementController.GetJumpFatigueMultiplier then
+		jumpFatigueMultiplier = movementController:GetJumpFatigueMultiplier()
+	end
+	local jumpPower = JUMP_POWER * jumpFatigueMultiplier
+
 	local currentVelocity = primaryPart.AssemblyLinearVelocity
-	local jumpVelocity = Vector3.new(currentVelocity.X, JUMP_POWER, currentVelocity.Z)
+	local jumpVelocity = Vector3.new(currentVelocity.X, jumpPower, currentVelocity.Z)
 
 	-- Check for slope jump boost
 	local appliedSlopeJump, boostAmount, slopeVelocity = self:ApplySlopeJump(
@@ -800,7 +807,7 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 	)
 
 	if appliedSlopeJump and slopeVelocity then
-		jumpVelocity = Vector3.new(slopeVelocity.X, JUMP_POWER, slopeVelocity.Z)
+		jumpVelocity = Vector3.new(slopeVelocity.X, jumpPower, slopeVelocity.Z)
 
 		if TestMode.Logging.LogSlidingSystem then
 			LogService:Info("MOVEMENT", "SLOPE JUMP BOOST APPLIED", {
@@ -812,6 +819,9 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 	end
 
 	primaryPart.AssemblyLinearVelocity = jumpVelocity
+	if movementController and movementController.ConsumeJumpFatigue then
+		movementController:ConsumeJumpFatigue("Normal")
+	end
 
 	local animationController = ServiceRegistry:GetController("AnimationController")
 	if animationController and animationController.TriggerJumpAnimation then
@@ -822,7 +832,8 @@ function MovementUtils:ApplyJump(primaryPart, isGrounded, character, raycastPara
 		LogService:Info("MOVEMENT", "NORMAL JUMP EXECUTED SUCCESSFULLY", {
 			PreviousVelocity = currentVelocity,
 			NewVelocity = jumpVelocity,
-			JumpPower = JUMP_POWER,
+			JumpPower = jumpPower,
+			JumpFatigueMultiplier = jumpFatigueMultiplier,
 			HorizontalVelocityPreserved = Vector3.new(currentVelocity.X, 0, currentVelocity.Z),
 			PrimaryPartPosition = primaryPart.Position,
 			Timestamp = tick(),
