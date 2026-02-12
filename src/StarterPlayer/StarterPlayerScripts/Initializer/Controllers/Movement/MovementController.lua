@@ -85,6 +85,8 @@ CharacterController.StepUpBoostTime = 0
 CharacterController.StepUpRequiredVelocity = 0
 CharacterController.JumpFatigueCount = 0
 CharacterController.JumpFatigueRecoveryStartTime = nil
+CharacterController.JumpFatigueFloorVelocity = 0
+CharacterController.JumpFatigueFloorUntil = 0
 
 function CharacterController:Init(registry, net)
 	self._registry = registry
@@ -186,11 +188,20 @@ function CharacterController:ConsumeJumpFatigue(_jumpType)
 
 	self.JumpFatigueCount += 1
 	self.JumpFatigueRecoveryStartTime = nil
+
+	local minVertical = fatigueConfig.MinVerticalVelocity
+	if type(minVertical) == "number" and minVertical > 0 then
+		local enforceTime = fatigueConfig.MinVerticalEnforceTime or 0.12
+		self.JumpFatigueFloorVelocity = minVertical
+		self.JumpFatigueFloorUntil = tick() + enforceTime
+	end
 end
 
 function CharacterController:ResetJumpFatigue()
 	self.JumpFatigueCount = 0
 	self.JumpFatigueRecoveryStartTime = nil
+	self.JumpFatigueFloorVelocity = 0
+	self.JumpFatigueFloorUntil = 0
 end
 
 function CharacterController:UpdateJumpFatigueRecovery()
@@ -217,6 +228,26 @@ function CharacterController:UpdateJumpFatigueRecovery()
 		end
 	else
 		self.JumpFatigueRecoveryStartTime = nil
+	end
+end
+
+function CharacterController:EnforceJumpFatigueVerticalFloor()
+	if not self.PrimaryPart then
+		return
+	end
+
+	if tick() > (self.JumpFatigueFloorUntil or 0) then
+		return
+	end
+
+	local minVertical = self.JumpFatigueFloorVelocity or 0
+	if minVertical <= 0 then
+		return
+	end
+
+	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+	if currentVelocity.Y > 0 and currentVelocity.Y < minVertical then
+		self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, minVertical, currentVelocity.Z)
 	end
 end
 
@@ -690,6 +721,8 @@ function CharacterController:UpdateMovement(deltaTime)
 	if self.MovementInputProcessor and self.MovementInputProcessor:ShouldProcessJump() then
 		self.MovementInputProcessor:ProcessJumpInput()
 	end
+
+	self:EnforceJumpFatigueVerticalFloor()
 
 	local fullVelocity = self.PrimaryPart and self.PrimaryPart.AssemblyLinearVelocity or Vector3.zero
 	local horizontalSpeed = Vector3.new(fullVelocity.X, 0, fullVelocity.Z).Magnitude
