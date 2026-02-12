@@ -7,14 +7,27 @@ local CrosshairSystem = ReplicatedStorage:WaitForChild("CrosshairSystem")
 local CrosshairsFolder = CrosshairSystem:WaitForChild("Crosshairs")
 local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
+-- Lazy load MovementStateManager to avoid circular dependencies
+local MovementStateManager = nil
+local function getMovementStateManager()
+	if MovementStateManager then
+		return MovementStateManager
+	end
+	pcall(function()
+		local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+		MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+	end)
+	return MovementStateManager
+end
+
 local CrosshairController = {}
 CrosshairController.__index = CrosshairController
 
 CrosshairController.Mock = {
 	weaponData = {
-		spreadX = 2,
-		spreadY = 2,
-		recoilMultiplier = 1.5,
+		spreadX = 1.5,
+		spreadY = 1.5,
+		recoilMultiplier = 1.2,
 	},
 	customization = {
 		showDot = true,
@@ -23,15 +36,15 @@ CrosshairController.Mock = {
 		showLeftLine = true,
 		showRightLine = true,
 		lineThickness = 2,
-		lineLength = 10,
-		gapFromCenter = 5,
-		dotSize = 2,
+		lineLength = 6,           -- Shorter lines for cleaner look
+		gapFromCenter = 10,       -- Much wider gap - spread out more
+		dotSize = 3,              -- Small centered dot
 		rotation = 0,
 		cornerRadius = 0,
 		mainColor = Color3.fromRGB(255, 255, 255),
 		outlineColor = Color3.fromRGB(0, 0, 0),
-		outlineThickness = 1,
-		opacity = 1,
+		outlineThickness = 0,     -- NO outline for cleaner look
+		opacity = 0.95,
 		scale = 1,
 		dynamicSpreadEnabled = true,
 	},
@@ -165,12 +178,18 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 
 	-- Seed spread using current movement so it doesn't start at default size
 	local velocity, speed = self:_getVelocity()
+	local movementState = self:_getMovementState()
 	self._module:Update(1, {
 		velocity = velocity,
 		speed = speed,
 		weaponData = self._weaponData,
 		customization = self._customization,
 		dt = 1,
+		isCrouching = movementState.isCrouching,
+		isSliding = movementState.isSliding,
+		isSprinting = movementState.isSprinting,
+		isGrounded = movementState.isGrounded,
+		isADS = movementState.isADS,
 	})
 
 	self:_startUpdateLoop()
@@ -223,18 +242,63 @@ function CrosshairController:_getVelocity()
 	return velocity, speed
 end
 
+function CrosshairController:_getMovementState()
+	local msm = getMovementStateManager()
+	local characterController = ServiceRegistry:GetController("CharacterController")
+	local weaponController = ServiceRegistry:GetController("WeaponController")
+	
+	local isCrouching = false
+	local isSliding = false
+	local isSprinting = false
+	local isGrounded = true
+	local isADS = false
+	
+	if msm then
+		isCrouching = msm:IsCrouching()
+		isSliding = msm:IsSliding()
+		isSprinting = msm:IsSprinting()
+		isGrounded = msm:GetIsGrounded()
+	end
+	
+	if characterController then
+		isGrounded = characterController.IsGrounded
+	end
+	
+	if weaponController and type(weaponController.IsADS) == "function" then
+		isADS = weaponController:IsADS()
+	elseif weaponController and weaponController._isADS ~= nil then
+		isADS = weaponController._isADS == true
+	end
+	
+	return {
+		isCrouching = isCrouching,
+		isSliding = isSliding,
+		isSprinting = isSprinting,
+		isGrounded = isGrounded,
+		isADS = isADS,
+	}
+end
+
 function CrosshairController:_update(dt: number)
 	if not self._module then
 		return
 	end
 
 	local velocity, speed = self:_getVelocity()
+	local movementState = self:_getMovementState()
+	
 	local state = {
 		velocity = velocity,
 		speed = speed,
 		weaponData = self._weaponData,
 		customization = self._customization,
 		dt = dt,
+		-- Movement state for spread modifiers
+		isCrouching = movementState.isCrouching,
+		isSliding = movementState.isSliding,
+		isSprinting = movementState.isSprinting,
+		isGrounded = movementState.isGrounded,
+		isADS = movementState.isADS,
 	}
 
 	self._module:Update(dt, state)

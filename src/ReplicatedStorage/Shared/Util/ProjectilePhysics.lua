@@ -410,6 +410,11 @@ function ProjectilePhysics:CalculateSpreadAngle(projectileConfig, spreadState, c
 		multiplier = multiplier * (projectileConfig.slideSpreadMult or 1.0)
 	end
 	
+	-- Sprint penalty (stacks with movement)
+	if spreadState.isSprinting then
+		multiplier = multiplier * (projectileConfig.sprintSpreadMult or 1.3)
+	end
+	
 	-- Base spread with multipliers
 	local finalSpread = baseSpread * multiplier
 	

@@ -1041,12 +1041,25 @@ function WeaponProjectile:_getSpreadState(weaponInstance)
 		inAir = false,
 		isCrouching = false,
 		isSliding = false,
+		isSprinting = false,
 		velocitySpread = 0,
 		currentRecoil = 0,
 	}
 
-	-- Get character state
-	if LocalPlayer and LocalPlayer.Character then
+	-- Get character state from CharacterController (more reliable)
+	local characterController = ServiceRegistry:GetController("CharacterController")
+	
+	if characterController and characterController.PrimaryPart then
+		local velocity = characterController.PrimaryPart.AssemblyLinearVelocity
+		local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+
+		state.isMoving = horizontalSpeed > 1
+		state.velocitySpread = math.clamp(horizontalSpeed * 0.01, 0, 1)
+		
+		-- Use CharacterController's grounded state
+		state.inAir = not characterController.IsGrounded
+	elseif LocalPlayer and LocalPlayer.Character then
+		-- Fallback to character
 		local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 		if hrp then
 			local velocity = hrp.AssemblyLinearVelocity
@@ -1060,15 +1073,34 @@ function WeaponProjectile:_getSpreadState(weaponInstance)
 		if humanoid then
 			state.inAir = humanoid.FloorMaterial == Enum.Material.Air
 		end
-
-		state.isCrouching = LocalPlayer:GetAttribute("IsCrouching") == true
-		state.isSliding = LocalPlayer:GetAttribute("IsSliding") == true
 	end
 
-	-- Get ADS state
-	local cameraController = ServiceRegistry:GetController("CameraController")
-	if cameraController and cameraController.IsADS then
-		state.isADS = cameraController:IsADS()
+	-- Get movement state from MovementStateManager (most reliable for crouch/slide/sprint)
+	local MovementStateManager = nil
+	pcall(function()
+		MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+	end)
+	
+	if MovementStateManager then
+		state.isCrouching = MovementStateManager:IsCrouching()
+		state.isSliding = MovementStateManager:IsSliding()
+		state.isSprinting = MovementStateManager:IsSprinting()
+	else
+		-- Fallback to player attributes
+		if LocalPlayer then
+			state.isCrouching = LocalPlayer:GetAttribute("IsCrouching") == true
+			state.isSliding = LocalPlayer:GetAttribute("IsSliding") == true
+		end
+	end
+
+	-- Get ADS state from WeaponController
+	local weaponController = ServiceRegistry:GetController("WeaponController")
+	if weaponController then
+		if type(weaponController.IsADS) == "function" then
+			state.isADS = weaponController:IsADS()
+		elseif weaponController._isADS ~= nil then
+			state.isADS = weaponController._isADS == true
+		end
 	end
 
 	return state

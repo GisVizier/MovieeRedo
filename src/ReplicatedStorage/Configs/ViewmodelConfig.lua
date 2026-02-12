@@ -129,17 +129,20 @@ ViewmodelConfig.Weapons = {
 
 	AssaultRifle = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.AssaultRifle,
-		Offset = CFrame.new(0, 0, 0.5),
+		Offset = CFrame.new(0, 0, 0.15),
 		Animations = {
-			-- Placeholder animations (add real ones when available)
-			Idle = "rbxassetid://0",
-			Walk = "rbxassetid://0",
-			Run = "rbxassetid://0",
-			Equip = "rbxassetid://0",
-			Inspect = "rbxassetid://0",
-			Fire = "rbxassetid://0",
-			Reload = "rbxassetid://0",
-			ADS = "rbxassetid://0",
+			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
+			ADS = "Aim", -- Maps to your "Aim" animation
+			Fire = "Fire",
+			 Reload = "Reload",
+			Equip = "Equip",
+			--Start = "Start",
+			--Action = "Action",
+			--End = "End",
+			Inspect = "Inspect",
 		},
 	},
 

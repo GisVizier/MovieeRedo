@@ -275,6 +275,12 @@ function CombatService:ApplyDamage(
 	if effectManager then
 		effectManager:NotifyDamage(result.healthDamage, options.source)
 	end
+	
+	-- Notify kit system of damage (for abilities that cancel on damage like Blue)
+	local kitService = self._registry and self._registry:TryGet("KitService")
+	if kitService and kitService.NotifyDamage then
+		kitService:NotifyDamage(targetPlayer, result.healthDamage, options.source)
+	end
 
 	-- Track assist
 	if options.source and options.source ~= targetPlayer then

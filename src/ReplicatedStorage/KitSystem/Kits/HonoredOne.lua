@@ -72,6 +72,7 @@ Kit.__index = Kit
 function Kit.new(ctx)
 	local self = setmetatable({}, Kit)
 	self._ctx = ctx
+	self._blueActive = false -- Track if Blue ability is active (for damage interrupt)
 	return self
 end
 
@@ -79,11 +80,33 @@ function Kit:SetCharacter(character)
 	self._ctx.character = character
 end
 
-function Kit:Destroy() end
+function Kit:Destroy()
+	self._blueActive = false
+end
 
 function Kit:OnEquipped() end
 
-function Kit:OnUnequipped() end
+function Kit:OnUnequipped()
+	self._blueActive = false
+end
+
+--[[
+	Called by KitService when this player takes damage.
+	If Blue is active, interrupt it immediately.
+]]
+function Kit:OnDamageTaken(damage, source)
+	if not self._blueActive then
+		return
+	end
+	
+	-- Blue should cancel on damage
+	self._blueActive = false
+	
+	local service = self._ctx and self._ctx.service
+	if service and service.InterruptAbility then
+		service:InterruptAbility(self._ctx.player, "Ability", "damage_taken")
+	end
+end
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -286,6 +309,8 @@ local function handleBlueProjectileUpdate(self, clientData)
 	end
 
 	if clientData and clientData.debris == true then
+		-- Blue ended (debris = cleanup)
+		self._blueActive = false
 		player:SetAttribute("blue_projectile_activeCFR", nil)
 		relayDebugLog("blue_debris_" .. tostring(player.UserId), "blueProjectileUpdate clear", player.Name)
 		relayHonoredOneVfx(self, player, "UpdateBlue", {
@@ -296,6 +321,9 @@ local function handleBlueProjectileUpdate(self, clientData)
 		})
 		return
 	end
+	
+	-- Blue is active (receiving position updates)
+	self._blueActive = true
 
 	local pivot, pivotSource = resolveBlueUpdatePivot(clientData)
 	if typeof(pivot) ~= "CFrame" then
@@ -440,6 +468,9 @@ end
 local function handleBlueHit(self, clientData)
 	local player = self._ctx.player
 	local service = self._ctx.service
+	
+	-- Blue completed - mark as inactive
+	self._blueActive = false
 
 	log("=== BLUE HIT ===", player.Name)
 	log(

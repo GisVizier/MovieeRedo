@@ -2,14 +2,26 @@ local module = {}
 module.__index = module
 
 module.Config = {
-	velocitySensitivity = 0.1,
-	velocityMinSpread = 0.5,
-	velocityMaxSpread = 1.5,
-	velocityRecoveryRate = 0.5,
-	recoilRecoveryRate = 4,
+	-- Velocity-based spread (INCREASED for visible feedback)
+	velocitySensitivity = 0.8,    -- Much higher sensitivity to movement
+	velocityMinSpread = 0,        -- Tight when standing still
+	velocityMaxSpread = 35,       -- Higher max spread from velocity
+	velocityRecoveryRate = 4,     -- Slower recovery so changes are visible
+	recoilRecoveryRate = 5,
 	baseScale = 0.5,
-	maxSpread = 40,
-	maxRecoil = 2,
+	maxSpread = 80,               -- Allow larger max spread
+	maxRecoil = 5,
+	
+	-- Base spread when moving (always applied when speed > threshold)
+	movingBaseSpread = 4,         -- Minimum spread when moving at all
+	movingThreshold = 2,          -- Speed threshold to be "moving"
+	
+	-- Movement state spread multipliers (MORE EXTREME for visibility)
+	crouchMult = 0.4,             -- 60% reduction when crouching (very accurate)
+	slideMult = 0.6,              -- 40% reduction when sliding
+	sprintMult = 1.8,             -- 80% more spread when sprinting
+	airMult = 2.0,                -- 100% more spread in air (double)
+	adsMult = 0.3,                -- 70% reduction when ADS
 }
 
 local function applyStrokeProps(instance, color, thickness, transparency)
@@ -120,11 +132,19 @@ function module:Update(dt, state)
 	local velocity = state.velocity or Vector3.zero
 	local speed = state.speed or velocity.Magnitude
 	local customization = state.customization or self._customization
+	local weaponData = state.weaponData or {}
 
+	-- Calculate base velocity spread
 	local targetVelocitySpread = 0
 	if not customization or customization.dynamicSpreadEnabled ~= false then
+		-- Add base spread when moving (immediate feedback)
+		local movingBase = 0
+		if speed > self.Config.movingThreshold then
+			movingBase = self.Config.movingBaseSpread
+		end
+		
 		targetVelocitySpread = math.clamp(
-			speed * self.Config.velocitySensitivity,
+			movingBase + (speed * self.Config.velocitySensitivity),
 			self.Config.velocityMinSpread,
 			self.Config.velocityMaxSpread
 		)
@@ -137,11 +157,42 @@ function module:Update(dt, state)
 	local recoilRate = self.Config.recoilRecoveryRate or 1
 	self._currentRecoil = math.max(self._currentRecoil - dt * recoilRate, 0)
 
-	local weaponData = state.weaponData or {}
-	local spreadAmount = self._velocitySpread + self._currentRecoil
-	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 4, 0, self.Config.maxSpread)
-	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 4, 0, self.Config.maxSpread)
-	local gap = (customization and customization.gapFromCenter) or 5
+	-- Calculate state multiplier based on movement state
+	local stateMult = 1.0
+	
+	-- Get multipliers from weapon data or fall back to config defaults
+	local crouchMult = weaponData.crouchMult or self.Config.crouchMult
+	local slideMult = weaponData.slideMult or self.Config.slideMult
+	local sprintMult = weaponData.sprintMult or self.Config.sprintMult
+	local airMult = weaponData.airMult or self.Config.airMult
+	local adsMult = weaponData.adsMult or self.Config.adsMult
+	
+	-- Apply movement state modifiers (mutually exclusive ground states)
+	if state.isCrouching then
+		stateMult = stateMult * crouchMult
+	elseif state.isSliding then
+		stateMult = stateMult * slideMult
+	elseif state.isSprinting then
+		stateMult = stateMult * sprintMult
+	end
+	
+	-- Air penalty stacks with other states (big visual feedback)
+	if state.isGrounded == false then
+		stateMult = stateMult * airMult
+	end
+	
+	-- ADS reduces spread
+	if state.isADS then
+		stateMult = stateMult * adsMult
+	end
+
+	-- Calculate final spread with state modifier (increased multiplier for visibility)
+	local spreadAmount = (self._velocitySpread + self._currentRecoil) * stateMult
+	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 3, 0, self.Config.maxSpread)
+	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 3, 0, self.Config.maxSpread)
+	
+	-- Use weapon-specific base gap or fall back to customization
+	local gap = weaponData.baseGap or (customization and customization.gapFromCenter) or 10
 
 	if self._top then
 		self._top.Position = UDim2.new(0.5, 0, 0.5, -(gap + spreadY))

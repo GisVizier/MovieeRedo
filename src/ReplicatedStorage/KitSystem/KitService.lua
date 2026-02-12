@@ -416,6 +416,57 @@ function KitService:GetCooldownRemaining(player: Player): number
 end
 
 --[[
+	Interrupt a player's active ability from the server.
+	Fires AbilityInterrupted event to all clients (including the player).
+	The client kit's OnInterrupt handler will be called.
+	
+	@param player Player - The player whose ability should be interrupted
+	@param abilityType string - "Ability" or "Ultimate"
+	@param reason string - Reason for interruption (e.g. "damage_taken", "death", "left")
+]]
+function KitService:InterruptAbility(player: Player, abilityType: string, reason: string)
+	local info = self._data[player]
+	if not info then return end
+	
+	local kitId = info.equippedKitId
+	if not kitId then return end
+	
+	local character = player.Character
+	local root = character and character.PrimaryPart or nil
+	local position = root and root.Position or nil
+	
+	self:_fireEventAll("AbilityInterrupted", {
+		playerId = player.UserId,
+		kitId = kitId,
+		abilityType = abilityType,
+		reason = reason,
+		position = position,
+	})
+end
+
+--[[
+	Notify a player's kit that they took damage.
+	Called by CombatService after damage is applied.
+	Allows kits to react to damage (e.g. cancel channeled abilities).
+	
+	@param player Player - The player who took damage
+	@param damage number - Amount of damage taken
+	@param source Player? - The player who dealt the damage (if any)
+]]
+function KitService:NotifyDamage(player: Player, damage: number, source: Player?)
+	local kit = self._playerKits[player]
+	if not kit then return end
+	
+	-- Call the kit's OnDamageTaken if it exists
+	if kit.OnDamageTaken then
+		local ok, err = pcall(kit.OnDamageTaken, kit, damage, source)
+		if not ok then
+			warn("[KitService] OnDamageTaken error:", err)
+		end
+	end
+end
+
+--[[
 	Broadcasts VFX to clients using the VFXRep system.
 	This allows server kits to trigger VFX on other players' screens.
 	
