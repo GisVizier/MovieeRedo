@@ -8,12 +8,12 @@ local Character = {
 	JumpFatigue = {
 		Enabled = true,
 		FreeJumps = 3,
-		DecayPerJump = 0.05,
-		MinMultiplier = 0.85,
+		DecayPerJump = 0.065,
+		MinMultiplier = 0.75,
 
 		MinVerticalVelocity = 20,
 		MinVerticalEnforceTime = 0.12,
-		GroundResetTime = .75,
+		GroundResetTime = .85,
 		RecoverWhileFalling = true,
 	},
 
