@@ -28,23 +28,24 @@ local LatencyTracker = require(script.Parent.LatencyTracker)
 local CONFIG = {
 	-- Debug
 	DebugLogging = true,            -- Enable detailed hit validation logging
-	
+
 	-- Timing
-	MaxTimestampAge = 1.0,          -- Max seconds in the past (hard cap)
-	MaxRollbackTime = 1.0,          -- Never rollback more than this
+	MaxTimestampAge = 2.0,          -- Max seconds in the past (hard cap)
+	MaxRollbackTime = 2.0,          -- Never rollback more than this (matches position history buffer)
 	MinTimestampAge = -0.1,         -- Small tolerance for processing delay
-	
+
 	-- Distance
 	RangeTolerance = 1.2,           -- 20% extra range tolerance
-	
+
 	-- Position validation
-	BasePositionTolerance = 5,      -- studs (scaled by ping)
-	BaseHeadTolerance = 3.5,        -- studs (for headshots, accounts for head height)
+	BasePositionTolerance = 8,      -- studs (scaled by ping) - includes root-to-hitbox surface offset
+	BaseHeadTolerance = 6,          -- studs (for headshots, accounts for head height + body offset)
 	HeadHeightOffset = 2.5,         -- studs above root where head is located
-	
+	BodyRadiusOffset = 3,           -- extra studs for hit point on body surface vs root center
+
 	-- Rate limiting
 	FireRateTolerance = 0.85,       -- Allow 15% faster than config (latency)
-	
+
 	-- Statistical tracking
 	MinShotsForAnalysis = 50,       -- Shots before flagging for accuracy
 	SuspiciousHitRate = 0.95,       -- 95%+ accuracy is suspicious
@@ -267,15 +268,17 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	else
 		baseTolerance = tolerances.PositionTolerance or CONFIG.BasePositionTolerance
 	end
-	local tolerance = baseTolerance
-	
+	-- Add body radius offset: client hit position is on the body surface,
+	-- but server position history tracks the root center.
+	local tolerance = baseTolerance + CONFIG.BodyRadiusOffset
+
 	-- Consider target's ping as well for combined tolerance
 	local pingFactor = 1.0
 	if hitData.hitPlayer and hitData.hitPlayer.Parent then
 		local targetPing = LatencyTracker:GetPing(hitData.hitPlayer)
 		local shooterPing = LatencyTracker:GetPing(shooter)
-		pingFactor = 1 + ((shooterPing + targetPing) / 400)
-		pingFactor = math.min(pingFactor, 2.0)
+		pingFactor = 1 + ((shooterPing + targetPing) / 300)
+		pingFactor = math.min(pingFactor, 2.5)
 		tolerance = tolerance * pingFactor
 	end
 	

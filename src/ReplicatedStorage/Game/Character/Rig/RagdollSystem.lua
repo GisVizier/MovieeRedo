@@ -342,13 +342,12 @@ function RagdollSystem:RagdollRig(rig, options)
 			end
 		end
 		
-		-- Add some tumble for natural ragdoll feel
+		-- Add deterministic tumble for natural ragdoll feel (derived from fling direction)
 		if options.FlingDirection or options.Velocity then
-			rigHRP.AssemblyAngularVelocity = Vector3.new(
-				math.random() * 12 - 6,
-				math.random() * 6 - 3,
-				math.random() * 12 - 6
-			)
+			local vel = options.Velocity or (options.FlingDirection and (options.FlingDirection.Unit * (options.FlingStrength or 50)))
+			local horiz = vel and Vector3.new(vel.X, 0, vel.Z) or Vector3.new(1, 0, 0)
+			local tumbleAxis = horiz.Magnitude > 0.001 and Vector3.new(-horiz.Z, 0, horiz.X) or Vector3.new(1, 0, 0)
+			rigHRP.AssemblyAngularVelocity = tumbleAxis.Unit * 6
 		end
 	end
 

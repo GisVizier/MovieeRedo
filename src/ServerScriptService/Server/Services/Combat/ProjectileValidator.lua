@@ -29,27 +29,28 @@ local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("Projectile
 local CONFIG = {
 	-- Debug
 	DebugLogging = true,
-	
+
 	-- Timestamp validation
 	MaxTimestampAge = 2.0,        -- Max time in past for hits (seconds)
-	MinTimestampAge = -0.05,      -- Small tolerance for processing delay
+	MinTimestampAge = -0.1,       -- Small tolerance for processing delay
 	MaxFlightTime = 10.0,         -- Maximum allowed flight time
-	
+
 	-- Flight time validation
-	FlightTimeTolerance = 0.20,   -- 20% variance allowed
-	
+	FlightTimeTolerance = 0.30,   -- 30% variance allowed (network jitter)
+
 	-- Position validation
-	BasePositionTolerance = 5,    -- Base tolerance (studs)
-	MaxPositionTolerance = 20,    -- Maximum tolerance cap
-	BaseHeadTolerance = 3.5,      -- Head hitbox tolerance
+	BasePositionTolerance = 8,    -- Base tolerance (studs) - accounts for root-to-hitbox offset (~2-3 studs)
+	MaxPositionTolerance = 30,    -- Maximum tolerance cap
+	BaseHeadTolerance = 6,        -- Head hitbox tolerance (head is smaller but offset from root)
 	HeadHeightOffset = 2.5,       -- Vertical offset for head position
-	
+	BodyRadiusOffset = 3,         -- Extra studs to account for hit point being on body surface vs root center
+
 	-- Trajectory validation
 	TrajectoryCheckPoints = 3,    -- Points to check along path
-	
+
 	-- Rate limiting
 	FireRateTolerance = 0.85,     -- 15% faster allowed
-	
+
 	-- Anti-cheat thresholds
 	MinShotsForAnalysis = 30,
 	SuspiciousHitRate = 0.90,     -- 90%+ accuracy triggers flag
@@ -281,7 +282,7 @@ function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectil
 	
 	if CONFIG.DebugLogging then
 		print(string.format(
-			"[ProjectileValidator DEBUG] %s -> %s:\n  Client hitPos: %s\n  History pos: %s\n  Adjusted pos: %s\n  Offset: %.2f studs | Tolerance: %.2f\n  Flight time: %.3fs | Headshot: %s",
+			"[ProjectileValidator DEBUG] %s -> %s:\n  Client hitPos: %s\n  History pos: %s\n  Adjusted pos: %s\n  Offset: %.2f studs | Tolerance: %.2f\n  Flight time: %.3fs | Headshot: %s\n  RESULT: %s",
 			shooter.Name,
 			target.Name,
 			tostring(hitData.hitPosition),
@@ -290,7 +291,8 @@ function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectil
 			offset,
 			tolerance,
 			hitData.flightTime or 0,
-			tostring(hitData.isHeadshot)
+			tostring(hitData.isHeadshot),
+			offset <= tolerance and "VALID" or "REJECTED"
 		))
 	end
 	
@@ -357,29 +359,41 @@ end
 ]]
 function ProjectileValidator:_calculateTolerance(shooter, target, hitData, projectileConfig)
 	local baseTolerance = hitData.isHeadshot and CONFIG.BaseHeadTolerance or CONFIG.BasePositionTolerance
-	
-	-- Scale with ping
+
+	-- Add body radius offset: client hit position is on the body surface,
+	-- but server position history tracks the root/HumanoidRootPart center.
+	-- This inherent offset is 2-3 studs even on a perfectly stationary target.
+	baseTolerance = baseTolerance + CONFIG.BodyRadiusOffset
+
+	-- Scale with ping (both shooter and target contribute to mismatch)
 	local shooterPing = HitDetectionAPI and HitDetectionAPI:GetPlayerPing(shooter) or 80
 	local targetPing = HitDetectionAPI and HitDetectionAPI:GetPlayerPing(target) or 80
-	local pingFactor = 1 + (shooterPing + targetPing) / 400
-	pingFactor = math.clamp(pingFactor, 1, 2)
-	
+	local pingFactor = 1 + (shooterPing + targetPing) / 300
+	pingFactor = math.clamp(pingFactor, 1, 2.5)
+
 	-- Scale with flight time (longer flight = more prediction error)
 	local flightTime = hitData.flightTime or 0
-	local flightFactor = 1 + flightTime * 2 -- +2 studs per second of flight
+	local flightFactor = 1 + flightTime * 2
 	flightFactor = math.clamp(flightFactor, 1, 3)
-	
-	-- Scale with projectile speed (slower = more error)
-	local speed = projectileConfig.speed or 300
-	local speedFactor = 300 / speed
-	speedFactor = math.clamp(speedFactor, 0.5, 2)
-	
+
 	-- Scale with pierce/bounce (accumulated error)
 	local pierceFactor = 1 + (hitData.pierceCount or 0) * 0.5
 	local bounceFactor = 1 + (hitData.bounceCount or 0) * 0.5
-	
-	local finalTolerance = baseTolerance * pingFactor * flightFactor * speedFactor * pierceFactor * bounceFactor
-	
+
+	-- Check for stale position history data and increase tolerance
+	local staleFactor = 1.0
+	if HitDetectionAPI and target then
+		local _, newestTime = HitDetectionAPI:GetHistoryTimeRange(target)
+		if newestTime then
+			local dataAge = workspace:GetServerTimeNow() - newestTime
+			if dataAge > 0.3 then
+				staleFactor = 1 + math.min((dataAge - 0.3) / 1.0, 1.5)
+			end
+		end
+	end
+
+	local finalTolerance = baseTolerance * pingFactor * flightFactor * pierceFactor * bounceFactor * staleFactor
+
 	return math.min(finalTolerance, CONFIG.MaxPositionTolerance)
 end
 

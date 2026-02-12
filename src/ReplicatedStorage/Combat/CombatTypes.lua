@@ -19,6 +19,7 @@ export type DamageOptions = {
 	source: Player?,
 	sourcePosition: Vector3?,
 	hitPosition: Vector3?,
+	impactDirection: Vector3?,
 	isTrueDamage: boolean?,
 	isHeadshot: boolean?,
 	weaponId: string?,

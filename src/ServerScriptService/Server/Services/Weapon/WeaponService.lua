@@ -422,6 +422,7 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 
 	local damageByCharacter = {}
 	local headshotByCharacter = {}
+	local hitPositionByCharacter = {}
 	local firstHitPosition = nil
 	local firstHitCharacter = nil
 
@@ -482,6 +483,7 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 				local pelletDamage = isHeadshot and (falloffDamage * headshotMultiplier) or falloffDamage
 				damageByCharacter[character] = (damageByCharacter[character] or 0) + pelletDamage
 				headshotByCharacter[character] = (headshotByCharacter[character] or 0) + (isHeadshot and 1 or 0)
+				hitPositionByCharacter[character] = result.Position
 			end
 		end
 	end
@@ -512,7 +514,7 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 			(headshotByCharacter[character] or 0) > 0,
 			shotData.weaponId,
 			shotData.origin,
-			nil
+			hitPositionByCharacter[character]
 		)
 	end
 
@@ -631,12 +633,21 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 
 	-- Route through CombatService for players and dummies
 	if victimPlayer and combatService then
+		local impactDirection = nil
+		if typeof(damageSourcePosition) == "Vector3" and typeof(damageHitPosition) == "Vector3" then
+			local delta = damageHitPosition - damageSourcePosition
+			if delta.Magnitude > 0.001 then
+				impactDirection = delta.Unit
+			end
+		end
+
 		local result = combatService:ApplyDamage(victimPlayer, damage, {
 			source = shooter,
 			isHeadshot = isHeadshot,
 			weaponId = weaponId or self._currentWeaponId,
 			sourcePosition = damageSourcePosition,
 			hitPosition = damageHitPosition,
+			impactDirection = impactDirection,
 		})
 
 		if DEBUG_LOGGING then

@@ -390,21 +390,25 @@ if IsClient then
 		-- Apply knockback to clone
 		local cloneHRP = ragdollClone:FindFirstChild("HumanoidRootPart")
 		if cloneHRP and knockbackForce then
-			task.defer(function()
-				local velocity = nil
-				if typeof(knockbackForce) == "Vector3" then
-					velocity = knockbackForce
-				else
-					velocity = cloneHRP.CFrame.LookVector * (tonumber(knockbackForce) or 0)
+			local velocity = nil
+			if typeof(knockbackForce) == "Vector3" then
+				velocity = knockbackForce
+			else
+				local magnitude = tonumber(knockbackForce) or 0
+				if magnitude > 0 then
+					velocity = cloneHRP.CFrame.LookVector * magnitude
 				end
+			end
 
-				if typeof(velocity) == "Vector3" and velocity.Magnitude > 0.001 then
-					cloneHRP.AssemblyLinearVelocity = velocity
-					cloneHRP:ApplyImpulse(velocity * math.max(cloneHRP.AssemblyMass, 1))
-				end
+			if typeof(velocity) == "Vector3" and velocity.Magnitude > 0.001 then
+				cloneHRP.AssemblyLinearVelocity = velocity
+				cloneHRP:ApplyImpulse(velocity * math.max(cloneHRP.AssemblyMass, 1))
 
-				cloneHRP.AssemblyAngularVelocity = Vector3.new(math.random() * 4 - 2, math.random() * 2 - 1, math.random() * 4 - 2)
-			end)
+				-- Deterministic tumble derived from fling direction (matches RagdollSystem)
+				local horiz = Vector3.new(velocity.X, 0, velocity.Z)
+				local tumbleAxis = horiz.Magnitude > 0.001 and Vector3.new(-horiz.Z, 0, horiz.X) or Vector3.new(1, 0, 0)
+				cloneHRP.AssemblyAngularVelocity = tumbleAxis.Unit * 6
+			end
 		end
 	end
 	

@@ -143,9 +143,11 @@ function CombatService:InitializePlayer(
 	-- Initialize assist tracking
 	self._assistTracking[player] = {}
 
-	-- Connect death event
+	-- Connect death event (death context comes from resource._lastDeathContext when TakeDamage kills)
 	resource.OnDeath:connect(function(killer, weaponId)
-		self:_handleDeath(player, killer, weaponId, nil)
+		local deathContext = resource._lastDeathContext or {}
+		resource._lastDeathContext = nil
+		self:_handleDeath(player, killer, weaponId, deathContext)
 	end)
 
 	self._deathHandled[player] = false
@@ -245,6 +247,7 @@ function CombatService:ApplyDamage(
 		source: Player?,
 		sourcePosition: Vector3?,
 		hitPosition: Vector3?,
+		impactDirection: Vector3?,
 		isTrueDamage: boolean?,
 		isHeadshot: boolean?,
 		weaponId: string?,
@@ -315,11 +318,12 @@ function CombatService:ApplyDamage(
 	local dealtDamage = (result.healthDamage or 0) + (result.shieldDamage or 0) + (result.overshieldDamage or 0)
 	self:_broadcastDamage(targetPlayer, dealtDamage, options)
 
-	-- Handle death synchronously to avoid races with async OnDeath listeners.
+	-- Handle death synchronously with shot context (sourcePosition, hitPosition from where they were shot)
 	if result.killed then
 		self:_handleDeath(targetPlayer, options.source, options.weaponId, {
 			sourcePosition = options.sourcePosition,
 			hitPosition = options.hitPosition,
+			impactDirection = options.impactDirection,
 		})
 	end
 
@@ -570,6 +574,7 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 		victimIsPlayer = victimIsRealPlayer,
 		sourcePosition = deathContext.sourcePosition,
 		hitPosition = deathContext.hitPosition,
+		impactDirection = deathContext.impactDirection,
 	})
 
 	-- Clear status effects

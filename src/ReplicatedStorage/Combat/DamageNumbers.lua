@@ -33,6 +33,29 @@ local POP_IN_TWEEN = TweenInfo.new(0.075, Enum.EasingStyle.Back, Enum.EasingDire
 local POP_SETTLE_TWEEN = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PIVOT_RANDOM_OFFSET_BOUNDS = 1
 
+local function isUsableTemplate(template: Instance): boolean
+	if not template:IsA("Attachment") then
+		return false
+	end
+
+	local billboard = template:FindFirstChild("DamageNumbers")
+	if not billboard or not billboard:IsA("BillboardGui") then
+		return false
+	end
+
+	local frame = billboard:FindFirstChild("Frame")
+	if not frame or not frame:IsA("GuiObject") then
+		return false
+	end
+
+	local mainText = frame:FindFirstChild("MainText")
+	if not mainText or not mainText:IsA("TextLabel") then
+		return false
+	end
+
+	return true
+end
+
 local function createFallbackTemplate(): Attachment
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "dmgnmbr"
@@ -96,8 +119,10 @@ local function getTemplate(): Attachment
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if assets then
 		local template = assets:FindFirstChild("dmgnmbr")
-		if template and template:IsA("Attachment") then
+		if template and isUsableTemplate(template) then
 			return template
+		elseif template then
+			warn("[DamageNumbers] Assets.dmgnmbr is missing required DamageNumbers/Frame/MainText structure, using fallback template")
 		end
 	end
 
@@ -184,6 +209,19 @@ function DamageNumbers:_createState(position: Vector3)
 		billboard.StudsOffset = Vector3.new(3, 0, 0)
 		billboard.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
 		billboard.Enabled = true
+		billboard.AlwaysOnTop = true
+		billboard.LightInfluence = 0
+	end
+
+	if frame and frame:IsA("GuiObject") then
+		frame.Visible = true
+	end
+
+	if mainText and mainText:IsA("TextLabel") then
+		mainText.Visible = true
+		mainText.TextTransparency = 0
+		mainText.TextScaled = true
+		mainText.TextWrapped = true
 	end
 
 	return {

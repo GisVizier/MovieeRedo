@@ -267,6 +267,14 @@ local function applyValidatedDamage(
 	end
 
 	if victimHandle and combatService then
+		local impactDirection = nil
+		if typeof(sourcePos) == "Vector3" and typeof(hitPos) == "Vector3" then
+			local delta = hitPos - sourcePos
+			if delta.Magnitude > 0.001 then
+				impactDirection = delta.Unit
+			end
+		end
+
 		combatService:ApplyDamage(victimHandle, damage, {
 			source = attacker,
 			isHeadshot = isHeadshot == true,
@@ -274,6 +282,7 @@ local function applyValidatedDamage(
 			damageType = "KitAbility",
 			sourcePosition = sourcePos,
 			hitPosition = hitPos,
+			impactDirection = impactDirection,
 		})
 		return
 	end
