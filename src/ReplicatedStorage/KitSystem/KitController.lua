@@ -39,6 +39,15 @@ function KitController:init()
 		end), "remotes")
 	end
 
+	-- Clean up kit abilities when the local player dies
+	if self._net and self._net.ConnectClient then
+		self._connections:add(self._net:ConnectClient("PlayerKilled", function(data)
+			if data and data.victimUserId == self._player.UserId then
+				self:_onLocalPlayerDied()
+			end
+		end), "remotes")
+	end
+
 	-- Ability/Ultimate input should route through your InputController so it respects chat/menu/settings gating + configurable binds.
 	if self._input and self._input.ConnectToInput then
 		self._input:ConnectToInput("Ability", function(inputState)
@@ -174,6 +183,20 @@ function KitController:_interruptClientKit(reason: string)
 
 	callInterrupt(kit.Ability, "Ability")
 	callInterrupt(kit.Ultimate, "Ultimate")
+end
+
+--[[
+	Called when the local player dies. Force-interrupts all active kit abilities,
+	resets controller state, and ensures a clean slate for respawn.
+]]
+function KitController:_onLocalPlayerDied()
+	-- Interrupt any active client kit abilities (stops animations, VFX, sounds, loops)
+	self:_interruptClientKit("Death")
+
+	-- Force-reset controller state so nothing lingers into the next life
+	self._abilityActive = false
+	self._holsteredSlot = nil
+	self._weaponSwitchLocked = false
 end
 
 function KitController:_onAbilityInput(abilityType: string, inputState)

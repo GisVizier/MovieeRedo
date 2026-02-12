@@ -44,7 +44,7 @@ local CONFIG = {
 	BodyRadiusOffset = 3,           -- extra studs for hit point on body surface vs root center
 
 	-- Rate limiting
-	FireRateTolerance = 0.85,       -- Allow 15% faster than config (latency)
+	FireRateTolerance = 0.70,       -- Allow 30% faster than config (latency + jitter)
 
 	-- Statistical tracking
 	MinShotsForAnalysis = 50,       -- Shots before flagging for accuracy
@@ -386,7 +386,7 @@ function HitValidator:_validateLineOfSight(shooter, hitData, rollbackTime)
 	local rayDirection = (hitData.hitPosition - shooterPosAtHit).Unit
 	local rayLength = (hitData.hitPosition - shooterPosAtHit).Magnitude
 	
-	-- Build exclusion list
+	-- Build exclusion list (must match client-side weapon raycast exclusions)
 	local excludeList = {}
 	if shooter.Character then
 		table.insert(excludeList, shooter.Character)
@@ -394,19 +394,33 @@ function HitValidator:_validateLineOfSight(shooter, hitData, rollbackTime)
 	if hitData.hitPlayer and hitData.hitPlayer.Character then
 		table.insert(excludeList, hitData.hitPlayer.Character)
 	end
-	
+
+	-- Exclude non-gameplay folders that the client also excludes
+	-- Without these, server LOS raycasts hit VFX/debris the client correctly ignores
+	local folderNames = { "Effects", "VoxelCache", "__Destruction", "VoxelDebris", "Ragdolls" }
+	for _, name in ipairs(folderNames) do
+		local folder = workspace:FindFirstChild(name)
+		if folder then
+			table.insert(excludeList, folder)
+		end
+	end
+
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = excludeList
 	rayParams.RespectCanCollide = true
-	
+
 	local result = workspace:Raycast(shooterPosAtHit, rayDirection * rayLength, rayParams)
-	
+
 	if result then
-		-- Something blocked the shot
-		return false, "LineOfSightBlocked"
+		-- Allow if the obstruction is very close to the target (within body radius)
+		-- The target's hitbox extends beyond the root position the ray aims at
+		local distToTarget = (result.Position - hitData.hitPosition).Magnitude
+		if distToTarget > CONFIG.BodyRadiusOffset + 2 then
+			return false, "LineOfSightBlocked"
+		end
 	end
-	
+
 	return true
 end
 

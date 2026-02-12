@@ -43,7 +43,9 @@ local DESTRUCTION_RADIUS = {
 -- Debug Helpers
 --------------------------------------------------------------------------------
 
-local function log(...) end
+local function log(...)
+	warn("[HonoredOneKit]", ...)
+end
 local DEBUG_PROJECTILE_RELAY = true
 local RELAY_LOG_INTERVAL = 0.25
 local _lastRelayLogByKey = {}
@@ -87,6 +89,10 @@ end
 function Kit:OnEquipped() end
 
 function Kit:OnUnequipped()
+	self._blueActive = false
+end
+
+function Kit:OnDeath()
 	self._blueActive = false
 end
 
@@ -169,6 +175,11 @@ local function getCombatService(self)
 	return registry and registry:TryGet("CombatService") or nil
 end
 
+local function getWeaponService(self)
+	local registry = getKitRegistry(self)
+	return registry and registry:TryGet("WeaponService") or nil
+end
+
 local function getMatchManager(self)
 	local registry = getKitRegistry(self)
 	return registry and registry:TryGet("MatchManager") or nil
@@ -242,7 +253,8 @@ local function isSameMatchContext(self, attacker, targetPlayer)
 		return attackerArea == targetArea
 	end
 
-	return false
+	-- Neither in match nor same area: allow damage (training, free play, etc.)
+	return true
 end
 
 local function applyValidatedDamage(
@@ -255,8 +267,31 @@ local function applyValidatedDamage(
 	sourcePos,
 	hitPos
 )
+	log("applyValidatedDamage:", targetCharacter and targetCharacter.Name or "nil", "damage:", damage, "headshot:", isHeadshot)
+
+	-- Prefer WeaponService:ApplyDamageToCharacter (same pipeline as weapons/Mob kit)
+	-- Handles CombatService routing, fallback for unregistered NPCs
+	local weaponService = getWeaponService(self)
+	if weaponService then
+		log("Using WeaponService:ApplyDamageToCharacter")
+		weaponService:ApplyDamageToCharacter(
+			targetCharacter,
+			damage,
+			attacker,
+			isHeadshot == true,
+			"HonoredOne_Red",
+			sourcePos,
+			hitPos
+		)
+		return
+	end
+
+	log("WeaponService not available, using fallback")
+
+	-- Fallback when WeaponService not available (CombatService directly)
 	local humanoid = targetCharacter and targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
+		log("No humanoid or dead, skipping")
 		return
 	end
 
@@ -275,7 +310,7 @@ local function applyValidatedDamage(
 			end
 		end
 
-		combatService:ApplyDamage(victimHandle, damage, {
+		local result = combatService:ApplyDamage(victimHandle, damage, {
 			source = attacker,
 			isHeadshot = isHeadshot == true,
 			weaponId = "HonoredOne_Red",
@@ -284,7 +319,9 @@ local function applyValidatedDamage(
 			hitPosition = hitPos,
 			impactDirection = impactDirection,
 		})
-		return
+		if result then
+			return
+		end
 	end
 
 	humanoid:TakeDamage(damage)
@@ -719,25 +756,34 @@ local function handleRedHit(self, clientData)
 	local validHits = {}
 	local seenTargets = {}
 
+	log("Processing", #clientData.hits, "hits from", player.Name)
+
 	for i, hit in ipairs(clientData.hits) do
 		if i > MAX_TARGETS then
+			log("Hit", i, "- exceeded MAX_TARGETS")
 			break
 		end
 		if type(hit) ~= "table" then
+			log("Hit", i, "- not a table, skipping")
 			continue
 		end
 
+		log("Hit", i, "- playerId:", tostring(hit.playerId), "characterName:", tostring(hit.characterName), "isExplosion:", tostring(hit.isExplosion))
+
 		local targetChar, targetPlayer = findTargetCharacter(hit)
 		if not targetChar then
+			log("Hit", i, "- findTargetCharacter returned nil")
 			continue
 		end
 		if targetPlayer == player then
+			log("Hit", i, "- target is self, skipping")
 			continue
 		end
 
 		-- Dedup by target identity
 		local targetKey = targetPlayer and `plr:{targetPlayer.UserId}` or `char:{targetChar:GetFullName()}`
 		if seenTargets[targetKey] then
+			log("Hit", i, "- duplicate target:", targetKey)
 			continue
 		end
 
@@ -746,14 +792,14 @@ local function handleRedHit(self, clientData)
 		if targetRoot then
 			local attackerToTarget = (targetRoot.Position - playerPosition).Magnitude
 			if attackerToTarget > RED_MAX_HIT_DISTANCE then
-				log("Target out of plausible range:", targetChar.Name)
+				log("Hit", i, "- target out of plausible range:", targetChar.Name, "distance:", math.floor(attackerToTarget + 0.5))
 				continue
 			end
 		end
 
 		-- Match-scoped player validation
 		if targetPlayer and not isSameMatchContext(self, player, targetPlayer) then
-			log("Rejected redHit target outside match context:", targetPlayer.Name)
+			log("Hit", i, "- outside match context:", targetPlayer.Name)
 			continue
 		end
 
@@ -764,11 +810,13 @@ local function handleRedHit(self, clientData)
 			if targetRoot then
 				local distFromExplosion = (targetRoot.Position - explosionPos).Magnitude
 				if distFromExplosion > (RED_EXPLOSION_RADIUS + RED_EXPLOSION_HIT_BUFFER) then
+					log("Hit", i, "- explosion target too far:", math.floor(distFromExplosion + 0.5))
 					continue
 				end
 			end
 		elseif hitPos then
 			if (hitPos - playerPosition).Magnitude > RED_MAX_HIT_DISTANCE then
+				log("Hit", i, "- hitPos out of range")
 				continue
 			end
 		end

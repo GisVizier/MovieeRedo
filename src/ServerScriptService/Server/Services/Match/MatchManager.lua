@@ -13,11 +13,22 @@
 	- MatchManager:GetActiveMatches() -> { matchId = matchData, ... }
 ]]
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
+
+local function destroyMobWallsForUserIds(userIds)
+	local walls = CollectionService:GetTagged("MobWall")
+	for _, wall in walls do
+		local ownerId = wall:GetAttribute("OwnerUserId")
+		if ownerId and table.find(userIds, ownerId) then
+			wall:Destroy()
+		end
+	end
+end
 
 local MatchManager = {}
 
@@ -636,22 +647,24 @@ function MatchManager:_teleportPlayerToSpawn(player, spawn)
 end
 
 function MatchManager:_returnPlayersToLobby(match)
-	local lobbySpawns = game:GetService("CollectionService"):GetTagged(MatchmakingConfig.Spawns.LobbyTag)
+	-- Destroy Mob walls for all players returning to lobby
+	local userIds = {}
+	for _, userId in match.team1 do
+		table.insert(userIds, userId)
+	end
+	for _, userId in match.team2 do
+		table.insert(userIds, userId)
+	end
+	destroyMobWallsForUserIds(userIds)
+
+	local lobbySpawns = CollectionService:GetTagged(MatchmakingConfig.Spawns.LobbyTag)
 	
 	if #lobbySpawns == 0 then
 		warn("[MatchManager] No lobby spawns found")
 		return
 	end
 	
-	local allUserIds = {}
-	for _, userId in match.team1 do
-		table.insert(allUserIds, userId)
-	end
-	for _, userId in match.team2 do
-		table.insert(allUserIds, userId)
-	end
-	
-	for i, userId in allUserIds do
+	for i, userId in userIds do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
 			local spawnIndex = ((i - 1) % #lobbySpawns) + 1
@@ -668,6 +681,9 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 	end
 	
 	self._playerToMatch[player] = nil
+
+	-- Destroy Mob wall for player who left
+	destroyMobWallsForUserIds({ player.UserId })
 	
 	local userId = player.UserId
 	

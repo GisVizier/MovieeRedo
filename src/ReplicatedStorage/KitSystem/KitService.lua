@@ -570,6 +570,30 @@ function KitService:BroadcastVFXMatchScoped(player: Player, moduleName: string, 
 	end
 end
 
+--[[
+	Called when a player dies. Interrupts active abilities and resets server kit state.
+	This ensures moves/VFX don't continue playing after death.
+
+	@param player Player - The player who died
+]]
+function KitService:OnPlayerDeath(player: Player)
+	local info = self._data[player]
+	if not info then return end
+
+	local kitId = info.equippedKitId
+	if not kitId then return end
+
+	-- Interrupt any active abilities (fires AbilityInterrupted to all clients)
+	self:InterruptAbility(player, "Ability", "death")
+	self:InterruptAbility(player, "Ultimate", "death")
+
+	-- Reset server kit state
+	local kit = self._playerKits[player]
+	if kit and kit.OnDeath then
+		pcall(kit.OnDeath, kit)
+	end
+end
+
 function KitService:start()
 	if self._started then
 		return self

@@ -13,6 +13,7 @@
 	- SourceArea (string, optional) - Area to unload on client (auto-detected if not set)
 ]]
 
+local CollectionService = game:GetService("CollectionService")
 local GadgetBase = require(script.Parent:WaitForChild("GadgetBase"))
 
 local Exit = setmetatable({}, { __index = GadgetBase })
@@ -140,6 +141,16 @@ function Exit:onUseRequest(player, _payload)
 
 	-- Update player state to Lobby
 	player:SetAttribute("PlayerState", "Lobby")
+
+	-- Destroy Mob wall for player leaving training
+	do
+		local walls = CollectionService:GetTagged("MobWall")
+		for _, wall in walls do
+			if wall:GetAttribute("OwnerUserId") == player.UserId then
+				wall:Destroy()
+			end
+		end
+	end
 
 	-- Fire ReturnToLobby so UIController hides HUD
 	local net = self.context and self.context.net

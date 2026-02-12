@@ -583,6 +583,14 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 		effectManager:RemoveAll("death")
 	end
 
+	-- Interrupt active kit abilities (prevents moves/VFX from continuing after death)
+	if victimIsRealPlayer then
+		local kitService = self._registry and self._registry:TryGet("KitService")
+		if kitService and kitService.OnPlayerDeath then
+			kitService:OnPlayerDeath(victim)
+		end
+	end
+
 	-- Clear assist tracking
 	self._assistTracking[victim] = {}
 

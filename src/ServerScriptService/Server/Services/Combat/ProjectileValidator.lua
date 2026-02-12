@@ -49,7 +49,7 @@ local CONFIG = {
 	TrajectoryCheckPoints = 3,    -- Points to check along path
 
 	-- Rate limiting
-	FireRateTolerance = 0.85,     -- 15% faster allowed
+	FireRateTolerance = 0.70,     -- 30% faster allowed (latency + jitter)
 
 	-- Anti-cheat thresholds
 	MinShotsForAnalysis = 30,
@@ -310,19 +310,29 @@ function ProjectileValidator:_validateTrajectory(shooter, hitData, projectileCon
 	-- Create raycast params that ignore shooter and target
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	
+
 	local filterList = {}
-	
+
 	-- Add shooter's character
 	if shooter.Character then
 		table.insert(filterList, shooter.Character)
 	end
-	
+
 	-- Add target's character if hitting a player
 	if hitData.hitPlayer and hitData.hitPlayer.Character then
 		table.insert(filterList, hitData.hitPlayer.Character)
 	end
-	
+
+	-- Exclude non-gameplay folders that the client also excludes
+	-- Without these, server trajectory raycasts hit VFX/debris the client correctly ignores
+	local folderNames = { "Effects", "VoxelCache", "__Destruction", "VoxelDebris", "Ragdolls" }
+	for _, name in ipairs(folderNames) do
+		local folder = workspace:FindFirstChild(name)
+		if folder then
+			table.insert(filterList, folder)
+		end
+	end
+
 	raycastParams.FilterDescendantsInstances = filterList
 	
 	-- Create physics simulator

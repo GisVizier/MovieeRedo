@@ -436,7 +436,7 @@ LoadoutConfig.Weapons = {
 		},
 
 		projectile = {
-			speed = 500,
+			speed = 700,
 			gravity = 50,
 			drag = 0.008,
 			lifetime = 2.0,

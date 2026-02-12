@@ -38,7 +38,6 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
-local VoxelDestruction = require(Locations.Shared.Modules.VoxelDestruction)
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 
@@ -898,8 +897,18 @@ local function getPlayerFromHit(hitInstance)
 	if not hitInstance then
 		return nil, nil, false
 	end
-	
-	-- Check for Collider model with OwnerUserId (player hitboxes)
+
+	-- Skip hits inside the Rigs template container
+	local rigContainer = Workspace:FindFirstChild("Rigs")
+	if rigContainer and hitInstance:IsDescendantOf(rigContainer) then
+		return nil, nil, false
+	end
+
+	local isHeadshot = hitInstance.Name == "Head"
+		or hitInstance.Name == "CrouchHead"
+		or hitInstance.Name == "HitboxHead"
+
+	-- Walk up to find a Collider with Hitbox/Standing or Hitbox/Crouching
 	local current = hitInstance
 	while current and current ~= Workspace do
 		if current.Name == "Collider" then
@@ -907,60 +916,45 @@ local function getPlayerFromHit(hitInstance)
 			if not hitboxFolder or not hitInstance:IsDescendantOf(hitboxFolder) then
 				return nil, nil, false
 			end
-			
-			-- Must be inside Standing or Crouching subfolder
+
 			local standingFolder = hitboxFolder:FindFirstChild("Standing")
 			local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
-			local validHit = false
 			if standingFolder and hitInstance:IsDescendantOf(standingFolder) then
-				validHit = true
+				-- valid
 			elseif crouchingFolder and hitInstance:IsDescendantOf(crouchingFolder) then
-				validHit = true
-			end
-			
-			if not validHit then
+				-- valid
+			else
 				return nil, nil, false
 			end
-			
+
 			local ownerUserId = current:GetAttribute("OwnerUserId")
 			if ownerUserId then
 				local player = Players:GetPlayerByUserId(ownerUserId)
 				if player then
-					-- Headshot = hit part named "Head"
-					local hitName = hitInstance.Name
-					local isHeadshot = hitName == "Head" or hitName == "CrouchHead" or hitName == "HitboxHead"
 					return player, player.Character, isHeadshot
 				end
 			end
-			break
-		end
-		current = current.Parent
-	end
-	
-	-- Check for dummies/rigs (no Collider, but has Humanoid)
-	current = hitInstance.Parent
-	if current and current.Name == "Root" and current:IsA("BasePart") then
-		current = current.Parent
-	end
-	
-	while current and current ~= Workspace do
-		if current:IsA("Model") then
-			local humanoid = current:FindFirstChildWhichIsA("Humanoid", true)
-			if humanoid then
-				-- Check if player character (skip - should use Collider)
-				local player = Players:GetPlayerFromCharacter(current)
-				if player then
-					return nil, nil, false
+
+			-- No OwnerUserId (dummy/entity with Collider) - check parent model
+			local characterModel = current.Parent
+			if characterModel and characterModel:IsA("Model") then
+				local humanoid = characterModel:FindFirstChildWhichIsA("Humanoid", true)
+				if humanoid then
+					return nil, characterModel, isHeadshot
 				end
-				-- It's a dummy/rig
-				local hitName = hitInstance.Name
-				local isHeadshot = hitName == "Head" or hitName == "CrouchHead" or hitName == "HitboxHead"
-				return nil, current, isHeadshot
 			end
+
+			return nil, nil, false
 		end
+
+		-- Reject hits on visual Rig models
+		if current.Name == "Rig" and current:IsA("Model") then
+			return nil, nil, false
+		end
+
 		current = current.Parent
 	end
-	
+
 	return nil, nil, false
 end
 
@@ -1031,12 +1025,48 @@ local function runRedProjectile(state)
 	reparentChargeSoundToProjectile(projectileViz)
 	playShootSound(projectileViz)
 	
-	-- Raycast params - exclude self, effects, and pierced targets
+	-- Raycast params - must match WeaponProjectile exclusions so hits detect correctly
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local effectsFolder = Workspace:FindFirstChild("Effects")
 	local filterList = { character }
+
+	local rigContainer = Workspace:FindFirstChild("Rigs")
+	if rigContainer then
+		table.insert(filterList, rigContainer)
+	end
+
+	-- Exclude cosmetic Rig sub-models inside all characters so projectile
+	-- only collides with Collider/Hitbox parts, not R6 visual rig parts.
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local rig = player.Character:FindFirstChild("Rig")
+			if rig then
+				table.insert(filterList, rig)
+			end
+		end
+	end
+
+	local dummiesFolder = Workspace:FindFirstChild("Dummies")
+	if dummiesFolder then
+		for _, dummy in ipairs(dummiesFolder:GetChildren()) do
+			if dummy:IsA("Model") then
+				local rig = dummy:FindFirstChild("Rig")
+				if rig then
+					table.insert(filterList, rig)
+				end
+			end
+		end
+	end
+
+	local effectsFolder = Workspace:FindFirstChild("Effects")
 	if effectsFolder then table.insert(filterList, effectsFolder) end
+
+	local voxelCache = Workspace:FindFirstChild("VoxelCache")
+	if voxelCache then table.insert(filterList, voxelCache) end
+
+	local destructionFolder = Workspace:FindFirstChild("__Destruction")
+	if destructionFolder then table.insert(filterList, destructionFolder) end
+
 	rayParams.FilterDescendantsInstances = filterList
 	
 	-- Track state
@@ -1125,6 +1155,7 @@ local function runRedProjectile(state)
 						isDummy = true,
 						isHeadshot = isHeadshot,
 						damage = damage,
+						hitPosition = { X = hitResult.Position.X, Y = hitResult.Position.Y, Z = hitResult.Position.Z },
 					})
 					
 					-- Add to filter
@@ -1148,37 +1179,7 @@ local function runRedProjectile(state)
 				if isBreakable then
 					local hitPos = hitResult.Position
 					
-					-- Local destruction on pierce impact
-					-- Only spawn if it's a solid block (Breakable) to avoid spam on debris
-					if hitPart:HasTag("Breakable") then
-						task.spawn(function()
-							local hitbox = Instance.new("Part")
-							hitbox.Size = Vector3.new(RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2)
-							hitbox.Position = hitPos
-							hitbox.Shape = Enum.PartType.Ball
-							hitbox.Anchored = true
-							hitbox.CanCollide = false
-							hitbox.CanQuery = false
-							hitbox.Transparency = 1
-							hitbox.Parent = workspace
-							
-							VoxelDestruction.Destroy(
-								hitbox,
-								nil,
-								RED_CONFIG.DESTRUCTION_VOXEL_SIZE,
-								8, -- Higher debris count for impact
-								nil
-							)
-							
-							task.delay(1, function()
-								if hitbox and hitbox.Parent then
-									hitbox:Destroy()
-								end
-							end)
-						end)
-					end
-
-					-- Send to server regardless (consistency)
+					-- Send to server for replication to all clients (like Blue)
 					abilityRequest.Send({
 						action = "redDestruction",
 						position = { X = hitPos.X, Y = hitPos.Y, Z = hitPos.Z },
@@ -1222,34 +1223,7 @@ local function runRedProjectile(state)
 		if destructionDistanceAccumulator >= DESTRUCTION_STEP then
 			destructionDistanceAccumulator = 0
 			
-			-- Local destruction for instant feedback
-			task.spawn(function()
-				local hitbox = Instance.new("Part")
-				hitbox.Size = Vector3.new(RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2, RED_CONFIG.DESTRUCTION_RADIUS * 2)
-				hitbox.Position = position
-				hitbox.Shape = Enum.PartType.Ball
-				hitbox.Anchored = true
-				hitbox.CanCollide = false
-				hitbox.CanQuery = false
-				hitbox.Transparency = 1
-				hitbox.Parent = workspace
-				
-				VoxelDestruction.Destroy(
-					hitbox,
-					nil,
-					RED_CONFIG.DESTRUCTION_VOXEL_SIZE,
-					3, -- Lower debris count for trail to avoid lag
-					nil
-				)
-				
-				task.delay(1, function()
-					if hitbox and hitbox.Parent then
-						hitbox:Destroy()
-					end
-				end)
-			end)
-
-			-- Send to server
+			-- Send to server for replication to all clients (like Blue)
 			abilityRequest.Send({
 				action = "redDestruction",
 				position = { X = position.X, Y = position.Y, Z = position.Z },
@@ -1379,7 +1353,7 @@ local function runRedProjectile(state)
 			local awayDir = (targetRoot.Position - position)
 			awayDir = awayDir.Magnitude > 0.1 and awayDir.Unit or direction
 			
-			local explosionVelocity = (awayDir * RED_CONFIG.EXPLOSION_OUTWARD) * RED_CONFIG.EXPLOSION_UPWARD-- + Vector3.new(0, RED_CONFIG.EXPLOSION_UPWARD, 0)
+			local explosionVelocity = (awayDir * RED_CONFIG.EXPLOSION_OUTWARD) + Vector3.new(0, RED_CONFIG.EXPLOSION_UPWARD, 0)
 			knockbackController:_sendKnockbackVelocity(targetChar, explosionVelocity, 0)
 		end
 		
