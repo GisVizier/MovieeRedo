@@ -16,6 +16,7 @@ TweenConfig.Values = {
 
 	ReloadBgVisible = 0.35,
 	ReloadDuration = 1.25,
+	CooldownReadyDelay = 0.8,
 }
 
 TweenConfig.Elements = {
@@ -67,6 +68,17 @@ TweenConfig.Elements = {
 		fadeOut = {
 			duration = 0.2,
 			easing = { Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.Out },
+		},
+	},
+
+	CooldownText = {
+		fadeIn = {
+			duration = 0.15,
+			easing = { Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.Out },
+		},
+		fadeOut = {
+			duration = 0.4,
+			easing = { Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.In },
 		},
 	},
 }

@@ -104,33 +104,33 @@ function WeaponFX:CleanupTracer(handle)
 end
 
 --[[
-	Legacy: Renders bullet tracer (instant, for hitscan)
+	Renders hitscan bullet effects (muzzle flash + world impact).
+	Hitscan is instant so we skip trail FX entirely — no pooled attachment needed.
 	@param hitData table
 ]]
 function WeaponFX:RenderBulletTracer(hitData)
 	if not hitData then return end
 	if not hitData.origin or not hitData.hitPosition then return end
-	
-	-- For hitscan, fire tracer and immediately complete it
-	local handle = self:FireTracer(hitData.weaponId, hitData.origin, hitData.gunModel)
-	if not handle then return end
-	
-	-- Move to hit position
-	handle.attachment.WorldPosition = hitData.hitPosition
-	
-	-- Determine hit type (works for players and dummies)
-	local hitCharacter = findCharacterFromPart(hitData.hitPart)
 
-	-- Call world hit effects only - player hit effects are triggered by
-	-- CombatController when damage is actually confirmed by the server
-	if not hitCharacter then
-		Tracers:HitWorld(handle, hitData.hitPosition, hitData.hitNormal or Vector3.yAxis, hitData.hitPart)
+	local weaponConfig = self._loadoutConfig.getWeapon(hitData.weaponId)
+	local tracerId = weaponConfig and weaponConfig.tracerId or nil
+	local resolvedId = Tracers:Resolve(tracerId, nil)
+	local tracerModule = Tracers:Get(resolvedId)
+	if not tracerModule then return end
+
+	-- Muzzle flash on the gun model
+	if tracerModule.Muzzle and hitData.gunModel then
+		local muzzleAttachment = Tracers:FindMuzzleAttachment(hitData.gunModel)
+		if muzzleAttachment then
+			tracerModule:Muzzle(hitData.origin, hitData.gunModel, nil, Tracers, muzzleAttachment)
+		end
 	end
-	
-	-- Cleanup after short delay
-	task.delay(0.5, function()
-		self:CleanupTracer(handle)
-	end)
+
+	-- World impact FX (only when we didn't hit a character)
+	local hitCharacter = findCharacterFromPart(hitData.hitPart)
+	if not hitCharacter and tracerModule.HitWorld then
+		tracerModule:HitWorld(hitData.hitPosition, hitData.hitNormal or Vector3.yAxis, hitData.hitPart, nil, Tracers)
+	end
 end
 
 --[[

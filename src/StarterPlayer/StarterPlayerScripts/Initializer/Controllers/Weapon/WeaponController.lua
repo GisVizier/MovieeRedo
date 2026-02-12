@@ -1090,6 +1090,11 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	-- Render tracer immediately (client-side prediction)
 	if SHOW_TRACERS and hitData then
 		hitData.weaponId = weaponId
+		-- Populate gunModel from viewmodel rig so muzzle FX can find the attachment
+		if not hitData.gunModel then
+			local rig = self._viewmodelController:GetActiveRig()
+			hitData.gunModel = rig and rig.Model or nil
+		end
 		self:_renderBulletTracer(hitData)
 	end
 end

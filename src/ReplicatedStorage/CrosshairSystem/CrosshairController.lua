@@ -508,8 +508,8 @@ function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
 	local stackBoost = math.min((self._hitmarkerStack - 1) * 0.08, 0.4)
 	local startScale = self._hitmarkerBaseScale * (1.45 + stackBoost)
 	local endScale = self._hitmarkerBaseScale * 0.6
-	local showDuration = 0.085
-	local visibleLifetime = 1.35
+	local showDuration = 0.185
+	local visibleLifetime = .95
 	local fadeDuration = 0.65
 
 	self:_cancelHitmarkerTweens()

@@ -115,6 +115,7 @@ function module.start(export, ui: UI)
 	self._weaponTemplates = {}
 	self._weaponData = {}
 	self._selectedSlot = nil
+	self._cooldownThreads = {}
 
 	local playerSpace = ui.PlayerSpace
 
@@ -757,6 +758,77 @@ function module:_setupTemplateReloadState(templateData, isReloading, reloadTime)
 	currentTweens[key] = tweens
 end
 
+function module:_cancelCooldownThread(slotType)
+	if self._cooldownThreads[slotType] then
+		task.cancel(self._cooldownThreads[slotType])
+		self._cooldownThreads[slotType] = nil
+	end
+end
+
+function module:_setupCooldownText(templateData, isOnCooldown, cooldownTime)
+	if not templateData or not templateData.ammoLabel then
+		return
+	end
+
+	local slotType = templateData.slot
+	self:_cancelCooldownThread(slotType)
+
+	local ammoLabel = templateData.ammoLabel
+	local ammoFrame = templateData.ammoFrame
+	local key = "cooldown_text_" .. slotType
+	cancelTweens(key)
+
+	if not isOnCooldown then
+		if ammoFrame then
+			ammoFrame.BackgroundTransparency = 1
+		end
+		ammoLabel.TextTransparency = 1
+		ammoLabel.Text = ""
+		return
+	end
+
+	local duration = cooldownTime and cooldownTime > 0 and cooldownTime or TweenConfig.Values.ReloadDuration
+	ammoLabel.TextTransparency = 0
+	ammoLabel.Text = string.format("%.1f", duration)
+
+	local fadeTween = TweenService:Create(ammoLabel, TweenConfig.get("CooldownText", "fadeIn"), {
+		TextTransparency = 0,
+	})
+	fadeTween:Play()
+
+	self._cooldownThreads[slotType] = task.spawn(function()
+		local startTime = tick()
+		while true do
+			local elapsed = tick() - startTime
+			local remaining = duration - elapsed
+			if remaining <= 0 then
+				break
+			end
+			ammoLabel.Text = string.format("%.1f", remaining)
+			task.wait()
+		end
+
+		ammoLabel.Text = "READY"
+		task.wait(TweenConfig.Values.CooldownReadyDelay)
+
+		if not ammoLabel or not ammoLabel.Parent then
+			return
+		end
+
+		cancelTweens(key)
+		local fadeOut = TweenService:Create(ammoLabel, TweenConfig.get("CooldownText", "fadeOut"), {
+			TextTransparency = 1,
+		})
+		fadeOut:Play()
+		currentTweens[key] = { fadeOut }
+		fadeOut.Completed:Once(function()
+			ammoLabel.Text = ""
+		end)
+
+		self._cooldownThreads[slotType] = nil
+	end)
+end
+
 function module:_createTemplate(slotType, templateSource, iconImage, rarityColor, order)
 	if not templateSource or not self._itemListFrame then
 		return nil
@@ -802,6 +874,8 @@ function module:_createTemplate(slotType, templateSource, iconImage, rarityColor
 	local reloadGradient = reloading and reloading:FindFirstChild("UIGradient")
 	local reloadBg = reloading and reloading:FindFirstChild("Bg")
 	local reloadGradImage = reloading and reloading:FindFirstChild("grad")
+	local ammoFrame = template:FindFirstChild("Frame")
+	local ammoLabel = ammoFrame and ammoFrame:FindFirstChild("Ammo")
 
 	if reloadBg and rarityColor then
 		reloadBg.ImageColor3 = rarityColor
@@ -827,6 +901,8 @@ function module:_createTemplate(slotType, templateSource, iconImage, rarityColor
 		reloading = reloading,
 		reloadGradient = reloadGradient,
 		reloadBg = reloadBg,
+		ammoFrame = ammoFrame,
+		ammoLabel = ammoLabel,
 	}
 
 	self._weaponTemplates[slotType] = data
@@ -1326,10 +1402,12 @@ function module:_updateSlotData(slotType)
 
 	if slotType ~= "Kit" then
 		self:_setupTemplateReloadState(templateData, data.Reloading == true, data.ReloadTime)
+		self:_setupCooldownText(templateData, data.Reloading == true, data.ReloadTime)
 	else
 		local isOnCooldown = data.AbilityOnCooldown == true
 		local cooldownTime = data.AbilityCooldownRemaining or data.AbilityCooldown
 		self:_setupTemplateReloadState(templateData, isOnCooldown, cooldownTime)
+		self:_setupCooldownText(templateData, isOnCooldown, cooldownTime)
 	end
 
 	if self._selectedSlot == slotType and slotType ~= "Kit" then
@@ -1577,6 +1655,11 @@ function module:_cleanup()
 	self._connections:cleanupGroup("hud_ult")
 	self._connections:cleanupGroup("hud_weapons")
 
+	for slotType in self._cooldownThreads do
+		self:_cancelCooldownThread(slotType)
+	end
+	table.clear(self._cooldownThreads)
+
 	for _, tweens in currentTweens do
 		for _, tween in tweens do
 			tween:Cancel()
@@ -1610,6 +1693,7 @@ function module:ForceCooldown(slotType: string, duration: number)
 	end
 
 	self:_setupTemplateReloadState(templateData, true, duration)
+	self:_setupCooldownText(templateData, true, duration)
 end
 
 return module
