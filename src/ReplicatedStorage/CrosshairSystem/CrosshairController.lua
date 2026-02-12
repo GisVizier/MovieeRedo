@@ -79,10 +79,32 @@ function CrosshairController.new(player: Player?)
 	self._hitmarkerHideSeq = 0
 	self._hitmarkerLastHitTime = 0
 	self._hitmarkerStack = 0
+	self._moduleCache = {}
+	self._moduleCacheWarmed = false
 
 	self:_bindCharacter()
+	self:_warmModuleCache()
 
 	return self
+end
+
+function CrosshairController:_warmModuleCache()
+	if self._moduleCacheWarmed then
+		return
+	end
+
+	self._moduleCacheWarmed = true
+
+	for _, child in ipairs(CrosshairsFolder:GetChildren()) do
+		if child:IsA("ModuleScript") then
+			local ok, moduleDef = pcall(require, child)
+			if ok then
+				self._moduleCache[child.Name] = moduleDef
+			else
+				warn("[CrosshairController] Failed to warm module cache:", child.Name, moduleDef)
+			end
+		end
+	end
 end
 
 function CrosshairController:_bindCharacter()
@@ -132,6 +154,15 @@ function CrosshairController:_resolveGui()
 end
 
 function CrosshairController:_loadModule(crosshairName: string)
+	if not self._moduleCacheWarmed then
+		self:_warmModuleCache()
+	end
+
+	local cached = self._moduleCache[crosshairName]
+	if cached then
+		return cached
+	end
+
 	local moduleScript = CrosshairsFolder:FindFirstChild(crosshairName)
 	if not moduleScript then
 		warn("[CrosshairController] Crosshair module missing:", crosshairName)
@@ -144,6 +175,7 @@ function CrosshairController:_loadModule(crosshairName: string)
 		return nil
 	end
 
+	self._moduleCache[crosshairName] = moduleDef
 	return moduleDef
 end
 
