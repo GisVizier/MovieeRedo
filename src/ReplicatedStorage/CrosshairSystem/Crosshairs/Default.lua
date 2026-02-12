@@ -1,6 +1,11 @@
 local module = {}
 module.__index = module
 
+-- DEBUG LOGGING
+local DEBUG_CROSSHAIR = true
+local DEBUG_LOG_INTERVAL = 1
+local lastDebugTime = 0
+
 module.Config = {
 	-- Velocity-based spread (VERY HIGH for visible feedback)
 	velocitySensitivity = 1.5,    -- Very high sensitivity to movement speed
@@ -53,6 +58,26 @@ function module.new(template: Frame)
 	self._currentRecoil = 0
 	self._velocitySpread = 0
 	self._customization = nil
+	
+	if DEBUG_CROSSHAIR then
+		print("[Default.lua] module.new called")
+		print("[Default.lua]   Template:", template and template:GetFullName() or "nil")
+		print("[Default.lua]   _lines found:", self._lines ~= nil)
+		print("[Default.lua]   _dot found:", self._dot ~= nil)
+		print("[Default.lua]   _top found:", self._top ~= nil)
+		print("[Default.lua]   _bottom found:", self._bottom ~= nil)
+		print("[Default.lua]   _left found:", self._left ~= nil)
+		print("[Default.lua]   _right found:", self._right ~= nil)
+		
+		-- If lines not found, search for any Frame children that might be the lines
+		if not self._lines then
+			print("[Default.lua]   Looking for alternative line structure...")
+			for _, child in template:GetChildren() do
+				print("[Default.lua]     Found child:", child.Name, child.ClassName)
+			end
+		end
+	end
+	
 	return self
 end
 
@@ -193,6 +218,26 @@ function module:Update(dt, state)
 	
 	-- Use weapon-specific base gap or fall back to customization
 	local gap = weaponData.baseGap or (customization and customization.gapFromCenter) or 10
+	
+	-- Debug log periodically
+	if DEBUG_CROSSHAIR then
+		local now = tick()
+		if now - lastDebugTime > DEBUG_LOG_INTERVAL then
+			lastDebugTime = now
+			print("[Default.lua] UPDATE called")
+			print("[Default.lua]   Speed:", string.format("%.2f", speed))
+			print("[Default.lua]   VelocitySpread:", string.format("%.2f", self._velocitySpread))
+			print("[Default.lua]   Recoil:", string.format("%.2f", self._currentRecoil))
+			print("[Default.lua]   StateMult:", string.format("%.2f", stateMult))
+			print("[Default.lua]   SpreadAmount:", string.format("%.2f", spreadAmount))
+			print("[Default.lua]   SpreadX/Y:", string.format("%.2f / %.2f", spreadX, spreadY))
+			print("[Default.lua]   Gap:", gap)
+			print("[Default.lua]   Has _top:", self._top ~= nil)
+			print("[Default.lua]   Has _bottom:", self._bottom ~= nil)
+			print("[Default.lua]   Has _left:", self._left ~= nil)
+			print("[Default.lua]   Has _right:", self._right ~= nil)
+		end
+	end
 
 	if self._top then
 		self._top.Position = UDim2.new(0.5, 0, 0.5, -(gap + spreadY))
