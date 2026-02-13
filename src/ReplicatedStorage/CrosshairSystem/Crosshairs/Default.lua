@@ -5,36 +5,37 @@ local DEBUG_CROSSHAIR = false
 local DEBUG_LOG_INTERVAL = 1
 local lastDebugTime = 0
 
+
 module.Config = {
 	-- Movement spread
-	velocitySensitivity = .035,
-	verticalVelocityWeight = 0.035, -- Adds Y velocity influence into spread.
+	velocitySensitivity = .075,
+	verticalVelocityWeight = 0.075, -- Adds Y velocity influence into spread.
 	velocityMinSpread = 0,
-	velocityMaxSpread = 10,
+	velocityMaxSpread = 15,
 	adsVelocitySensitivityMult = 1.2,
-	
+
 	velocityRecoveryRate = 12,
 	adsVelocityRecoveryMult = 1.35,
 	movingBaseSpread = .85,
 	movingThreshold = 1,
 
 	-- Recoil spread
-	recoilRecoveryRate = 9, -- studs/sec-style decay for recoil spread.
-	maxRecoil = 4,
+	recoilRecoveryRate = 10, -- studs/sec-style decay for recoil spread.
+	maxRecoil = 5,
 
 	-- Final scaling
 	spreadScale = 2.0,
 	maxSpread = 90,
 
 	-- State multipliers (spread)
-	crouchMult = 0.75,
+	crouchMult = 0.8,
 	slideMult = 0.9,
 	sprintMult = 1.35,
 	airMult = 1.5,
 	adsMult = 0.8,
 
 	-- State multipliers (recoil recovery strength)
-	crouchRecoilMult = 0.8,
+	crouchRecoilMult = 1.15,
 	slideRecoilMult = 0.9,
 	sprintRecoilMult = 1.1,
 	airRecoilMult = 1.2,
@@ -42,10 +43,10 @@ module.Config = {
 
 	-- Gap behavior
 	defaultGap = 25,
-	minGap = 22,
+	minGap = 20,
 	maxGap = 45,
-	crouchMinGap = 10,
-	adsMinGap = 8,
+	crouchMinGap = 9.5,
+	adsMinGap = 5,
 
 	crouchGapMult = 0.5, -- Crouch pulls lines slightly inward.
 	adsGapMult = 0.3, -- ADS pulls lines inward more.

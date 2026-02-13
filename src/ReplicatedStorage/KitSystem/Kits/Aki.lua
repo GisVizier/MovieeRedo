@@ -15,6 +15,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 
 -- HitDetectionAPI for authoritative position data
 local HitDetectionAPI = nil
@@ -185,7 +187,7 @@ function Kit:OnAbility(inputState, clientData)
 		local hits = clientData.hits
 		local bitePosData = clientData.bitePosition
 
-		if not hits or not bitePosData then
+		if not bitePosData then
 			return true
 		end
 
@@ -195,9 +197,11 @@ function Kit:OnAbility(inputState, clientData)
 			bitePosData.Z or 0
 		)
 
-		local valid, reason = validateHitList(hits)
-		if not valid then
-			return true
+		if hits ~= nil then
+			local valid = validateHitList(hits)
+			if not valid then
+				return true
+			end
 		end
 
 		-- Validate bite position
@@ -208,29 +212,19 @@ function Kit:OnAbility(inputState, clientData)
 			end
 		end
 
-		-- Apply damage
-		for _, hitData in ipairs(hits) do
-			local targetCharacter = nil
-
-			if hitData.playerId then
-				local targetPlayer = Players:GetPlayerByUserId(hitData.playerId)
-				if targetPlayer then
-					targetCharacter = targetPlayer.Character
-				end
-			elseif hitData.isDummy and hitData.characterName then
-				local dummies = workspace:FindFirstChild("Dummies")
-				if dummies then
-					targetCharacter = dummies:FindFirstChild(hitData.characterName)
-				end
-				if not targetCharacter then
-					targetCharacter = workspace:FindFirstChild(hitData.characterName)
-				end
+		-- Server-authoritative damage check at bite position.
+		local targets = Hitbox.GetCharactersInRadius(bitePos, BITE_RADIUS, player)
+		local appliedHits = 0
+		for _, targetCharacter in ipairs(targets) do
+			if appliedHits >= MAX_HITS_PER_BITE then
+				break
 			end
 
-			if targetCharacter then
-				local humanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
+			if targetCharacter and targetCharacter ~= character then
+				local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 				if humanoid and humanoid.Health > 0 then
 					humanoid:TakeDamage(BITE_DAMAGE)
+					appliedHits += 1
 				end
 			end
 		end

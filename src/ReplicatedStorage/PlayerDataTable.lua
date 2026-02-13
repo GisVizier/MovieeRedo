@@ -52,7 +52,7 @@ function PlayerDataTable.init()
 		EQUIPPED_SKINS = {
 			-- Revolver = "Energy",
 			-- Shotgun = "OGPump",
-			Tomahawk = "Cleaver"
+			-- Tomahawk = "Cleaver"
 		},
 
 		EQUIPPED_EMOTES = {

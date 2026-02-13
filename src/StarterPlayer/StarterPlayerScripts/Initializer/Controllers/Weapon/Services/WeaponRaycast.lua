@@ -182,7 +182,7 @@ end
 -- MAIN RAYCAST
 -- =============================================================================
 
-function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreSpread)
+function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreSpread, spreadMultiplier)
 	if not camera then
 		return nil
 	end
@@ -190,9 +190,10 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	local origin = camera.CFrame.Position
 	local direction = camera.CFrame.LookVector.Unit
 	local range = weaponConfig.range or 500
+	local finalSpreadMultiplier = math.max(0, tonumber(spreadMultiplier) or 1)
 
 	if not ignoreSpread and weaponConfig.spread and weaponConfig.spread > 0 then
-		direction = WeaponRaycast.GetSpreadDirection(direction, weaponConfig.spread)
+		direction = WeaponRaycast.GetSpreadDirection(direction, weaponConfig.spread * finalSpreadMultiplier)
 	end
 
 	local targetPosition = origin + direction * range

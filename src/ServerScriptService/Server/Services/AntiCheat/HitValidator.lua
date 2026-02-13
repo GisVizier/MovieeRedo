@@ -17,6 +17,7 @@
 local HitValidator = {}
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local PositionHistory = require(script.Parent.PositionHistory)
 local LatencyTracker = require(script.Parent.LatencyTracker)
@@ -32,7 +33,10 @@ local CONFIG = {
 	-- Timing
 	MaxTimestampAge = 2.0,          -- Max seconds in the past (hard cap)
 	MaxRollbackTime = 2.0,          -- Never rollback more than this (matches position history buffer)
-	MinTimestampAge = -0.1,         -- Small tolerance for processing delay
+	MinTimestampAge = -0.35,        -- Allow moderate clock jitter/network variance before rejecting
+	FutureTimestampClamp = 0.25,    -- Clamp slightly-future timestamps instead of rejecting immediately
+	ClientMaxFutureLead = 2.0,      -- Reject only extreme future timestamps (likely tampering)
+	ClientMaxPastAge = 10.0,        -- Reject only extreme stale timestamps (likely replay/tampering)
 
 	-- Distance
 	RangeTolerance = 1.2,           -- 20% extra range tolerance
@@ -142,52 +146,71 @@ end
 	@return boolean, string - (isValid, reason)
 ]]
 function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
-	local now = workspace:GetServerTimeNow()
+	local now = hitData.serverReceiveTime or workspace:GetServerTimeNow()
+
+	-- Client timestamp is advisory only. We only reject extreme values.
+	if type(hitData.timestamp) == "number" then
+		local futureDelta = hitData.timestamp - now
+		local pastAge = now - hitData.timestamp
+
+		if futureDelta > 0 and futureDelta <= CONFIG.FutureTimestampClamp then
+			hitData.timestamp = now
+		end
+
+		if not RunService:IsStudio() and futureDelta > CONFIG.ClientMaxFutureLead then
+			return false, "TimestampInFuture"
+		end
+
+		if pastAge > CONFIG.ClientMaxPastAge then
+			return false, "TimestampTooOld"
+		end
+	end
 	
 	-- Get network conditions
 	local rollbackTime = LatencyTracker:GetRollbackTime(shooter)
 	local tolerances = LatencyTracker:GetAdaptiveTolerances(shooter)
+
+	-- Server-authoritative shot time for all rollback validations.
+	local clampedRollback = math.min(rollbackTime, CONFIG.MaxRollbackTime)
+	local estimatedShotTime = now - clampedRollback
+	local oldestAllowed = now - CONFIG.MaxTimestampAge
+	hitData.timestamp = math.clamp(estimatedShotTime, oldestAllowed, now)
 	
-	-- 1. TIMESTAMP VALIDATION
-	local valid, reason = self:_validateTimestamp(hitData.timestamp, now, tolerances)
-	if not valid then
-		return false, reason
-	end
-	
-	-- 2. RATE LIMITING
+	-- 1. RATE LIMITING
+	local valid, reason
 	valid, reason = self:_validateFireRate(shooter, now, weaponConfig)
 	if not valid then
 		return false, reason
 	end
 	self.LastFireTimes[shooter] = now
 	
-	-- 3. RANGE VALIDATION
+	-- 2. RANGE VALIDATION
 	valid, reason = self:_validateRange(hitData, weaponConfig)
 	if not valid then
 		return false, reason
 	end
 	
-	-- 4. POSITION BACKTRACKING (if target is a player)
+	-- 3. POSITION BACKTRACKING (if target is a player)
 	if hitData.hitPlayer then
 		valid, reason = self:_validatePositionBacktrack(shooter, hitData, rollbackTime, tolerances)
 		if not valid then
 			return false, reason
 		end
 		
-		-- 5. STANCE VALIDATION
+		-- 4. STANCE VALIDATION
 		valid, reason = self:_validateStance(hitData, rollbackTime)
 		if not valid then
 			return false, reason
 		end
 		
-		-- 6. LINE-OF-SIGHT CHECK
+		-- 5. LINE-OF-SIGHT CHECK
 		valid, reason = self:_validateLineOfSight(shooter, hitData, rollbackTime)
 		if not valid then
 			return false, reason
 		end
 	end
 	
-	-- 7. UPDATE STATISTICS
+	-- 6. UPDATE STATISTICS
 	self:_updateStats(shooter, hitData.hitPlayer ~= nil, hitData.isHeadshot)
 	
 	return true, "Valid"

@@ -1094,7 +1094,7 @@ function WeaponProjectile:_getSpreadState(weaponInstance)
 	end
 
 	-- Get ADS state from WeaponController
-	local weaponController = ServiceRegistry:GetController("WeaponController")
+	local weaponController = ServiceRegistry:GetController("Weapon")
 	if weaponController then
 		if type(weaponController.IsADS) == "function" then
 			state.isADS = weaponController:IsADS()
@@ -1271,6 +1271,20 @@ function WeaponProjectile:_onHitConfirmed(data)
 	-- Play confirmed hit effect
 	if CONFIG.DebugLogging then
 		print("[WeaponProjectile] Hit confirmed by server")
+	end
+
+	if not data then
+		return
+	end
+
+	local didHitTarget = data.hitPlayer ~= nil
+		or (type(data.hitCharacterName) == "string" and data.hitCharacterName ~= "")
+
+	if data.shooter == LocalPlayer.UserId and didHitTarget then
+		local weaponController = ServiceRegistry:GetController("Weapon")
+		if weaponController and type(weaponController._showHitmarker) == "function" then
+			weaponController:_showHitmarker(data)
+		end
 	end
 end
 

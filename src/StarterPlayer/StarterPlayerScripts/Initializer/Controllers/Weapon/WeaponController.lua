@@ -455,8 +455,17 @@ function WeaponController:_applyCameraRecoil()
 		return
 	end
 
-	local pitchKick = recoilData.pitchUp or 1
-	local yawKick = (math.random() * 2 - 1) * (recoilData.yawRandom or 0.5)
+	local isADS = self:_resolveADSState(self._isADS)
+	local adsRecoilMult = 1
+	if isADS then
+		adsRecoilMult = recoilData.adsMultiplier
+			or recoilData.adsRecoilMultiplier
+			or weaponConfig.adsEffectsMultiplier
+			or 0.35
+	end
+
+	local pitchKick = (recoilData.pitchUp or 1) * adsRecoilMult
+	local yawKick = ((math.random() * 2 - 1) * (recoilData.yawRandom or 0.5)) * adsRecoilMult
 
 	_recoilPitch = _recoilPitch + pitchKick
 	_recoilYaw = _recoilYaw + yawKick
@@ -1078,7 +1087,43 @@ function WeaponController:_playViewmodelAnimation(name, fade, restart)
 end
 
 function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
-	return WeaponRaycast.PerformRaycast(self._camera, LocalPlayer, weaponConfig, ignoreSpread)
+	local spreadMultiplier = 1
+
+	if not ignoreSpread and LocalPlayer and weaponConfig then
+		local crosshairData = weaponConfig.crosshair or {}
+		local movementState = self._crosshair and self._crosshair._getMovementState and self._crosshair:_getMovementState()
+
+		local horizontalSpeed = 0
+		local character = LocalPlayer.Character
+		local root = character and (character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart"))
+		if root then
+			local velocity = root.AssemblyLinearVelocity
+			horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+		end
+
+		local movementBoost = 1 + math.clamp(horizontalSpeed / 20, 0, 1) * 0.8
+		spreadMultiplier *= movementBoost
+
+		if movementState then
+			if movementState.isCrouching then
+				spreadMultiplier *= (crosshairData.crouchMult or 1)
+			elseif movementState.isSliding then
+				spreadMultiplier *= (crosshairData.slideMult or 1)
+			elseif movementState.isSprinting then
+				spreadMultiplier *= (crosshairData.sprintMult or 1)
+			end
+
+			if movementState.isGrounded == false then
+				spreadMultiplier *= (crosshairData.airMult or 1)
+			end
+
+			if movementState.isADS then
+				spreadMultiplier *= (crosshairData.adsMult or 1)
+			end
+		end
+	end
+
+	return WeaponRaycast.PerformRaycast(self._camera, LocalPlayer, weaponConfig, ignoreSpread, spreadMultiplier)
 end
 
 function WeaponController:_generatePelletDirections(config)
@@ -1098,6 +1143,15 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	local recoilCfg = weaponConfig and weaponConfig.recoil or {}
 	local kickPos = recoilCfg.kickPos or Vector3.new(0, 0, -0.08)
 	local kickRot = recoilCfg.kickRot or Vector3.new(-0.08, 0, 0)
+	local isADS = self:_resolveADSState(self._isADS)
+	if isADS then
+		local adsRecoilMult = recoilCfg.adsMultiplier
+			or recoilCfg.adsRecoilMultiplier
+			or (weaponConfig and weaponConfig.adsEffectsMultiplier)
+			or 0.35
+		kickPos *= adsRecoilMult
+		kickRot *= adsRecoilMult
+	end
 
 	self._viewmodelController:ApplyRecoil(kickPos, kickRot)
 	

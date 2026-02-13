@@ -35,13 +35,15 @@ local LocalPlayer = Players.LocalPlayer
 -- Constants
 --------------------------------------------------------------------------------
 
-local MAX_RANGE = 125
+local MAX_RANGE = 150
 local BITE_RADIUS = 12
 local BITE_KNOCKBACK_PRESET = "Fling"
 local VM_ANIM_NAME = "Kon"
 local RELEASE_ANIM_SPEED = 1.67
 local HITBOX_PREVIEW_FADE_TIME = 0.2
 local HITBOX_PREVIEW_FLOOR_PITCH_DEG = 90
+local GROUND_SNAP_HEIGHT = 12
+local GROUND_SNAP_DISTANCE = 180
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -213,6 +215,15 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 	if not root then return nil, nil end
 
 	local filterList = { character }
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then
+			table.insert(filterList, player.Character)
+		end
+	end
+	local dummiesFolder = Workspace:FindFirstChild("Dummies")
+	if dummiesFolder then
+		table.insert(filterList, dummiesFolder)
+	end
 	local effectsFolder = Workspace:FindFirstChild("Effects")
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)
@@ -221,6 +232,25 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 
 	local camCF = Workspace.CurrentCamera.CFrame
 	local result = Workspace:Raycast(camCF.Position, camCF.LookVector * maxDistance, TargetParams)
+	local desiredPoint = result and result.Position or (camCF.Position + camCF.LookVector * maxDistance)
+
+	local downResult = Workspace:Raycast(
+		desiredPoint + Vector3.new(0, GROUND_SNAP_HEIGHT, 0),
+		Vector3.new(0, -GROUND_SNAP_DISTANCE, 0),
+		TargetParams
+	)
+	if downResult then
+		local floorPos = downResult.Position
+		local camPos = Vector3.new(camCF.Position.X, floorPos.Y, camCF.Position.Z)
+		local dirRelToCam = floorPos - camPos
+		if dirRelToCam.Magnitude < 0.001 then
+			dirRelToCam = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
+		end
+		if dirRelToCam.Magnitude < 0.001 then
+			dirRelToCam = Vector3.zAxis
+		end
+		return CFrame.lookAt(floorPos, floorPos + dirRelToCam.Unit), downResult.Normal
+	end
 
 	if result and result.Instance and result.Instance.Transparency ~= 1 then
 		local hitPosition = result.Position
@@ -237,7 +267,7 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 		end
 	else
 		local hitPos = camCF.Position + camCF.LookVector * maxDistance
-		result = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -100, TargetParams)
+		result = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -GROUND_SNAP_DISTANCE, TargetParams)
 		if result then
 			return CFrame.lookAt(result.Position, result.Position + camCF.LookVector), result.Normal
 		end

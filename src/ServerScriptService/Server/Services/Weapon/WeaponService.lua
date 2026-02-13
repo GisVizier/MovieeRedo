@@ -150,7 +150,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 	else
 		-- Legacy table format (backward compatibility)
 		hitData = {
-			timestamp = shotData.timestamp or os.clock(),
+			timestamp = shotData.timestamp or workspace:GetServerTimeNow(),
 			origin = shotData.origin,
 			hitPosition = shotData.hitPosition,
 			targetUserId = shotData.hitPlayer and shotData.hitPlayer.UserId or 0,
@@ -160,6 +160,9 @@ function WeaponService:OnWeaponFired(player, shotData)
 			weaponName = weaponId,
 		}
 	end
+
+	-- Server-authoritative receive time used by HitValidator rollback.
+	hitData.serverReceiveTime = workspace:GetServerTimeNow()
 
 	if not weaponId then
 		warn("[WeaponService] No weapon ID from", player.Name)

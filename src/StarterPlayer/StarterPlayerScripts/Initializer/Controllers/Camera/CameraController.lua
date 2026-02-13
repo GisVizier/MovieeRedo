@@ -43,6 +43,31 @@ local function getCurrentCamera()
 	return workspace.CurrentCamera
 end
 
+local originalDetailTransparency = setmetatable({}, { __mode = "k" })
+local originalEffectEnabled = setmetatable({}, { __mode = "k" })
+
+local function applyPartChildVisibility(basePart: BasePart, transparency: number)
+	for _, child in ipairs(basePart:GetDescendants()) do
+		if child:IsA("Decal") or child:IsA("Texture") then
+			local original = originalDetailTransparency[child]
+			if original == nil then
+				original = child.Transparency
+				originalDetailTransparency[child] = original
+			end
+
+			child.Transparency = math.clamp(math.max(original, transparency), 0, 1)
+		elseif child:IsA("ParticleEmitter") or child:IsA("Trail") or child:IsA("Beam") then
+			local original = originalEffectEnabled[child]
+			if original == nil then
+				original = child.Enabled
+				originalEffectEnabled[child] = original
+			end
+
+			child.Enabled = transparency < 1 and original or false
+		end
+	end
+end
+
 -- =============================================================================
 -- CAMERA SAFETY (Prevent camera going below ground)
 -- =============================================================================
@@ -697,6 +722,7 @@ function CameraController:ShowEntireRig()
 	for _, part in ipairs(self.Rig:GetDescendants()) do
 		if part:IsA("BasePart") then
 			part.LocalTransparencyModifier = 0
+			applyPartChildVisibility(part, 0)
 		end
 	end
 
@@ -707,6 +733,7 @@ function CameraController:ShowEntireRig()
 			local handle = accessory:FindFirstChild("Handle")
 			if handle and handle:IsA("BasePart") then
 				handle.LocalTransparencyModifier = 0
+				applyPartChildVisibility(handle, 0)
 			end
 		end
 	end
@@ -1188,16 +1215,19 @@ function CameraController:ApplyFirstPersonTransparency()
 	else
 		CharacterLocations:ForEachRigPart(self.Character, function(rigPart)
 			rigPart.LocalTransparencyModifier = 1
+			applyPartChildVisibility(rigPart, 1)
 		end)
 
 		local head = CharacterLocations:GetHumanoidHead(self.Character)
 		if head then
 			head.LocalTransparencyModifier = 1
+			applyPartChildVisibility(head, 1)
 		end
 
 		local colliderHead = CharacterLocations:GetHead(self.Character)
 		if colliderHead then
 			colliderHead.LocalTransparencyModifier = 1
+			applyPartChildVisibility(colliderHead, 1)
 		end
 	end
 
@@ -1207,7 +1237,9 @@ function CameraController:ApplyFirstPersonTransparency()
 		for _, accessory in pairs(rigHumanoid:GetAccessories()) do
 			local handle = accessory:FindFirstChild("Handle")
 			if handle and handle:IsA("BasePart") then
-				handle.LocalTransparencyModifier = showRigForTesting and 0 or 1
+				local transparency = showRigForTesting and 0 or 1
+				handle.LocalTransparencyModifier = transparency
+				applyPartChildVisibility(handle, transparency)
 			end
 		end
 	end
@@ -1221,6 +1253,7 @@ function CameraController:ApplyRigTransparency(transparency)
 
 	CharacterLocations:ForEachRigPart(self.Character, function(rigPart)
 		rigPart.LocalTransparencyModifier = transparency
+		applyPartChildVisibility(rigPart, transparency)
 	end)
 
 	local rigHumanoid = self.Rig:FindFirstChildOfClass("Humanoid")
@@ -1229,6 +1262,7 @@ function CameraController:ApplyRigTransparency(transparency)
 			local handle = accessory:FindFirstChild("Handle")
 			if handle and handle:IsA("BasePart") then
 				handle.LocalTransparencyModifier = transparency
+				applyPartChildVisibility(handle, transparency)
 			end
 		end
 	end

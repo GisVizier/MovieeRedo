@@ -207,6 +207,18 @@ function CrosshairController:_cacheHitmarker()
 
 	local hitmarker = self._frame:FindFirstChild("Hitmarker", true)
 	if not (hitmarker and hitmarker:IsA("ImageLabel")) then
+		local container = self:_resolveGui()
+		local defaultTemplate = container and container:FindFirstChild("Default")
+		local defaultHitmarker = defaultTemplate and defaultTemplate:FindFirstChild("Hitmarker", true)
+		if defaultHitmarker and defaultHitmarker:IsA("ImageLabel") then
+			local clone = defaultHitmarker:Clone()
+			clone.Name = "Hitmarker"
+			clone.Visible = false
+			clone.Parent = self._frame
+			hitmarker = clone
+		end
+	end
+	if not (hitmarker and hitmarker:IsA("ImageLabel")) then
 		return
 	end
 
