@@ -2,6 +2,7 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
@@ -273,6 +274,17 @@ local function isVisible(instance)
 	return true
 end
 
+local function isGamepadInputType(inputType)
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
+end
+
 function module.start(export, ui)
 	local self = setmetatable({}, module)
 
@@ -296,7 +308,7 @@ function module.start(export, ui)
 	self._loadoutFinished = false
 	self._pendingSelectedItemId = nil
 	self._gamepadInputsBound = false
-	self._prevMouseBehavior = nil
+	self._prevAutoSelectGuiEnabled = nil
 
 	self._previewTemplates = nil
 	self._itemScrollerTemplates = nil
@@ -331,6 +343,72 @@ function module:_init()
 end
 
 function module:_setupNetworkListeners() end
+
+function module:_getInitialSelectedObject()
+	local selectedSlotData = self._slotTemplates[self._selectedSlot]
+	if selectedSlotData and selectedSlotData.template then
+		local slotButton = findSlotButton(selectedSlotData.template)
+		if slotButton and slotButton.Active and slotButton.Interactable then
+			return slotButton
+		end
+	end
+
+	for _, slotType in ipairs(SLOT_TYPES) do
+		local slotData = self._slotTemplates[slotType]
+		if slotData and slotData.template then
+			local slotButton = findSlotButton(slotData.template)
+			if slotButton and slotButton.Active and slotButton.Interactable then
+				return slotButton
+			end
+		end
+	end
+
+	for _, itemData in self._itemTemplates do
+		if itemData and itemData.template then
+			local button = itemData.template:FindFirstChild("Button", true) or findFirstGuiButton(itemData.template)
+			if button and button:IsA("GuiButton") and button.Active and button.Interactable then
+				return button
+			end
+		end
+	end
+
+	return nil
+end
+
+function module:_setUINavActive(active)
+	if not self._ui or not self._ui.Visible then
+		return
+	end
+
+	local ok = pcall(function()
+		GuiService.AutoSelectGuiEnabled = active
+	end)
+	if not ok then
+		return
+	end
+
+	if active then
+		local selected = GuiService.SelectedObject
+		if not selected or not selected:IsDescendantOf(self._ui) then
+			GuiService.SelectedObject = self:_getInitialSelectedObject()
+		end
+	else
+		local selected = GuiService.SelectedObject
+		if selected and self._ui and selected:IsDescendantOf(self._ui) then
+			GuiService.SelectedObject = nil
+		end
+	end
+end
+
+function module:_startUINavInputWatcher()
+	self._connections:cleanupGroup("loadout_uinav")
+	self._connections:track(UserInputService, "LastInputTypeChanged", function(inputType)
+		if not self._ui or not self._ui.Visible then
+			return
+		end
+		self:_setUINavActive(isGamepadInputType(inputType))
+	end, "loadout_uinav")
+end
 
 
 function module:_setupGamepadSlotCycling()
@@ -1813,10 +1891,16 @@ end
 
 function module:show()
 	self._ui.Visible = true
-	if self._prevMouseBehavior == nil then
-		self._prevMouseBehavior = UserInputService.MouseBehavior
+	if self._prevAutoSelectGuiEnabled == nil then
+		local ok, value = pcall(function()
+			return GuiService.AutoSelectGuiEnabled
+		end)
+		if ok then
+			self._prevAutoSelectGuiEnabled = value
+		end
 	end
-	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	self:_setUINavActive(isGamepadInputType(UserInputService:GetLastInputType()))
+	self:_startUINavInputWatcher()
 	
 	-- Reset loadout state for fresh entry (allows re-entry to training)
 	self._loadoutFinished = false
@@ -1831,16 +1915,25 @@ function module:show()
 	
 	self:_animateShow()
 	self:_init()
+	self:_setUINavActive(isGamepadInputType(UserInputService:GetLastInputType()))
 	self:startTimer()
 	return true
 end
 
 function module:hide()
 	self:_animateHide()
-	if self._prevMouseBehavior ~= nil then
-		UserInputService.MouseBehavior = self._prevMouseBehavior
+	self._connections:cleanupGroup("loadout_uinav")
+	self:_setUINavActive(false)
+	if self._prevAutoSelectGuiEnabled ~= nil then
+		pcall(function()
+			GuiService.AutoSelectGuiEnabled = self._prevAutoSelectGuiEnabled
+		end)
+		self._prevAutoSelectGuiEnabled = nil
+	else
+		pcall(function()
+			GuiService.AutoSelectGuiEnabled = true
+		end)
 	end
-	self._prevMouseBehavior = nil
 
 	task.delay(0.6, function()
 		self._ui.Visible = false
@@ -1884,7 +1977,8 @@ function module:_cleanup()
 	self._selectedSlot = "Kit"
 	self._pendingSelectedItemId = nil
 	self._gamepadInputsBound = false
-	self._prevMouseBehavior = nil
+	self._connections:cleanupGroup("loadout_uinav")
+	self._prevAutoSelectGuiEnabled = nil
 	table.clear(self._currentLoadout)
 	self._currentLoadout = {
 		Kit = nil,
