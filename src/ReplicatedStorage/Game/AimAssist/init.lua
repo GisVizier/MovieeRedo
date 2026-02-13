@@ -41,6 +41,17 @@ local function debugLog(...)
 	end
 end
 
+local function isGamepadInputType(inputType: Enum.UserInputType): boolean
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
+end
+
 local AimAssist = {}
 AimAssist.__index = AimAssist
 
@@ -63,9 +74,8 @@ function AimAssist:enable()
 	end)
 
 	-- Bind AFTER CameraController (apply aim assist adjustments)
-	-- CameraController runs at Camera + 10, so we run at Camera + 20 for HIGH PRIORITY
-	-- This ensures aim assist can't be overwritten by camera updates
-	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 20, function(deltaTime: number)
+	-- Run after camera update but before viewmodel render so gun follows assisted view
+	RunService:BindToRenderStep(bindNames.Apply, Enum.RenderPriority.Camera.Value + 11, function(deltaTime: number)
 		self:applyAimAssist(deltaTime)
 	end)
 end
@@ -91,11 +101,13 @@ end
 -- =============================================================================
 
 function AimAssist:getGamepadEligibility(): boolean
-	if UserInputService.PreferredInput ~= Enum.PreferredInput.Gamepad or not self.thumbstickStates then
+	if not self.thumbstickStates then
 		return false
 	end
 
 	local deadzone = AimAssistConfig.Input.GamepadDeadzone
+	local requireStickMovement = AimAssistConfig.Input.GamepadRequireStickMovement == true
+	local timeout = AimAssistConfig.Input.GamepadInactivityTimeout or 1.0
 
 	for _, magnitude in self.thumbstickStates do
 		if magnitude > deadzone then
@@ -103,11 +115,25 @@ function AimAssist:getGamepadEligibility(): boolean
 		end
 	end
 
+	if requireStickMovement then
+		return false
+	end
+
+	local lastType = UserInputService:GetLastInputType()
+	if isGamepadInputType(lastType) then
+		return true
+	end
+
+	if self.lastActiveGamepad and (os.clock() - self.lastActiveGamepad) < timeout then
+		return true
+	end
+
 	return false
 end
 
 function AimAssist:updateGamepadEligibility(keyCode: Enum.KeyCode, position: Vector3)
 	self.thumbstickStates[keyCode] = Vector2.new(position.X, position.Y).Magnitude
+	self.lastActiveGamepad = os.clock()
 end
 
 function AimAssist:getTouchEligibility(): boolean
@@ -327,6 +353,10 @@ end
 	@return boolean: true if snapped to a target, false if no valid target
 ]]
 function AimAssist:snapToTarget(snapConfig: { strength: number?, maxAngle: number? }?): boolean
+	if not AimAssistConfig.AllowSnap then
+		return false
+	end
+
 	if not self.subject or not self.subject:IsA("Camera") then
 		return false
 	end
@@ -657,16 +687,26 @@ function AimAssist:configureFromWeapon(weaponAimAssist: {
 	end
 	
 	-- Apply method strengths (multiplied by player preference)
-	local playerMult = self:getPlayerStrengthMultiplier()
-	
-	if weaponAimAssist.friction then
-		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Friction, weaponAimAssist.friction * playerMult)
-	end
-	if weaponAimAssist.tracking then
-		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Tracking, weaponAimAssist.tracking * playerMult)
-	end
-	if weaponAimAssist.centering then
-		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Centering, weaponAimAssist.centering * playerMult)
+	if AimAssistConfig.SmoothPullOnly then
+		local smoothCentering = weaponAimAssist.centering
+			or weaponAimAssist.tracking
+			or weaponAimAssist.friction
+			or AimAssistConfig.Defaults.Centering
+		smoothCentering = math.clamp(smoothCentering * 1.35, 0.3, 0.85)
+		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Friction, 0)
+		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Tracking, 0)
+		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Centering, smoothCentering)
+		self:setIgnoreLineOfSight(false)
+	else
+		if weaponAimAssist.friction then
+			self:setMethodStrength(AimAssistEnum.AimAssistMethod.Friction, weaponAimAssist.friction)
+		end
+		if weaponAimAssist.tracking then
+			self:setMethodStrength(AimAssistEnum.AimAssistMethod.Tracking, weaponAimAssist.tracking)
+		end
+		if weaponAimAssist.centering then
+			self:setMethodStrength(AimAssistEnum.AimAssistMethod.Centering, weaponAimAssist.centering)
+		end
 	end
 	
 	-- Store base strengths for ADS boost
@@ -691,6 +731,7 @@ function AimAssist.new()
 		debug = false,
 		allowMouseInput = AimAssistConfig.AllowMouseInput,
 		thumbstickStates = {},
+		lastActiveGamepad = nil,
 		lastActiveTouch = nil,
 		fieldOfView = defaults.FieldOfView,
 		baseStrengths = nil,

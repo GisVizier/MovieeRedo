@@ -872,7 +872,7 @@ function ViewmodelController:_ensureRenderLoop()
 	pcall(function()
 		RunService:UnbindFromRenderStep("ViewmodelRender")
 	end)
-	RunService:BindToRenderStep("ViewmodelRender", Enum.RenderPriority.Camera.Value + 11, function(dt)
+	RunService:BindToRenderStep("ViewmodelRender", Enum.RenderPriority.Camera.Value + 12, function(dt)
 		self:_render(dt)
 	end)
 end

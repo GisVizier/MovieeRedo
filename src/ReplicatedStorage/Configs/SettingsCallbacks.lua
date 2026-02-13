@@ -2,6 +2,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+
+local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
 
 local SettingsCallbacks = {}
 
@@ -108,9 +111,16 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		AutoShootReactionTime = function(value, oldValue)
+			local ms = tonumber(value) or 0
+			AimAssistConfig.AutoShoot.AcquisitionDelay = math.clamp(ms / 1000, 0, 1)
 		end,
 
 		AimAssistStrength = function(value, oldValue)
+			local player = Players.LocalPlayer
+			if not player then
+				return
+			end
+			player:SetAttribute("AimAssistStrength", math.clamp(tonumber(value) or 0.5, 0, 1))
 		end,
 
 		Sprint = function(value, oldValue)

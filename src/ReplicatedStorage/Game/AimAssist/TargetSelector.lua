@@ -132,6 +132,8 @@ function TargetSelector:_getTargetPoints(instance: PVInstance, bones: { string }
 	end
 
 	local points = {}
+	local preferHead = AimAssistConfig.SmoothPullOnly and table.find(bones, "Head") ~= nil
+	local headFound = false
 
 	-- For player characters, look in Collider/Hitbox structure first (same as hit detection)
 	local collider = instance:FindFirstChild("Collider")
@@ -153,6 +155,10 @@ function TargetSelector:_getTargetPoints(instance: PVInstance, bones: { string }
 			
 			if activeFolder then
 				for _, bone in bones do
+					if preferHead and headFound and bone ~= "Head" then
+						continue
+					end
+
 					-- Map common bone names to hitbox part names
 					local partName = bone
 					if bone == "UpperTorso" or bone == "Torso" or bone == "LowerTorso" then
@@ -162,6 +168,9 @@ function TargetSelector:_getTargetPoints(instance: PVInstance, bones: { string }
 					local part = activeFolder:FindFirstChild(partName)
 					if part and part:IsA("BasePart") then
 						table.insert(points, getCenterPoint(part))
+						if bone == "Head" then
+							headFound = true
+						end
 					end
 				end
 			end
@@ -171,10 +180,17 @@ function TargetSelector:_getTargetPoints(instance: PVInstance, bones: { string }
 	-- Fallback: check CollectionService tags (for dummies/NPCs that have tags)
 	if #points == 0 then
 		for _, bone in bones do
+			if preferHead and headFound and bone ~= "Head" then
+				continue
+			end
+
 			for _, descendant in instance:GetDescendants() do
 				if descendant:IsA("BasePart") then
 					if CollectionService:HasTag(descendant, bone) then
 						table.insert(points, getCenterPoint(descendant))
+						if bone == "Head" then
+							headFound = true
+						end
 					end
 				end
 			end
@@ -184,9 +200,16 @@ function TargetSelector:_getTargetPoints(instance: PVInstance, bones: { string }
 	-- Second fallback: check by part name directly (for tagged dummies)
 	if #points == 0 then
 		for _, bone in bones do
+			if preferHead and headFound and bone ~= "Head" then
+				continue
+			end
+
 			for _, descendant in instance:GetDescendants() do
 				if descendant:IsA("BasePart") and descendant.Name == bone then
 					table.insert(points, getCenterPoint(descendant))
+					if bone == "Head" then
+						headFound = true
+					end
 				end
 			end
 		end

@@ -19,12 +19,20 @@ AimAssistConfig.Debug = false  -- TESTING: Set to false for production
 -- Allow aim assist for mouse users (for testing only)
 AimAssistConfig.AllowMouseInput = false  -- TESTING: Set to false for production
 
+-- Smooth pull profile: no snapping, head-first targeting with torso fallback
+AimAssistConfig.SmoothPullOnly = true
+AimAssistConfig.AllowSnap = false
+
 -- =============================================================================
 -- INPUT ELIGIBILITY
 -- =============================================================================
 AimAssistConfig.Input = {
 	-- Gamepad deadzone (stick must move more than this to be eligible)
 	GamepadDeadzone = 0.1,
+	-- Keep controller eligibility briefly after stick movement (seconds)
+	GamepadInactivityTimeout = 1.5,
+	-- If false, controller can still receive assist while ADS/locked even at neutral stick
+	GamepadRequireStickMovement = false,
 	
 	-- Touch inactivity timeout (seconds since last touch to remain eligible)
 	TouchInactivityTimeout = 0.5,
@@ -42,15 +50,15 @@ AimAssistConfig.Defaults = {
 	MinRange = 3,         -- No aim assist closer than this
 
 	-- Method strengths (0-1) - These are the BASE values from weapon configs
-	Friction = 0.5,       -- Slowdown near targets (was 0.25)
-	Tracking = 0.5,       -- Follow moving targets (was 0.35)
-	Centering = 0.3,      -- Pull toward target center (was 0.1)
+	Friction = 0.0,       -- Smooth pull profile disables friction
+	Tracking = 0.0,       -- Smooth pull profile disables tracking
+	Centering = 0.45,     -- Main smooth pull strength
 
 	-- ADS (Aim Down Sights) boost multipliers
 	ADSBoost = {
-		Friction = 1.4,   -- 40% stronger during ADS
-		Tracking = 1.3,   -- 30% stronger during ADS
-		Centering = 1.2,  -- 20% stronger during ADS
+		Friction = 1.0,
+		Tracking = 1.0,
+		Centering = 1.15, -- Slightly stronger pull in ADS
 	},
 
 	-- Target bones - uses hitbox part names (Head, Body) for players
@@ -63,13 +71,13 @@ AimAssistConfig.Defaults = {
 -- =============================================================================
 AimAssistConfig.StateMultipliers = {
 	-- Idle: Just equipped, not ADS, not firing
-	Idle = 0.3,
+	Idle = 0.45,
 
 	-- ADS only: Aiming down sights
 	ADS = 1.0,
 
 	-- Firing only: Shooting but not ADS
-	Firing = 0.7,
+	Firing = 0.8,
 
 	-- ADS + Firing: Both at once (strongest, then adsBoost is applied on top)
 	ADSFiring = 1.0,
@@ -81,7 +89,7 @@ AimAssistConfig.StateMultipliers = {
 AimAssistConfig.PlayerDefaults = {
 	-- Overall strength multiplier (0-1, applied to all methods)
 	-- Player can adjust this in settings UI
-	Strength = 1.0,
+	Strength = 0.5,
 
 	-- Individual method toggles (player can disable specific methods)
 	FrictionEnabled = true,

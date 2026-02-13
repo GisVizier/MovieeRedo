@@ -592,7 +592,7 @@ end
 
 -- Update aim assist sensitivity based on camera sensitivity
 function WeaponController:_updateAimAssistSensitivity()
-	if not self._aimAssist or not self._aimAssistEnabled then
+	if not self._aimAssist then
 		return
 	end
 

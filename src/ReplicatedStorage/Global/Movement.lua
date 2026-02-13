@@ -8,7 +8,7 @@ Movement.Cooldowns = {
 }
 
 Movement.Sliding = {
-	AutoSlide = false,
+	AutoSlide = true,
 	InitialVelocity = 70,
 	MinVelocity = 5,
 	MaxVelocity = 80,
@@ -37,7 +37,7 @@ Movement.Sliding = {
 		MaxSlopeAngle = 65,
 	},
 	Steering = {
-		Enabled = true,
+		Enabled = false,
 		Responsiveness = 0.12,
 		VelocityPenalty = 0.75,
 		MinAlignment = 0.7,
