@@ -476,6 +476,21 @@ function KitService:NotifyDamage(player: Player, damage: number, source: Player?
 end
 
 --[[
+	Resets kit state when entering training ground from lobby.
+	Calls ResetForTraining on the equipped kit if it exists.
+	
+	@param player Player - The player entering training
+]]
+function KitService:ResetPlayerForTraining(player: Player)
+	local kit = self._playerKits[player]
+	if kit and kit.ResetForTraining then
+		pcall(function()
+			kit:ResetForTraining()
+		end)
+	end
+end
+
+--[[
 	Broadcasts VFX to clients using the VFXRep system.
 	This allows server kits to trigger VFX on other players' screens.
 	

@@ -84,6 +84,16 @@ function MatchService:_onSubmitLoadout(player, payload)
 			roundService:AddPlayer(player)
 		end
 		
+		-- Reset HP, ultimate, and kit state when entering training from lobby
+		local combatService = self._registry:TryGet("CombatService")
+		if combatService and combatService.ResetPlayerCombat then
+			combatService:ResetPlayerCombat(player)
+		end
+		local kitService = self._registry:TryGet("KitService")
+		if kitService and kitService.ResetPlayerForTraining then
+			kitService:ResetPlayerForTraining(player)
+		end
+		
 		-- Fire training entry confirmed (player already teleported via gadget)
 		self._net:FireClient("TrainingLoadoutConfirmed", player, {
 			areaId = pendingEntry.areaId,

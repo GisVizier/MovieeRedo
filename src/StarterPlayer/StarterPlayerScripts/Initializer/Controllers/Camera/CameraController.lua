@@ -467,24 +467,17 @@ function CameraController:SetupTouchCamera()
 		return
 	end
 
-	local starterScripts = Locations.Services.StarterPlayerScripts
-	local uiFolder = starterScripts and starterScripts:FindFirstChild("UI")
-	if not uiFolder then
-		return
+	-- Camera stick input routed through InputManager (same path as keyboard/gamepad)
+	local inputController = self._registry and self._registry:TryGet("Input")
+	if inputController then
+		inputController:ConnectToInput("Camera", function(cameraVector)
+			self.MobileCameraX = cameraVector.X
+			self.MobileCameraY = cameraVector.Y
+		end)
 	end
 
-	local success, mobileControlsModule = pcall(function()
-		return require(uiFolder:WaitForChild("MobileControls"))
-	end)
-
-	if not success then
-		return
-	end
-
-	mobileControlsModule:ConnectToInput("Camera", function(cameraVector)
-		self.MobileCameraX = cameraVector.X
-		self.MobileCameraY = cameraVector.Y
-	end)
+	-- Get MobileControls reference for touch claim checking (free-swipe detection)
+	local mobileControlsModule = inputController and inputController:GetMobileControls()
 
 	local cameraTouches = {}
 	local cameraConfig = Config.Camera
@@ -494,7 +487,7 @@ function CameraController:SetupTouchCamera()
 			return
 		end
 
-		if mobileControlsModule:IsTouchClaimed(input) then
+		if mobileControlsModule and mobileControlsModule:IsTouchClaimed(input) then
 			cameraTouches[input] = nil
 			return
 		end
@@ -513,7 +506,9 @@ function CameraController:SetupTouchCamera()
 				self:_updateAimAssistTouchInput()
 			else
 				cameraTouches[input] = Vector2.new(input.Position.X, input.Position.Y)
-				mobileControlsModule.CameraTouches[input] = true
+				if mobileControlsModule then
+					mobileControlsModule.CameraTouches[input] = true
+				end
 			end
 		end
 	end)
@@ -521,7 +516,9 @@ function CameraController:SetupTouchCamera()
 	UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Touch then
 			cameraTouches[input] = nil
-			mobileControlsModule.CameraTouches[input] = nil
+			if mobileControlsModule then
+				mobileControlsModule.CameraTouches[input] = nil
+			end
 		end
 	end)
 end
@@ -566,6 +563,7 @@ end
 
 function CameraController:ApplyCameraModeSettings()
 	local cameraConfig = Config.Camera
+	local isTouch = UserInputService.TouchEnabled
 
 	debugPrint("Applying settings for mode:", self.CurrentMode)
 
@@ -578,15 +576,20 @@ function CameraController:ApplyCameraModeSettings()
 		self.IsOrbitDragging = false
 		debugPrint("Orbit mode - MouseBehavior: Default, ShouldRotateCharacter: false")
 	elseif self.CurrentMode == "Shoulder" then
-		-- Shoulder mode: Locked cursor, character faces camera
-		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		-- Shoulder mode: character faces camera direction
+		-- On touch devices, camera rotation is handled by touch/swipe — skip LockCenter
+		if not isTouch then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		end
 		self.ShouldRotateCharacter = true
-		debugPrint("Shoulder mode - MouseBehavior: LockCenter, ShouldRotateCharacter: true")
+		debugPrint("Shoulder mode - ShouldRotateCharacter: true, touch:", isTouch)
 	elseif self.CurrentMode == "FirstPerson" then
-		-- First person mode: Locked cursor, character faces camera
-		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		-- First person mode: character faces camera direction
+		if not isTouch then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		end
 		self.ShouldRotateCharacter = true
-		debugPrint("FirstPerson mode - MouseBehavior: LockCenter, ShouldRotateCharacter: true")
+		debugPrint("FirstPerson mode - ShouldRotateCharacter: true, touch:", isTouch)
 	end
 end
 

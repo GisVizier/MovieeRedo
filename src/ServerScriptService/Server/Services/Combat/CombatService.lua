@@ -185,6 +185,19 @@ function CombatService:CleanupPlayer(player)
 	self:_cleanupPlayer(player)
 end
 
+--[[
+	Resets a player's combat state (health to max, ultimate to 0).
+	Used when entering training ground from lobby.
+	@param player Player
+]]
+function CombatService:ResetPlayerCombat(player: Player)
+	local resource = self._playerResources[player]
+	if resource then
+		resource:FullReset()
+		self:_syncCombatState(player)
+	end
+end
+
 -- =============================================================================
 -- RESOURCE ACCESS
 -- =============================================================================
