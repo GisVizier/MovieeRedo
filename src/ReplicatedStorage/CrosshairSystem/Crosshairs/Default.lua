@@ -185,6 +185,8 @@ function module:ApplyCustomization(customization)
 end
 
 function module:Update(dt, state)
+task.wait(); --heyy
+
 	local frameDt = math.clamp(dt or 0, 0, 0.1)
 	local velocity = state.velocity or Vector3.zero
 	local customization = state.customization or self._customization

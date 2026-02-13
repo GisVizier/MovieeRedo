@@ -20,6 +20,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -37,6 +39,9 @@ local MAX_RANGE = 125
 local BITE_RADIUS = 12
 local BITE_KNOCKBACK_PRESET = "Fling"
 local VM_ANIM_NAME = "Kon"
+local RELEASE_ANIM_SPEED = 1.67
+local HITBOX_PREVIEW_FADE_TIME = 0.2
+local HITBOX_PREVIEW_FLOOR_PITCH_DEG = 90
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -241,6 +246,194 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 	return nil, nil
 end
 
+local function getEffectsFolder()
+	local folder = Workspace:FindFirstChild("Effects")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "Effects"
+		folder.Parent = Workspace
+	end
+	return folder
+end
+
+local function getHitboxTemplate(): Instance?
+	return script:FindFirstChild("hitbox") or script:FindFirstChild("Hitbox")
+end
+
+local function setPreviewPivot(preview: Instance, pivot: CFrame, surfaceNormal: Vector3?)
+	if not preview or not preview.Parent or typeof(pivot) ~= "CFrame" then
+		return
+	end
+
+	local adjustedPivot = pivot
+	if typeof(surfaceNormal) == "Vector3" and surfaceNormal.Y > 0.5 then
+		adjustedPivot = adjustedPivot * CFrame.Angles(math.rad(HITBOX_PREVIEW_FLOOR_PITCH_DEG), 0, 0)
+	end
+
+	if preview:IsA("Model") then
+		preview:PivotTo(adjustedPivot)
+		return
+	end
+
+	if preview:IsA("BasePart") then
+		preview.CFrame = adjustedPivot
+		return
+	end
+
+	local posNode = preview:FindFirstChild("Pos", true)
+	if posNode then
+		if posNode:IsA("Model") then
+			posNode:PivotTo(adjustedPivot)
+		elseif posNode:IsA("BasePart") then
+			posNode.CFrame = adjustedPivot
+		elseif posNode:IsA("Attachment") then
+			local ok = pcall(function()
+				posNode.WorldCFrame = adjustedPivot
+			end)
+			if not ok then
+				pcall(function()
+					posNode.CFrame = adjustedPivot
+				end)
+			end
+		end
+	end
+end
+
+local function startHitboxPreview(state)
+	if not state then
+		return
+	end
+	if state.hitboxPreviewConnection then
+		state.hitboxPreviewConnection:Disconnect()
+		state.hitboxPreviewConnection = nil
+	end
+	if state.hitboxPreview and state.hitboxPreview.Parent then
+		state.hitboxPreview:Destroy()
+	end
+
+	local template = getHitboxTemplate()
+	if not template then
+		return
+	end
+
+	local preview = template:Clone()
+	preview.Name = "KonHitboxPreview"
+	preview.Parent = getEffectsFolder()
+	state.hitboxPreview = preview
+
+	local function updatePreview()
+		if not state.active or state.cancelled or state.released then
+			return
+		end
+		local targetCFrame, surfaceNormal = getTargetLocation(state.character, MAX_RANGE)
+		if not targetCFrame then
+			return
+		end
+		state.previewTargetCFrame = targetCFrame
+		state.previewSurfaceNormal = surfaceNormal or Vector3.yAxis
+		setPreviewPivot(preview, targetCFrame, state.previewSurfaceNormal)
+	end
+
+	updatePreview()
+	state.hitboxPreviewConnection = RunService.RenderStepped:Connect(updatePreview)
+end
+
+local function fadeBeam(beam: Beam, duration: number)
+	if not beam or not beam.Parent then
+		return
+	end
+
+	if duration <= 0 then
+		beam.Transparency = NumberSequence.new(1)
+		return
+	end
+
+	local startSeq = beam.Transparency
+	local startTime = os.clock()
+	local connection
+	connection = RunService.RenderStepped:Connect(function()
+		if not beam or not beam.Parent then
+			if connection then
+				connection:Disconnect()
+			end
+			return
+		end
+
+		local alpha = math.clamp((os.clock() - startTime) / duration, 0, 1)
+		local keypoints = startSeq.Keypoints
+		local faded = table.create(#keypoints)
+		for i, keypoint in ipairs(keypoints) do
+			local value = keypoint.Value + (1 - keypoint.Value) * alpha
+			faded[i] = NumberSequenceKeypoint.new(keypoint.Time, value, keypoint.Envelope)
+		end
+		beam.Transparency = NumberSequence.new(faded)
+
+		if alpha >= 1 and connection then
+			connection:Disconnect()
+		end
+	end)
+end
+
+local function stopHitboxPreview(state, fadeDuration: number?)
+	if not state then
+		return
+	end
+
+	if state.hitboxPreviewConnection then
+		state.hitboxPreviewConnection:Disconnect()
+		state.hitboxPreviewConnection = nil
+	end
+
+	local preview = state.hitboxPreview
+	state.hitboxPreview = nil
+	state.previewTargetCFrame = nil
+	state.previewSurfaceNormal = nil
+
+	if not preview or not preview.Parent then
+		return
+	end
+
+	local duration = tonumber(fadeDuration) or HITBOX_PREVIEW_FADE_TIME
+	duration = math.max(0, duration)
+
+	if duration <= 0 then
+		preview:Destroy()
+		return
+	end
+
+	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeTargets = { preview }
+	for _, descendant in ipairs(preview:GetDescendants()) do
+		table.insert(fadeTargets, descendant)
+	end
+
+	for _, instance in ipairs(fadeTargets) do
+		if instance:IsA("BasePart") then
+			local ok = pcall(function()
+				TweenService:Create(instance, tweenInfo, { Transparency = 1 }):Play()
+			end)
+			if not ok then
+				-- Ignore unknown/customized instances
+			end
+		elseif instance:IsA("Decal") or instance:IsA("Texture") then
+			local ok = pcall(function()
+				TweenService:Create(instance, tweenInfo, { Transparency = 1 }):Play()
+			end)
+			if not ok then
+				-- Ignore unknown/customized instances
+			end
+		elseif instance:IsA("Beam") then
+			fadeBeam(instance, duration)
+		end
+	end
+
+	task.delay(duration + 0.05, function()
+		if preview and preview.Parent then
+			preview:Destroy()
+		end
+	end)
+end
+
 --------------------------------------------------------------------------------
 -- Ability: Kon
 --------------------------------------------------------------------------------
@@ -294,11 +487,13 @@ function Aki.Ability:OnStart(abilityRequest)
 	Aki._abilityState = state
 
 	-- Animation event handlers
+	animation:AdjustSpeed(1.3)
 	local Events = {
 		["freeze"] = function()
 			-- Pause animation until released
 			if state.active and not state.released then
 				animation:AdjustSpeed(0)
+				startHitboxPreview(state)
 			end
 		end,
 
@@ -314,8 +509,12 @@ function Aki.Ability:OnStart(abilityRequest)
 			if not state.active or state.cancelled then return end
 			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
 
-			-- Get target location at moment of spawn
-			local targetCFrame, surfaceNormal = getTargetLocation(character, MAX_RANGE)
+			-- Get target location at moment of spawn (prefer held preview target)
+			local targetCFrame = state.previewTargetCFrame
+			local surfaceNormal = state.previewSurfaceNormal
+			if not targetCFrame then
+				targetCFrame, surfaceNormal = getTargetLocation(character, MAX_RANGE)
+			end
 			if not targetCFrame then return end
 			
 			surfaceNormal = surfaceNormal or Vector3.yAxis
@@ -440,6 +639,7 @@ function Aki.Ability:OnStart(abilityRequest)
 					conn:Disconnect()
 				end
 			end
+			stopHitboxPreview(state, 0)
 
 			-- Restore weapon
 			state.unlock()
@@ -475,9 +675,11 @@ function Aki.Ability:OnEnded(abilityRequest)
 	-- Mark as released
 	state.released = true
 
+	stopHitboxPreview(state, HITBOX_PREVIEW_FADE_TIME)
+
 	-- Resume animation from freeze
 	if state.animation and state.animation.IsPlaying then
-		state.animation:AdjustSpeed(1)
+		state.animation:AdjustSpeed(RELEASE_ANIM_SPEED)
 	end
 end
 
@@ -496,6 +698,8 @@ function Aki.Ability:OnInterrupt(abilityRequest, reason)
 	if state.animation and state.animation.IsPlaying then
 		state.animation:Stop(0.1)
 	end
+
+	stopHitboxPreview(state, HITBOX_PREVIEW_FADE_TIME)
 
 	-- Destroy Kon if spawned
 	VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})

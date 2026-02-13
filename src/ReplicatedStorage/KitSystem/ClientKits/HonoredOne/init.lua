@@ -36,6 +36,7 @@ local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
@@ -125,6 +126,8 @@ local RED_PHYSICS_CONFIG = {
 	lifetime = RED_CONFIG.MAX_RANGE / RED_CONFIG.PROJECTILE_SPEED + 0.2,  -- ~1 second total
 }
 local PROJECTILE_REPLICATION_INTERVAL = 1 / 18
+local BLUE_MOVE_MULT = 0.72
+local RED_MOVE_MULT = 0.72
 
 
 --------------------------------------------------------------------------------
@@ -429,6 +432,14 @@ local function setRedCrouchGate()
 	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", true)
 end
 
+local function clearBlueSlideGate()
+	LocalPlayer:SetAttribute("BlockSlideWhileAbility", nil)
+end
+
+local function setBlueSlideGate()
+	LocalPlayer:SetAttribute("BlockSlideWhileAbility", true)
+end
+
 local function getBlueDurabilitySnapshot(character: Model?, humanoid: Humanoid?): number?
 	local health = LocalPlayer:GetAttribute("Health")
 	local shield = LocalPlayer:GetAttribute("Shield")
@@ -458,6 +469,7 @@ local function endBlue(state)
 	state.hitboxActive = false
 	LocalPlayer:SetAttribute("cleanupblueFX", os.clock())
 	clearExternalMoveMult()
+	clearBlueSlideGate()
 
 	if state.hitboxViz and state.hitboxViz.Parent then
 		state.hitboxViz:Destroy()
@@ -470,6 +482,7 @@ local function endRed(state, preserveExplosionPivot)
 	state.projectileActive = false
 	clearExternalMoveMult()
 	clearRedCrouchGate()
+	clearBlueSlideGate()
 
 	if state.projectileViz and state.projectileViz.Parent then
 		state.projectileViz:Destroy()
@@ -1377,6 +1390,10 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 	if inputManager and inputManager.IsCrouchHeld then
 		isCrouching = inputManager:IsCrouchHeld()
 	end
+	local isSliding = MovementStateManager and MovementStateManager:IsSliding() or false
+	if isSliding then
+		isCrouching = true
+	end
 
 	-- Start ability
 	local ctx = abilityRequest.StartAbility()
@@ -1491,7 +1508,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- VFX/sounds on ability start (charging for Red)
 			-- TODO: Add VFXRep call for start effects
 			if isCrouching then
-				setExternalMoveMult(0.45)
+				setExternalMoveMult(RED_MOVE_MULT)
 				setRedCrouchGate()
 				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 					ViewModel = viewmodelRig,
@@ -1539,7 +1556,8 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
-			setExternalMoveMult(0.5)
+			setExternalMoveMult(BLUE_MOVE_MULT)
+			setBlueSlideGate()
 			abilityRequest.Send({ action = "startCooldown", allowMultiple = true })
 
 			local function cancelBlue(reason)
@@ -1612,7 +1630,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- COMMIT: Lock weapon switch and start cooldown
 			state.committed = true
 			state.lockWeapon()
-			setExternalMoveMult(0.45)
+			setExternalMoveMult(RED_MOVE_MULT)
 			setRedCrouchGate()
 			abilityRequest.Send({ action = "startCooldown", allowMultiple = true })
 			
@@ -1741,6 +1759,7 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	clearRedStateAttributes()
 	clearExternalMoveMult()
 	clearRedCrouchGate()
+	clearBlueSlideGate()
 
 	-- Restore weapon (if animation hadn't finished yet)
 	if state.unlockWeapon then
@@ -1787,6 +1806,9 @@ function HonoredOne:OnEquip(ctx)
 	-- could leak through. Force a clean slate every time the kit is (re-)equipped.
 	HonoredOne._abilityState = nil
 	cleanupSounds()
+	clearExternalMoveMult()
+	clearRedCrouchGate()
+	clearBlueSlideGate()
 end
 
 function HonoredOne:OnUnequip(reason)
@@ -1801,6 +1823,10 @@ function HonoredOne:OnUnequip(reason)
 	-- might exist with active=false but still hold stale data
 	if HonoredOne._abilityState then
 		HonoredOne.Ability:OnInterrupt(nil, reason or "unequip")
+	else
+		clearExternalMoveMult()
+		clearRedCrouchGate()
+		clearBlueSlideGate()
 	end
 end
 
@@ -1824,6 +1850,7 @@ function HonoredOne:Destroy()
 	LocalPlayer:SetAttribute("ExternalMoveMult", 1)
 	LocalPlayer:SetAttribute("ForceUncrouch", nil)
 	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+	LocalPlayer:SetAttribute("BlockSlideWhileAbility", nil)
 end
 
 return HonoredOne

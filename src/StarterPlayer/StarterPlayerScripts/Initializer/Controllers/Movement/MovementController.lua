@@ -95,6 +95,9 @@ function CharacterController:ResetRespawnLocalState()
 		localPlayer:SetAttribute("ADSSpeedMultiplier", 1)
 		localPlayer:SetAttribute("EmoteSpeedMultiplier", 1)
 		localPlayer:SetAttribute("ExternalMoveMult", 1)
+		localPlayer:SetAttribute("ForceUncrouch", nil)
+		localPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+		localPlayer:SetAttribute("BlockSlideWhileAbility", nil)
 	end
 
 	if self.InputManager then
@@ -713,22 +716,26 @@ function CharacterController:UpdateMovement(deltaTime)
 	self:LogSlopeAngle()
 
 	if SlidingSystem.IsSlideBuffered and self.IsGrounded then
-		local primaryPart = self.PrimaryPart
-		if primaryPart then
-			local currentVelocity = primaryPart.AssemblyLinearVelocity
-			primaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, -50, currentVelocity.Z)
-		end
-
-		local currentDirection = self:CalculateMovementDirection()
-		if currentDirection.Magnitude <= 0 and SlidingSystem.BufferedSlideDirection.Magnitude > 0 then
-			currentDirection = SlidingSystem.BufferedSlideDirection
-		end
-		local currentCameraAngle = math_deg(self.CachedCameraYAngle)
-
-		if currentDirection.Magnitude > 0 then
-			SlidingSystem:StartSlide(currentDirection.Unit, currentCameraAngle)
+		if self:IsSlideBlockedByAbility() then
+			SlidingSystem:CancelSlideBuffer("AbilitySlideBlocked")
 		else
-			SlidingSystem:CancelSlideBuffer("No movement input at landing")
+			local primaryPart = self.PrimaryPart
+			if primaryPart then
+				local currentVelocity = primaryPart.AssemblyLinearVelocity
+				primaryPart.AssemblyLinearVelocity = Vector3.new(currentVelocity.X, -50, currentVelocity.Z)
+			end
+
+			local currentDirection = self:CalculateMovementDirection()
+			if currentDirection.Magnitude <= 0 and SlidingSystem.BufferedSlideDirection.Magnitude > 0 then
+				currentDirection = SlidingSystem.BufferedSlideDirection
+			end
+			local currentCameraAngle = math_deg(self.CachedCameraYAngle)
+
+			if currentDirection.Magnitude > 0 then
+				SlidingSystem:StartSlide(currentDirection.Unit, currentCameraAngle)
+			else
+				SlidingSystem:CancelSlideBuffer("No movement input at landing")
+			end
 		end
 	end
 
@@ -1829,12 +1836,27 @@ function CharacterController:EnforceAbilityCrouchGate()
 	end
 end
 
+function CharacterController:IsSlideBlockedByAbility()
+	local localPlayer = Players.LocalPlayer
+	return localPlayer and localPlayer:GetAttribute("BlockSlideWhileAbility") == true
+end
+
 function CharacterController:HandleSlideInput(isSliding)
 	if not self.Character then
 		return
 	end
 
 	if isSliding then
+		if self:IsSlideBlockedByAbility() then
+			if SlidingSystem.IsSliding then
+				SlidingSystem:StopSlide(false, true, "AbilitySlideBlocked")
+			end
+			if SlidingSystem.IsSlideBuffered then
+				SlidingSystem:CancelSlideBuffer("AbilitySlideBlocked")
+			end
+			return
+		end
+
 		local movementDirection
 		if self.MovementInput.Magnitude < 0.01 then
 			movementDirection =
@@ -1912,6 +1934,10 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 		local isLikelyTryingToCrouchAfterSlide = timeSinceLastSlide < 0.5 and timeSinceLastCrouch < 0.3
 
 		if autoSlideEnabled and isSprinting and hasMovementInput and not isLikelyTryingToCrouchAfterSlide then
+			if self:IsSlideBlockedByAbility() then
+				self:HandleCrouch(isCrouching)
+				return
+			end
 			local movementDirection = self:CalculateMovementDirection()
 			local canSlide, reason = SlidingSystem:CanStartSlide(self.MovementInput, isCrouching, self.IsGrounded)
 
