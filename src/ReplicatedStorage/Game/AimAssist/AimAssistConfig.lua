@@ -52,18 +52,24 @@ AimAssistConfig.Defaults = {
 	-- Method strengths (0-1) - These are the BASE values from weapon configs
 	Friction = 0.0,       -- Smooth pull profile disables friction
 	Tracking = 0.0,       -- Smooth pull profile disables tracking
-	Centering = 0.45,     -- Main smooth pull strength
+	Centering = 0.75,     -- Main smooth pull strength (strong test tuning)
 
 	-- ADS (Aim Down Sights) boost multipliers
 	ADSBoost = {
 		Friction = 1.0,
 		Tracking = 1.0,
-		Centering = 1.15, -- Slightly stronger pull in ADS
+		Centering = 1.35, -- Stronger pull in ADS
 	},
 
 	-- Target bones - uses hitbox part names (Head, Body) for players
 	-- Maps UpperTorso/Torso -> Body automatically in TargetSelector
 	TargetBones = { "Head", "Body" },
+
+	-- Centering response tuning
+	-- Higher smooth time = slower pull. StrengthScale reduces overall pull speed.
+	CenteringMinSmoothTime = 0.09,
+	CenteringMaxSmoothTime = 0.24,
+	CenteringStrengthScale = 1.05,
 }
 
 -- =============================================================================
@@ -71,16 +77,16 @@ AimAssistConfig.Defaults = {
 -- =============================================================================
 AimAssistConfig.StateMultipliers = {
 	-- Idle: Just equipped, not ADS, not firing
-	Idle = 0.45,
+	Idle = 0.9,
 
 	-- ADS only: Aiming down sights
-	ADS = 1.0,
+	ADS = 1.2,
 
 	-- Firing only: Shooting but not ADS
-	Firing = 0.8,
+	Firing = 1.05,
 
 	-- ADS + Firing: Both at once (strongest, then adsBoost is applied on top)
-	ADSFiring = 1.0,
+	ADSFiring = 1.35,
 }
 
 -- =============================================================================
@@ -89,7 +95,7 @@ AimAssistConfig.StateMultipliers = {
 AimAssistConfig.PlayerDefaults = {
 	-- Overall strength multiplier (0-1, applied to all methods)
 	-- Player can adjust this in settings UI
-	Strength = 0.5,
+	Strength = 1.0,
 
 	-- Individual method toggles (player can disable specific methods)
 	FrictionEnabled = true,

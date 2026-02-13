@@ -61,7 +61,9 @@ end
 
 -- Strength is clamped between 0 and 1
 function AimAdjuster:setMethodStrength(method: AimAssistEnum.AimAssistMethod, strength: number)
-	strength = math.clamp(strength, 0, 1)
+	-- Allow values above 1 for tuning headroom, but keep sane bounds for stability.
+	strength = math.max(0, strength)
+	strength = math.min(strength, 4)
 	self.strengthTable[method] = strength
 end
 
@@ -159,8 +161,9 @@ end
 -- =============================================================================
 
 function AimAdjuster:adjustAimCentering(context: AimContext): CFrame
-	local totalStrength =
-		math.clamp(self.strengthTable[AimAssistEnum.AimAssistMethod.Centering] * context.adjustmentStrength, 0, 1)
+	local baseStrength = self.strengthTable[AimAssistEnum.AimAssistMethod.Centering] * context.adjustmentStrength
+	local strengthScale = AimAssistConfig.Defaults.CenteringStrengthScale or 1
+	local totalStrength = math.max(0, baseStrength * strengthScale)
 	
 	if not context.targetResult or totalStrength <= 0 then
 		return context.subjectCFrame
@@ -177,12 +180,17 @@ function AimAdjuster:adjustAimCentering(context: AimContext): CFrame
 
 	-- If deltaTime not provided, do a simple lerp
 	if not context.deltaTime then
-		local newCFrame = context.subjectCFrame:Lerp(idealCFrame, totalStrength)
+		-- Convert unbounded strength into a safe alpha with diminishing returns.
+		local alpha = totalStrength / (1 + totalStrength)
+		local newCFrame = context.subjectCFrame:Lerp(idealCFrame, alpha)
 		return newCFrame
 	end
 
-	-- Else, do a smoothDamp for smoother interpolation
-	local smoothTime = 1 - totalStrength
+	-- Else, do smoothDamp with slower response curve.
+	local minSmoothTime = AimAssistConfig.Defaults.CenteringMinSmoothTime or 0.12
+	local maxSmoothTime = AimAssistConfig.Defaults.CenteringMaxSmoothTime or 0.35
+	local normalizedStrength = totalStrength / (1 + totalStrength)
+	local smoothTime = maxSmoothTime - (maxSmoothTime - minSmoothTime) * normalizedStrength
 	local maxSpeed = math.huge
 
 	local newCFrame, newVelocity = TweenService:SmoothDamp(

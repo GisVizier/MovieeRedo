@@ -72,6 +72,16 @@ local function getCenterPoint(instance: PVInstance): Vector3
 	end
 end
 
+local function getSubjectCFrame(subject: any): CFrame
+	if not subject then
+		return CFrame.identity
+	end
+	if subject and subject:IsA("Camera") then
+		return subject.CFrame
+	end
+	return subject:GetPivot()
+end
+
 -- =============================================================================
 -- PRIVATE METHODS
 -- =============================================================================
@@ -85,14 +95,15 @@ function TargetSelector:_checkLineOfSight(subject: PVInstance, target: PVInstanc
 		raycastParams:AddToFilter({ localPlayer.Character :: Instance })
 	end
 
-	local raycastResult = Workspace:Raycast(subject:GetPivot().Position, toTarget, raycastParams)
+	local subjectCFrame = getSubjectCFrame(subject)
+	local raycastResult = Workspace:Raycast(subjectCFrame.Position, toTarget, raycastParams)
 	local hasLineOfSight = raycastResult == nil
 
 	return hasLineOfSight
 end
 
 function TargetSelector:_checkPointHit(subject: PVInstance, target: PVInstance, point: Vector3): PointHitResult
-	local subjectCFrame = subject:GetPivot()
+	local subjectCFrame = getSubjectCFrame(subject)
 	local subjectPosition = subjectCFrame.Position
 	local subjectLook = subjectCFrame.LookVector
 

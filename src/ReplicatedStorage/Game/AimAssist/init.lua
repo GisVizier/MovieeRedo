@@ -692,7 +692,7 @@ function AimAssist:configureFromWeapon(weaponAimAssist: {
 			or weaponAimAssist.tracking
 			or weaponAimAssist.friction
 			or AimAssistConfig.Defaults.Centering
-		smoothCentering = math.clamp(smoothCentering * 1.35, 0.3, 0.85)
+		smoothCentering = math.clamp(smoothCentering * 1.8, 0.55, 1)
 		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Friction, 0)
 		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Tracking, 0)
 		self:setMethodStrength(AimAssistEnum.AimAssistMethod.Centering, smoothCentering)
