@@ -161,9 +161,12 @@ end
 -- =============================================================================
 
 function AimAdjuster:adjustAimCentering(context: AimContext): CFrame
-	local baseStrength = self.strengthTable[AimAssistEnum.AimAssistMethod.Centering] * context.adjustmentStrength
-	local strengthScale = AimAssistConfig.Defaults.CenteringStrengthScale or 1
-	local totalStrength = math.max(0, baseStrength * strengthScale)
+	local responseScale = AimAssistConfig.Defaults.CenteringResponseScale or 1
+	local totalStrength = math.clamp(
+		self.strengthTable[AimAssistEnum.AimAssistMethod.Centering] * context.adjustmentStrength * responseScale,
+		0,
+		1
+	)
 	
 	if not context.targetResult or totalStrength <= 0 then
 		return context.subjectCFrame
@@ -180,17 +183,12 @@ function AimAdjuster:adjustAimCentering(context: AimContext): CFrame
 
 	-- If deltaTime not provided, do a simple lerp
 	if not context.deltaTime then
-		-- Convert unbounded strength into a safe alpha with diminishing returns.
-		local alpha = totalStrength / (1 + totalStrength)
-		local newCFrame = context.subjectCFrame:Lerp(idealCFrame, alpha)
+		local newCFrame = context.subjectCFrame:Lerp(idealCFrame, totalStrength)
 		return newCFrame
 	end
 
-	-- Else, do smoothDamp with slower response curve.
-	local minSmoothTime = AimAssistConfig.Defaults.CenteringMinSmoothTime or 0.12
-	local maxSmoothTime = AimAssistConfig.Defaults.CenteringMaxSmoothTime or 0.35
-	local normalizedStrength = totalStrength / (1 + totalStrength)
-	local smoothTime = maxSmoothTime - (maxSmoothTime - minSmoothTime) * normalizedStrength
+	-- Legacy response model: stronger feel at high strength.
+	local smoothTime = 1 - totalStrength
 	local maxSpeed = math.huge
 
 	local newCFrame, newVelocity = TweenService:SmoothDamp(

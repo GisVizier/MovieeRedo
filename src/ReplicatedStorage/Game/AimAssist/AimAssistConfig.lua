@@ -66,10 +66,9 @@ AimAssistConfig.Defaults = {
 	TargetBones = { "Head", "Body" },
 
 	-- Centering response tuning
-	-- Higher smooth time = slower pull. StrengthScale reduces overall pull speed.
-	CenteringMinSmoothTime = 0.09,
-	CenteringMaxSmoothTime = 0.24,
-	CenteringStrengthScale = 1.05,
+	-- Response scale for the legacy centering model.
+	-- 1.0 = original speed, lower values = slightly slower pull.
+	CenteringResponseScale = 0.85,
 }
 
 -- =============================================================================
