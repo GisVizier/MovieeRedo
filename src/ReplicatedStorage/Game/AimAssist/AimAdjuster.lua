@@ -167,8 +167,10 @@ function AimAdjuster:adjustAimCentering(context: AimContext): CFrame
 		0,
 		1
 	)
+	local maxStep = AimAssistConfig.Defaults.CenteringMaxStep or 0.22
+	local effectiveStrength = math.min(totalStrength, maxStep)
 	
-	if not context.targetResult or totalStrength <= 0 then
+	if not context.targetResult or effectiveStrength <= 0 then
 		return context.subjectCFrame
 	end
 
@@ -183,12 +185,13 @@ function AimAdjuster:adjustAimCentering(context: AimContext): CFrame
 
 	-- If deltaTime not provided, do a simple lerp
 	if not context.deltaTime then
-		local newCFrame = context.subjectCFrame:Lerp(idealCFrame, totalStrength)
+		local newCFrame = context.subjectCFrame:Lerp(idealCFrame, effectiveStrength)
 		return newCFrame
 	end
 
-	-- Legacy response model: stronger feel at high strength.
-	local smoothTime = 1 - totalStrength
+	-- Keep legacy feel but prevent near-instant snaps at very high strength.
+	local minSmoothTime = AimAssistConfig.Defaults.CenteringMinSmoothTime or 0.18
+	local smoothTime = math.max(minSmoothTime, 1 - effectiveStrength)
 	local maxSpeed = math.huge
 
 	local newCFrame, newVelocity = TweenService:SmoothDamp(

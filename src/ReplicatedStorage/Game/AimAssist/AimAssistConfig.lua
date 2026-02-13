@@ -69,6 +69,10 @@ AimAssistConfig.Defaults = {
 	-- Response scale for the legacy centering model.
 	-- 1.0 = original speed, lower values = slightly slower pull.
 	CenteringResponseScale = 0.85,
+	-- Hard cap on how much centering can apply in a single update.
+	CenteringMaxStep = 0.22,
+	-- Prevent extremely low smoothTime, which feels like snapping.
+	CenteringMinSmoothTime = 0.18,
 }
 
 -- =============================================================================
