@@ -132,6 +132,9 @@ function MobileControls:SetCombatMode(enabled)
 	if self._slotContainer then
 		self._slotContainer.Visible = enabled
 	end
+	if self._ammoDisplay then
+		self._ammoDisplay.Visible = enabled
+	end
 end
 
 -- =============================================================================
@@ -182,6 +185,7 @@ function MobileControls:CreateMobileUI()
 	self:CreateCameraStick()
 	self:CreateActionCluster()
 	self:CreateWeaponSlots()
+	self:CreateMobileAmmoDisplay()
 end
 
 -- =============================================================================
@@ -377,6 +381,119 @@ function MobileControls:CreateWeaponSlots()
 
 	self:SetupWeaponSlotInput()
 	self:SetupWeaponSlotListener()
+end
+
+-- =============================================================================
+-- MOBILE AMMO DISPLAY (Super small, rightmost corner - reference style)
+-- =============================================================================
+local AMMO_FONT = Enum.Font.GothamBold  -- Clean bold sans-serif like reference
+local AMMO_RIGHT = 0   -- Rightmost, ignore padding
+local AMMO_BOTTOM = 28  -- Moved up from bottom edge
+
+function MobileControls:CreateMobileAmmoDisplay()
+	local container = Instance.new("Frame")
+	container.Name = "MobileAmmoDisplay"
+	container.BackgroundTransparency = 1
+	container.AnchorPoint = Vector2.new(1, 1)
+	container.Size = UDim2.fromOffset(56, 32)
+	container.Position = UDim2.new(1, -AMMO_RIGHT, 1, -AMMO_BOTTOM)
+	container.Parent = self.ScreenGui
+	self._ammoDisplay = container
+
+	-- Ammo row: current (larger) + total (smaller, right/above)
+	local ammoRow = Instance.new("Frame")
+	ammoRow.Name = "AmmoRow"
+	ammoRow.BackgroundTransparency = 1
+	ammoRow.Size = UDim2.new(1, 0, 0, 18)
+	ammoRow.Position = UDim2.new(0, 0, 0, 0)
+	ammoRow.Parent = container
+
+	local currentLabel = Instance.new("TextLabel")
+	currentLabel.Name = "Current"
+	currentLabel.Size = UDim2.fromOffset(28, 18)
+	currentLabel.Position = UDim2.new(0, 0, 0, 0)
+	currentLabel.BackgroundTransparency = 1
+	currentLabel.TextColor3 = WHITE
+	currentLabel.TextSize = 16
+	currentLabel.Font = AMMO_FONT
+	currentLabel.Text = "0"
+	currentLabel.TextXAlignment = Enum.TextXAlignment.Left
+	currentLabel.Parent = ammoRow
+
+	local totalLabel = Instance.new("TextLabel")
+	totalLabel.Name = "Total"
+	totalLabel.Size = UDim2.fromOffset(26, 12)
+	totalLabel.Position = UDim2.new(0, 26, 0, -1)
+	totalLabel.BackgroundTransparency = 1
+	totalLabel.TextColor3 = WHITE
+	totalLabel.TextSize = 11
+	totalLabel.Font = AMMO_FONT
+	totalLabel.Text = "/ 0"
+	totalLabel.TextXAlignment = Enum.TextXAlignment.Left
+	totalLabel.Parent = ammoRow
+
+	local weaponLabel = Instance.new("TextLabel")
+	weaponLabel.Name = "WeaponName"
+	weaponLabel.Size = UDim2.new(1, 0, 0, 12)
+	weaponLabel.Position = UDim2.new(0, 0, 0, 18)
+	weaponLabel.BackgroundTransparency = 1
+	weaponLabel.TextColor3 = WHITE
+	weaponLabel.TextSize = 11
+	weaponLabel.Font = AMMO_FONT
+	weaponLabel.Text = ""
+	weaponLabel.TextXAlignment = Enum.TextXAlignment.Left
+	weaponLabel.Parent = container
+
+	self._ammoCurrentLabel = currentLabel
+	self._ammoTotalLabel = totalLabel
+	self._ammoWeaponLabel = weaponLabel
+
+	self:SetupMobileAmmoListener()
+end
+
+function MobileControls:SetupMobileAmmoListener()
+	local function update()
+		local equipped = LocalPlayer:GetAttribute("EquippedSlot") or "Primary"
+		local attrName = equipped .. "Data"
+		local raw = LocalPlayer:GetAttribute(attrName)
+		if type(raw) ~= "string" or raw == "" then
+			self._ammoCurrentLabel.Text = "0"
+			self._ammoTotalLabel.Text = "/ 0"
+			self._ammoWeaponLabel.Text = ""
+			return
+		end
+
+		local ok, data = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+		if not ok or type(data) ~= "table" then
+			return
+		end
+
+		local ammo = data.Ammo or 0
+		local maxAmmo = data.MaxAmmo or 0
+		local clipSize = data.ClipSize or 0
+		local usesAmmo = clipSize > 0 or maxAmmo > 0
+
+		if usesAmmo then
+			self._ammoCurrentLabel.Text = tostring(ammo)
+			self._ammoTotalLabel.Text = "/ " .. tostring(maxAmmo)
+			local outOfAmmo = ammo <= 0 and maxAmmo <= 0
+			self._ammoCurrentLabel.TextColor3 = outOfAmmo and Color3.fromRGB(250, 70, 70) or WHITE
+			self._ammoTotalLabel.TextColor3 = outOfAmmo and Color3.fromRGB(250, 70, 70) or Color3.fromRGB(200, 200, 200)
+		else
+			self._ammoCurrentLabel.Text = ""
+			self._ammoTotalLabel.Text = ""
+		end
+
+		self._ammoWeaponLabel.Text = tostring(data.Gun or data.GunId or "")
+	end
+
+	for _, slot in ipairs({ "Primary", "Secondary", "Melee" }) do
+		LocalPlayer:GetAttributeChangedSignal(slot .. "Data"):Connect(update)
+	end
+	LocalPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(update)
+	task.defer(update)
 end
 
 function MobileControls:SetupWeaponSlotInput()
