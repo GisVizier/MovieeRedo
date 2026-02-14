@@ -23,9 +23,40 @@ local function getWeaponProjectile()
 	return WeaponProjectile
 end
 
+local function applySpecialBlastRecoil(weaponInstance)
+	local weaponController = ServiceRegistry:GetController("Weapon")
+		or ServiceRegistry:GetController("WeaponController")
+	if not weaponController then
+		return
+	end
+
+	local bursts = 2
+	local config = weaponInstance and weaponInstance.Config
+	if config and type(config.specialRecoilBursts) == "number" then
+		bursts = math.clamp(math.floor(config.specialRecoilBursts), 1, 4)
+	end
+
+	if type(weaponController._applyCameraRecoil) == "function" then
+		for _ = 1, bursts do
+			weaponController:_applyCameraRecoil()
+		end
+	end
+
+	if type(weaponController._applyCrosshairRecoil) == "function" then
+		weaponController:_applyCrosshairRecoil()
+	end
+end
+
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
+	end
+
+	if weaponInstance.State.IsReloading then
+		if Special._isADS then
+			Special.Cancel()
+		end
+		return false, "Reloading"
 	end
 
 	if isPressed then
@@ -105,6 +136,7 @@ function Special:_executeRocketJumpBlast(weaponInstance)
 		})
 	end
 
+	applySpecialBlastRecoil(weaponInstance)
 	Special:_applyRocketJumpVelocity()
 	return true
 end
@@ -148,10 +180,14 @@ function Special:_applyRocketJumpVelocity()
 	local upBonus = isGrounded and (22 + 18 * downLiftCurve) or (28 + 24 * downLiftCurve)
 	local upCap = isGrounded and 58 or 76
 	launchVelocity = Vector3.new(launchVelocity.X, math.min(launchVelocity.Y + upBonus, upCap), launchVelocity.Z)
+
+	-- Clear existing movement so special launch always starts from a clean velocity state.
+	root.AssemblyLinearVelocity = Vector3.zero
+
 	if movementController and movementController.BeginExternalLaunch then
 		movementController:BeginExternalLaunch(launchVelocity, 0.28)
 	else
-		root.AssemblyLinearVelocity += launchVelocity
+		root.AssemblyLinearVelocity = launchVelocity
 	end
 
 end
@@ -207,7 +243,8 @@ function Special:_exitADS(weaponInstance)
 end
 
 function Special.Cancel()
-	if not Special._isADS then
+	local shouldExitADS = Special._isADS or Special._originalFOV ~= nil
+	if not shouldExitADS then
 		return
 	end
 

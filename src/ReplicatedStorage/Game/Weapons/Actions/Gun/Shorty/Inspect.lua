@@ -27,6 +27,9 @@ function Inspect.Execute(weaponInstance)
 	if not viewmodelController then
 		return false, "NoViewmodel"
 	end
+	if viewmodelController.IsADS and viewmodelController:IsADS() then
+		return false, "Busy"
+	end
 
 	Inspect._isInspecting = true
 

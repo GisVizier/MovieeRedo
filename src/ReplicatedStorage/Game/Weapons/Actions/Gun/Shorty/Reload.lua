@@ -70,6 +70,36 @@ local function commitState(weaponInstance, state)
 	end
 end
 
+local function stopOtherViewmodelTracks(weaponInstance, keepName)
+	if not weaponInstance or not weaponInstance.GetViewmodelController then
+		return
+	end
+
+	local viewmodelController = weaponInstance.GetViewmodelController()
+	local animator = viewmodelController and viewmodelController._animator
+	if not animator then
+		return
+	end
+
+	local tracks = animator._tracks
+	if type(tracks) == "table" then
+		for trackName, track in pairs(tracks) do
+			if trackName ~= keepName and track and track.IsPlaying then
+				track:Stop(0.05)
+			end
+		end
+	end
+
+	local kitTracks = animator._kitTracks
+	if type(kitTracks) == "table" then
+		for _, track in pairs(kitTracks) do
+			if track and track.IsPlaying then
+				track:Stop(0.05)
+			end
+		end
+	end
+end
+
 function Reload.Execute(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
@@ -111,6 +141,7 @@ function Reload.Execute(weaponInstance)
 	commitState(weaponInstance, state)
 
 	local track = nil
+	stopOtherViewmodelTracks(weaponInstance, animName)
 	if weaponInstance.PlayWeaponTrack then
 		track = weaponInstance.PlayWeaponTrack(animName, 0.05)
 	end

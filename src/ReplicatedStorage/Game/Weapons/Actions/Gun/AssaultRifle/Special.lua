@@ -83,7 +83,8 @@ function Special:_exitADS(weaponInstance)
 end
 
 function Special.Cancel()
-	if not Special._isADS then
+	local shouldExitADS = Special._isADS or Special._originalFOV ~= nil
+	if not shouldExitADS then
 		return
 	end
 

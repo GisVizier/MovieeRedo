@@ -271,7 +271,7 @@ function WeaponController:_connectInputs()
 
 	-- Inspect input
 	self._inputManager:ConnectToInput("Inspect", function(isPressed)
-		if isPressed and not self._isReloading and not self._isFiring then
+		if isPressed and not self._isReloading and not self._isFiring and not self:IsADS() then
 			self:Inspect()
 		end
 	end)
@@ -994,23 +994,22 @@ function WeaponController:Reload()
 	-- Update state
 	self:_updateWeaponInstanceState()
 
-	-- Check cancel logic
-	local cancels = self:_getCancels()
-
-	-- Cancel special on reload
-	if cancels.ReloadCancelsSpecial then
-		if
-			self._currentActions.Special
-			and self._currentActions.Special.IsActive
-			and self._currentActions.Special.IsActive()
-		then
-			if self._currentActions.Special.Cancel then
-				self._currentActions.Special.Cancel()
-				self._isADS = self:_resolveADSState(false)
-				self:_updateAimAssistADS(self._isADS)
-			end
-		end
+	-- Reload should always stop inspect.
+	if
+		self._currentActions.Inspect
+		and self._currentActions.Inspect.IsInspecting
+		and self._currentActions.Inspect.IsInspecting()
+		and self._currentActions.Inspect.Cancel
+	then
+		self._currentActions.Inspect.Cancel()
 	end
+
+	-- Reload should always stop ADS/special to avoid FOV/ADS state desync.
+	if self._currentActions.Special and self._currentActions.Special.Cancel then
+		self._currentActions.Special.Cancel()
+	end
+	self._isADS = false
+	self:_updateAimAssistADS(false)
 
 	-- Execute reload
 	if self._currentActions.Reload then
@@ -1032,6 +1031,10 @@ function WeaponController:Inspect()
 
 	-- Update state
 	self:_updateWeaponInstanceState()
+
+	if self:IsADS() then
+		return
+	end
 
 	-- Execute inspect
 	if self._currentActions.Inspect then
@@ -1059,6 +1062,20 @@ function WeaponController:Special(isPressed)
 
 	-- Update state
 	self:_updateWeaponInstanceState()
+
+	if self._isReloading then
+		if
+			self._currentActions.Special
+			and self._currentActions.Special.IsActive
+			and self._currentActions.Special.IsActive()
+			and self._currentActions.Special.Cancel
+		then
+			self._currentActions.Special.Cancel()
+		end
+		self._isADS = false
+		self:_updateAimAssistADS(false)
+		return
+	end
 
 	-- Check cancel logic
 	local cancels = self:_getCancels()
