@@ -21,29 +21,37 @@ local LocalPlayer = Players.LocalPlayer
 -- =============================================================================
 -- LAYOUT CONSTANTS
 -- =============================================================================
-local EDGE = 16
+local EDGE = 14
+local GAP = 10
+local BOTTOM = 46             -- Bottom offset for action cluster
+
+-- Sticks
 local STICK_SIZE = 130
 local THUMB_SIZE = 52
-local CAM_STICK_SIZE = 120    -- Camera stick (right side)
+local CAM_STICK_SIZE = 120
 local CAM_THUMB_SIZE = 46
-local FIRE_SIZE = 78
-local BTN = 52
-local GAP = 14
-local BOTTOM_OFFSET = 60      -- Push all action buttons UP from bottom edge
-local SLOT_BTN_W = 72         -- Weapon slot button width
-local SLOT_BTN_H = 56         -- Weapon slot button height
-local SLOT_GAP = 6            -- Gap between slot buttons
-local SLOT_TOP = 12           -- Top offset for slot buttons
 
+-- Action button sizes (visual hierarchy)
+local JUMP_SIZE = 86          -- Biggest  — primary thumb target
+local FIRE_SIZE = 66          -- Medium   — second most used
+local BTN = 48                -- Small    — utility buttons
+
+-- Weapon slot bar
+local SLOT_BTN_W = 72
+local SLOT_BTN_H = 56
+local SLOT_GAP = 6
+local SLOT_TOP = 52           -- Below system / match HUD
+
+-- Colors
 local COLOR = Color3.new(0, 0, 0)
-local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220) -- Blue for toggled buttons
-local ALPHA = 0.5
+local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220)
+local ALPHA = 0.55
 local WHITE = Color3.new(1, 1, 1)
 
 -- =============================================================================
 -- STATE
 -- =============================================================================
-MobileControls._input = nil -- InputManager reference, set during Init
+MobileControls._input = nil
 
 MobileControls.ScreenGui = nil
 MobileControls.MovementStick = nil
@@ -53,12 +61,13 @@ MobileControls.WeaponButtons = {}
 MobileControls.MovementVector = Vector2.new(0, 0)
 MobileControls.CameraVector = Vector2.new(0, 0)
 MobileControls.ClaimedTouches = {}
-MobileControls.CameraTouches = {} -- Used by CameraController for free camera swipes
+MobileControls.CameraTouches = {}
 MobileControls.IsAutoJumping = false
 MobileControls.IsADSActive = false
 
 MobileControls._buttons = {}
 MobileControls._combatButtons = {}
+MobileControls._crouchSlideIsSlide = false -- tracks what the merged button did on press
 
 MobileControls.ActiveTouches = {
 	Movement = nil,
@@ -66,15 +75,14 @@ MobileControls.ActiveTouches = {
 	Jump = nil,
 	Fire = nil,
 	Reload = nil,
-	Crouch = nil,
-	Slide = nil,
+	Crouch = nil, -- used for the merged CrouchSlide button
 	Ability = nil,
 	Ultimate = nil,
 	Special = nil,
 }
 
 -- =============================================================================
--- INPUT GATING (delegates to InputManager state)
+-- INPUT GATING
 -- =============================================================================
 function MobileControls:_isBlocked()
 	local im = self._input
@@ -94,7 +102,6 @@ function MobileControls:Init(inputManager)
 	self:CreateMobileUI()
 	self:SetupLobbyListener()
 
-	-- Mobile is always sprinting (auto-sprint)
 	if self._input then
 		self._input.IsSprinting = true
 		self._input:FireCallbacks("Sprint", true)
@@ -119,18 +126,16 @@ function MobileControls:SetCombatMode(enabled)
 	for _, btn in ipairs(self._combatButtons) do
 		btn.Visible = enabled
 	end
-	-- Camera stick only in combat
 	if self.CameraStick then
 		self.CameraStick.Container.Visible = enabled
 	end
-	-- Weapon slot buttons only in combat
 	if self._slotContainer then
 		self._slotContainer.Visible = enabled
 	end
 end
 
 -- =============================================================================
--- TOUCH STATE RESET (UI-only, called by InputManager:StopAllInputs)
+-- TOUCH STATE RESET
 -- =============================================================================
 function MobileControls:ResetTouchState()
 	if self.MovementStick then
@@ -145,8 +150,8 @@ function MobileControls:ResetTouchState()
 	end
 
 	self.IsAutoJumping = false
+	self._crouchSlideIsSlide = false
 
-	-- Reset ADS toggle visual
 	if self.IsADSActive then
 		self.IsADSActive = false
 		if self._buttons.ADS then
@@ -183,7 +188,7 @@ function MobileControls:CreateMovementStick()
 	local container = Instance.new("Frame")
 	container.Name = "MovementStickContainer"
 	container.Size = UDim2.fromOffset(STICK_SIZE, STICK_SIZE)
-	container.Position = UDim2.new(0, EDGE, 1, -(STICK_SIZE + BOTTOM_OFFSET))
+	container.Position = UDim2.new(0, EDGE, 1, -(STICK_SIZE + BOTTOM))
 	container.BackgroundTransparency = 0.6
 	container.BackgroundColor3 = COLOR
 	container.BorderSizePixel = 0
@@ -211,15 +216,15 @@ function MobileControls:CreateMovementStick()
 end
 
 -- =============================================================================
--- CAMERA STICK (Right side, left of action buttons)
+-- CAMERA STICK (Right side, left of action cluster)
 -- =============================================================================
 function MobileControls:CreateCameraStick()
-	-- Place left of action cluster (action cluster uses ~4 columns from right)
-	local clusterWidth = (BTN + GAP) * 4 + EDGE
+	-- Widest row is row 2: FIRE + GAP + ADS + GAP + Reload = 66+10+48+10+48 = 182 from EDGE
+	local clusterWidth = EDGE + FIRE_SIZE + GAP + BTN + GAP + BTN
 	local container = Instance.new("Frame")
 	container.Name = "CameraStickContainer"
 	container.Size = UDim2.fromOffset(CAM_STICK_SIZE, CAM_STICK_SIZE)
-	container.Position = UDim2.new(1, -(clusterWidth + GAP + CAM_STICK_SIZE), 1, -(CAM_STICK_SIZE + BOTTOM_OFFSET))
+	container.Position = UDim2.new(1, -(clusterWidth + GAP + CAM_STICK_SIZE), 1, -(CAM_STICK_SIZE + BOTTOM))
 	container.BackgroundTransparency = 0.6
 	container.BackgroundColor3 = COLOR
 	container.BorderSizePixel = 0
@@ -247,51 +252,59 @@ function MobileControls:CreateCameraStick()
 end
 
 -- =============================================================================
--- ACTION CLUSTER (Bottom-right, pushed up by BOTTOM_OFFSET)
+-- ACTION CLUSTER (Bottom-right)
 -- =============================================================================
+--  Layout (right-anchored, from bottom up):
 --
---              [E]   [Q]
---           [FIRE o]  [ADS]
---  [Slide] [Jump] [R]  [C]
+--  Row 3:         [E]  [Q]
+--  Row 2:   [R] [ADS]  [FIRE]
+--  Row 1:        [C/S]  [JUMP]
 --
+--  Jump is biggest (86), Fire is medium (66), rest are small (48).
+-- =============================================================================
 function MobileControls:CreateActionCluster()
-	local cA = EDGE
-	local cB = EDGE + BTN + GAP
-	local cC = EDGE + (BTN + GAP) * 2
-	local cD = EDGE + (BTN + GAP) * 3
-
-	local r1 = BOTTOM_OFFSET
-	local r2 = BOTTOM_OFFSET + BTN + GAP
+	-- Row bottom offsets
+	local r1 = BOTTOM
+	local r2 = BOTTOM + JUMP_SIZE + GAP
 	local r3 = r2 + FIRE_SIZE + GAP
 
-	local fireRight = EDGE + (BTN * 2 + GAP - FIRE_SIZE) / 2
+	-- Row 1 — Jump (big) + CrouchSlide
+	local jump = self:_makeBtn("Jump", JUMP_SIZE, EDGE, r1, "JUMP")
+	local csRight = EDGE + JUMP_SIZE + GAP
+	local csBottom = r1 + (JUMP_SIZE - BTN) / 2
+	local crouchSlide = self:_makeBtn("CrouchSlide", BTN, csRight, csBottom, "C")
+
+	-- Row 2 — Fire (medium) + ADS + Reload
+	local fireRight = EDGE + (JUMP_SIZE - FIRE_SIZE) / 2 -- centered under Jump
+	local fire = self:_makeBtn("Fire", FIRE_SIZE, fireRight, r2, "FIRE")
+	local adsRight = fireRight + FIRE_SIZE + GAP
 	local adsBottom = r2 + (FIRE_SIZE - BTN) / 2
+	local ads = self:_makeBtn("ADS", BTN, adsRight, adsBottom, "ADS")
+	local reloadRight = adsRight + BTN + GAP
+	local reload = self:_makeBtn("Reload", BTN, reloadRight, adsBottom, "R")
 
-	local slide  = self:_placeBtn("Slide",   BTN,       cD, r1, "SLIDE")
-	local jump   = self:_placeBtn("Jump",    BTN,       cA, r1, "JUMP")
-	local reload = self:_placeBtn("Reload",  BTN,       cB, r1, "R")
-	local crouch = self:_placeBtn("Crouch",  BTN,       cC, r1, "C")
-	local fire   = self:_placeBtn("Fire",    FIRE_SIZE, fireRight, r2, "FIRE")
-	local ads    = self:_placeBtn("ADS",     BTN,       cC, adsBottom, "ADS")
-	local ability  = self:_placeBtn("Ability",  BTN, cA, r3, "E")
-	local ultimate = self:_placeBtn("Ultimate", BTN, cB, r3, "Q")
+	-- Row 3 — Ability + Ultimate
+	local eRight = EDGE + (JUMP_SIZE - BTN) / 2 -- centered under Jump
+	local ability = self:_makeBtn("Ability", BTN, eRight, r3, "E")
+	local qRight = eRight + BTN + GAP
+	local ultimate = self:_makeBtn("Ultimate", BTN, qRight, r3, "Q")
 
-	self._buttons.Slide    = slide
-	self._buttons.Jump     = jump
-	self._buttons.Reload   = reload
-	self._buttons.Crouch   = crouch
-	self._buttons.Fire     = fire
-	self._buttons.ADS      = ads
-	self._buttons.Ability  = ability
-	self._buttons.Ultimate = ultimate
+	self._buttons.Jump       = jump
+	self._buttons.CrouchSlide = crouchSlide
+	self._buttons.Fire       = fire
+	self._buttons.ADS        = ads
+	self._buttons.Reload     = reload
+	self._buttons.Ability    = ability
+	self._buttons.Ultimate   = ultimate
 
-	self._combatButtons = { fire, ads, reload, ability, ultimate } -- Crouch & Slide stay visible in lobby
+	-- CrouchSlide stays visible in lobby (for sliding); rest are combat-only
+	self._combatButtons = { fire, ads, reload, ability, ultimate }
 
 	self:SetupButtonInput()
 end
 
 -- =============================================================================
--- WEAPON SLOT BUTTONS (Top-right, vertical column)
+-- WEAPON SLOT BUTTONS (Top-right, horizontal)
 -- =============================================================================
 local SLOT_DEFS = {
 	{ slot = "Primary",   label = "1" },
@@ -333,9 +346,8 @@ function MobileControls:CreateWeaponSlots()
 		btn.Active = false
 		btn.ClipsDescendants = true
 		btn.Parent = container
-		Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0.5, 0)
 
-		-- Weapon icon — oversized + centered so the weapon fills the button
 		local icon = Instance.new("ImageLabel")
 		icon.Name = "Icon"
 		icon.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -346,7 +358,6 @@ function MobileControls:CreateWeaponSlots()
 		icon.Image = ""
 		icon.Parent = btn
 
-		-- Fallback number label (shown when no icon)
 		local label = Instance.new("TextLabel")
 		label.Name = "Label"
 		label.Size = UDim2.fromScale(1, 1)
@@ -383,7 +394,6 @@ function MobileControls:SetupWeaponSlotInput()
 
 	UserInputService.InputEnded:Connect(function(input, _)
 		if input.UserInputType ~= Enum.UserInputType.Touch then return end
-		-- Clean up slot touch claims
 		local claim = self.ClaimedTouches[input]
 		if claim and type(claim) == "string" and claim:sub(1, 5) == "slot_" then
 			self.ClaimedTouches[input] = nil
@@ -392,7 +402,6 @@ function MobileControls:SetupWeaponSlotInput()
 end
 
 function MobileControls:SetupWeaponSlotListener()
-	-- Update icons when loadout changes
 	local function refreshIcons()
 		local raw = LocalPlayer:GetAttribute("SelectedLoadout")
 		if type(raw) ~= "string" or raw == "" then return end
@@ -402,7 +411,6 @@ function MobileControls:SetupWeaponSlotListener()
 		end)
 		if not ok or type(loadout) ~= "table" then return end
 
-		-- loadout can be { loadout = { Primary = "...", ... } } or flat
 		local data = loadout.loadout or loadout
 
 		for _, def in ipairs(SLOT_DEFS) do
@@ -428,7 +436,6 @@ function MobileControls:SetupWeaponSlotListener()
 	LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(refreshIcons)
 	task.defer(refreshIcons)
 
-	-- Highlight active slot
 	local function refreshHighlight()
 		local equipped = LocalPlayer:GetAttribute("EquippedSlot") or "Primary"
 		self._activeSlot = equipped
@@ -451,26 +458,21 @@ end
 -- =============================================================================
 -- BUTTON HELPERS
 -- =============================================================================
-function MobileControls:_btn(name, size)
+function MobileControls:_makeBtn(name, size, rightOff, bottomOff, text)
 	local b = Instance.new("TextButton")
 	b.Name = name
 	b.Size = UDim2.fromOffset(size, size)
+	b.Position = UDim2.new(1, -(rightOff + size), 1, -(bottomOff + size))
 	b.BackgroundColor3 = COLOR
 	b.BackgroundTransparency = ALPHA
 	b.BorderSizePixel = 0
 	b.TextColor3 = WHITE
-	b.TextSize = math.clamp(math.floor(size * 0.38), 12, 20)
+	b.TextSize = math.clamp(math.floor(size * 0.28), 10, 18)
 	b.Font = Enum.Font.SourceSansBold
-	b.Active = false
-	Instance.new("UICorner", b).CornerRadius = UDim.new(0.5, 0)
-	return b
-end
-
-function MobileControls:_placeBtn(name, size, rightOff, bottomOff, text)
-	local b = self:_btn(name, size)
-	b.Position = UDim2.new(1, -(rightOff + size), 1, -(bottomOff + size))
 	b.Text = text
+	b.Active = false
 	b.Parent = self.ScreenGui
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0.5, 0)
 	return b
 end
 
@@ -507,6 +509,9 @@ function MobileControls:SetupStickInput()
 		end
 		self._input.Movement = self.MovementVector
 		self._input:FireCallbacks("Movement", self.MovementVector)
+
+		-- Update CrouchSlide button label based on movement
+		self:_updateCrouchSlideLabel()
 	end
 
 	UserInputService.InputBegan:Connect(function(input, gp)
@@ -537,6 +542,7 @@ function MobileControls:SetupStickInput()
 			self.ClaimedTouches[input] = nil
 			self._input.Movement = self.MovementVector
 			self._input:FireCallbacks("Movement", self.MovementVector)
+			self:_updateCrouchSlideLabel()
 		end
 	end)
 end
@@ -629,6 +635,14 @@ function MobileControls:SetupButtonInput()
 		if input.UserInputType ~= Enum.UserInputType.Touch then return end
 		if self:IsTouchClaimed(input) then return end
 
+		-- Jump (hold)
+		if not self.ActiveTouches.Jump and self:_hitTest(input, B.Jump) then
+			self.ActiveTouches.Jump = input
+			self.ClaimedTouches[input] = "jump"
+			self:StartAutoJump()
+			return
+		end
+
 		-- Fire (hold)
 		if not self.ActiveTouches.Fire and self:_hitTest(input, B.Fire) then
 			self.ActiveTouches.Fire = input
@@ -647,14 +661,6 @@ function MobileControls:SetupButtonInput()
 			return
 		end
 
-		-- Jump
-		if not self.ActiveTouches.Jump and self:_hitTest(input, B.Jump) then
-			self.ActiveTouches.Jump = input
-			self.ClaimedTouches[input] = "jump"
-			self:StartAutoJump()
-			return
-		end
-
 		-- Reload
 		if not self.ActiveTouches.Reload and self:_hitTest(input, B.Reload) then
 			self.ActiveTouches.Reload = input
@@ -663,20 +669,19 @@ function MobileControls:SetupButtonInput()
 			return
 		end
 
-		-- Crouch (hold)
-		if not self.ActiveTouches.Crouch and self:_hitTest(input, B.Crouch) then
+		-- CrouchSlide — context-sensitive: moving → Slide, still → Crouch
+		if not self.ActiveTouches.Crouch and self:_hitTest(input, B.CrouchSlide) then
 			self.ActiveTouches.Crouch = input
-			self.ClaimedTouches[input] = "crouch"
-			self._input.IsCrouching = true
-			self._input:FireCallbacks("Crouch", true)
-			return
-		end
-
-		-- Slide (hold)
-		if not self.ActiveTouches.Slide and self:_hitTest(input, B.Slide) then
-			self.ActiveTouches.Slide = input
-			self.ClaimedTouches[input] = "slide"
-			self._input:FireCallbacks("Slide", true)
+			self.ClaimedTouches[input] = "crouchslide"
+			local isMoving = self.MovementVector.Magnitude > 0.1
+			if isMoving then
+				self._crouchSlideIsSlide = true
+				self._input:FireCallbacks("Slide", true)
+			else
+				self._crouchSlideIsSlide = false
+				self._input.IsCrouching = true
+				self._input:FireCallbacks("Crouch", true)
+			end
 			return
 		end
 
@@ -717,12 +722,13 @@ function MobileControls:SetupButtonInput()
 		elseif input == self.ActiveTouches.Crouch then
 			self.ActiveTouches.Crouch = nil
 			self.ClaimedTouches[input] = nil
-			self._input.IsCrouching = false
-			self._input:FireCallbacks("Crouch", false)
-		elseif input == self.ActiveTouches.Slide then
-			self.ActiveTouches.Slide = nil
-			self.ClaimedTouches[input] = nil
-			self._input:FireCallbacks("Slide", false)
+			if self._crouchSlideIsSlide then
+				self._input:FireCallbacks("Slide", false)
+			else
+				self._input.IsCrouching = false
+				self._input:FireCallbacks("Crouch", false)
+			end
+			self._crouchSlideIsSlide = false
 		elseif input == self.ActiveTouches.Ability then
 			self.ActiveTouches.Ability = nil
 			self.ClaimedTouches[input] = nil
@@ -733,6 +739,16 @@ function MobileControls:SetupButtonInput()
 			self._input:FireCallbacks("Ultimate", Enum.UserInputState.End)
 		end
 	end)
+end
+
+-- =============================================================================
+-- CROUCH/SLIDE LABEL UPDATE
+-- =============================================================================
+function MobileControls:_updateCrouchSlideLabel()
+	local btn = self._buttons.CrouchSlide
+	if not btn then return end
+	local isMoving = self.MovementVector.Magnitude > 0.1
+	btn.Text = isMoving and "SLIDE" or "C"
 end
 
 -- =============================================================================
