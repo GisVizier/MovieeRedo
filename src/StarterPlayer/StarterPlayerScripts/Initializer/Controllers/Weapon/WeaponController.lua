@@ -994,6 +994,13 @@ function WeaponController:Reload()
 	-- Update state
 	self:_updateWeaponInstanceState()
 
+	-- Reload should stop any ongoing weapon actions first.
+	self._isFiring = false
+	self:_stopAutoFire()
+	if self._currentActions.Attack and self._currentActions.Attack.Cancel then
+		self._currentActions.Attack.Cancel(self._weaponInstance)
+	end
+
 	-- Reload should always stop inspect.
 	if
 		self._currentActions.Inspect
@@ -1010,6 +1017,7 @@ function WeaponController:Reload()
 	end
 	self._isADS = false
 	self:_updateAimAssistADS(false)
+	self:_stopWeaponTracks("Reload")
 
 	-- Execute reload
 	if self._currentActions.Reload then
@@ -1031,6 +1039,10 @@ function WeaponController:Inspect()
 
 	-- Update state
 	self:_updateWeaponInstanceState()
+
+	if self._isReloading or self._isFiring then
+		return
+	end
 
 	if self:IsADS() then
 		return
@@ -1223,6 +1235,30 @@ end
 function WeaponController:_playViewmodelAnimation(name, fade, restart)
 	if self._viewmodelController and type(self._viewmodelController.PlayViewmodelAnimation) == "function" then
 		self._viewmodelController:PlayViewmodelAnimation(name, fade, restart)
+	end
+end
+
+function WeaponController:_stopWeaponTracks(exceptTrackName)
+	if not self._viewmodelController then
+		return
+	end
+
+	local animator = self._viewmodelController._animator
+	if not animator then
+		return
+	end
+
+	local tracks = animator._tracks
+	if type(tracks) ~= "table" then
+		return
+	end
+
+	for trackName, track in pairs(tracks) do
+		if trackName ~= exceptTrackName and track and track.IsPlaying then
+			pcall(function()
+				track:Stop(0.05)
+			end)
+		end
 	end
 end
 
