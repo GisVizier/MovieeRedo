@@ -96,6 +96,18 @@ function Kit:OnUnequipped()
 end
 
 --[[
+	Resets kit state when entering training ground from lobby.
+]]
+function Kit:ResetForTraining()
+	self._chargeState = {
+		charges = MAX_CHARGES,
+		partial = 0,
+		regenDelayUntil = 0,
+	}
+	self:_syncToClient()
+end
+
+--[[
 	Tick regen logic (no float drain - float is infinite)
 ]]
 function Kit:_tick(dt)

@@ -39,5 +39,11 @@ function KitService:OnPlayerRespawn(player)
 	end
 end
 
+function KitService:ResetPlayerForTraining(player)
+	if self._impl and self._impl.ResetPlayerForTraining then
+		self._impl:ResetPlayerForTraining(player)
+	end
+end
+
 return KitService
 

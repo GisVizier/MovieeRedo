@@ -269,6 +269,11 @@ end
 
 function Airborne:_setBarVisibility(visible)
 	if not self._aangBar then return end
+	-- Always hide when in lobby
+	local player = Players.LocalPlayer
+	if player and player:GetAttribute("InLobby") then
+		visible = false
+	end
 	if self._isBarVisible == visible then return end
 	
 	self._isBarVisible = visible
@@ -591,6 +596,15 @@ function Airborne:OnEquip(ctx)
 			self:_syncChargeState()
 		end)
 		
+		-- Hide AANG UI when entering lobby
+		self._lobbyConnection = player:GetAttributeChangedSignal("InLobby"):Connect(function()
+			if player:GetAttribute("InLobby") then
+				self:_setBarVisibility(false)
+			else
+				self:_updateUI()
+			end
+		end)
+		
 		-- Initial sync
 		self:_syncChargeState()
 	end
@@ -607,6 +621,11 @@ function Airborne:OnUnequip(reason)
 	if self._chargeConnection then
 		self._chargeConnection:Disconnect()
 		self._chargeConnection = nil
+	end
+	
+	if self._lobbyConnection then
+		self._lobbyConnection:Disconnect()
+		self._lobbyConnection = nil
 	end
 	
 	for key, conn in pairs(self._connections) do

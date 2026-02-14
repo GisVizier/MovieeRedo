@@ -314,6 +314,17 @@ function CombatResource:Revive(health: number?)
 	fireSignal(self.OnHealthChanged, self._health, 0, nil)
 end
 
+--[[
+	Fully resets combat state (health to max, ultimate to 0).
+	Used when entering training ground from lobby.
+]]
+function CombatResource:FullReset()
+	self._isDead = false
+	self._health = self._maxHealth
+	self._ultimate = 0
+	self:_syncAttributes()
+end
+
 -- =============================================================================
 -- SHIELD API (Stubbed - disabled by default)
 -- =============================================================================

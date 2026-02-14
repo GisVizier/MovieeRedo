@@ -2,10 +2,11 @@ local MobileControls = {}
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 
 local LogService = nil
 local function getLogService()
@@ -17,283 +18,486 @@ end
 
 local LocalPlayer = Players.LocalPlayer
 
+-- =============================================================================
+-- LAYOUT CONSTANTS
+-- =============================================================================
+local EDGE = 16
+local STICK_SIZE = 130
+local THUMB_SIZE = 52
+local CAM_STICK_SIZE = 120    -- Camera stick (right side)
+local CAM_THUMB_SIZE = 46
+local FIRE_SIZE = 78
+local BTN = 52
+local GAP = 14
+local BOTTOM_OFFSET = 60      -- Push all action buttons UP from bottom edge
+local SLOT_BTN_W = 72         -- Weapon slot button width
+local SLOT_BTN_H = 56         -- Weapon slot button height
+local SLOT_GAP = 6            -- Gap between slot buttons
+local SLOT_TOP = 12           -- Top offset for slot buttons
+
+local COLOR = Color3.new(0, 0, 0)
+local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220) -- Blue for toggled buttons
+local ALPHA = 0.5
+local WHITE = Color3.new(1, 1, 1)
+
+-- =============================================================================
+-- STATE
+-- =============================================================================
+MobileControls._input = nil -- InputManager reference, set during Init
+
 MobileControls.ScreenGui = nil
 MobileControls.MovementStick = nil
 MobileControls.CameraStick = nil
-MobileControls.JumpButton = nil
-MobileControls.HitButton = nil
+MobileControls.WeaponButtons = {}
 
 MobileControls.MovementVector = Vector2.new(0, 0)
 MobileControls.CameraVector = Vector2.new(0, 0)
-MobileControls.ClaimedTouches = {} -- Track touches claimed by UI elements
-MobileControls.CameraTouches = {} -- Track touches being used for camera movement
-MobileControls.IsAutoJumping = false -- Track if auto jump is enabled (button held)
-MobileControls.AutoJumpConnection = nil -- Connection for auto jump loop
-MobileControls.IsMenuOpen = false -- Track if Roblox menu is open
+MobileControls.ClaimedTouches = {}
+MobileControls.CameraTouches = {} -- Used by CameraController for free camera swipes
+MobileControls.IsAutoJumping = false
+MobileControls.IsADSActive = false
 
--- Track active touch inputs across all controls (need to be accessible for menu cleanup)
+MobileControls._buttons = {}
+MobileControls._combatButtons = {}
+
 MobileControls.ActiveTouches = {
 	Movement = nil,
 	Camera = nil,
 	Jump = nil,
-	Hit = nil,
+	Fire = nil,
+	Reload = nil,
+	Crouch = nil,
+	Slide = nil,
+	Ability = nil,
+	Ultimate = nil,
+	Special = nil,
 }
 
-MobileControls.Callbacks = {
-	Movement = {},
-	Jump = {},
-	Sprint = {},
-	Crouch = {},
-	Camera = {},
-	Hit = {},
-}
+-- =============================================================================
+-- INPUT GATING (delegates to InputManager state)
+-- =============================================================================
+function MobileControls:_isBlocked()
+	local im = self._input
+	return im and (im.IsMenuOpen or im.IsChatFocused or im.IsSettingsOpen)
+end
 
-function MobileControls:Init()
-	if not UserInputService.TouchEnabled or UserInputService.KeyboardEnabled then
-		return -- Not a mobile device
+-- =============================================================================
+-- INIT
+-- =============================================================================
+function MobileControls:Init(inputManager)
+	if not UserInputService.TouchEnabled then
+		return
 	end
 
-	self:SetupMenuDetection()
+	self._input = inputManager
+
 	self:CreateMobileUI()
+	self:SetupLobbyListener()
 
-	-- Mobile always auto-sprints (no manual sprint button)
-	self:FireCallbacks("Sprint", true)
+	-- Mobile is always sprinting (auto-sprint)
+	if self._input then
+		self._input.IsSprinting = true
+		self._input:FireCallbacks("Sprint", true)
+	end
 
-	local log = getLogService()
-	log:Debug("MOBILE_UI", "MobileControls initialized with auto-sprint enabled")
+	getLogService():Debug("MOBILE_UI", "MobileControls initialized")
 end
 
-function MobileControls:SetupMenuDetection()
-	GuiService.MenuOpened:Connect(function()
-		self.IsMenuOpen = true
-		self:StopAllTouches()
-	end)
-
-	GuiService.MenuClosed:Connect(function()
-		self.IsMenuOpen = false
-	end)
+-- =============================================================================
+-- LOBBY / MATCH VISIBILITY
+-- =============================================================================
+function MobileControls:SetupLobbyListener()
+	local function update()
+		local inLobby = LocalPlayer:GetAttribute("InLobby")
+		self:SetCombatMode(inLobby ~= true)
+	end
+	LocalPlayer:GetAttributeChangedSignal("InLobby"):Connect(update)
+	task.defer(update)
 end
 
-function MobileControls:StopAllTouches()
-	-- Reset movement stick
+function MobileControls:SetCombatMode(enabled)
+	for _, btn in ipairs(self._combatButtons) do
+		btn.Visible = enabled
+	end
+	-- Camera stick only in combat
+	if self.CameraStick then
+		self.CameraStick.Container.Visible = enabled
+	end
+	-- Weapon slot buttons only in combat
+	if self._slotContainer then
+		self._slotContainer.Visible = enabled
+	end
+end
+
+-- =============================================================================
+-- TOUCH STATE RESET (UI-only, called by InputManager:StopAllInputs)
+-- =============================================================================
+function MobileControls:ResetTouchState()
 	if self.MovementStick then
 		self.MovementStick.IsDragging = false
 		self.MovementStick.Stick.Position = self.MovementStick.CenterPosition
 		self.MovementVector = Vector2.new(0, 0)
-		self:FireCallbacks("Movement", self.MovementVector)
 	end
-
-	-- Reset camera stick
 	if self.CameraStick then
 		self.CameraStick.IsDragging = false
 		self.CameraStick.Stick.Position = self.CameraStick.CenterPosition
 		self.CameraVector = Vector2.new(0, 0)
+	end
 
-		-- Release crouch if camera stick had triggered it
-		if self.CameraStick.HasTriggeredCrouch then
-			self:FireCallbacks("Crouch", false)
-			self.CameraStick.HasTriggeredCrouch = false
+	self.IsAutoJumping = false
+
+	-- Reset ADS toggle visual
+	if self.IsADSActive then
+		self.IsADSActive = false
+		if self._buttons.ADS then
+			self._buttons.ADS.BackgroundColor3 = COLOR
 		end
-
-		self:FireCallbacks("Camera", self.CameraVector)
 	end
 
-	-- Stop auto jump and reset button visual state
-	self:StopAutoJump()
-	if self.JumpButton then
-		-- Force button to reset its visual state by toggling Active
-		self.JumpButton.Active = true
-		self.JumpButton.Active = false
+	for k, _ in pairs(self.ActiveTouches) do
+		self.ActiveTouches[k] = nil
 	end
-
-	-- Reset hit button state
-	self.ActiveTouches.Hit = nil
-
-	-- Clear all active touch references so new touches can be registered
-	self.ActiveTouches.Movement = nil
-	self.ActiveTouches.Camera = nil
-	self.ActiveTouches.Jump = nil
-
-	-- Clear all claimed touches
 	self.ClaimedTouches = {}
 end
 
+-- =============================================================================
+-- UI CREATION
+-- =============================================================================
 function MobileControls:CreateMobileUI()
-	-- Create ScreenGui
 	self.ScreenGui = Instance.new("ScreenGui")
 	self.ScreenGui.Name = "MobileControls"
 	self.ScreenGui.ResetOnSpawn = false
 	self.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	self.ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-	-- Create movement thumbstick
 	self:CreateMovementStick()
-
-	-- Create camera thumbstick
 	self:CreateCameraStick()
-
-	-- Create action buttons
-	self:CreateActionButtons()
+	self:CreateActionCluster()
+	self:CreateWeaponSlots()
 end
 
+-- =============================================================================
+-- MOVEMENT STICK (Bottom-left)
+-- =============================================================================
 function MobileControls:CreateMovementStick()
-	local stickContainer = Instance.new("Frame")
-	stickContainer.Name = "MovementStickContainer"
-	stickContainer.Size = UDim2.fromOffset(150, 150)
-	stickContainer.Position = UDim2.new(0, 50, 1, -200)
-	stickContainer.BackgroundTransparency = 0.5
-	stickContainer.BackgroundColor3 = Color3.new(0, 0, 0)
-	stickContainer.BorderSizePixel = 0
-	stickContainer.Parent = self.ScreenGui
+	local container = Instance.new("Frame")
+	container.Name = "MovementStickContainer"
+	container.Size = UDim2.fromOffset(STICK_SIZE, STICK_SIZE)
+	container.Position = UDim2.new(0, EDGE, 1, -(STICK_SIZE + BOTTOM_OFFSET))
+	container.BackgroundTransparency = 0.6
+	container.BackgroundColor3 = COLOR
+	container.BorderSizePixel = 0
+	container.Parent = self.ScreenGui
+	Instance.new("UICorner", container).CornerRadius = UDim.new(0.5, 0)
 
-	local containerCorner = Instance.new("UICorner")
-	containerCorner.CornerRadius = UDim.new(0.5, 0)
-	containerCorner.Parent = stickContainer
-
-	local stick = Instance.new("Frame")
-	stick.Name = "MovementStick"
-	stick.Size = UDim2.fromOffset(60, 60)
-	stick.Position = UDim2.new(0.5, -30, 0.5, -30)
-	stick.BackgroundColor3 = Color3.new(1, 1, 1)
-	stick.BackgroundTransparency = 0.3
-	stick.BorderSizePixel = 0
-	stick.Parent = stickContainer
-
-	local stickCorner = Instance.new("UICorner")
-	stickCorner.CornerRadius = UDim.new(0.5, 0)
-	stickCorner.Parent = stick
+	local thumb = Instance.new("Frame")
+	thumb.Name = "Thumb"
+	thumb.Size = UDim2.fromOffset(THUMB_SIZE, THUMB_SIZE)
+	thumb.Position = UDim2.new(0.5, -THUMB_SIZE / 2, 0.5, -THUMB_SIZE / 2)
+	thumb.BackgroundColor3 = WHITE
+	thumb.BackgroundTransparency = 0.3
+	thumb.BorderSizePixel = 0
+	thumb.Parent = container
+	Instance.new("UICorner", thumb).CornerRadius = UDim.new(0.5, 0)
 
 	self.MovementStick = {
-		Container = stickContainer,
-		Stick = stick,
-		CenterPosition = UDim2.new(0.5, -30, 0.5, -30),
-		MaxRadius = 45,
+		Container = container,
+		Stick = thumb,
+		CenterPosition = UDim2.new(0.5, -THUMB_SIZE / 2, 0.5, -THUMB_SIZE / 2),
+		MaxRadius = (STICK_SIZE - THUMB_SIZE) / 2,
 		IsDragging = false,
 	}
-
 	self:SetupStickInput()
 end
 
+-- =============================================================================
+-- CAMERA STICK (Right side, left of action buttons)
+-- =============================================================================
 function MobileControls:CreateCameraStick()
-	local stickContainer = Instance.new("Frame")
-	stickContainer.Name = "CameraStickContainer"
-	stickContainer.Size = UDim2.fromOffset(150, 150)
-	stickContainer.Position = UDim2.new(1, -200, 1, -200) -- Right side, same height as movement stick
-	stickContainer.BackgroundTransparency = 0.5
-	stickContainer.BackgroundColor3 = Color3.new(0, 0, 0)
-	stickContainer.BorderSizePixel = 0
-	stickContainer.Parent = self.ScreenGui
+	-- Place left of action cluster (action cluster uses ~4 columns from right)
+	local clusterWidth = (BTN + GAP) * 4 + EDGE
+	local container = Instance.new("Frame")
+	container.Name = "CameraStickContainer"
+	container.Size = UDim2.fromOffset(CAM_STICK_SIZE, CAM_STICK_SIZE)
+	container.Position = UDim2.new(1, -(clusterWidth + GAP + CAM_STICK_SIZE), 1, -(CAM_STICK_SIZE + BOTTOM_OFFSET))
+	container.BackgroundTransparency = 0.6
+	container.BackgroundColor3 = COLOR
+	container.BorderSizePixel = 0
+	container.Parent = self.ScreenGui
+	Instance.new("UICorner", container).CornerRadius = UDim.new(0.5, 0)
 
-	local containerCorner = Instance.new("UICorner")
-	containerCorner.CornerRadius = UDim.new(0.5, 0)
-	containerCorner.Parent = stickContainer
-
-	local stick = Instance.new("Frame")
-	stick.Name = "CameraStick"
-	stick.Size = UDim2.fromOffset(60, 60)
-	stick.Position = UDim2.new(0.5, -30, 0.5, -30)
-	stick.BackgroundColor3 = Color3.new(1, 1, 1)
-	stick.BackgroundTransparency = 0.3
-	stick.BorderSizePixel = 0
-	stick.Parent = stickContainer
-
-	local stickCorner = Instance.new("UICorner")
-	stickCorner.CornerRadius = UDim.new(0.5, 0)
-	stickCorner.Parent = stick
+	local thumb = Instance.new("Frame")
+	thumb.Name = "CamThumb"
+	thumb.Size = UDim2.fromOffset(CAM_THUMB_SIZE, CAM_THUMB_SIZE)
+	thumb.Position = UDim2.new(0.5, -CAM_THUMB_SIZE / 2, 0.5, -CAM_THUMB_SIZE / 2)
+	thumb.BackgroundColor3 = WHITE
+	thumb.BackgroundTransparency = 0.3
+	thumb.BorderSizePixel = 0
+	thumb.Parent = container
+	Instance.new("UICorner", thumb).CornerRadius = UDim.new(0.5, 0)
 
 	self.CameraStick = {
-		Container = stickContainer,
-		Stick = stick,
-		CenterPosition = UDim2.new(0.5, -30, 0.5, -30),
-		MaxRadius = 45,
+		Container = container,
+		Stick = thumb,
+		CenterPosition = UDim2.new(0.5, -CAM_THUMB_SIZE / 2, 0.5, -CAM_THUMB_SIZE / 2),
+		MaxRadius = (CAM_STICK_SIZE - CAM_THUMB_SIZE) / 2,
 		IsDragging = false,
-		HasTriggeredCrouch = false, -- Track if this touch has already triggered crouch
 	}
-
 	self:SetupCameraStickInput()
 end
 
-function MobileControls:CreateActionButtons()
-	-- Jump button
-	local jumpButton = Instance.new("TextButton")
-	jumpButton.Name = "JumpButton"
-	jumpButton.Size = UDim2.fromOffset(105, 105)
-	jumpButton.Position = UDim2.new(1, -177, 1, -330)
-	jumpButton.BackgroundColor3 = Color3.new(0, 0, 0)
-	jumpButton.BackgroundTransparency = 0.5
-	jumpButton.BorderSizePixel = 0
-	jumpButton.Text = "Boing"
-	jumpButton.Active = false -- Don't absorb input events, we'll handle them manually
-	jumpButton.TextColor3 = Color3.new(1, 1, 1)
-	jumpButton.TextScaled = false
-	jumpButton.TextSize = 36
-	jumpButton.Font = Enum.Font.SourceSansBold
-	jumpButton.Parent = self.ScreenGui
+-- =============================================================================
+-- ACTION CLUSTER (Bottom-right, pushed up by BOTTOM_OFFSET)
+-- =============================================================================
+--
+--              [E]   [Q]
+--           [FIRE o]  [ADS]
+--  [Slide] [Jump] [R]  [C]
+--
+function MobileControls:CreateActionCluster()
+	local cA = EDGE
+	local cB = EDGE + BTN + GAP
+	local cC = EDGE + (BTN + GAP) * 2
+	local cD = EDGE + (BTN + GAP) * 3
 
-	local jumpCorner = Instance.new("UICorner")
-	jumpCorner.CornerRadius = UDim.new(0.5, 0)
-	jumpCorner.Parent = jumpButton
+	local r1 = BOTTOM_OFFSET
+	local r2 = BOTTOM_OFFSET + BTN + GAP
+	local r3 = r2 + FIRE_SIZE + GAP
 
-	self.JumpButton = jumpButton
+	local fireRight = EDGE + (BTN * 2 + GAP - FIRE_SIZE) / 2
+	local adsBottom = r2 + (FIRE_SIZE - BTN) / 2
 
-	-- Hit button (positioned above jump button)
-	local hitButton = Instance.new("TextButton")
-	hitButton.Name = "HitButton"
-	hitButton.Size = UDim2.fromOffset(105, 105)
-	hitButton.Position = UDim2.new(1, -177, 1, -455) -- Above jump button
-	hitButton.BackgroundColor3 = Color3.new(0.8, 0.2, 0.2) -- Red color
-	hitButton.BackgroundTransparency = 0.5
-	hitButton.BorderSizePixel = 0
-	hitButton.Text = "Hit"
-	hitButton.Active = false -- Don't absorb input events, we'll handle them manually
-	hitButton.TextColor3 = Color3.new(1, 1, 1)
-	hitButton.TextScaled = false
-	hitButton.TextSize = 36
-	hitButton.Font = Enum.Font.SourceSansBold
-	hitButton.Parent = self.ScreenGui
+	local slide  = self:_placeBtn("Slide",   BTN,       cD, r1, "SLIDE")
+	local jump   = self:_placeBtn("Jump",    BTN,       cA, r1, "JUMP")
+	local reload = self:_placeBtn("Reload",  BTN,       cB, r1, "R")
+	local crouch = self:_placeBtn("Crouch",  BTN,       cC, r1, "C")
+	local fire   = self:_placeBtn("Fire",    FIRE_SIZE, fireRight, r2, "FIRE")
+	local ads    = self:_placeBtn("ADS",     BTN,       cC, adsBottom, "ADS")
+	local ability  = self:_placeBtn("Ability",  BTN, cA, r3, "E")
+	local ultimate = self:_placeBtn("Ultimate", BTN, cB, r3, "Q")
 
-	local hitCorner = Instance.new("UICorner")
-	hitCorner.CornerRadius = UDim.new(0.5, 0)
-	hitCorner.Parent = hitButton
+	self._buttons.Slide    = slide
+	self._buttons.Jump     = jump
+	self._buttons.Reload   = reload
+	self._buttons.Crouch   = crouch
+	self._buttons.Fire     = fire
+	self._buttons.ADS      = ads
+	self._buttons.Ability  = ability
+	self._buttons.Ultimate = ultimate
 
-	self.HitButton = hitButton
+	self._combatButtons = { fire, ads, reload, ability, ultimate } -- Crouch & Slide stay visible in lobby
 
 	self:SetupButtonInput()
 end
 
+-- =============================================================================
+-- WEAPON SLOT BUTTONS (Top-right, vertical column)
+-- =============================================================================
+local SLOT_DEFS = {
+	{ slot = "Primary",   label = "1" },
+	{ slot = "Secondary", label = "2" },
+	{ slot = "Melee",     label = "3" },
+}
+
+function MobileControls:CreateWeaponSlots()
+	local container = Instance.new("Frame")
+	container.Name = "WeaponSlots"
+	container.BackgroundTransparency = 1
+	container.AnchorPoint = Vector2.new(1, 0)
+	container.AutomaticSize = Enum.AutomaticSize.XY
+	container.Size = UDim2.fromOffset(0, 0)
+	container.Position = UDim2.new(1, -EDGE, 0, SLOT_TOP)
+	container.Parent = self.ScreenGui
+	self._slotContainer = container
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, SLOT_GAP)
+	layout.Parent = container
+
+	self._slotButtons = {}
+	self._slotIcons = {}
+	self._activeSlot = nil
+
+	for i, def in ipairs(SLOT_DEFS) do
+		local btn = Instance.new("TextButton")
+		btn.Name = "Slot_" .. def.slot
+		btn.LayoutOrder = i
+		btn.Size = UDim2.fromOffset(SLOT_BTN_W, SLOT_BTN_H)
+		btn.BackgroundColor3 = COLOR
+		btn.BackgroundTransparency = ALPHA
+		btn.BorderSizePixel = 0
+		btn.Text = ""
+		btn.Active = false
+		btn.ClipsDescendants = true
+		btn.Parent = container
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+		-- Weapon icon — oversized + centered so the weapon fills the button
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.AnchorPoint = Vector2.new(0.5, 0.5)
+		icon.Size = UDim2.new(1.8, 0, 1.8, 0)
+		icon.Position = UDim2.fromScale(0.5, 0.5)
+		icon.BackgroundTransparency = 1
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.Image = ""
+		icon.Parent = btn
+
+		-- Fallback number label (shown when no icon)
+		local label = Instance.new("TextLabel")
+		label.Name = "Label"
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.TextColor3 = WHITE
+		label.TextSize = 16
+		label.Font = Enum.Font.SourceSansBold
+		label.Text = def.label
+		label.Parent = btn
+
+		self._slotButtons[def.slot] = btn
+		self._slotIcons[def.slot] = { icon = icon, label = label }
+	end
+
+	self:SetupWeaponSlotInput()
+	self:SetupWeaponSlotListener()
+end
+
+function MobileControls:SetupWeaponSlotInput()
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or self:_isBlocked() then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if self:IsTouchClaimed(input) then return end
+
+		for _, def in ipairs(SLOT_DEFS) do
+			local btn = self._slotButtons[def.slot]
+			if btn and btn.Visible and self:_hitTest(input, btn) then
+				self.ClaimedTouches[input] = "slot_" .. def.slot
+				self._input:FireCallbacks("SlotChange", def.slot)
+				return
+			end
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input, _)
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		-- Clean up slot touch claims
+		local claim = self.ClaimedTouches[input]
+		if claim and type(claim) == "string" and claim:sub(1, 5) == "slot_" then
+			self.ClaimedTouches[input] = nil
+		end
+	end)
+end
+
+function MobileControls:SetupWeaponSlotListener()
+	-- Update icons when loadout changes
+	local function refreshIcons()
+		local raw = LocalPlayer:GetAttribute("SelectedLoadout")
+		if type(raw) ~= "string" or raw == "" then return end
+
+		local ok, loadout = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+		if not ok or type(loadout) ~= "table" then return end
+
+		-- loadout can be { loadout = { Primary = "...", ... } } or flat
+		local data = loadout.loadout or loadout
+
+		for _, def in ipairs(SLOT_DEFS) do
+			local parts = self._slotIcons[def.slot]
+			if parts then
+				local weaponId = data[def.slot]
+				local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
+				local imageId = weaponConfig and weaponConfig.imageId
+
+				if imageId and imageId ~= "" then
+					parts.icon.Image = imageId
+					parts.icon.Visible = true
+					parts.label.Visible = false
+				else
+					parts.icon.Image = ""
+					parts.icon.Visible = false
+					parts.label.Visible = true
+				end
+			end
+		end
+	end
+
+	LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(refreshIcons)
+	task.defer(refreshIcons)
+
+	-- Highlight active slot
+	local function refreshHighlight()
+		local equipped = LocalPlayer:GetAttribute("EquippedSlot") or "Primary"
+		self._activeSlot = equipped
+
+		for slotName, btn in pairs(self._slotButtons) do
+			if slotName == equipped then
+				btn.BackgroundColor3 = TOGGLE_COLOR
+				btn.BackgroundTransparency = 0.3
+			else
+				btn.BackgroundColor3 = COLOR
+				btn.BackgroundTransparency = ALPHA
+			end
+		end
+	end
+
+	LocalPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(refreshHighlight)
+	task.defer(refreshHighlight)
+end
+
+-- =============================================================================
+-- BUTTON HELPERS
+-- =============================================================================
+function MobileControls:_btn(name, size)
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.Size = UDim2.fromOffset(size, size)
+	b.BackgroundColor3 = COLOR
+	b.BackgroundTransparency = ALPHA
+	b.BorderSizePixel = 0
+	b.TextColor3 = WHITE
+	b.TextSize = math.clamp(math.floor(size * 0.38), 12, 20)
+	b.Font = Enum.Font.SourceSansBold
+	b.Active = false
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0.5, 0)
+	return b
+end
+
+function MobileControls:_placeBtn(name, size, rightOff, bottomOff, text)
+	local b = self:_btn(name, size)
+	b.Position = UDim2.new(1, -(rightOff + size), 1, -(bottomOff + size))
+	b.Text = text
+	b.Parent = self.ScreenGui
+	return b
+end
+
+-- =============================================================================
+-- MOVEMENT STICK INPUT
+-- =============================================================================
 function MobileControls:SetupStickInput()
 	local stick = self.MovementStick
 
-	local function updateStickPosition(input)
-		if not stick.IsDragging then
-			return
-		end
+	local function update(input)
+		if not stick.IsDragging then return end
+		local cSize = stick.Container.AbsoluteSize
+		local cCenter = stick.Container.AbsolutePosition + cSize / 2
+		local pos = Vector2.new(input.Position.X, input.Position.Y)
+		local delta = pos - cCenter
+		local dist = math.min(delta.Magnitude, stick.MaxRadius)
 
-		local containerSize = stick.Container.AbsoluteSize
-		local containerCenter = stick.Container.AbsolutePosition + containerSize / 2
-
-		local inputPosition = Vector2.new(input.Position.X, input.Position.Y)
-		local deltaFromCenter = inputPosition - containerCenter
-
-		-- KEEP STICK IN CIRCLE
-		local distance = math.min(deltaFromCenter.Magnitude, stick.MaxRadius)
-		local direction = deltaFromCenter.Unit
-
-		if deltaFromCenter.Magnitude > 0 then
-			local finalPosition = direction * distance
-			stick.Stick.Position =
-				UDim2.fromOffset(containerSize.X / 2 + finalPosition.X - 30, containerSize.Y / 2 + finalPosition.Y - 30)
-
-			-- Apply deadzone to movement vector
-			local deadzone = 0.15 -- 15% deadzone
-			local normalizedDistance = distance / stick.MaxRadius
-			if normalizedDistance > deadzone then
-				-- Scale from deadzone to full range
-				local scaledDistance = (normalizedDistance - deadzone) / (1 - deadzone)
-				self.MovementVector = Vector2.new(
-					(finalPosition.X / stick.MaxRadius) * scaledDistance,
-					(-finalPosition.Y / stick.MaxRadius) * scaledDistance
-				)
+		if delta.Magnitude > 0 then
+			local dir = delta.Unit
+			local fp = dir * dist
+			local half = THUMB_SIZE / 2
+			stick.Stick.Position = UDim2.fromOffset(cSize.X / 2 + fp.X - half, cSize.Y / 2 + fp.Y - half)
+			local dz = 0.15
+			local norm = dist / stick.MaxRadius
+			if norm > dz then
+				local s = (norm - dz) / (1 - dz)
+				self.MovementVector = Vector2.new((fp.X / stick.MaxRadius) * s, (-fp.Y / stick.MaxRadius) * s)
 			else
 				self.MovementVector = Vector2.new(0, 0)
 			end
@@ -301,278 +505,272 @@ function MobileControls:SetupStickInput()
 			stick.Stick.Position = stick.CenterPosition
 			self.MovementVector = Vector2.new(0, 0)
 		end
-
-		self:FireCallbacks("Movement", self.MovementVector)
+		self._input.Movement = self.MovementVector
+		self._input:FireCallbacks("Movement", self.MovementVector)
 	end
 
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen then
-			return
-		end
-
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or self:_isBlocked() then return end
 		if input.UserInputType == Enum.UserInputType.Touch and not self.ActiveTouches.Movement then
-			local inputPosition = Vector2.new(input.Position.X, input.Position.Y)
-			local containerPosition = stick.Container.AbsolutePosition
-			local containerSize = stick.Container.AbsoluteSize
-
-			if
-				inputPosition.X >= containerPosition.X
-				and inputPosition.X <= containerPosition.X + containerSize.X
-				and inputPosition.Y >= containerPosition.Y
-				and inputPosition.Y <= containerPosition.Y + containerSize.Y
-			then
+			local p = Vector2.new(input.Position.X, input.Position.Y)
+			local cp = stick.Container.AbsolutePosition
+			local cs = stick.Container.AbsoluteSize
+			if p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then
 				self.ActiveTouches.Movement = input
 				stick.IsDragging = true
-				self.ClaimedTouches[input] = "movement" -- Claim this touch
-				updateStickPosition(input)
+				self.ClaimedTouches[input] = "movement"
+				update(input)
 			end
 		end
 	end)
-
-	UserInputService.InputChanged:Connect(function(input, _gameProcessed)
+	UserInputService.InputChanged:Connect(function(input, _)
 		if input.UserInputType == Enum.UserInputType.Touch and input == self.ActiveTouches.Movement then
-			updateStickPosition(input)
+			update(input)
 		end
 	end)
-
-	UserInputService.InputEnded:Connect(function(input, _gameProcessed)
+	UserInputService.InputEnded:Connect(function(input, _)
 		if input.UserInputType == Enum.UserInputType.Touch and input == self.ActiveTouches.Movement then
 			self.ActiveTouches.Movement = nil
 			stick.IsDragging = false
 			stick.Stick.Position = stick.CenterPosition
 			self.MovementVector = Vector2.new(0, 0)
-			self.ClaimedTouches[input] = nil -- Release this touch
-			self:FireCallbacks("Movement", self.MovementVector)
+			self.ClaimedTouches[input] = nil
+			self._input.Movement = self.MovementVector
+			self._input:FireCallbacks("Movement", self.MovementVector)
 		end
 	end)
 end
 
+-- =============================================================================
+-- CAMERA STICK INPUT
+-- =============================================================================
 function MobileControls:SetupCameraStickInput()
 	local stick = self.CameraStick
 
-	local function updateCameraStickPosition(input)
-		if not stick.IsDragging then
-			return
-		end
+	local function update(input)
+		if not stick.IsDragging then return end
+		local cSize = stick.Container.AbsoluteSize
+		local cCenter = stick.Container.AbsolutePosition + cSize / 2
+		local pos = Vector2.new(input.Position.X, input.Position.Y)
+		local delta = pos - cCenter
+		local dist = math.min(delta.Magnitude, stick.MaxRadius)
 
-		local containerSize = stick.Container.AbsoluteSize
-		local containerCenter = stick.Container.AbsolutePosition + containerSize / 2
-
-		local inputPosition = Vector2.new(input.Position.X, input.Position.Y)
-		local deltaFromCenter = inputPosition - containerCenter
-
-		-- KEEP STICK IN CIRCLE
-		local distance = math.min(deltaFromCenter.Magnitude, stick.MaxRadius)
-		local direction = deltaFromCenter.Unit
-
-		if deltaFromCenter.Magnitude > 0 then
-			local finalPosition = direction * distance
-			stick.Stick.Position =
-				UDim2.fromOffset(containerSize.X / 2 + finalPosition.X - 30, containerSize.Y / 2 + finalPosition.Y - 30)
-
-			-- Apply deadzone to camera vector (but crouch is still active regardless)
-			local deadzone = 0.2 -- 20% deadzone for camera looking
-			local normalizedDistance = distance / stick.MaxRadius
-			if normalizedDistance > deadzone then
-				-- Scale from deadzone to full range
-				local scaledDistance = (normalizedDistance - deadzone) / (1 - deadzone)
+		if delta.Magnitude > 0 then
+			local dir = delta.Unit
+			local fp = dir * dist
+			local half = CAM_THUMB_SIZE / 2
+			stick.Stick.Position = UDim2.fromOffset(cSize.X / 2 + fp.X - half, cSize.Y / 2 + fp.Y - half)
+			local dz = 0.2
+			local norm = dist / stick.MaxRadius
+			if norm > dz then
+				local s = (norm - dz) / (1 - dz)
 				self.CameraVector = Vector2.new(
-					(-finalPosition.X / stick.MaxRadius) * scaledDistance,
-					(-finalPosition.Y / stick.MaxRadius) * scaledDistance
+					(-fp.X / stick.MaxRadius) * s,
+					(-fp.Y / stick.MaxRadius) * s
 				)
 			else
-				self.CameraVector = Vector2.new(0, 0) -- No camera movement in deadzone, but crouch is still active
+				self.CameraVector = Vector2.new(0, 0)
 			end
 		else
 			stick.Stick.Position = stick.CenterPosition
 			self.CameraVector = Vector2.new(0, 0)
 		end
-
-		self:FireCallbacks("Camera", self.CameraVector)
+		self._input:FireCallbacks("Camera", self.CameraVector)
 	end
 
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen then
-			return
-		end
-
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or self:_isBlocked() then return end
 		if input.UserInputType == Enum.UserInputType.Touch and not self.ActiveTouches.Camera then
-			local inputPosition = Vector2.new(input.Position.X, input.Position.Y)
-			local containerPosition = stick.Container.AbsolutePosition
-			local containerSize = stick.Container.AbsoluteSize
-
-			if
-				inputPosition.X >= containerPosition.X
-				and inputPosition.X <= containerPosition.X + containerSize.X
-				and inputPosition.Y >= containerPosition.Y
-				and inputPosition.Y <= containerPosition.Y + containerSize.Y
-			then
+			local p = Vector2.new(input.Position.X, input.Position.Y)
+			local cp = stick.Container.AbsolutePosition
+			local cs = stick.Container.AbsoluteSize
+			if p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then
 				self.ActiveTouches.Camera = input
 				stick.IsDragging = true
-				stick.HasTriggeredCrouch = false
-				self.ClaimedTouches[input] = "camera" -- Claim this touch
-
-				-- Trigger crouch on any touch of the camera stick
-				self:FireCallbacks("Crouch", true)
-				stick.HasTriggeredCrouch = true
-
-				updateCameraStickPosition(input)
+				self.ClaimedTouches[input] = "camera"
+				update(input)
 			end
 		end
 	end)
-
-	UserInputService.InputChanged:Connect(function(input, _gameProcessed)
+	UserInputService.InputChanged:Connect(function(input, _)
 		if input.UserInputType == Enum.UserInputType.Touch and input == self.ActiveTouches.Camera then
-			updateCameraStickPosition(input)
+			update(input)
 		end
 	end)
-
-	UserInputService.InputEnded:Connect(function(input, _gameProcessed)
+	UserInputService.InputEnded:Connect(function(input, _)
 		if input.UserInputType == Enum.UserInputType.Touch and input == self.ActiveTouches.Camera then
 			self.ActiveTouches.Camera = nil
 			stick.IsDragging = false
 			stick.Stick.Position = stick.CenterPosition
 			self.CameraVector = Vector2.new(0, 0)
-			self.ClaimedTouches[input] = nil -- Release this touch
-
-			-- Release crouch when camera stick is released
-			if stick.HasTriggeredCrouch then
-				self:FireCallbacks("Crouch", false)
-				stick.HasTriggeredCrouch = false
-			end
-
-			self:FireCallbacks("Camera", self.CameraVector)
+			self.ClaimedTouches[input] = nil
+			self._input:FireCallbacks("Camera", self.CameraVector)
 		end
 	end)
+end
+
+-- =============================================================================
+-- ACTION BUTTON INPUT
+-- =============================================================================
+function MobileControls:_hitTest(input, button)
+	if not button or not button.Visible then return false end
+	local p = Vector2.new(input.Position.X, input.Position.Y)
+	local bp = button.AbsolutePosition
+	local bs = button.AbsoluteSize
+	local center = bp + bs / 2
+	return (p - center).Magnitude <= math.min(bs.X, bs.Y) / 2
 end
 
 function MobileControls:SetupButtonInput()
-	-- Use manual touch detection to avoid GUI interference with camera swiping
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed or self.IsMenuOpen then
+	local B = self._buttons
+
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or self:_isBlocked() then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if self:IsTouchClaimed(input) then return end
+
+		-- Fire (hold)
+		if not self.ActiveTouches.Fire and self:_hitTest(input, B.Fire) then
+			self.ActiveTouches.Fire = input
+			self.ClaimedTouches[input] = "fire"
+			self._input:FireCallbacks("Fire", true)
 			return
 		end
 
-		if input.UserInputType == Enum.UserInputType.Touch then
-			local inputPosition = Vector2.new(input.Position.X, input.Position.Y)
+		-- ADS toggle
+		if not self.ActiveTouches.Special and self:_hitTest(input, B.ADS) then
+			self.ActiveTouches.Special = input
+			self.ClaimedTouches[input] = "ads"
+			self.IsADSActive = not self.IsADSActive
+			self._input:FireCallbacks("Special", self.IsADSActive)
+			B.ADS.BackgroundColor3 = self.IsADSActive and TOGGLE_COLOR or COLOR
+			return
+		end
 
-			-- Check hit button first (positioned above jump button)
-			if not self.ActiveTouches.Hit then
-				local hitButtonPosition = self.HitButton.AbsolutePosition
-				local hitButtonSize = self.HitButton.AbsoluteSize
-				local hitButtonCenter = hitButtonPosition + hitButtonSize / 2
-				local hitButtonRadius = hitButtonSize.X / 2
+		-- Jump
+		if not self.ActiveTouches.Jump and self:_hitTest(input, B.Jump) then
+			self.ActiveTouches.Jump = input
+			self.ClaimedTouches[input] = "jump"
+			self:StartAutoJump()
+			return
+		end
 
-				local distanceFromHitButton = (inputPosition - hitButtonCenter).Magnitude
-				if distanceFromHitButton <= hitButtonRadius then
-					if not self:IsTouchBeingUsedForCamera(input) then
-						self.ActiveTouches.Hit = input
-						self.ClaimedTouches[input] = "hit"
-						self:FireCallbacks("Hit", true)
-						return -- Don't check jump button
-					end
-				end
-			end
+		-- Reload
+		if not self.ActiveTouches.Reload and self:_hitTest(input, B.Reload) then
+			self.ActiveTouches.Reload = input
+			self.ClaimedTouches[input] = "reload"
+			self._input:FireCallbacks("Reload", true)
+			return
+		end
 
-			-- Check jump button
-			if not self.ActiveTouches.Jump then
-				local buttonPosition = self.JumpButton.AbsolutePosition
-				local buttonSize = self.JumpButton.AbsoluteSize
-				local buttonCenter = buttonPosition + buttonSize / 2
-				local buttonRadius = buttonSize.X / 2
+		-- Crouch (hold)
+		if not self.ActiveTouches.Crouch and self:_hitTest(input, B.Crouch) then
+			self.ActiveTouches.Crouch = input
+			self.ClaimedTouches[input] = "crouch"
+			self._input.IsCrouching = true
+			self._input:FireCallbacks("Crouch", true)
+			return
+		end
 
-				-- Check if touch is within circular button bounds
-				local distanceFromCenter = (inputPosition - buttonCenter).Magnitude
-				if distanceFromCenter <= buttonRadius then
-					-- Don't trigger jump if this touch is already being used for camera movement
-					if not self:IsTouchBeingUsedForCamera(input) then
-						self.ActiveTouches.Jump = input
-						self.ClaimedTouches[input] = "jump" -- Claim this touch
-						self:StartAutoJump()
-					end
-				end
-			end
+		-- Slide (hold)
+		if not self.ActiveTouches.Slide and self:_hitTest(input, B.Slide) then
+			self.ActiveTouches.Slide = input
+			self.ClaimedTouches[input] = "slide"
+			self._input:FireCallbacks("Slide", true)
+			return
+		end
+
+		-- Ability (hold)
+		if not self.ActiveTouches.Ability and self:_hitTest(input, B.Ability) then
+			self.ActiveTouches.Ability = input
+			self.ClaimedTouches[input] = "ability"
+			self._input:FireCallbacks("Ability", Enum.UserInputState.Begin)
+			return
+		end
+
+		-- Ultimate (hold)
+		if not self.ActiveTouches.Ultimate and self:_hitTest(input, B.Ultimate) then
+			self.ActiveTouches.Ultimate = input
+			self.ClaimedTouches[input] = "ultimate"
+			self._input:FireCallbacks("Ultimate", Enum.UserInputState.Begin)
+			return
 		end
 	end)
 
-	UserInputService.InputEnded:Connect(function(input, _gameProcessed)
-		-- Handle hit button release
-		if input.UserInputType == Enum.UserInputType.Touch and input == self.ActiveTouches.Hit then
-			self.ActiveTouches.Hit = nil
+	UserInputService.InputEnded:Connect(function(input, _)
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+		if input == self.ActiveTouches.Fire then
+			self.ActiveTouches.Fire = nil
 			self.ClaimedTouches[input] = nil
-			-- Hit is a single action, no release callback needed
-		end
-
-		-- Handle jump button release
-		if input.UserInputType == Enum.UserInputType.Touch and input == self.ActiveTouches.Jump then
+			self._input:FireCallbacks("Fire", false)
+		elseif input == self.ActiveTouches.Special then
+			self.ActiveTouches.Special = nil
+			self.ClaimedTouches[input] = nil
+		elseif input == self.ActiveTouches.Jump then
 			self.ActiveTouches.Jump = nil
-			self.ClaimedTouches[input] = nil -- Release this touch
+			self.ClaimedTouches[input] = nil
 			self:StopAutoJump()
+		elseif input == self.ActiveTouches.Reload then
+			self.ActiveTouches.Reload = nil
+			self.ClaimedTouches[input] = nil
+		elseif input == self.ActiveTouches.Crouch then
+			self.ActiveTouches.Crouch = nil
+			self.ClaimedTouches[input] = nil
+			self._input.IsCrouching = false
+			self._input:FireCallbacks("Crouch", false)
+		elseif input == self.ActiveTouches.Slide then
+			self.ActiveTouches.Slide = nil
+			self.ClaimedTouches[input] = nil
+			self._input:FireCallbacks("Slide", false)
+		elseif input == self.ActiveTouches.Ability then
+			self.ActiveTouches.Ability = nil
+			self.ClaimedTouches[input] = nil
+			self._input:FireCallbacks("Ability", Enum.UserInputState.End)
+		elseif input == self.ActiveTouches.Ultimate then
+			self.ActiveTouches.Ultimate = nil
+			self.ClaimedTouches[input] = nil
+			self._input:FireCallbacks("Ultimate", Enum.UserInputState.End)
 		end
 	end)
 end
 
-function MobileControls:ConnectToInput(inputType, callback)
-	if not self.Callbacks[inputType] then
-		self.Callbacks[inputType] = {}
-	end
-
-	table.insert(self.Callbacks[inputType], callback)
-end
-
-function MobileControls:FireCallbacks(inputType, ...)
-	if self.Callbacks[inputType] then
-		for _, callback in pairs(self.Callbacks[inputType]) do
-			callback(...)
-		end
-	end
-end
-
-function MobileControls:GetMovementVector()
-	return self.MovementVector
-end
-
-function MobileControls:GetCameraVector()
-	return self.CameraVector
-end
-
-function MobileControls:IsTouchClaimed(input)
-	return self.ClaimedTouches[input] ~= nil
-end
-
+-- =============================================================================
+-- UTILITY
+-- =============================================================================
+function MobileControls:GetMovementVector() return self.MovementVector end
+function MobileControls:GetCameraVector() return self.CameraVector end
+function MobileControls:IsTouchClaimed(input) return self.ClaimedTouches[input] ~= nil end
 function MobileControls:IsTouchBeingUsedForCamera(input)
-	-- This will be set by the camera controller when tracking touches
 	return self.CameraTouches and self.CameraTouches[input] ~= nil
 end
 
 function MobileControls:StartAutoJump()
-	if self.IsAutoJumping then
-		return -- Already auto jumping
-	end
-
+	if self.IsAutoJumping then return end
 	self.IsAutoJumping = true
-	local log = getLogService()
-	log:Debug("MOBILE_UI", "Auto jump started")
-
-	-- Just hold jump - the movement system will handle it
-	self:FireCallbacks("Jump", true)
+	self._input.IsJumping = true
+	self._input:FireCallbacks("Jump", true)
 end
 
 function MobileControls:StopAutoJump()
-	if not self.IsAutoJumping then
-		return -- Not auto jumping
-	end
-
+	if not self.IsAutoJumping then return end
 	self.IsAutoJumping = false
-	local log = getLogService()
-	log:Debug("MOBILE_UI", "Auto jump stopped")
-
-	-- Fire final jump release to ensure clean state
-	self:FireCallbacks("Jump", false)
+	self._input.IsJumping = false
+	self._input:FireCallbacks("Jump", false)
 end
 
 function MobileControls:IsAutoJumpActive()
 	return self.IsAutoJumping
+end
+
+function MobileControls:ResetADS()
+	if self.IsADSActive then
+		self.IsADSActive = false
+		self._input:FireCallbacks("Special", false)
+		if self._buttons.ADS then
+			self._buttons.ADS.BackgroundColor3 = COLOR
+		end
+	end
 end
 
 return MobileControls

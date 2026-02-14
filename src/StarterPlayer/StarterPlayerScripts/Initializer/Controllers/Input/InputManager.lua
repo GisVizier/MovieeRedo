@@ -48,9 +48,11 @@ InputManager.Callbacks = {
 	Reload = {},
 	Inspect = {},
 	Special = {},
+	Camera = {},
 	ToggleCameraMode = {},
 	Settings = {},
 	Emotes = {},
+	SlotChange = {},
 }
 
 local function CheckKeybindMatch(input, keybind)
@@ -192,11 +194,19 @@ function InputManager:StopAllInputs()
 	self.Movement = Vector2.new(0, 0)
 	self.LookDelta = Vector2.new(0, 0)
 
+	-- Reset mobile touch UI state (stick positions, claimed touches)
+	if self.MobileControls then
+		self.MobileControls:ResetTouchState()
+	end
+
 	self:FireCallbacks("Movement", self.Movement)
 	self:FireCallbacks("Jump", false)
 	self:FireCallbacks("Sprint", false)
 	self:FireCallbacks("Crouch", false)
 	self:FireCallbacks("Slide", false)
+	self:FireCallbacks("Fire", false)
+	self:FireCallbacks("Special", false)
+	self:FireCallbacks("Camera", Vector2.new(0, 0))
 end
 
 function InputManager:DetectInputMode()
@@ -408,39 +418,8 @@ function InputManager:SetupTouch()
 	end)
 
 	if success then
-		MobileControls:Init()
+		MobileControls:Init(self)
 		self.MobileControls = MobileControls
-
-		MobileControls:ConnectToInput("Movement", function(movement)
-			if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
-				movement = Vector2.new(0, 0)
-			end
-			self.Movement = movement
-			self:FireCallbacks("Movement", movement)
-		end)
-
-		MobileControls:ConnectToInput("Jump", function(isJumping)
-			if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
-				isJumping = false
-			end
-			self.IsJumping = isJumping
-			self:FireCallbacks("Jump", isJumping)
-		end)
-
-		MobileControls:ConnectToInput("Crouch", function(isCrouching)
-			if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
-				isCrouching = false
-			end
-			self.IsCrouching = isCrouching
-			self:FireCallbacks("Crouch", isCrouching)
-		end)
-
-		MobileControls:ConnectToInput("Slide", function(isSliding)
-			if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
-				isSliding = false
-			end
-			self:FireCallbacks("Slide", isSliding)
-		end)
 	else
 		LogService:Warn("INPUT", "Failed to load mobile controls", { Error = MobileControls })
 	end

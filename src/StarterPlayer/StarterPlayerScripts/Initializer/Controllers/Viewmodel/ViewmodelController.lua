@@ -272,6 +272,8 @@ function ViewmodelController:Init(registry, net)
 				self:_tryEquipSlotFromLoadout("Secondary")
 			elseif key == Enum.KeyCode.Three then
 				self:_tryEquipSlotFromLoadout("Melee")
+			elseif key == Enum.KeyCode.Four then
+				self:SetActiveSlot("Fists")
 			elseif isGamepad then
 				if isLoadoutVisible() then
 					return
@@ -286,6 +288,17 @@ function ViewmodelController:Init(registry, net)
 				end
 			end
 		end)
+
+		-- Mobile weapon wheel slot change
+		if inputController.ConnectToInput then
+			inputController:ConnectToInput("SlotChange", function(slot)
+				if slot == "Fists" then
+					self:SetActiveSlot("Fists")
+				else
+					self:_tryEquipSlotFromLoadout(slot)
+				end
+			end)
+		end
 	end
 end
 
