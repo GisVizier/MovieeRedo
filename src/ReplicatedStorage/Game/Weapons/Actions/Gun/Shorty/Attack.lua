@@ -1,4 +1,8 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local Inspect = require(script.Parent:WaitForChild("Inspect"))
 
@@ -18,27 +22,27 @@ end
 local function applyShortyNormalKick()
 	local player = Players.LocalPlayer
 	local character = player and player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local root = character and (character.PrimaryPart or character:FindFirstChild("HumanoidRootPart"))
 	local camera = workspace.CurrentCamera
 	if not root or not camera then
 		return
 	end
 
 	local look = camera.CFrame.LookVector
-	local backward = Vector3.new(-look.X, 0, -look.Z)
+	local backward = -look
 	if backward.Magnitude < 0.001 then
-		backward = Vector3.new(-root.CFrame.LookVector.X, 0, -root.CFrame.LookVector.Z)
+		backward = -root.CFrame.LookVector
 	end
 	backward = backward.Unit
 
-	local downAmount = math.clamp(-look.Y, 0, 1)
-	local backwardPower = 24
-	local liftPower = 1.5 + (downAmount * 2.75)
-	local launchVelocity = (backward * backwardPower) + Vector3.new(0, liftPower, 0)
-
-	local mass = root.AssemblyMass > 0 and root.AssemblyMass or root:GetMass()
-	root:ApplyImpulse(launchVelocity * mass)
-	root.AssemblyLinearVelocity += launchVelocity * 0.15
+	local launchVelocity = backward * 24
+	local movementController = ServiceRegistry:GetController("Movement")
+		or ServiceRegistry:GetController("MovementController")
+	if movementController and movementController.BeginExternalLaunch then
+		movementController:BeginExternalLaunch(launchVelocity, 0.12)
+	else
+		root.AssemblyLinearVelocity += launchVelocity
+	end
 end
 
 local Attack = {}

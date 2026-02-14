@@ -107,29 +107,42 @@ end
 function Special:_applyRocketJumpVelocity()
 	local player = Players.LocalPlayer
 	local character = player and player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local root = character and (character.PrimaryPart or character:FindFirstChild("HumanoidRootPart"))
 	local camera = workspace.CurrentCamera
 	if not root or not camera then
 		return
 	end
 
 	local look = camera.CFrame.LookVector
-	local backward = Vector3.new(-look.X, 0, -look.Z)
+	local backward = -look
 	if backward.Magnitude < 0.001 then
-		backward = Vector3.new(-root.CFrame.LookVector.X, 0, -root.CFrame.LookVector.Z)
+		backward = -root.CFrame.LookVector
 	end
 	backward = backward.Unit
 
-	local boostBack = 95
-	local boostUp = 60
-	local launchVelocity = (backward * boostBack) + Vector3.new(0, boostUp, 0)
+	local movementController = ServiceRegistry:GetController("Movement")
+		or ServiceRegistry:GetController("MovementController")
+	local currentVelocity = root.AssemblyLinearVelocity
+	local isGrounded = movementController and movementController.IsCharacterGrounded and movementController:IsCharacterGrounded()
+		or false
 
-	-- Impulse is more reliable than direct velocity writes with this movement controller.
-	local mass = root.AssemblyMass > 0 and root.AssemblyMass or root:GetMass()
-	root:ApplyImpulse(launchVelocity * mass)
+	local launchVelocity = backward * 72
 
-	-- Small fallback nudge to help if constraints damp the impulse quickly.
-	root.AssemblyLinearVelocity *= Vector3.yAxis * 200
+	-- If grounded or not rising, reduce backward push so it doesn't throw you too far back.
+	if isGrounded or currentVelocity.Y <= 0 then
+		launchVelocity = Vector3.new(launchVelocity.X * 0.6, launchVelocity.Y, launchVelocity.Z * 0.6)
+	end
+
+	-- Give extra lift when activated in air.
+	local upBonus = isGrounded and 14 or 22
+	local upCap = isGrounded and 30 or 40
+	launchVelocity = Vector3.new(launchVelocity.X, math.min(launchVelocity.Y + upBonus, upCap), launchVelocity.Z)
+	if movementController and movementController.BeginExternalLaunch then
+		movementController:BeginExternalLaunch(launchVelocity, 0.25)
+	else
+		root.AssemblyLinearVelocity += launchVelocity
+	end
+
 end
 
 function Special:_enterADS(weaponInstance)

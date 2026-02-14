@@ -87,8 +87,45 @@ CharacterController.JumpFatigueCount = 0
 CharacterController.JumpFatigueRecoveryStartTime = nil
 CharacterController.JumpFatigueFloorVelocity = 0
 CharacterController.JumpFatigueFloorUntil = 0
+CharacterController.ExternalLaunchUntil = 0
+CharacterController.ExternalLaunchVelocity = nil
+
+function CharacterController:IsExternalLaunchActive()
+	return (self.ExternalLaunchUntil or 0) > tick()
+end
+
+function CharacterController:BeginExternalLaunch(launchVelocity, duration)
+	if typeof(launchVelocity) ~= "Vector3" then
+		return false
+	end
+
+	if not self.PrimaryPart then
+		return false
+	end
+
+	local launchDuration = math.clamp(tonumber(duration) or 0.2, 0.05, 1.0)
+	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
+	local targetVelocity = currentVelocity + launchVelocity
+
+	self.ExternalLaunchUntil = tick() + launchDuration
+	self.ExternalLaunchVelocity = targetVelocity
+
+	if SlidingSystem and SlidingSystem.IsSliding then
+		SlidingSystem:StopSlide(false, true, "ExternalLaunch")
+	end
+
+	if self.VectorForce then
+		self.VectorForce.Force = Vector3.zero
+	end
+
+	self.PrimaryPart.AssemblyLinearVelocity = targetVelocity
+	return true
+end
 
 function CharacterController:ResetRespawnLocalState()
+	self.ExternalLaunchUntil = 0
+	self.ExternalLaunchVelocity = nil
+
 	local localPlayer = Players.LocalPlayer
 	if localPlayer then
 		localPlayer:SetAttribute("WeaponSpeedMultiplier", 1)
@@ -626,6 +663,10 @@ function CharacterController:UpdateMovement(deltaTime)
 	end
 
 	self.LastDeltaTime = deltaTime
+	local launchActive = self:IsExternalLaunchActive()
+	if not launchActive then
+		self.ExternalLaunchVelocity = nil
+	end
 
 	self:CheckDeath()
 	self:UpdateCachedCameraRotation()
@@ -695,7 +736,10 @@ function CharacterController:UpdateMovement(deltaTime)
 	-- Slope Magnet (ported from Moviee-Proj):
 	-- If we are slightly airborne over sloped ground (common at ramp seams/crests),
 	-- snap downward so "grounded" doesn't flicker and uphill walking remains responsive.
-	local wasMagnetized = self:ApplySlopeMagnet()
+	local wasMagnetized = false
+	if not launchActive then
+		wasMagnetized = self:ApplySlopeMagnet()
+	end
 
 	if not self.IsGrounded and self.WasGrounded then
 		self.AirborneStartTime = tick()
@@ -715,7 +759,7 @@ function CharacterController:UpdateMovement(deltaTime)
 
 	self:LogSlopeAngle()
 
-	if SlidingSystem.IsSlideBuffered and self.IsGrounded then
+	if (not launchActive) and SlidingSystem.IsSlideBuffered and self.IsGrounded then
 		if self:IsSlideBlockedByAbility() then
 			SlidingSystem:CancelSlideBuffer("AbilitySlideBlocked")
 		else
@@ -739,7 +783,7 @@ function CharacterController:UpdateMovement(deltaTime)
 		end
 	end
 
-	if SlidingSystem.IsJumpCancelBuffered and self.IsGrounded then
+	if (not launchActive) and SlidingSystem.IsJumpCancelBuffered and self.IsGrounded then
 		local bufferedDirection = SlidingSystem.BufferedJumpCancelDirection
 		SlidingSystem:ExecuteJumpCancel(bufferedDirection, self)
 		SlidingSystem:CancelJumpCancelBuffer()
@@ -1157,6 +1201,10 @@ end
 -- =============================================================================
 
 function CharacterController:TryStepUp(deltaTime)
+	if self:IsExternalLaunchActive() then
+		return
+	end
+
 	if not self.PrimaryPart or not self.FeetPart or not self.RaycastParams then
 		return
 	end
@@ -1226,6 +1274,13 @@ function CharacterController:TryStepUp(deltaTime)
 end
 
 function CharacterController:ApplyMovement()
+	if self:IsExternalLaunchActive() then
+		if self.VectorForce then
+			self.VectorForce.Force = Vector3.zero
+		end
+		return
+	end
+
 	local moveVector = self:CalculateMovement()
 	local currentVelocity = self.PrimaryPart.AssemblyLinearVelocity
 	local isMoving = self.MovementInput.Magnitude > 0
@@ -2148,6 +2203,10 @@ function CharacterController:CheckDeath()
 end
 
 function CharacterController:CheckCrouchCancelJump()
+	if self:IsExternalLaunchActive() then
+		return
+	end
+
 	if not self.Character or not self.PrimaryPart then
 		return
 	end
@@ -2198,6 +2257,10 @@ function CharacterController:CheckCrouchCancelJump()
 end
 
 function CharacterController:ApplyAirborneDownforce(deltaTime)
+	if self:IsExternalLaunchActive() then
+		return
+	end
+
 	if not self.Character or not self.PrimaryPart then
 		return
 	end
