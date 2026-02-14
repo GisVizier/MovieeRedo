@@ -1,5 +1,6 @@
 local Reload = {}
 local DualPistolsState = require(script.Parent:WaitForChild("State"))
+local DualPistolsVisuals = require(script.Parent:WaitForChild("Visuals"))
 
 local activeReload = nil
 
@@ -152,13 +153,19 @@ function Reload.Execute(weaponInstance)
 				ctx.state.CurrentAmmo = (ctx.state.CurrentAmmo or 0) + ammoToReload
 				ctx.state.ReserveAmmo = (ctx.state.ReserveAmmo or 0) - ammoToReload
 				commitState(ctx.weaponInstance, ctx.state)
+				DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 			end
 			ctx.addCount += 1
+		elseif markerParam == "eject" then
+			ctx.state.CurrentAmmo = 0
+			commitState(ctx.weaponInstance, ctx.state)
+			DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 		elseif markerParam == "_finish" then
 			applyModeFromAddCount(ctx)
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
 			commitState(ctx.weaponInstance, ctx.state)
+			DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 			clearActiveReload(false)
 		end
 	end)
@@ -179,6 +186,7 @@ function Reload.Execute(weaponInstance)
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
 			commitState(ctx.weaponInstance, ctx.state)
+			DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 		end
 
 		clearActiveReload(false)
@@ -217,6 +225,7 @@ function Reload.Interrupt(weaponInstance)
 	setReloadLock(targetWeapon, state, false)
 	bumpToken(targetWeapon, state)
 	commitState(targetWeapon, state)
+	DualPistolsVisuals.UpdateAmmoVisibility(targetWeapon, state.CurrentAmmo or 0)
 
 	-- Interrupted reload still commits weapon mode from marker progress.
 	applyModeFromAddCount(ctx)

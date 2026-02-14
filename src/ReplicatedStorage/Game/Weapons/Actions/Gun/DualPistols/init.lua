@@ -1,4 +1,5 @@
 local DualPistols = {}
+local DualPistolsVisuals = require(script:WaitForChild("Visuals"))
 
 DualPistols.Cancels = {
 	FireCancelsSpecial = false,
@@ -14,6 +15,7 @@ function DualPistols.Initialize(weaponInstance)
 
 	weaponInstance.State.LastFireTime = weaponInstance.State.LastFireTime or 0
 	weaponInstance.State.Equipped = weaponInstance.State.Equipped ~= false
+	DualPistolsVisuals.UpdateAmmoVisibility(weaponInstance, weaponInstance.State.CurrentAmmo or 0)
 end
 
 function DualPistols.OnEquip(weaponInstance)
@@ -23,6 +25,10 @@ function DualPistols.OnEquip(weaponInstance)
 
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Equip", 0.1, true)
+	end
+
+	if weaponInstance.State then
+		DualPistolsVisuals.UpdateAmmoVisibility(weaponInstance, weaponInstance.State.CurrentAmmo or 0)
 	end
 end
 

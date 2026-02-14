@@ -5,6 +5,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local HitPacketUtils = require(Locations.Shared.Util:WaitForChild("HitPacketUtils"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local DualPistolsState = require(script.Parent:WaitForChild("State"))
+local DualPistolsVisuals = require(script.Parent:WaitForChild("Visuals"))
 
 local Attack = {}
 
@@ -107,6 +108,7 @@ local function consumeShotAmmo(weaponInstance, state)
 	if weaponInstance.ApplyState then
 		weaponInstance.ApplyState(state)
 	end
+	DualPistolsVisuals.UpdateAmmoVisibility(weaponInstance, state.CurrentAmmo or 0)
 
 	return true
 end
