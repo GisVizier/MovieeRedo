@@ -385,6 +385,17 @@ function module:_onPlayerKilled(data)
 	table.insert(self._killfeedEntries, entry)
 
 	self:_populateKillEntry(entry, data)
+
+	-- Pop-in: scale up fast then ease back to 1
+	local uiScale = entry:FindFirstChildWhichIsA("UIScale")
+	if not uiScale then
+		uiScale = Instance.new("UIScale")
+		uiScale.Parent = entry
+	end
+	uiScale.Scale = 0
+	local popUp = TweenService:Create(uiScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	popUp:Play()
+
 	self:_scheduleEntryHide(entry)
 end
 
@@ -396,19 +407,21 @@ function module:_populateKillEntry(entry, data)
 	local killer = killerUserId and Players:GetPlayerByUserId(killerUserId)
 	local killerName = killer and killer.Name or "Unknown"
 	local killerPremium = killer and killer.MembershipType == Enum.MembershipType.Premium
+	local killerVerified = killer and killer.HasVerifiedBadge
 
 	local victim = victimUserId and Players:GetPlayerByUserId(victimUserId)
 	local victimName = victim and victim.Name or "Unknown"
 	local victimPremium = victim and victim.MembershipType == Enum.MembershipType.Premium
+	local victimVerified = victim and victim.HasVerifiedBadge
 
 	local attacker = entry:FindFirstChild("Attacker", true)
 	if attacker then
-		self:_setKillfeedPlayerSection(attacker, killerUserId, killerName, killerPremium)
+		self:_setKillfeedPlayerSection(attacker, killerUserId, killerName, killerPremium, killerVerified)
 	end
 
 	local attacked = entry:FindFirstChild("Attacked", true)
 	if attacked then
-		self:_setKillfeedPlayerSection(attacked, victimUserId, victimName, victimPremium)
+		self:_setKillfeedPlayerSection(attacked, victimUserId, victimName, victimPremium, victimVerified)
 	end
 
 	local weaponFrame = entry:FindFirstChild("Weapon", true)
@@ -421,7 +434,7 @@ function module:_populateKillEntry(entry, data)
 	end
 end
 
-function module:_setKillfeedPlayerSection(section, userId, name, isPremium)
+function module:_setKillfeedPlayerSection(section, userId, name, isPremium, isVerified)
 	local playerImage = section:FindFirstChild("PlayerImage", true)
 	if playerImage and playerImage:IsA("ImageLabel") and userId then
 		task.spawn(function()
@@ -447,7 +460,12 @@ function module:_setKillfeedPlayerSection(section, userId, name, isPremium)
 
 		local premiumLabel = info:FindFirstChild("Premium")
 		if premiumLabel then
-			premiumLabel.Visible = isPremium
+			premiumLabel.Visible = isPremium == true
+		end
+
+		local verifiedLabel = info:FindFirstChild("Verified")
+		if verifiedLabel then
+			verifiedLabel.Visible = isVerified == true
 		end
 	end
 end
@@ -483,7 +501,21 @@ function module:_hideKillfeedEntry(entry)
 			end
 		end
 	end
-	if entry and entry.Parent then
+	if not entry or not entry.Parent then
+		return
+	end
+
+	-- Scale down before destroying
+	local uiScale = entry:FindFirstChildWhichIsA("UIScale")
+	if uiScale then
+		local shrink = TweenService:Create(uiScale, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Scale = 0 })
+		shrink:Play()
+		shrink.Completed:Once(function()
+			if entry and entry.Parent then
+				entry:Destroy()
+			end
+		end)
+	else
 		entry:Destroy()
 	end
 end
