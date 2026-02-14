@@ -122,7 +122,14 @@ function Special:_applyRocketJumpVelocity()
 
 	local boostBack = 95
 	local boostUp = 60
-	root.AssemblyLinearVelocity += (backward * boostBack) + Vector3.new(0, boostUp, 0)
+	local launchVelocity = (backward * boostBack) + Vector3.new(0, boostUp, 0)
+
+	-- Impulse is more reliable than direct velocity writes with this movement controller.
+	local mass = root.AssemblyMass > 0 and root.AssemblyMass or root:GetMass()
+	root:ApplyImpulse(launchVelocity * mass)
+
+	-- Small fallback nudge to help if constraints damp the impulse quickly.
+	root.AssemblyLinearVelocity *= Vector3.yAxis * 200
 end
 
 function Special:_enterADS(weaponInstance)

@@ -34,8 +34,11 @@ local function applyShortyNormalKick()
 	local downAmount = math.clamp(-look.Y, 0, 1)
 	local backwardPower = 24
 	local liftPower = 1.5 + (downAmount * 2.75)
+	local launchVelocity = (backward * backwardPower) + Vector3.new(0, liftPower, 0)
 
-	root.AssemblyLinearVelocity += (backward * backwardPower) + Vector3.new(0, liftPower, 0)
+	local mass = root.AssemblyMass > 0 and root.AssemblyMass or root:GetMass()
+	root:ApplyImpulse(launchVelocity * mass)
+	root.AssemblyLinearVelocity += launchVelocity * 0.15
 end
 
 local Attack = {}
