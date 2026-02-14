@@ -89,9 +89,28 @@ CharacterController.JumpFatigueFloorVelocity = 0
 CharacterController.JumpFatigueFloorUntil = 0
 CharacterController.ExternalLaunchUntil = 0
 CharacterController.ExternalLaunchVelocity = nil
+CharacterController.ExternalLaunchBlendUntil = 0
+CharacterController.ExternalLaunchBlendDuration = 0.32
 
 function CharacterController:IsExternalLaunchActive()
 	return (self.ExternalLaunchUntil or 0) > tick()
+end
+
+function CharacterController:GetExternalLaunchControlAlpha()
+	local now = tick()
+	local activeUntil = self.ExternalLaunchUntil or 0
+	if now < activeUntil then
+		return 0
+	end
+
+	local blendUntil = self.ExternalLaunchBlendUntil or 0
+	if now >= blendUntil then
+		return 1
+	end
+
+	local blendDuration = math.max(0.01, self.ExternalLaunchBlendDuration or 0.32)
+	local t = math.clamp(1 - ((blendUntil - now) / blendDuration), 0, 1)
+	return t * t * (3 - 2 * t)
 end
 
 function CharacterController:BeginExternalLaunch(launchVelocity, duration)
@@ -108,6 +127,7 @@ function CharacterController:BeginExternalLaunch(launchVelocity, duration)
 	local targetVelocity = currentVelocity + launchVelocity
 
 	self.ExternalLaunchUntil = tick() + launchDuration
+	self.ExternalLaunchBlendUntil = self.ExternalLaunchUntil + (self.ExternalLaunchBlendDuration or 0.32)
 	self.ExternalLaunchVelocity = targetVelocity
 
 	if SlidingSystem and SlidingSystem.IsSliding then
@@ -125,6 +145,7 @@ end
 function CharacterController:ResetRespawnLocalState()
 	self.ExternalLaunchUntil = 0
 	self.ExternalLaunchVelocity = nil
+	self.ExternalLaunchBlendUntil = 0
 
 	local localPlayer = Players.LocalPlayer
 	if localPlayer then
@@ -1206,7 +1227,7 @@ end
 -- =============================================================================
 
 function CharacterController:TryStepUp(deltaTime)
-	if self:IsExternalLaunchActive() then
+	if self:GetExternalLaunchControlAlpha() < 1 then
 		return
 	end
 
@@ -1279,7 +1300,8 @@ function CharacterController:TryStepUp(deltaTime)
 end
 
 function CharacterController:ApplyMovement()
-	if self:IsExternalLaunchActive() then
+	local launchControlAlpha = self:GetExternalLaunchControlAlpha()
+	if launchControlAlpha <= 0 then
 		if self.VectorForce then
 			self.VectorForce.Force = Vector3.zero
 		end
@@ -1377,7 +1399,8 @@ function CharacterController:ApplyMovement()
 	local isNearWall = isNearWallLook or isNearWallVel
 
 	local totalSpeed = currentVelocity.Magnitude
-	local isAirborneStuck = not self.IsGrounded and totalSpeed < 3 and timeSinceWallJump > 0.3
+	local canApplyAntiStuck = launchControlAlpha >= 0.95
+	local isAirborneStuck = canApplyAntiStuck and (not self.IsGrounded and totalSpeed < 3 and timeSinceWallJump > 0.3)
 
 	if isAirborneStuck then
 		if not self.AirborneStuckStartTime then
@@ -1395,7 +1418,7 @@ function CharacterController:ApplyMovement()
 		self.AirborneStuckStartTime = nil
 	end
 
-	local isStuckCondition = not self.IsGrounded and horizontalSpeed < 5 and isNearWall
+	local isStuckCondition = canApplyAntiStuck and (not self.IsGrounded and horizontalSpeed < 5 and isNearWall)
 
 	if isStuckCondition then
 		if not self.WallStuckStartTime then
@@ -1517,7 +1540,8 @@ function CharacterController:ApplyMovement()
 	self.SmoothedVerticalForce = self.SmoothedVerticalForce
 		+ (appliedY - self.SmoothedVerticalForce) * math.clamp(smoothing * dt, 0, 1)
 
-	local finalForce = vector3_new(moveForce.X, self.SmoothedVerticalForce, moveForce.Z) + slopeAssistForce
+	local finalForce = (vector3_new(moveForce.X, self.SmoothedVerticalForce, moveForce.Z) + slopeAssistForce)
+		* launchControlAlpha
 	self.VectorForce.Force = finalForce
 end
 
@@ -2208,7 +2232,7 @@ function CharacterController:CheckDeath()
 end
 
 function CharacterController:CheckCrouchCancelJump()
-	if self:IsExternalLaunchActive() then
+	if self:GetExternalLaunchControlAlpha() < 1 then
 		return
 	end
 
@@ -2262,7 +2286,7 @@ function CharacterController:CheckCrouchCancelJump()
 end
 
 function CharacterController:ApplyAirborneDownforce(deltaTime)
-	if self:IsExternalLaunchActive() then
+	if self:GetExternalLaunchControlAlpha() < 1 then
 		return
 	end
 

@@ -123,6 +123,10 @@ function WeaponService:Init(registry, net)
 	net:ConnectServer("ProjectileHit", function(player, data)
 		self:OnProjectileHit(player, data)
 	end)
+
+	net:ConnectServer("ProjectileHitBatch", function(player, data)
+		self:OnProjectileHitBatch(player, data)
+	end)
 end
 
 function WeaponService:Start()
@@ -923,6 +927,21 @@ function WeaponService:OnProjectileHit(player, data)
 				)
 			)
 		end
+	end
+end
+
+function WeaponService:OnProjectileHitBatch(player, data)
+	if not player or type(data) ~= "table" then
+		return
+	end
+
+	local hits = data.hits
+	if type(hits) ~= "table" then
+		return
+	end
+
+	for _, hitData in ipairs(hits) do
+		self:OnProjectileHit(player, hitData)
 	end
 end
 

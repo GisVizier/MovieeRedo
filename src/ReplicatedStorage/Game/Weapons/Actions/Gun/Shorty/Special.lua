@@ -125,20 +125,26 @@ function Special:_applyRocketJumpVelocity()
 	local currentVelocity = root.AssemblyLinearVelocity
 	local isGrounded = movementController and movementController.IsCharacterGrounded and movementController:IsCharacterGrounded()
 		or false
+	local downAimFactor = math.clamp(-look.Y, 0, 1)
 
-	local launchVelocity = backward * 72
+	local launchVelocity = backward * 78
+
+	-- Looking downward should trade some backward push for more vertical lift.
+	local horizontalScale = 1 - (0.5 * downAimFactor)
+	launchVelocity = Vector3.new(launchVelocity.X * horizontalScale, launchVelocity.Y, launchVelocity.Z * horizontalScale)
 
 	-- If grounded or not rising, reduce backward push so it doesn't throw you too far back.
 	if isGrounded or currentVelocity.Y <= 0 then
-		launchVelocity = Vector3.new(launchVelocity.X * 0.6, launchVelocity.Y, launchVelocity.Z * 0.6)
+		launchVelocity = Vector3.new(launchVelocity.X * 0.72, launchVelocity.Y, launchVelocity.Z * 0.72)
 	end
 
-	-- Give extra lift when activated in air.
-	local upBonus = isGrounded and 14 or 22
-	local upCap = isGrounded and 30 or 40
+	-- Downward aim curve: even angled-down gives solid lift; straight-down gives max height.
+	local downLiftCurve = downAimFactor ^ 0.7
+	local upBonus = isGrounded and (22 + 18 * downLiftCurve) or (28 + 24 * downLiftCurve)
+	local upCap = isGrounded and 58 or 76
 	launchVelocity = Vector3.new(launchVelocity.X, math.min(launchVelocity.Y + upBonus, upCap), launchVelocity.Z)
 	if movementController and movementController.BeginExternalLaunch then
-		movementController:BeginExternalLaunch(launchVelocity, 0.25)
+		movementController:BeginExternalLaunch(launchVelocity, 0.28)
 	else
 		root.AssemblyLinearVelocity += launchVelocity
 	end

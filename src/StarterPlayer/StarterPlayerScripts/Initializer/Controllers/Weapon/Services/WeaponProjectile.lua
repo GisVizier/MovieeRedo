@@ -56,6 +56,8 @@ local CONFIG = {
 local ActiveProjectiles = {} -- { [projectileId] = projectileData }
 local SimulationConnection = nil
 local Net = nil
+local PendingProjectileHits = {}
+local PendingHitFlushScheduled = false
 
 -- =============================================================================
 -- INITIALIZATION
@@ -96,6 +98,41 @@ function WeaponProjectile:Init(net)
 	if CONFIG.DebugLogging then
 		print("[WeaponProjectile] Initialized")
 	end
+end
+
+function WeaponProjectile:_flushQueuedProjectileHits()
+	PendingHitFlushScheduled = false
+
+	if not Net or #PendingProjectileHits == 0 then
+		table.clear(PendingProjectileHits)
+		return
+	end
+
+	if #PendingProjectileHits == 1 then
+		Net:FireServer("ProjectileHit", PendingProjectileHits[1])
+	else
+		Net:FireServer("ProjectileHitBatch", {
+			hits = PendingProjectileHits,
+		})
+	end
+
+	table.clear(PendingProjectileHits)
+end
+
+function WeaponProjectile:_enqueueProjectileHit(payload)
+	if not payload then
+		return
+	end
+
+	table.insert(PendingProjectileHits, payload)
+	if PendingHitFlushScheduled then
+		return
+	end
+
+	PendingHitFlushScheduled = true
+	task.defer(function()
+		self:_flushQueuedProjectileHits()
+	end)
 end
 
 -- =============================================================================
@@ -707,7 +744,7 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 			)
 		end
 
-		Net:FireServer("ProjectileHit", {
+		self:_enqueueProjectileHit({
 			packet = hitPacket,
 			weaponId = projectile.weaponId,
 			rigName = rigName,
@@ -832,12 +869,13 @@ function WeaponProjectile:_handleAoEExplosion(projectile, hitResult)
 		}, projectile.weaponId)
 
 		if Net and hitPacket then
-			Net:FireServer("ProjectileHit", {
+			self:_enqueueProjectileHit({
 				packet = hitPacket,
 				weaponId = projectile.weaponId,
 				isAoE = true,
 				aoeDistance = target.distance,
 				aoeRadius = radius,
+				isRocketSpecial = projectile.isRocketSpecial == true,
 			})
 		end
 	end
