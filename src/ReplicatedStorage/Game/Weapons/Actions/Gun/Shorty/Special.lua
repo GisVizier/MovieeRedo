@@ -182,7 +182,7 @@ function Special:_applyRocketJumpVelocity()
 	launchVelocity = Vector3.new(launchVelocity.X, math.min(launchVelocity.Y + upBonus, upCap), launchVelocity.Z)
 
 	-- Clear existing movement so special launch always starts from a clean velocity state.
-	root.AssemblyLinearVelocity = Vector3.zero
+	-- root.AssemblyLinearVelocity = Vector3.zero
 
 	if movementController and movementController.BeginExternalLaunch then
 		movementController:BeginExternalLaunch(launchVelocity, 0.28)

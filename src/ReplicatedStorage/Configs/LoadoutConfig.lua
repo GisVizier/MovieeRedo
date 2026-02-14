@@ -282,7 +282,7 @@ LoadoutConfig.Weapons = {
 			canQuickUseAblility = true,
 		},
 		maxAmmo = 120,
-		clipSize = 30,
+		clipSize = 21,
 		reloadTime = 1.8,
 		isAbility = false,
 		fireProfile = {
