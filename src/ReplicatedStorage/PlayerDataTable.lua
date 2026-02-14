@@ -38,7 +38,7 @@ function PlayerDataTable.init()
 			OWNED_EMOTES = {"Template", `SBR`, `BC`,`CR`, `FR`, `HS`, `SB`, `BMB`},
 			OWNED_KITS = {"WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne"},
 			OWNED_PRIMARY = {"Shotgun", "Sniper"},
-			OWNED_SECONDARY = {"Revolver"},
+			OWNED_SECONDARY = {"Revolver", "Shorty"},
 			OWNED_MELEE = {"Tomahawk", "ExecutionerBlade"},
 		},
 

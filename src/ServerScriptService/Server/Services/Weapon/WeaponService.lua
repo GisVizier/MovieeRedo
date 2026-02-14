@@ -1022,6 +1022,7 @@ end
 function WeaponService:CalculateProjectileDamage(hitData, weaponConfig, extraData)
 	local baseDamage = weaponConfig.damage or 10
 	local projectileConfig = weaponConfig.projectile or {}
+	local isRocketSpecial = extraData and extraData.isRocketSpecial == true
 
 	-- Headshot multiplier
 	if hitData.isHeadshot then
@@ -1055,7 +1056,7 @@ function WeaponService:CalculateProjectileDamage(hitData, weaponConfig, extraDat
 		end
 	end
 
-	if hitData.origin and hitData.hitPosition then
+	if (not isRocketSpecial) and hitData.origin and hitData.hitPosition then
 		local distance = (hitData.hitPosition - hitData.origin).Magnitude
 		local falloffConfig = projectileConfig.minRange and projectileConfig or weaponConfig
 		baseDamage = applyDistanceFalloff(baseDamage, distance, falloffConfig)

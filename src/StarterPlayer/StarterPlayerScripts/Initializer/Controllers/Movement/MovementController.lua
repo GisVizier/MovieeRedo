@@ -1239,13 +1239,15 @@ function CharacterController:ApplyMovement()
 		targetSpeed = Config.Gameplay.Character.CrouchSpeed
 	end
 
-	-- Apply weapon speed multipliers only when not sprinting
+	-- Weapon speed applies in all movement states (walk/sprint/crouch).
 	local localPlayer = Players.LocalPlayer
 	local weaponMult = localPlayer and localPlayer:GetAttribute("WeaponSpeedMultiplier") or 1
 	local adsMult = localPlayer and localPlayer:GetAttribute("ADSSpeedMultiplier") or 1
+	targetSpeed = targetSpeed * weaponMult
+
+	-- ADS slowdown only matters outside sprint.
 	if not MovementStateManager:IsSprinting() then
-		local weaponSpeedModifier = weaponMult * adsMult
-		targetSpeed = targetSpeed * weaponSpeedModifier
+		targetSpeed = targetSpeed * adsMult
 	end
 
 	-- Apply emote speed multiplier (always applies, even when sprinting)

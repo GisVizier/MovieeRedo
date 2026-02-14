@@ -495,6 +495,107 @@ LoadoutConfig.Weapons = {
 		},
 	},
 
+	Shorty = {
+		id = "Shorty",
+		name = "Shorty",
+		description = "Compact short-range secondary shotgun with two heavy shots.",
+		imageId = "",
+		weaponType = "Secondary",
+		rarity = "Rare",
+		instance = nil,
+		skins = {},
+		actions = {
+			canQuickUseMelee = true,
+			canQuickUseAblility = true,
+		},
+		maxAmmo = 20,
+		clipSize = 2,
+		reloadTime = 1.6,
+		isAbility = false,
+		fireProfile = {
+			mode = "Shotgun",
+			autoReloadOnEmpty = false,
+			pelletsPerShot = 6,
+			spread = 0.13,
+		},
+
+		speedMultiplier = 1.2,
+
+		adsFOV = 55,
+		adsSpeedMultiplier = 0.7,
+		adsEffectsMultiplier = 0.25,
+
+		damage = 20,
+		pelletsPerShot = 6,
+		headshotMultiplier = 1.35,
+		range = 180,
+		fireRate = 760,
+		minRange = 5,
+		maxRange = 120,
+		minDamage = 4,
+		tracerColor = Color3.fromRGB(255, 170, 90),
+
+		recoil = {
+			pitchUp = 7.25,
+			yawRandom = 2.4,
+			recoverySpeed = 7.5,
+		},
+
+		crosshair = {
+			type = "DoubleBarrel",
+			spreadX = 3.1,
+			spreadY = 3.1,
+			recoilMultiplier = 3.2,
+			crouchMult = 0.55,
+			sprintMult = 1.9,
+			airMult = 2.2,
+			adsMult = 0.45,
+			baseGap = 9,
+		},
+
+		aimAssist = {
+			enabled = false,
+		},
+
+		projectile = {
+			speed = 600,
+			gravity = 0,
+			drag = 0,
+			lifetime = 1,
+			inheritVelocity = 0,
+
+			spreadMode = "Cone",
+			baseSpread = 0.055,
+			crosshairSpreadScale = 0.03,
+			movementSpreadMult = 1.15,
+			hipfireSpreadMult = 1.0,
+			airSpreadMult = 1.25,
+			crouchSpreadMult = 0.9,
+			slideSpreadMult = 1.0,
+
+			pelletsPerShot = 6,
+			pelletDamage = 20,
+
+			minRange = 5,
+			maxRange = 120,
+			minDamage = 4,
+
+			pierce = 0,
+			pierceDamageMult = 1.0,
+			ricochet = 0,
+			ricochetDamageMult = 0.7,
+			ricochetSpeedMult = 0.9,
+
+			aoe = nil,
+			charge = nil,
+
+			visual = "Pellet",
+			tracerColor = Color3.fromRGB(255, 170, 90),
+			tracerLength = 2,
+			trailEnabled = true,
+		},
+	},
+
 	Tomahawk = {
 		id = "Tomahawk",
 		name = "Tomahawk",

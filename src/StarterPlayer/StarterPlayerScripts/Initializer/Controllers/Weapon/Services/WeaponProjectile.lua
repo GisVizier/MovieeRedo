@@ -324,6 +324,7 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 
 	-- Get pellet count
 	local pelletsPerShot = options.pelletsPerShot or projectileConfig.pelletsPerShot or weaponConfig.pelletsPerShot or 8
+	local isRocketSpecial = options.isRocketSpecial == true
 
 	-- Get fire origin and direction
 	local origin, baseDirection = self:_getFireOriginAndDirection(weaponInstance)
@@ -417,6 +418,7 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 
 			-- Visual
 			visual = nil,
+			isRocketSpecial = isRocketSpecial,
 
 			-- Network
 			spawnPacket = packetString,
@@ -709,6 +711,7 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 			packet = hitPacket,
 			weaponId = projectile.weaponId,
 			rigName = rigName,
+			isRocketSpecial = projectile.isRocketSpecial == true,
 		})
 	else
 		warn("[WeaponProjectile] Cannot send hit - Net:", Net ~= nil, "Packet:", hitPacket ~= nil)

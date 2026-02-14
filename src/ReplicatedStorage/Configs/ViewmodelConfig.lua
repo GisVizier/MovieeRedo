@@ -22,6 +22,7 @@ ViewmodelConfig.Models = {
 		Sniper = "Snipers/SniperRifle_Default",
 		AssaultRifle = "Rifles/AssaultRifle_Default",
 		Revolver = "Revolver/Revolver_Default",
+		Shorty = "Shorty/Shorty_Default",
 
 		-- Melee (add when model exists)
 		Tomahawk = "Melee/Tomahawk_Default", -- Uses knife model/animations
@@ -124,6 +125,23 @@ ViewmodelConfig.Weapons = {
 			Reload = "rbxassetid://128494876463082",
 			Equip = "rbxassetid://0",
 			Inspect = "rbxassetid://129139579437341",
+		},
+	},
+
+	Shorty = {
+		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shorty,
+		Offset = CFrame.new(-.2, -.15, -0.5),
+		Animations = {
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
+			ADS = "Aim",
+			Fire = "Fire",
+			Equip = "Equip",
+			Start = "Start",
+			Action = "Action",
+			End = "End",
+			Inspect = "Inspect",
 		},
 	},
 
