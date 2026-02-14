@@ -994,6 +994,16 @@ function WeaponController:Reload()
 	-- Update state
 	self:_updateWeaponInstanceState()
 
+	-- If reload is invalid (full mag, no reserve, etc), do nothing.
+	-- This prevents reload input from interrupting active animations/actions.
+	local canReloadFn = self._currentActions.Main and self._currentActions.Main.CanReload
+	if type(canReloadFn) == "function" then
+		local canReload = canReloadFn(self._weaponInstance)
+		if not canReload then
+			return
+		end
+	end
+
 	-- Reload should stop any ongoing weapon actions first.
 	self._isFiring = false
 	self:_stopAutoFire()

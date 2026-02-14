@@ -596,6 +596,71 @@ LoadoutConfig.Weapons = {
 		},
 	},
 
+	DualPistols = {
+		id = "DualPistols",
+		name = "Dual Pistols",
+		description = "Dual sidearms that fire a tight 3-round burst with aggressive recoil and fast follow-up pressure.",
+		imageId = "",
+		weaponType = "Secondary",
+		rarity = "Epic",
+		instance = nil,
+		skins = {},
+		actions = {
+			canQuickUseMelee = true,
+			canQuickUseAblility = true,
+		},
+		maxAmmo = 64,
+		clipSize = 16,
+		reloadTime = 1.6,
+		isAbility = false,
+		fireProfile = {
+			mode = "Semi",
+			autoReloadOnEmpty = true,
+			spread = 0.025,
+		},
+		burstProfile = {
+			shots = 3,
+			shotInterval = 0.07,
+			burstCooldown = 0.24,
+		},
+
+		speedMultiplier = 1.28,
+
+		damage = 14,
+		headshotMultiplier = 1.5,
+		range = 180,
+		fireRate = 700,
+		projectileSpeed = nil,
+		bulletDrop = false,
+		spread = 0.025,
+		minRange = 8,
+		maxRange = 180,
+		minDamage = 7,
+		tracerColor = Color3.fromRGB(255, 230, 170),
+
+			recoil = {
+				pitchUp = 3.6,
+				yawRandom = 0.65,
+				recoverySpeed = 6.5,
+			},
+
+		crosshair = {
+			type = "Default",
+			spreadX = 2.1,
+			spreadY = 2.1,
+			recoilMultiplier = 2.1,
+			crouchMult = 0.6,
+			sprintMult = 1.8,
+			airMult = 2.1,
+			adsMult = 1.0,
+			baseGap = 9,
+		},
+
+		aimAssist = {
+			enabled = false,
+		},
+	},
+
 	Tomahawk = {
 		id = "Tomahawk",
 		name = "Tomahawk",

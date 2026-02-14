@@ -299,6 +299,7 @@ SeraSchemas.Enums = {
 		Bow = 7,
 		RocketLauncher = 8,
 		Crossbow = 9,
+		DualPistols = 10,
 	},
 
 	-- Projectile Destroy Reasons

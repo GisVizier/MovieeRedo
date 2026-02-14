@@ -23,6 +23,7 @@ ViewmodelConfig.Models = {
 		AssaultRifle = "Rifles/AssaultRifle_Default",
 		Revolver = "Revolver/Revolver_Default",
 		Shorty = "Shorty/Shorty_Default",
+		DualPistols = "DualPistols/DaulPistols_Default",
 
 		-- Melee (add when model exists)
 		Tomahawk = "Melee/Tomahawk_Default", -- Uses knife model/animations
@@ -140,6 +141,21 @@ ViewmodelConfig.Weapons = {
 			Equip = "Equip",
 			Reload1 = "Reload1",
 			Reload2 = "Reload2",
+			Inspect = "Inspect",
+		},
+	},
+
+	DualPistols = {
+		ModelPath = ViewmodelConfig.Models.ByWeaponId.DualPistols,
+		Offset = CFrame.new(0, -0.12, -0.35),
+		Animations = {
+			Idle = "Idle",
+			Walk = "Walk",
+			Run = "Run",
+			Fire1 = "Fire1",
+			Fire2 = "Fire2",
+			Reload = "Reload",
+			Equip = "Equip",
 			Inspect = "Inspect",
 		},
 	},
