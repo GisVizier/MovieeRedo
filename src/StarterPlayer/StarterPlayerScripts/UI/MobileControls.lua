@@ -2,9 +2,11 @@ local MobileControls = {}
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 
 local LogService = nil
 local function getLogService()
@@ -28,6 +30,10 @@ local FIRE_SIZE = 78
 local BTN = 52
 local GAP = 14
 local BOTTOM_OFFSET = 60      -- Push all action buttons UP from bottom edge
+local SLOT_BTN_W = 72         -- Weapon slot button width
+local SLOT_BTN_H = 56         -- Weapon slot button height
+local SLOT_GAP = 6            -- Gap between slot buttons
+local SLOT_TOP = 12           -- Top offset for slot buttons
 
 local COLOR = Color3.new(0, 0, 0)
 local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220) -- Blue for toggled buttons
@@ -117,6 +123,10 @@ function MobileControls:SetCombatMode(enabled)
 	if self.CameraStick then
 		self.CameraStick.Container.Visible = enabled
 	end
+	-- Weapon slot buttons only in combat
+	if self._slotContainer then
+		self._slotContainer.Visible = enabled
+	end
 end
 
 -- =============================================================================
@@ -163,6 +173,7 @@ function MobileControls:CreateMobileUI()
 	self:CreateMovementStick()
 	self:CreateCameraStick()
 	self:CreateActionCluster()
+	self:CreateWeaponSlots()
 end
 
 -- =============================================================================
@@ -277,6 +288,164 @@ function MobileControls:CreateActionCluster()
 	self._combatButtons = { fire, ads, reload, ability, ultimate } -- Crouch & Slide stay visible in lobby
 
 	self:SetupButtonInput()
+end
+
+-- =============================================================================
+-- WEAPON SLOT BUTTONS (Top-right, vertical column)
+-- =============================================================================
+local SLOT_DEFS = {
+	{ slot = "Primary",   label = "1" },
+	{ slot = "Secondary", label = "2" },
+	{ slot = "Melee",     label = "3" },
+}
+
+function MobileControls:CreateWeaponSlots()
+	local container = Instance.new("Frame")
+	container.Name = "WeaponSlots"
+	container.BackgroundTransparency = 1
+	container.AnchorPoint = Vector2.new(1, 0)
+	container.AutomaticSize = Enum.AutomaticSize.XY
+	container.Size = UDim2.fromOffset(0, 0)
+	container.Position = UDim2.new(1, -EDGE, 0, SLOT_TOP)
+	container.Parent = self.ScreenGui
+	self._slotContainer = container
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, SLOT_GAP)
+	layout.Parent = container
+
+	self._slotButtons = {}
+	self._slotIcons = {}
+	self._activeSlot = nil
+
+	for i, def in ipairs(SLOT_DEFS) do
+		local btn = Instance.new("TextButton")
+		btn.Name = "Slot_" .. def.slot
+		btn.LayoutOrder = i
+		btn.Size = UDim2.fromOffset(SLOT_BTN_W, SLOT_BTN_H)
+		btn.BackgroundColor3 = COLOR
+		btn.BackgroundTransparency = ALPHA
+		btn.BorderSizePixel = 0
+		btn.Text = ""
+		btn.Active = false
+		btn.ClipsDescendants = true
+		btn.Parent = container
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+		-- Weapon icon — oversized + centered so the weapon fills the button
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.AnchorPoint = Vector2.new(0.5, 0.5)
+		icon.Size = UDim2.new(1.8, 0, 1.8, 0)
+		icon.Position = UDim2.fromScale(0.5, 0.5)
+		icon.BackgroundTransparency = 1
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.Image = ""
+		icon.Parent = btn
+
+		-- Fallback number label (shown when no icon)
+		local label = Instance.new("TextLabel")
+		label.Name = "Label"
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.TextColor3 = WHITE
+		label.TextSize = 16
+		label.Font = Enum.Font.SourceSansBold
+		label.Text = def.label
+		label.Parent = btn
+
+		self._slotButtons[def.slot] = btn
+		self._slotIcons[def.slot] = { icon = icon, label = label }
+	end
+
+	self:SetupWeaponSlotInput()
+	self:SetupWeaponSlotListener()
+end
+
+function MobileControls:SetupWeaponSlotInput()
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or self:_isBlocked() then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if self:IsTouchClaimed(input) then return end
+
+		for _, def in ipairs(SLOT_DEFS) do
+			local btn = self._slotButtons[def.slot]
+			if btn and btn.Visible and self:_hitTest(input, btn) then
+				self.ClaimedTouches[input] = "slot_" .. def.slot
+				self._input:FireCallbacks("SlotChange", def.slot)
+				return
+			end
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input, _)
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		-- Clean up slot touch claims
+		local claim = self.ClaimedTouches[input]
+		if claim and type(claim) == "string" and claim:sub(1, 5) == "slot_" then
+			self.ClaimedTouches[input] = nil
+		end
+	end)
+end
+
+function MobileControls:SetupWeaponSlotListener()
+	-- Update icons when loadout changes
+	local function refreshIcons()
+		local raw = LocalPlayer:GetAttribute("SelectedLoadout")
+		if type(raw) ~= "string" or raw == "" then return end
+
+		local ok, loadout = pcall(function()
+			return HttpService:JSONDecode(raw)
+		end)
+		if not ok or type(loadout) ~= "table" then return end
+
+		-- loadout can be { loadout = { Primary = "...", ... } } or flat
+		local data = loadout.loadout or loadout
+
+		for _, def in ipairs(SLOT_DEFS) do
+			local parts = self._slotIcons[def.slot]
+			if parts then
+				local weaponId = data[def.slot]
+				local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
+				local imageId = weaponConfig and weaponConfig.imageId
+
+				if imageId and imageId ~= "" then
+					parts.icon.Image = imageId
+					parts.icon.Visible = true
+					parts.label.Visible = false
+				else
+					parts.icon.Image = ""
+					parts.icon.Visible = false
+					parts.label.Visible = true
+				end
+			end
+		end
+	end
+
+	LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(refreshIcons)
+	task.defer(refreshIcons)
+
+	-- Highlight active slot
+	local function refreshHighlight()
+		local equipped = LocalPlayer:GetAttribute("EquippedSlot") or "Primary"
+		self._activeSlot = equipped
+
+		for slotName, btn in pairs(self._slotButtons) do
+			if slotName == equipped then
+				btn.BackgroundColor3 = TOGGLE_COLOR
+				btn.BackgroundTransparency = 0.3
+			else
+				btn.BackgroundColor3 = COLOR
+				btn.BackgroundTransparency = ALPHA
+			end
+		end
+	end
+
+	LocalPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(refreshHighlight)
+	task.defer(refreshHighlight)
 end
 
 -- =============================================================================
