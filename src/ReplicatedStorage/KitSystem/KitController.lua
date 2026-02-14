@@ -231,6 +231,13 @@ function KitController:_onLocalPlayerDied()
 		player:SetAttribute("red_explosion_pivot", nil)
 		player:SetAttribute("cleanupblueFX", nil)
 	end
+
+	-- Clear ADS and input state (prevents respawning stuck in ADS)
+	local movementController = ServiceRegistry:GetController("MovementController")
+		or ServiceRegistry:GetController("CharacterController")
+	if movementController and movementController.ResetRespawnLocalState then
+		movementController:ResetRespawnLocalState()
+	end
 end
 
 function KitController:_onAbilityInput(abilityType: string, inputState)

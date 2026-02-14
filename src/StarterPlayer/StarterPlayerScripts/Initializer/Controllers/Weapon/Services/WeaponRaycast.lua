@@ -1,11 +1,17 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
 local WeaponRaycast = {}
 local TrainingRangeShot = nil
 
 -- Debug flag (set to true to see hit logs)
 local DEBUG_LOGGING = false
+
+-- Debug raycast visualization (toggle with Y key) - only YOU see red lines showing shot path
+WeaponRaycast.DebugRaycastEnabled = false
+local _debugRayLines = {}
+local DEBUG_RAY_DURATION = 2.5
 
 -- =============================================================================
 -- HELPER FUNCTIONS
@@ -143,6 +149,61 @@ local function isHeadshotPart(part)
 
 	local name = part.Name
 	return name == "Head" or name == "CrouchHead" or name == "HitboxHead"
+end
+
+--[[
+	Debug raycast visualization - draws red line showing shot path.
+	Uses Drawing API (client-only) so only the local player sees it.
+	Lines follow the path in world space and update as camera moves.
+]]
+local function addDebugRay(origin, hitPosition, camera)
+	if not camera or not WeaponRaycast.DebugRaycastEnabled then
+		return
+	end
+	local line = Drawing.new("Line")
+	line.Color = Color3.new(1, 0, 0)
+	line.Thickness = 2
+	line.Transparency = 0
+	line.Visible = true
+	local expireTime = os.clock() + DEBUG_RAY_DURATION
+	table.insert(_debugRayLines, {
+		origin = origin,
+		hitPosition = hitPosition,
+		line = line,
+		expireTime = expireTime,
+	})
+end
+
+local _debugRayUpdateConn = nil
+local function ensureDebugRayUpdate()
+	if _debugRayUpdateConn then
+		return
+	end
+	_debugRayUpdateConn = RunService.RenderStepped:Connect(function()
+		local camera = Workspace.CurrentCamera
+		if not camera or #_debugRayLines == 0 then
+			return
+		end
+		local now = os.clock()
+		for i = #_debugRayLines, 1, -1 do
+			local entry = _debugRayLines[i]
+			if now >= entry.expireTime then
+				entry.line.Visible = false
+				entry.line:Remove()
+				table.remove(_debugRayLines, i)
+			else
+				local v0, onScreen0 = camera:WorldToViewportPoint(entry.origin)
+				local v1, onScreen1 = camera:WorldToViewportPoint(entry.hitPosition)
+				entry.line.From = Vector2.new(v0.X, v0.Y)
+				entry.line.To = Vector2.new(v1.X, v1.Y)
+				entry.line.Visible = onScreen0 or onScreen1
+			end
+		end
+		if #_debugRayLines == 0 and _debugRayUpdateConn then
+			_debugRayUpdateConn:Disconnect()
+			_debugRayUpdateConn = nil
+		end
+	end)
 end
 
 -- =============================================================================
@@ -357,6 +418,10 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 			print(string.format("  Headshot: %s | Timestamp: %.3f", tostring(isHeadshot), workspace:GetServerTimeNow()))
 		end
 
+		if WeaponRaycast.DebugRaycastEnabled then
+			ensureDebugRayUpdate()
+			addDebugRay(origin, result.Position, Workspace.CurrentCamera)
+		end
 		return {
 			origin = origin,
 			direction = direction,
@@ -383,6 +448,10 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		)
 	end
 
+	if WeaponRaycast.DebugRaycastEnabled then
+		ensureDebugRayUpdate()
+		addDebugRay(origin, targetPosition, Workspace.CurrentCamera)
+	end
 	return {
 		origin = origin,
 		direction = direction,

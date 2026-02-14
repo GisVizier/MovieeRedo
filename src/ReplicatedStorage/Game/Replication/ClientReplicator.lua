@@ -149,6 +149,16 @@ function ClientReplicator:_parseLoadout(raw)
 	self.CurrentLoadout = loadout
 end
 
+-- Force re-parse loadout and re-equip (for respawn deep refresh)
+function ClientReplicator:ForceLoadoutRefresh()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return
+	end
+	self:_parseLoadout(localPlayer:GetAttribute("SelectedLoadout"))
+	self:_equipSlotWeapon(localPlayer:GetAttribute("EquippedSlot"))
+end
+
 -- Equip the weapon for a slot on the third-person rig
 function ClientReplicator:_equipSlotWeapon(slot)
 	self.CurrentEquippedSlot = slot

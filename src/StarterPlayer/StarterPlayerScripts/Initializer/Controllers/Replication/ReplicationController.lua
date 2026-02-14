@@ -33,4 +33,8 @@ function ReplicationController:SetPlayerRagdolled(player, isRagdolled)
 	RemoteReplicator:SetPlayerRagdolled(player, isRagdolled)
 end
 
+function ReplicationController:ForceLoadoutRefresh()
+	ClientReplicator:ForceLoadoutRefresh()
+end
+
 return ReplicationController

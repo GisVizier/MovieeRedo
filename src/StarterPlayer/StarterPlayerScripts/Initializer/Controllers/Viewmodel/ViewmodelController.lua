@@ -209,6 +209,7 @@ function ViewmodelController:Init(registry, net)
 		local function onSelectedLoadoutChanged()
 			local raw = LocalPlayer:GetAttribute("SelectedLoadout")
 			if type(raw) ~= "string" or raw == "" then
+				self:ClearLoadout()
 				return
 			end
 
@@ -623,6 +624,42 @@ function ViewmodelController:CreateLoadout(loadout: { [string]: any })
 		Secondary = tostring(loadout.Secondary),
 		Melee = tostring(loadout.Melee),
 	})
+end
+
+function ViewmodelController:ClearLoadout()
+	self:_destroyAllRigs()
+	if self._loadoutVm then
+		self._loadoutVm = nil
+	end
+	self._loadout = nil
+	self._activeSlot = nil
+	self._previousSlot = nil
+	self._adsActive = false
+	self._adsBlend = 0
+	if self._animator then
+		self._animator:Unbind()
+	end
+end
+
+function ViewmodelController:RefreshLoadoutFromAttributes()
+	local raw = LocalPlayer and LocalPlayer:GetAttribute("SelectedLoadout")
+	if type(raw) ~= "string" or raw == "" then
+		self:ClearLoadout()
+		return
+	end
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+	if not ok or type(decoded) ~= "table" then
+		return
+	end
+	local loadout = decoded.loadout or decoded
+	if type(loadout) ~= "table" then
+		return
+	end
+	self:CreateLoadout(loadout)
+	local slot = LocalPlayer:GetAttribute("EquippedSlot") or "Primary"
+	self:SetActiveSlot(slot)
 end
 
 function ViewmodelController:SetActiveSlot(slot: string)

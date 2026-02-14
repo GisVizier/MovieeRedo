@@ -142,6 +142,11 @@ function CharacterController:ResetRespawnLocalState()
 		if self.InputManager.FireCallbacks then
 			self.InputManager:FireCallbacks("Special", false)
 		end
+		if self.InputManager.MobileControls then
+			pcall(function()
+				self.InputManager.MobileControls:ResetADS()
+			end)
+		end
 	end
 
 	MovementStateManager:Reset()

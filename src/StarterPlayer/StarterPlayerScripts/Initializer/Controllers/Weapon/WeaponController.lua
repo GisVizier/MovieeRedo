@@ -89,6 +89,7 @@ WeaponController._crosshairSlidingRotation = 0
 WeaponController._crosshairRotation = 0
 WeaponController._crosshairRotationTarget = 0
 WeaponController._crosshairRotationConn = nil
+WeaponController._debugRaycastKeyConn = nil
 
 -- =============================================================================
 -- INITIALIZATION
@@ -195,6 +196,7 @@ function WeaponController:Start()
 	end
 
 	self:_connectInputs()
+	self:_connectDebugRaycastKey()
 	self:_connectSlotChanges()
 	self:_connectMovementState()
 	self:_ensureCrosshairRotationLoop()
@@ -276,6 +278,22 @@ function WeaponController:_connectInputs()
 	-- Special input (ADS for guns, ability for melee)
 	self._inputManager:ConnectToInput("Special", function(isPressed)
 		self:Special(isPressed)
+	end)
+end
+
+function WeaponController:_connectDebugRaycastKey()
+	if self._debugRaycastKeyConn then
+		self._debugRaycastKeyConn:Disconnect()
+		self._debugRaycastKeyConn = nil
+	end
+	self._debugRaycastKeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then
+			return
+		end
+		if input.KeyCode == Enum.KeyCode.Y then
+			WeaponRaycast.DebugRaycastEnabled = not WeaponRaycast.DebugRaycastEnabled
+			LogService:Info("WEAPON", "Debug raycast " .. (WeaponRaycast.DebugRaycastEnabled and "ON" or "OFF") .. " (Y to toggle)")
+		end
 	end)
 end
 
@@ -622,6 +640,16 @@ function WeaponController:_updateAimAssistSensitivity()
 		actualSens = actualSensitivity,
 		multiplier = sensitivityMultiplier,
 	})
+end
+
+function WeaponController:OnRespawnRefresh()
+	self._isADS = false
+	self:_unequipCurrentWeapon()
+	self:_initializeAmmo()
+	local slot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
+	if slot and slot ~= "Fists" then
+		self:_onSlotChanged(slot)
+	end
 end
 
 function WeaponController:_unequipCurrentWeapon()

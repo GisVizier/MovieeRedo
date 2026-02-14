@@ -87,6 +87,16 @@ function CharacterController:Init(registry, net)
 		if movementController and type(movementController.Teleport) == "function" then
 			movementController:Teleport(data.spawnPosition, data.spawnLookVector)
 		end
+
+		-- Clear ADS and input state on respawn (prevents stuck ADS from death)
+		if movementController and movementController.ResetRespawnLocalState then
+			movementController:ResetRespawnLocalState()
+		end
+
+		-- Deep refresh: re-equip loadout cleanly (weapon can change, animations need reset)
+		task.defer(function()
+			self:_onRespawnLoadoutRefresh()
+		end)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
@@ -211,6 +221,37 @@ function CharacterController:_onCharacterSpawned(character)
 	end
 
 	self._setupInProgress[character] = nil
+end
+
+function CharacterController:_onRespawnLoadoutRefresh()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return
+	end
+
+	-- 1. ViewmodelController: force full loadout re-creation from current attributes
+	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+	if viewmodelController and viewmodelController.RefreshLoadoutFromAttributes then
+		viewmodelController:RefreshLoadoutFromAttributes()
+	end
+
+	-- 2. WeaponController: re-initialize ammo and re-equip
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController and weaponController.OnRespawnRefresh then
+		weaponController:OnRespawnRefresh()
+	end
+
+	-- 3. AnimationController: reset to idle (clears stuck ragdoll/death animations)
+	local animationController = self._registry and self._registry:TryGet("AnimationController")
+	if animationController and animationController.PlayIdleAnimation then
+		animationController:PlayIdleAnimation("IdleStanding")
+	end
+
+	-- 4. Replication (third-person weapon): force re-parse loadout and re-equip
+	local replicationController = self._registry and self._registry:TryGet("Replication")
+	if replicationController and replicationController.ForceLoadoutRefresh then
+		replicationController:ForceLoadoutRefresh()
+	end
 end
 
 function CharacterController:_onCharacterRemoving(character)
