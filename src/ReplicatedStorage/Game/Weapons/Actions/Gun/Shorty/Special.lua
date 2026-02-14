@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
+local Inspect = require(script.Parent:WaitForChild("Inspect"))
 
 local Special = {}
 Special._isADS = false
@@ -25,6 +26,10 @@ end
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
+	end
+
+	if isPressed then
+		Inspect.Cancel()
 	end
 
 	local ammo = weaponInstance.State.CurrentAmmo or 0

@@ -108,15 +108,26 @@ function WeaponProjectile:_flushQueuedProjectileHits()
 		return
 	end
 
-	if #PendingProjectileHits == 1 then
-		Net:FireServer("ProjectileHit", PendingProjectileHits[1])
-	else
-		Net:FireServer("ProjectileHitBatch", {
-			hits = PendingProjectileHits,
-		})
+	local hitsToSend = {}
+	for i, payload in ipairs(PendingProjectileHits) do
+		hitsToSend[i] = payload
 	end
-
 	table.clear(PendingProjectileHits)
+
+	if #hitsToSend == 1 then
+		Net:FireServer("ProjectileHit", hitsToSend[1])
+	else
+		local hasBatchRemote = (type(Net.Get) == "function") and (Net:Get("ProjectileHitBatch") ~= nil)
+		if hasBatchRemote then
+			Net:FireServer("ProjectileHitBatch", {
+				hits = hitsToSend,
+			})
+		else
+			for _, hitPayload in ipairs(hitsToSend) do
+				Net:FireServer("ProjectileHit", hitPayload)
+			end
+		end
+	end
 end
 
 function WeaponProjectile:_enqueueProjectileHit(payload)

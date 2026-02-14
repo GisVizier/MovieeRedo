@@ -72,6 +72,7 @@ WeaponController._isAutomatic = false
 WeaponController._autoFireConn = nil
 WeaponController._isReloading = false
 WeaponController._reloadToken = 0
+WeaponController._reloadFireLocked = false
 WeaponController._slotChangedConn = nil
 WeaponController._lastCameraMode = nil
 
@@ -671,7 +672,7 @@ function WeaponController:_unequipCurrentWeapon()
 			self._currentActions.Inspect.Cancel()
 		end
 		if self._currentActions.Reload and self._currentActions.Reload.Cancel then
-			self._currentActions.Reload.Cancel()
+			self._currentActions.Reload.Cancel(self._weaponInstance)
 		end
 	end
 
@@ -693,6 +694,7 @@ function WeaponController:_unequipCurrentWeapon()
 	self._equippedWeaponId = nil
 	self._weaponInstance = nil
 	self._isReloading = false
+	self._reloadFireLocked = false
 	self._isADS = false
 
 	_recoilConfig = nil
@@ -763,13 +765,104 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		end,
 		SetIsReloading = function(value)
 			self._isReloading = value == true
+			if not self._isReloading then
+				self._reloadFireLocked = false
+			end
+		end,
+		GetReloadFireLocked = function()
+			return self._reloadFireLocked == true
+		end,
+		SetReloadFireLocked = function(value)
+			self._reloadFireLocked = value == true
+		end,
+		CanFireDuringReload = function()
+			local ammoData = self._ammo and slot and self._ammo:GetAmmo(slot) or nil
+			local currentAmmo = ammoData and ammoData.currentAmmo or 0
+			if currentAmmo <= 0 then
+				return false
+			end
+			return self._reloadFireLocked ~= true
 		end,
 		GetReloadToken = function()
 			return self._reloadToken
 		end,
+		SetReloadToken = function(value)
+			self._reloadToken = tonumber(value) or 0
+		end,
 		IncrementReloadToken = function()
 			self._reloadToken = self._reloadToken + 1
 			return self._reloadToken
+		end,
+		GetCurrentAmmo = function()
+			local ammoData = self._ammo and slot and self._ammo:GetAmmo(slot) or nil
+			if ammoData then
+				return ammoData.currentAmmo or 0
+			end
+			return 0
+		end,
+		GetReserveAmmo = function()
+			local ammoData = self._ammo and slot and self._ammo:GetAmmo(slot) or nil
+			if ammoData then
+				return ammoData.reserveAmmo or 0
+			end
+			return 0
+		end,
+		DecrementAmmo = function()
+			if not self._ammo or not slot then
+				return false
+			end
+			local ok = self._ammo:DecrementAmmo(slot, weaponConfig, LocalPlayer, self._isReloading, function()
+				return self:_getCurrentSlot()
+			end)
+			if ok and self._weaponInstance and self._weaponInstance.State then
+				self._weaponInstance.State.CurrentAmmo = self._ammo:GetCurrentAmmo(slot)
+			end
+			return ok
+		end,
+		ApplyState = function(nextState)
+			if type(nextState) ~= "table" then
+				return
+			end
+
+			if type(nextState.IsReloading) == "boolean" then
+				self._isReloading = nextState.IsReloading
+			end
+			if type(nextState.ReloadFireLocked) == "boolean" then
+				self._reloadFireLocked = nextState.ReloadFireLocked
+			elseif not self._isReloading then
+				self._reloadFireLocked = false
+			end
+			if type(nextState.LastFireTime) == "number" then
+				self._lastFireTime = nextState.LastFireTime
+			end
+
+			if self._ammo and slot then
+				self._ammo:ApplyState(nextState, slot, weaponConfig, LocalPlayer, self._isReloading, function()
+					return self:_getCurrentSlot()
+				end)
+			end
+
+			if self._weaponInstance and self._weaponInstance.State then
+				local stateRef = self._weaponInstance.State
+				if type(nextState.CurrentAmmo) == "number" then
+					stateRef.CurrentAmmo = nextState.CurrentAmmo
+				end
+				if type(nextState.ReserveAmmo) == "number" then
+					stateRef.ReserveAmmo = nextState.ReserveAmmo
+				end
+				stateRef.IsReloading = self._isReloading
+				stateRef.ReloadFireLocked = self._reloadFireLocked
+				stateRef.LastFireTime = self._lastFireTime
+			end
+		end,
+		CancelReload = function()
+			if self._currentActions and self._currentActions.Reload and self._currentActions.Reload.Interrupt then
+				self._currentActions.Reload.Interrupt(self._weaponInstance)
+				return
+			end
+			if self._currentActions and self._currentActions.Reload and self._currentActions.Reload.Cancel then
+				self._currentActions.Reload.Cancel(self._weaponInstance)
+			end
 		end,
 
 		-- State object (updated each call)
@@ -777,6 +870,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			CurrentAmmo = ammo and ammo.currentAmmo or 0,
 			ReserveAmmo = ammo and ammo.reserveAmmo or 0,
 			IsReloading = self._isReloading,
+			ReloadFireLocked = self._reloadFireLocked,
 			IsAttacking = self._isFiring,
 			LastFireTime = self._lastFireTime,
 			Equipped = self:_isActiveWeaponEquipped(),
@@ -796,6 +890,7 @@ function WeaponController:_updateWeaponInstanceState()
 		CurrentAmmo = ammo and ammo.currentAmmo or 0,
 		ReserveAmmo = ammo and ammo.reserveAmmo or 0,
 		IsReloading = self._isReloading,
+		ReloadFireLocked = self._reloadFireLocked,
 		IsAttacking = self._isFiring,
 		LastFireTime = self._lastFireTime,
 		Equipped = self:_isActiveWeaponEquipped(),
@@ -971,7 +1066,7 @@ function WeaponController:Special(isPressed)
 	-- Cancel reload on special
 	if isPressed and cancels.SpecialCancelsReload then
 		if self._isReloading and self._currentActions.Reload and self._currentActions.Reload.Cancel then
-			self._currentActions.Reload.Cancel()
+			self._currentActions.Reload.Cancel(self._weaponInstance)
 		end
 	end
 

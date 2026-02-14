@@ -63,7 +63,15 @@ function Attack.Execute(weaponInstance, currentTime)
 	end
 
 	if state.IsReloading then
-		return false, "Reloading"
+		local canFireDuringReload = weaponInstance.CanFireDuringReload and weaponInstance.CanFireDuringReload()
+		if canFireDuringReload and weaponInstance.CancelReload then
+			weaponInstance.CancelReload()
+			if weaponInstance.GetIsReloading and weaponInstance.GetIsReloading() then
+				return false, "Reloading"
+			end
+		else
+			return false, "Reloading"
+		end
 	end
 
 	if (state.CurrentAmmo or 0) <= 0 then
@@ -76,7 +84,17 @@ function Attack.Execute(weaponInstance, currentTime)
 	end
 
 	state.LastFireTime = now
-	state.CurrentAmmo = math.max((state.CurrentAmmo or 0) - 1, 0)
+	if weaponInstance.DecrementAmmo then
+		weaponInstance.DecrementAmmo()
+		if weaponInstance.GetCurrentAmmo then
+			state.CurrentAmmo = weaponInstance.GetCurrentAmmo()
+		end
+	else
+		state.CurrentAmmo = math.max((state.CurrentAmmo or 0) - 1, 0)
+	end
+	if weaponInstance.ApplyState then
+		weaponInstance.ApplyState(state)
+	end
 
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Fire", 0.05, true)

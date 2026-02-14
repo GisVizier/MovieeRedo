@@ -40,6 +40,7 @@ local Remotes = {
 	-- Projectile system
 	{ name = "ProjectileSpawned", description = "Client spawned a projectile" },
 	{ name = "ProjectileHit", description = "Client reports projectile hit" },
+	{ name = "ProjectileHitBatch", description = "Client reports multiple projectile hits" },
 	{ name = "ProjectileReplicate", description = "Server replicates projectile to other clients", unreliable = true },
 	{ name = "ProjectileHitConfirmed", description = "Server broadcasts validated projectile hit", unreliable = true },
 	{ name = "ProjectileDestroyed", description = "Server notifies projectile destruction", unreliable = true },

@@ -65,7 +65,17 @@ function Attack.Execute(weaponInstance, currentTime)
 	end
 
 	state.LastFireTime = now
-	state.CurrentAmmo = math.max((state.CurrentAmmo or 0) - 1, 0)
+	if weaponInstance.DecrementAmmo then
+		weaponInstance.DecrementAmmo()
+		if weaponInstance.GetCurrentAmmo then
+			state.CurrentAmmo = weaponInstance.GetCurrentAmmo()
+		end
+	else
+		state.CurrentAmmo = math.max((state.CurrentAmmo or 0) - 1, 0)
+	end
+	if weaponInstance.ApplyState then
+		weaponInstance.ApplyState(state)
+	end
 
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Fire", 0.05, true)
