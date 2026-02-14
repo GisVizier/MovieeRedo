@@ -2,6 +2,7 @@ local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
 
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local LoadoutConfig = require(Configs.LoadoutConfig)
@@ -1608,13 +1609,18 @@ function module:_setInitialState()
 	local barHolders = self._playerSpace.BarHolders
 
 	if self._itemHolderSpace and self._itemHolderOriginalPosition then
-		self._itemHolderSpace.GroupTransparency = 1
-		self._itemHolderSpace.Position = UDim2.new(
-			self._itemHolderOriginalPosition.X.Scale,
-			self._itemHolderOriginalPosition.X.Offset,
-			self._itemHolderOriginalPosition.Y.Scale + 0.1,
-			self._itemHolderOriginalPosition.Y.Offset
-		)
+		if UserInputService.TouchEnabled then
+			-- Hide bottom HUD bar on mobile; MobileControls shows compact ammo instead
+			self._itemHolderSpace.Visible = false
+		else
+			self._itemHolderSpace.GroupTransparency = 1
+			self._itemHolderSpace.Position = UDim2.new(
+				self._itemHolderOriginalPosition.X.Scale,
+				self._itemHolderOriginalPosition.X.Offset,
+				self._itemHolderOriginalPosition.Y.Scale + 0.1,
+				self._itemHolderOriginalPosition.Y.Offset
+			)
+		end
 	end
 
 	playerHolder.GroupTransparency = 1
@@ -1642,7 +1648,8 @@ function module:_animateShow()
 	cancelTweens("show_bars")
 	cancelTweens("show_items")
 
-	if self._itemHolderSpace and self._itemHolderOriginalPosition then
+	-- Skip bottom bar animation on mobile (hidden; MobileControls shows compact ammo)
+	if not UserInputService.TouchEnabled and self._itemHolderSpace and self._itemHolderOriginalPosition then
 		local itemsTween = TweenService:Create(self._itemHolderSpace, TweenConfig.get("Main", "show"), {
 			GroupTransparency = 0,
 			Position = self._itemHolderOriginalPosition,
@@ -1684,7 +1691,8 @@ function module:_animateHide()
 	cancelTweens("show_bars")
 	cancelTweens("show_items")
 
-	if self._itemHolderSpace and self._itemHolderOriginalPosition then
+	-- Skip bottom bar on mobile (already hidden)
+	if not UserInputService.TouchEnabled and self._itemHolderSpace and self._itemHolderOriginalPosition then
 		local targetItemsPos = UDim2.new(
 			self._itemHolderOriginalPosition.X.Scale,
 			self._itemHolderOriginalPosition.X.Offset,
