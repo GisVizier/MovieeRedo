@@ -393,7 +393,7 @@ function module:_onPlayerKilled(data)
 		uiScale.Parent = entry
 	end
 	uiScale.Scale = 0
-	local popUp = TweenService:Create(uiScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	local popUp = TweenService:Create(uiScale, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
 	popUp:Play()
 
 	self:_scheduleEntryHide(entry)
@@ -405,12 +405,12 @@ function module:_populateKillEntry(entry, data)
 	local weaponId = data.weaponId
 
 	local killer = killerUserId and Players:GetPlayerByUserId(killerUserId)
-	local killerName = killer and killer.Name or "Unknown"
+	local killerName = killer and killer.DisplayName or "Unknown"
 	local killerPremium = killer and killer.MembershipType == Enum.MembershipType.Premium
 	local killerVerified = killer and killer.HasVerifiedBadge
 
 	local victim = victimUserId and Players:GetPlayerByUserId(victimUserId)
-	local victimName = victim and victim.Name or "Unknown"
+	local victimName = victim and victim.DisplayName or "Unknown"
 	local victimPremium = victim and victim.MembershipType == Enum.MembershipType.Premium
 	local victimVerified = victim and victim.HasVerifiedBadge
 
