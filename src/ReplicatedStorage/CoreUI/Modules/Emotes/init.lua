@@ -519,7 +519,7 @@ function module:_setupInputs()
 			self:_updateFromStick(inputObject.Position)
 		end
 		return Enum.ContextActionResult.Sink
-	end, false, Enum.KeyCode.Thumbstick1)
+	end, false, Enum.KeyCode.Thumbstick2)
 
 	ContextActionService:BindAction(ACTION_CONFIRM, function(_, inputState)
 		if inputState == Enum.UserInputState.Begin then
