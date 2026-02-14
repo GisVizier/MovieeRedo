@@ -40,7 +40,7 @@ local BTN = 48                -- Small    — utility buttons
 local SLOT_BTN_W = 72
 local SLOT_BTN_H = 56
 local SLOT_GAP = 6
-local SLOT_TOP = 52           -- Below system / match HUD
+local SLOT_TOP = 8            -- Top of screen, overlap CoreGui if needed
 
 -- Colors
 local COLOR = Color3.new(0, 0, 0)
@@ -163,6 +163,8 @@ function MobileControls:ResetTouchState()
 		self.ActiveTouches[k] = nil
 	end
 	self.ClaimedTouches = {}
+
+	self:_updateCrouchSlideLabel()
 end
 
 -- =============================================================================
@@ -173,6 +175,7 @@ function MobileControls:CreateMobileUI()
 	self.ScreenGui.Name = "MobileControls"
 	self.ScreenGui.ResetOnSpawn = false
 	self.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	self.ScreenGui.DisplayOrder = 10
 	self.ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 	self:CreateMovementStick()
