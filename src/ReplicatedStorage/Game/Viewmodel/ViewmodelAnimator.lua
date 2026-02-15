@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 
@@ -19,6 +20,15 @@ local KitAnimationsPreloaded = false
 local AIRBORNE_SPRINT_SPEED = 0.2
 
 local LocalPlayer = Players.LocalPlayer
+
+local function replicateKitTrackAction(animIdOrName: string, isActive: boolean)
+	local replicationController = ServiceRegistry:GetController("Replication")
+	if not replicationController or type(replicationController.ReplicateViewmodelAction) ~= "function" then
+		return
+	end
+
+	replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", animIdOrName, isActive == true)
+end
 
 local function expAlpha(dt: number, k: number): number
 	if dt <= 0 then
@@ -609,6 +619,7 @@ function ViewmodelAnimator:PlayKitAnimation(animIdOrName: string, settings: {[st
 	
 	-- Play the track
 	track:Play(fadeTime, weight, speed)
+	replicateKitTrackAction(animIdOrName, true)
 	
 	if DEBUG_VIEWMODEL then
 	end
@@ -626,6 +637,7 @@ function ViewmodelAnimator:StopKitAnimation(animIdOrName: string, fadeTime: numb
 	local track = self._kitTracks[animIdOrName]
 	if track and track.IsPlaying then
 		track:Stop(fadeTime or 0.1)
+		replicateKitTrackAction(animIdOrName, false)
 	end
 end
 
@@ -639,6 +651,7 @@ function ViewmodelAnimator:StopAllKitAnimations(fadeTime: number?)
 	for name, track in pairs(self._kitTracks) do
 		if track and track.IsPlaying then
 			track:Stop(fade)
+			replicateKitTrackAction(name, false)
 
 		end
 	end

@@ -113,6 +113,17 @@ local function resolveAnimationInstance(weaponId: string, animRef: string)
 	return nil
 end
 
+local function resolveNestedChild(root: Instance, path: string): Instance?
+	local current = root
+	for _, partName in ipairs(string.split(path, "/")) do
+		current = current and current:FindFirstChild(partName) or nil
+		if not current then
+			return nil
+		end
+	end
+	return current
+end
+
 local function ensureAnimator(model: Model)
 	local animationController = model:FindFirstChildOfClass("AnimationController")
 	if not animationController then
@@ -360,6 +371,155 @@ function ThirdPersonWeaponManager:_resolveOwnerCharacter(): Model?
 	return nil
 end
 
+function ThirdPersonWeaponManager:_resolveOwnerPlayer(): Player?
+	if not self.Rig then
+		return nil
+	end
+
+	local ownerUserId = self.Rig:GetAttribute("OwnerUserId")
+	if type(ownerUserId) == "number" then
+		return Players:GetPlayerByUserId(ownerUserId)
+	end
+
+	local character = self:_resolveOwnerCharacter()
+	if character then
+		return Players:GetPlayerFromCharacter(character)
+	end
+
+	return nil
+end
+
+function ThirdPersonWeaponManager:_resolveOwnerKitId(): string?
+	local ownerPlayer = self:_resolveOwnerPlayer()
+	if not ownerPlayer then
+		return nil
+	end
+
+	local rawKitData = ownerPlayer:GetAttribute("KitData")
+	if type(rawKitData) ~= "string" or rawKitData == "" then
+		return nil
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(rawKitData)
+	end)
+	if not ok or type(decoded) ~= "table" then
+		return nil
+	end
+
+	local kitId = decoded.KitId
+	if type(kitId) ~= "string" or kitId == "" then
+		return nil
+	end
+
+	return kitId
+end
+
+function ThirdPersonWeaponManager:_resolveReplicatedTrackAnimation(trackName: string): Animation?
+	if type(trackName) ~= "string" or trackName == "" then
+		return nil
+	end
+
+	if string.find(trackName, "rbxassetid://") then
+		local animation = Instance.new("Animation")
+		animation.AnimationId = trackName
+		return animation
+	end
+
+	if self.WeaponId then
+		local weaponAnimation = resolveAnimationInstance(self.WeaponId, trackName)
+		if weaponAnimation then
+			return weaponAnimation
+		end
+	end
+
+	if self.WeaponId ~= "Fists" then
+		return nil
+	end
+
+	local viewModelAnimations = select(2, getAssetsRoot())
+	if not viewModelAnimations then
+		return nil
+	end
+
+	local kitsFolder = viewModelAnimations:FindFirstChild("Kits")
+	if not kitsFolder then
+		return nil
+	end
+
+	local nested = resolveNestedChild(kitsFolder, trackName)
+	if nested and nested:IsA("Animation") then
+		return nested
+	end
+
+	local ownerKitId = self:_resolveOwnerKitId()
+	if ownerKitId then
+		local kitFolder = kitsFolder:FindFirstChild(ownerKitId)
+		if kitFolder then
+			local byKit = resolveNestedChild(kitFolder, trackName)
+			if byKit and byKit:IsA("Animation") then
+				return byKit
+			end
+			local shortByKit = kitFolder:FindFirstChild(trackName, true)
+			if shortByKit and shortByKit:IsA("Animation") then
+				return shortByKit
+			end
+		end
+	end
+
+	local anyMatch = kitsFolder:FindFirstChild(trackName, true)
+	if anyMatch and anyMatch:IsA("Animation") then
+		return anyMatch
+	end
+
+	return nil
+end
+
+function ThirdPersonWeaponManager:_ensureReplicatedTrack(trackName: string): AnimationTrack?
+	if type(trackName) ~= "string" or trackName == "" or not self.Animator then
+		return nil
+	end
+
+	local cached = self.Tracks[trackName]
+	if cached then
+		return cached
+	end
+
+	local animation = self:_resolveReplicatedTrackAnimation(trackName)
+	if not animation then
+		return nil
+	end
+
+	local ok, track = pcall(function()
+		return self.Animator:LoadAnimation(animation)
+	end)
+	if not ok or not track then
+		return nil
+	end
+
+	local priorityAttr = animation:GetAttribute("Priority")
+	if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+		track.Priority = Enum.AnimationPriority[priorityAttr]
+	elseif typeof(priorityAttr) == "EnumItem" then
+		track.Priority = priorityAttr
+	else
+		track.Priority = TRACK_PRIORITIES[trackName] or Enum.AnimationPriority.Action4
+	end
+
+	local loopAttr = animation:GetAttribute("Loop")
+	if type(loopAttr) ~= "boolean" then
+		loopAttr = animation:GetAttribute("Looped")
+	end
+	if type(loopAttr) == "boolean" then
+		track.Looped = loopAttr
+	else
+		track.Looped = LOOPED_TRACKS[trackName] == true
+	end
+
+	self.Tracks[trackName] = track
+	return track
+end
+
 function ThirdPersonWeaponManager:_getStanceOffset(): CFrame
 	if not self.Rig then
 		return CFrame.new()
@@ -413,7 +573,7 @@ function ThirdPersonWeaponManager:SetCrouching(isCrouching: boolean?)
 end
 
 function ThirdPersonWeaponManager:_playTrack(trackName: string, restart: boolean?)
-	local track = self.Tracks[trackName]
+	local track = self.Tracks[trackName] or self:_ensureReplicatedTrack(trackName)
 	if not track then
 		return
 	end
@@ -549,7 +709,11 @@ function ThirdPersonWeaponManager:ApplyReplicatedAction(actionName: string, trac
 
 	if actionName == "PlayWeaponTrack" or actionName == "PlayAnimation" then
 		if resolvedTrack then
-			self:_playTrack(resolvedTrack, true)
+			if isActive == false then
+				self:_stopTrack(resolvedTrack)
+			else
+				self:_playTrack(resolvedTrack, true)
+			end
 		end
 		return
 	end
