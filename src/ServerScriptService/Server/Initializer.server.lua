@@ -69,6 +69,10 @@ local entries = {
 		module = servicesFolder:WaitForChild("Emote"):WaitForChild("EmoteService"),
 	},
 	{
+		name = "OverheadService",
+		module = servicesFolder:WaitForChild("Overhead"):WaitForChild("OverheadService"),
+	},
+	{
 		name = "DummyService",
 		module = servicesFolder:WaitForChild("Dummy"):WaitForChild("DummyService"),
 	},

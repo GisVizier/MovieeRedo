@@ -1,10 +1,29 @@
+local UserInputService = game:GetService("UserInputService")
+
 local InputController = {}
 
 local InputManager = require(script.Parent:WaitForChild("InputManager"))
 
-function InputController:Init()
+function InputController:Init(_registry, net)
+	self._net = net
 	self.Manager = InputManager
 	self.Manager:Init()
+
+	-- Send detected platform to server for overhead display
+	local platform = self.Manager.InputMode
+	if platform == "Unknown" then
+		platform = "PC"
+	end
+	self._net:FireServer("SetPlatform", platform)
+
+	-- Re-send when input device changes (e.g. controller plugged in)
+	UserInputService.LastInputTypeChanged:Connect(function()
+		self.Manager:DetectInputMode()
+		local newPlatform = self.Manager.InputMode
+		if newPlatform ~= "Unknown" then
+			self._net:FireServer("SetPlatform", newPlatform)
+		end
+	end)
 end
 
 function InputController:Start()

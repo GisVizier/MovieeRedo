@@ -106,6 +106,9 @@ local Remotes = {
 
 	-- Debug / testing
 	{ name = "RequestTestDeath", description = "Client requests self-kill for testing respawn flow" },
+
+	-- Overhead system
+	{ name = "SetPlatform", description = "Client sends platform type to server" },
 }
 
 return Remotes
