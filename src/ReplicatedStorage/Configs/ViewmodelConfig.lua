@@ -157,6 +157,7 @@ ViewmodelConfig.Weapons = {
 			Reload = "Reload",
 			Equip = "Equip",
 			Inspect = "Inspect",
+			Inspect2 = "Inspect2",
 		},
 	},
 

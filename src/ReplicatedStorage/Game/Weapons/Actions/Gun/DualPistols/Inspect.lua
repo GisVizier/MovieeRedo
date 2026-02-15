@@ -4,6 +4,15 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 
 local Inspect = {}
 Inspect._isInspecting = false
+local INSPECT2_CHANCE = 0.10
+local rng = Random.new()
+
+local function chooseInspectTrackName()
+	if rng:NextNumber() < INSPECT2_CHANCE then
+		return "Inspect2"
+	end
+	return "Inspect"
+end
 
 function Inspect.Execute(weaponInstance)
 	if not weaponInstance or not weaponInstance.State then
@@ -25,7 +34,11 @@ function Inspect.Execute(weaponInstance)
 
 	Inspect._isInspecting = true
 
-	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
+	local trackName = chooseInspectTrackName()
+	local track = viewmodelController:PlayWeaponTrack(trackName, 0.1)
+	if not track and trackName ~= "Inspect" then
+		track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
+	end
 	local function onComplete()
 		Inspect._isInspecting = false
 	end
@@ -56,6 +69,7 @@ function Inspect.Cancel()
 	local animator = viewmodelController._animator
 	if animator and type(animator.Stop) == "function" then
 		animator:Stop("Inspect", 0.1)
+		animator:Stop("Inspect2", 0.1)
 	end
 end
 
