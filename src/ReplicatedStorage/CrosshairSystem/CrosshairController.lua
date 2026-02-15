@@ -187,6 +187,10 @@ function CrosshairController:_cancelHitmarkerTweens()
 		self._hitmarkerTween:Cancel()
 		self._hitmarkerTween = nil
 	end
+	if self._hitmarkerRotationTween then
+		self._hitmarkerRotationTween:Cancel()
+		self._hitmarkerRotationTween = nil
+	end
 	if self._hitmarkerFadeTween then
 		self._hitmarkerFadeTween:Cancel()
 		self._hitmarkerFadeTween = nil
@@ -647,6 +651,16 @@ function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
 	self._hitmarker.ImageTransparency = 0
 	self._hitmarker.ImageColor3 = isHeadshot and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(255, 255, 255)
 	self._hitmarker.Visible = true
+
+	-- Random rotation offset that snaps back to 0 for a punchy feel
+	local randomRotation = math.random(-25, 25)
+	self._hitmarker.Rotation = randomRotation
+	self._hitmarkerRotationTween = TweenService:Create(
+		self._hitmarker,
+		TweenInfo.new(showDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Rotation = 0 }
+	)
+	self._hitmarkerRotationTween:Play()
 
 	if self._hitmarkerScale then
 		self._hitmarkerScale.Scale = startScale

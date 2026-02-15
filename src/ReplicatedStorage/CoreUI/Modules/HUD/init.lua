@@ -70,6 +70,9 @@ local HEALTH_COLORS = {
 	{ threshold = 0, color = Color3.fromRGB(250, 70, 70) },
 }
 
+local HEALTH_SHAKE_OFFSETS = { -8, 8, -4, 0 }
+local HEALTH_SHAKE_TWEEN = TweenInfo.new(0.04, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
 local currentTweens = {}
 
 local function cancelTweens(key)
@@ -92,6 +95,15 @@ end
 
 local function calculateGradientOffset(percent)
 	return Vector2.new(percent, 0.5)
+end
+
+local function withXOffset(position: UDim2, offset: number): UDim2
+	return UDim2.new(
+		position.X.Scale,
+		position.X.Offset + offset,
+		position.Y.Scale,
+		position.Y.Offset
+	)
 end
 
 local function getRarityColor(rarityName)
@@ -117,6 +129,7 @@ function module.start(export, ui: UI)
 	self._weaponData = {}
 	self._selectedSlot = nil
 	self._cooldownThreads = {}
+	self._healthShakeToken = 0
 
 	local playerSpace = ui.PlayerSpace
 
@@ -136,6 +149,44 @@ function module.start(export, ui: UI)
 	self:_setupMatchListeners()
 
 	return self
+end
+
+function module:_playHealthDamageShake()
+	local barHolders = self._playerSpace and self._playerSpace:FindFirstChild("BarHolders")
+	if not barHolders or not self._barHoldersOriginalPosition then
+		return
+	end
+
+	self._healthShakeToken += 1
+	local shakeToken = self._healthShakeToken
+
+	cancelTweens("hud_health_shake")
+	barHolders.Position = self._barHoldersOriginalPosition
+
+	task.spawn(function()
+		for _, offset in HEALTH_SHAKE_OFFSETS do
+			if self._healthShakeToken ~= shakeToken then
+				return
+			end
+
+			if not self._ui or not self._ui.Parent or not self._ui.Visible then
+				return
+			end
+
+			local tween = TweenService:Create(barHolders, HEALTH_SHAKE_TWEEN, {
+				Position = withXOffset(self._barHoldersOriginalPosition, offset),
+			})
+			currentTweens["hud_health_shake"] = { tween }
+			tween:Play()
+			tween.Completed:Wait()
+		end
+
+		if self._healthShakeToken == shakeToken and self._ui and self._ui.Parent then
+			barHolders.Position = self._barHoldersOriginalPosition
+		end
+
+		currentTweens["hud_health_shake"] = nil
+	end)
 end
 
 function module:_cacheMatchUI()
@@ -1541,11 +1592,16 @@ function module:_setupHealthConnection()
 	local function onHealthChanged()
 		local health = self._viewedPlayer:GetAttribute("Health") or 100
 		local maxHealth = self._viewedPlayer:GetAttribute("MaxHealth") or 100
+		local previousHealth = self._currentHealth
 
 		self._currentHealth = health
 		self._currentMaxHealth = maxHealth
 
 		self:_setHealthBar(health, maxHealth, false)
+
+		if type(previousHealth) == "number" and health < previousHealth then
+			self:_playHealthDamageShake()
+		end
 	end
 
 	self._connections:track(self._viewedPlayer, "AttributeChanged", function(attributeName)
@@ -1947,6 +2003,7 @@ function module:_cleanup()
 
 	self._weaponData = {}
 	self._selectedSlot = nil
+	self._healthShakeToken += 1
 
 	self._viewedPlayer = nil
 	self._viewedCharacter = nil
