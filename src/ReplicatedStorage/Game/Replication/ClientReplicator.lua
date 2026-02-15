@@ -362,7 +362,7 @@ function ClientReplicator:SyncParts(dt)
 	if self.WeaponManager then
 		local isCrouched = MovementStateManager:IsCrouching() or MovementStateManager:IsSliding()
 		self.WeaponManager:SetCrouching(isCrouched)
-		self.WeaponManager:UpdateTransform(rootCFrame, self:_getAimPitch())
+		self.WeaponManager:UpdateTransform(rootCFrame, self:_getAimPitch(), dt)
 	end
 
 end

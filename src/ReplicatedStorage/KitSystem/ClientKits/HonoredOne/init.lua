@@ -487,12 +487,6 @@ local function endBlue(state)
 	clearExternalMoveMult()
 	clearBlueSlideGate()
 
-	-- Stop Blue rig animation (replicates to others)
-	local animCtrl = ServiceRegistry:GetController("AnimationController")
-	if animCtrl then
-		animCtrl:StopRigAnimation("Blue", 0.15)
-	end
-
 	if state.hitboxViz and state.hitboxViz.Parent then
 		state.hitboxViz:Destroy()
 	end
@@ -505,13 +499,6 @@ local function endRed(state, preserveExplosionPivot)
 	clearExternalMoveMult()
 	clearRedCrouchGate()
 	clearBlueSlideGate()
-
-	-- Stop Red rig animations (replicates to others)
-	local animCtrl = ServiceRegistry:GetController("AnimationController")
-	if animCtrl then
-		animCtrl:StopRigAnimation("RedIdle", 0.1)
-		animCtrl:StopRigAnimation("RedShoot", 0.1)
-	end
 
 	if state.projectileViz and state.projectileViz.Parent then
 		state.projectileViz:Destroy()
@@ -1548,12 +1535,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 					ViewModel = viewmodelRig,
 					forceAction = "red_create",
 				})
-
-				-- 3rd person rig: show RedIdle while charging
-				local animCtrl = ServiceRegistry:GetController("AnimationController")
-				if animCtrl then
-					animCtrl:PlayRigAnimation("RedIdle", { Looped = true, Priority = Enum.AnimationPriority.Action4 })
-				end
 			end
 		
 		end,
@@ -1661,12 +1642,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- Play "Pulled" voice line
 			Dialogue.generate("HonoredOne", "Ability", "BlueStart", { override = true })
 
-			-- 3rd person rig: show Blue animation while hitbox is active
-			local animCtrl = ServiceRegistry:GetController("AnimationController")
-			if animCtrl then
-				animCtrl:PlayRigAnimation("Blue", { Looped = true, Priority = Enum.AnimationPriority.Action4 })
-			end
-
 			task.spawn(runBlueHitbox, state)
 		end,
 
@@ -1689,13 +1664,6 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 				forceAction = "red_fire",
 			})
 			LocalPlayer:SetAttribute(`red_charge`, nil)
-
-			-- 3rd person rig: RedIdle -> RedShoot
-			local animCtrl = ServiceRegistry:GetController("AnimationController")
-			if animCtrl then
-				animCtrl:StopRigAnimation("RedIdle", 0.05)
-				animCtrl:PlayRigAnimation("RedShoot", { Looped = false, FadeInTime = 0.05 })
-			end
 		end,
 
 		["_finish"] = function()

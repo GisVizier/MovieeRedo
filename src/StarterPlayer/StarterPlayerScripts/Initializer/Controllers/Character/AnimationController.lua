@@ -77,6 +77,15 @@ AnimationController.AnimationInstances = {}
 AnimationController.AnimationSettings = {}
 AnimationController.JumpCancelVariants = {}
 
+-- Weapon (legs-only) animation system
+AnimationController.WeaponAnimationInstances = {}
+AnimationController.WeaponAnimationTracks = {}
+AnimationController.WeaponJumpCancelVariants = {}
+AnimationController._weaponAnimMode = false -- true = play legs-only variants
+-- Per-remote-player weapon anim mode: OtherCharacterWeaponMode[character] = true/false
+AnimationController.OtherCharacterWeaponMode = {}
+AnimationController.OtherCharacterWeaponTracks = {}
+
 AnimationController.CurrentStateAnimation = nil
 AnimationController.CurrentIdleAnimation = nil
 AnimationController.CurrentAirborneAnimation = nil
@@ -135,7 +144,7 @@ end
 
 local STATE_ANIMATIONS = {
 	Walking = "WalkingForward",
-	Sprinting = "WalkingForward",
+	Sprinting = "RunningForward",
 	Crouching = "CrouchWalkingForward",
 	IdleStanding = "IdleStanding",
 	IdleCrouching = "IdleCrouching",
@@ -351,7 +360,7 @@ function AnimationController:_publishLocalRigAnimationState()
 	LocalPlayer:SetAttribute(RIG_ANIMATION_STATE_ATTRIBUTE, encoded)
 end
 
-function AnimationController:_setLocalRigAnimationState(animName: string, settings: {[string]: any}?)
+function AnimationController:_setLocalRigAnimationState(animName: string, settings: { [string]: any }?)
 	if type(animName) ~= "string" or animName == "" then
 		return
 	end
@@ -454,11 +463,7 @@ function AnimationController:_playRemoteRigStateAnimation(player: Player, animNa
 	local priority = decodePriority(payload and payload.Priority) or Enum.AnimationPriority.Action4
 	loadedTrack.Priority = priority
 	loadedTrack.Looped = payload and payload.Looped == true or false
-	loadedTrack:Play(
-		tonumber(payload and payload.FadeInTime) or 0.15,
-		1,
-		tonumber(payload and payload.Speed) or 1
-	)
+	loadedTrack:Play(tonumber(payload and payload.FadeInTime) or 0.15, 1, tonumber(payload and payload.Speed) or 1)
 
 	kitTracks[animName] = loadedTrack
 	loadedTrack.Stopped:Once(function()
@@ -512,9 +517,11 @@ function AnimationController:_bindRigAnimationStateForPlayer(player: Player)
 		self.RigAnimationStateConnections[player] = nil
 	end
 
-	self.RigAnimationStateConnections[player] = player:GetAttributeChangedSignal(RIG_ANIMATION_STATE_ATTRIBUTE):Connect(function()
-		self:_reconcileRemoteRigAnimationState(player)
-	end)
+	self.RigAnimationStateConnections[player] = player
+		:GetAttributeChangedSignal(RIG_ANIMATION_STATE_ATTRIBUTE)
+		:Connect(function()
+			self:_reconcileRemoteRigAnimationState(player)
+		end)
 
 	task.defer(function()
 		if player and player.Parent then
@@ -560,6 +567,8 @@ end
 function AnimationController:_loadAnimationInstances()
 	self.AnimationInstances = {}
 	self.JumpCancelVariants = {}
+	self.WeaponAnimationInstances = {}
+	self.WeaponJumpCancelVariants = {}
 
 	local baseFolder = getAnimationFolder()
 	if not baseFolder then
@@ -601,6 +610,44 @@ function AnimationController:_loadAnimationInstances()
 		self.JumpCancelVariants = { self.AnimationInstances.JumpCancel }
 	end
 
+	-- Load legs-only weapon variants from Base/Weapon/
+	local weaponFolder = baseFolder:FindFirstChild("Weapon")
+	if weaponFolder then
+		for _, child in ipairs(weaponFolder:GetChildren()) do
+			if child:IsA("Animation") then
+				local name = child.Name
+				local index = name:match("^JumpCancel(%d+)$")
+				if index then
+					self.WeaponJumpCancelVariants[tonumber(index)] = child
+				else
+					self.WeaponAnimationInstances[name] = child
+				end
+			elseif child:IsA("Folder") and child.Name == "Zipline" then
+				for _, zipAnim in ipairs(child:GetChildren()) do
+					if zipAnim:IsA("Animation") then
+						self.WeaponAnimationInstances[zipAnim.Name] = zipAnim
+					end
+				end
+			end
+		end
+
+		local wVariants = {}
+		for index, anim in pairs(self.WeaponJumpCancelVariants) do
+			wVariants[index] = anim
+		end
+
+		self.WeaponJumpCancelVariants = {}
+		for i = 1, #wVariants do
+			if wVariants[i] then
+				table.insert(self.WeaponJumpCancelVariants, wVariants[i])
+			end
+		end
+
+		if #self.WeaponJumpCancelVariants == 0 and self.WeaponAnimationInstances.JumpCancel then
+			self.WeaponJumpCancelVariants = { self.WeaponAnimationInstances.JumpCancel }
+		end
+	end
+
 	return true
 end
 
@@ -611,14 +658,20 @@ end
 ]]
 function AnimationController:PreloadCharacterAnimations()
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if not assets then return end
-	
+	if not assets then
+		return
+	end
+
 	local animations = assets:FindFirstChild("Animations")
-	if not animations then return end
-	
+	if not animations then
+		return
+	end
+
 	local characterFolder = animations:FindFirstChild("Character")
-	if not characterFolder then return end
-	
+	if not characterFolder then
+		return
+	end
+
 	-- Recursively load all animations from Character folder
 	local function loadFromFolder(folder)
 		for _, child in ipairs(folder:GetChildren()) do
@@ -633,12 +686,14 @@ function AnimationController:PreloadCharacterAnimations()
 			end
 		end
 	end
-	
+
 	loadFromFolder(characterFolder)
-	
+
 	if TestMode.Logging.LogAnimationSystem then
 		local count = 0
-		for _ in pairs(self.PreloadedAnimations) do count = count + 1 end
+		for _ in pairs(self.PreloadedAnimations) do
+			count = count + 1
+		end
 		LogService:Info("ANIMATION", "Preloaded character animations", { Count = count / 2 })
 	end
 end
@@ -658,16 +713,16 @@ end
 	
 	@return AnimationTrack? - The playing track, or nil if failed
 ]]
-function AnimationController:PlayAnimation(animationId: string, settings: {[string]: any}?)
+function AnimationController:PlayAnimation(animationId: string, settings: { [string]: any }?)
 	if not self.LocalAnimator then
 		return nil
 	end
-	
+
 	settings = settings or {}
-	
+
 	-- Resolve animation instance
 	local animation = nil
-	
+
 	-- Check preloaded first (by name or ID)
 	if self.PreloadedAnimations[animationId] then
 		animation = self.PreloadedAnimations[animationId]
@@ -681,11 +736,11 @@ function AnimationController:PlayAnimation(animationId: string, settings: {[stri
 			animation.AnimationId = "rbxassetid://" .. animationId
 		end
 	end
-	
+
 	if not animation or not animation.AnimationId or animation.AnimationId == "" then
 		return nil
 	end
-	
+
 	-- Stop other custom animations if requested
 	if settings.StopOthers ~= false then
 		for _, track in pairs(self.CustomAnimationTracks) do
@@ -694,34 +749,30 @@ function AnimationController:PlayAnimation(animationId: string, settings: {[stri
 			end
 		end
 	end
-	
+
 	-- Load track
 	local track = self.LocalAnimator:LoadAnimation(animation)
 	if not track then
 		return nil
 	end
-	
+
 	-- Apply settings
 	track.Priority = settings.Priority or Enum.AnimationPriority.Action
 	track.Looped = settings.Looped or false
-	
+
 	-- Play
-	track:Play(
-		settings.FadeInTime or 0.1,
-		settings.Weight or 1,
-		settings.Speed or 1
-	)
-	
+	track:Play(settings.FadeInTime or 0.1, settings.Weight or 1, settings.Speed or 1)
+
 	-- Store reference
 	self.CustomAnimationTracks[animationId] = track
-	
+
 	-- Cleanup when stopped
 	track.Stopped:Once(function()
 		if self.CustomAnimationTracks[animationId] == track then
 			self.CustomAnimationTracks[animationId] = nil
 		end
 	end)
-	
+
 	return track
 end
 
@@ -760,7 +811,7 @@ end
 	@param settings: table? - Optional: Looped, Priority, FadeInTime, Speed, StopOthers
 	@return AnimationTrack? - The local track, or nil if failed
 ]]
-function AnimationController:PlayRigAnimation(animName: string, settings: {[string]: any}?)
+function AnimationController:PlayRigAnimation(animName: string, settings: { [string]: any }?)
 	local track = self:PlayAnimation(animName, settings)
 	if track then
 		self:_setLocalRigAnimationState(animName, settings)
@@ -809,11 +860,17 @@ end
 
 function AnimationController:_onRemoteRigPlay(originUserId, data)
 	local localPlayer = Players.LocalPlayer
-	if localPlayer and localPlayer.UserId == originUserId then return end
-	if type(data) ~= "table" or type(data.animName) ~= "string" then return end
+	if localPlayer and localPlayer.UserId == originUserId then
+		return
+	end
+	if type(data) ~= "table" or type(data.animName) ~= "string" then
+		return
+	end
 
 	local player = Players:GetPlayerByUserId(originUserId)
-	if not player then return end
+	if not player then
+		return
+	end
 	if type(data) == "table" and type(data.animName) == "string" then
 		local desired = self.OtherCharacterDesiredRigState[player] or {}
 		desired[data.animName] = {
@@ -827,13 +884,19 @@ function AnimationController:_onRemoteRigPlay(originUserId, data)
 	end
 
 	local character = player.Character
-	if not character or not character.Parent then return end
+	if not character or not character.Parent then
+		return
+	end
 
 	local animator = self.OtherCharacterAnimators[character]
-	if not animator then return end
+	if not animator then
+		return
+	end
 
 	local animation = self.PreloadedAnimations[data.animName]
-	if not animation or not animation.AnimationId or animation.AnimationId == "" then return end
+	if not animation or not animation.AnimationId or animation.AnimationId == "" then
+		return
+	end
 
 	-- Ensure kit tracks table exists for this character
 	if not self.OtherCharacterKitTracks[character] then
@@ -851,16 +914,14 @@ function AnimationController:_onRemoteRigPlay(originUserId, data)
 	end
 
 	local track = animator:LoadAnimation(animation)
-	if not track then return end
+	if not track then
+		return
+	end
 
 	track.Priority = data.Priority or Enum.AnimationPriority.Action4
 	track.Looped = data.Looped or false
 
-	track:Play(
-		data.FadeInTime or 0.15,
-		1,
-		data.Speed or 1
-	)
+	track:Play(data.FadeInTime or 0.15, 1, data.Speed or 1)
 
 	kitTracks[data.animName] = track
 
@@ -873,11 +934,17 @@ end
 
 function AnimationController:_onRemoteRigStop(originUserId, data)
 	local localPlayer = Players.LocalPlayer
-	if localPlayer and localPlayer.UserId == originUserId then return end
-	if type(data) ~= "table" or type(data.animName) ~= "string" then return end
+	if localPlayer and localPlayer.UserId == originUserId then
+		return
+	end
+	if type(data) ~= "table" or type(data.animName) ~= "string" then
+		return
+	end
 
 	local player = Players:GetPlayerByUserId(originUserId)
-	if not player then return end
+	if not player then
+		return
+	end
 	if type(data) == "table" and type(data.animName) == "string" then
 		local desired = self.OtherCharacterDesiredRigState[player]
 		if desired then
@@ -886,10 +953,14 @@ function AnimationController:_onRemoteRigStop(originUserId, data)
 	end
 
 	local character = player.Character
-	if not character then return end
+	if not character then
+		return
+	end
 
 	local kitTracks = self.OtherCharacterKitTracks[character]
-	if not kitTracks then return end
+	if not kitTracks then
+		return
+	end
 
 	local track = kitTracks[data.animName]
 	if track and track.IsPlaying then
@@ -900,17 +971,25 @@ end
 
 function AnimationController:_onRemoteRigStopAll(originUserId, data)
 	local localPlayer = Players.LocalPlayer
-	if localPlayer and localPlayer.UserId == originUserId then return end
+	if localPlayer and localPlayer.UserId == originUserId then
+		return
+	end
 
 	local player = Players:GetPlayerByUserId(originUserId)
-	if not player then return end
+	if not player then
+		return
+	end
 	self.OtherCharacterDesiredRigState[player] = {}
 
 	local character = player.Character
-	if not character then return end
+	if not character then
+		return
+	end
 
 	local kitTracks = self.OtherCharacterKitTracks[character]
-	if not kitTracks then return end
+	if not kitTracks then
+		return
+	end
 
 	local fadeOut = type(data) == "table" and data.fadeOut or 0.15
 	for _, track in pairs(kitTracks) do
@@ -955,8 +1034,10 @@ function AnimationController:PreloadAnimations()
 	end
 
 	self.LocalAnimationTracks = {}
+	self.WeaponAnimationTracks = {}
 	self.AnimationSettings = {}
 
+	-- Load full-body tracks from Base/
 	for name, animation in pairs(self.AnimationInstances) do
 		local track = self:_loadTrack(self.LocalAnimator, animation, name)
 		if track then
@@ -970,6 +1051,24 @@ function AnimationController:PreloadAnimations()
 			local track = self:_loadTrack(self.LocalAnimator, animation, "JumpCancel")
 			if track then
 				table.insert(self.LocalAnimationTracks.JumpCancel, track)
+			end
+		end
+	end
+
+	-- Load legs-only weapon tracks from Base/Weapon/
+	for name, animation in pairs(self.WeaponAnimationInstances) do
+		local track = self:_loadTrack(self.LocalAnimator, animation, name)
+		if track then
+			self.WeaponAnimationTracks[name] = track
+		end
+	end
+
+	if #self.WeaponJumpCancelVariants > 0 then
+		self.WeaponAnimationTracks.JumpCancel = {}
+		for _, animation in ipairs(self.WeaponJumpCancelVariants) do
+			local track = self:_loadTrack(self.LocalAnimator, animation, "JumpCancel")
+			if track then
+				table.insert(self.WeaponAnimationTracks.JumpCancel, track)
 			end
 		end
 	end
@@ -1016,12 +1115,15 @@ function AnimationController:OnLocalCharacterRemoving()
 	self:StopAllLocalAnimations()
 	self:StopSlideAnimationUpdates()
 	self:StopWalkAnimationUpdates()
+	self:StopRunAnimationUpdates()
 	self:StopCrouchAnimationUpdates()
 	self:StopAnimationSpeedUpdates()
 
 	self.LocalCharacter = nil
 	self.LocalAnimator = nil
 	self.LocalAnimationTracks = {}
+	self.WeaponAnimationTracks = {}
+	self._weaponAnimMode = false
 	self.CurrentStateAnimation = nil
 	self.CurrentIdleAnimation = nil
 	self.CurrentAirborneAnimation = nil
@@ -1092,6 +1194,24 @@ function AnimationController:OnOtherCharacterRemoving(character)
 	self.OtherCharacterAnimators[character] = nil
 	self.OtherCharacterTracks[character] = nil
 	self.OtherCharacterCurrentAnimations[character] = nil
+	self.OtherCharacterWeaponMode[character] = nil
+
+	-- Cleanup weapon tracks for this character
+	local weaponTracks = self.OtherCharacterWeaponTracks[character]
+	if weaponTracks then
+		for _, track in pairs(weaponTracks) do
+			if typeof(track) == "Instance" and track.IsPlaying then
+				track:Stop()
+			elseif type(track) == "table" then
+				for _, variant in ipairs(track) do
+					if variant.IsPlaying then
+						variant:Stop()
+					end
+				end
+			end
+		end
+	end
+	self.OtherCharacterWeaponTracks[character] = nil
 
 	-- Cleanup kit tracks for this character
 	local kitTracks = self.OtherCharacterKitTracks[character]
@@ -1177,8 +1297,12 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 	end
 
 	if isMoving then
-		if newState == "Walking" or newState == "Sprinting" then
+		if newState == "Walking" then
+			self:StopRunAnimationUpdates()
 			self:StartWalkAnimationUpdates()
+		elseif newState == "Sprinting" then
+			self:StopWalkAnimationUpdates()
+			self:StartRunAnimationUpdates()
 		elseif newState == "Crouching" then
 			self:StartCrouchAnimationUpdates()
 		else
@@ -1186,6 +1310,7 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 		end
 	else
 		self:StopWalkAnimationUpdates()
+		self:StopRunAnimationUpdates()
 		self:StopCrouchAnimationUpdates()
 
 		local idleAnimationName = self:GetIdleAnimationForState(newState)
@@ -1231,8 +1356,12 @@ function AnimationController:OnMovementChanged(_wasMoving, isMoving)
 	end
 
 	if isMoving then
-		if currentState == "Walking" or currentState == "Sprinting" then
+		if currentState == "Walking" then
+			self:StopRunAnimationUpdates()
 			self:StartWalkAnimationUpdates()
+		elseif currentState == "Sprinting" then
+			self:StopWalkAnimationUpdates()
+			self:StartRunAnimationUpdates()
 		elseif currentState == "Crouching" then
 			self:StartCrouchAnimationUpdates()
 		else
@@ -1243,6 +1372,7 @@ function AnimationController:OnMovementChanged(_wasMoving, isMoving)
 		end
 	else
 		self:StopWalkAnimationUpdates()
+		self:StopRunAnimationUpdates()
 		self:StopCrouchAnimationUpdates()
 
 		local idleAnimationName = self:GetIdleAnimationForState(currentState)
@@ -1271,8 +1401,9 @@ function AnimationController:OnGroundedChanged(wasGrounded, isGrounded)
 		self:StopAirborneAnimation()
 
 		if not wasGrounded and not isSliding then
-			local landName = self.LocalAnimationTracks.Land and "Land"
-				or (self.LocalAnimationTracks.Landing and "Landing")
+			local primary = self:_getLocalTrackTable()
+			local landName = (primary.Land or self.LocalAnimationTracks.Land) and "Land"
+				or ((primary.Landing or self.LocalAnimationTracks.Landing) and "Landing")
 			if landName then
 				self:PlayActionAnimation(landName)
 			end
@@ -1318,12 +1449,56 @@ function AnimationController:IsCharacterGrounded()
 	return false
 end
 
+--- Toggle weapon (legs-only) animation mode for the local player.
+--- When enabled, body animations play from Base/Weapon/ (arms keyframes deleted).
+--- When disabled, body animations play from Base/ (full-body).
+function AnimationController:SetWeaponAnimationMode(enabled: boolean)
+	local wasEnabled = self._weaponAnimMode
+	self._weaponAnimMode = enabled == true
+
+	-- If mode changed while an animation is playing, re-play the current animation
+	-- from the correct track table so it swaps immediately.
+	if wasEnabled ~= self._weaponAnimMode and self.CurrentAnimationName then
+		local name = self.CurrentAnimationName
+		local category = getAnimationCategory(name)
+		if category == "State" then
+			self:PlayStateAnimation(name)
+		elseif category == "Idle" then
+			self:PlayIdleAnimation(name)
+		elseif category == "Airborne" then
+			self:PlayAirborneAnimation(name)
+		end
+	end
+end
+
+--- Toggle weapon (legs-only) animation mode for a specific remote player.
+function AnimationController:SetWeaponAnimationModeForPlayer(player: Player, enabled: boolean)
+	local character = player and player.Character
+	if character then
+		self.OtherCharacterWeaponMode[character] = enabled == true or nil
+	end
+end
+
+--- Returns the correct track lookup table for the local player.
+--- When weapon mode is active AND a weapon variant exists, use it; otherwise fall back to full-body.
+function AnimationController:_getLocalTrackTable()
+	if self._weaponAnimMode and next(self.WeaponAnimationTracks) then
+		return self.WeaponAnimationTracks, self.LocalAnimationTracks
+	end
+	return self.LocalAnimationTracks, nil
+end
+
 function AnimationController:PlayStateAnimation(animationName)
 	if not self.LocalAnimator then
 		return
 	end
 
-	local track = self.LocalAnimationTracks[animationName]
+	local primary, fallback = self:_getLocalTrackTable()
+	local track = primary[animationName]
+	-- Fall back to full-body if no weapon variant exists for this specific animation
+	if not track and fallback then
+		track = fallback[animationName]
+	end
 	if type(track) == "table" then
 		track = track[1]
 	end
@@ -1358,7 +1533,11 @@ function AnimationController:PlayIdleAnimation(animationName)
 		return
 	end
 
-	local track = self.LocalAnimationTracks[animationName]
+	local primary, fallback = self:_getLocalTrackTable()
+	local track = primary[animationName]
+	if not track and fallback then
+		track = fallback[animationName]
+	end
 	if type(track) == "table" then
 		track = track[1]
 	end
@@ -1388,7 +1567,11 @@ function AnimationController:PlayActionAnimation(animationName)
 		return
 	end
 
-	local track = self.LocalAnimationTracks[animationName]
+	local primary, fallback = self:_getLocalTrackTable()
+	local track = primary[animationName]
+	if not track and fallback then
+		track = fallback[animationName]
+	end
 	if type(track) == "table" then
 		track = track[1]
 	end
@@ -1398,7 +1581,11 @@ function AnimationController:PlayActionAnimation(animationName)
 
 	local settings = self.AnimationSettings[animationName] or getDefaultSettings(animationName)
 
-	if self.CurrentActionAnimation and self.CurrentActionAnimation ~= track and self.CurrentActionAnimation.IsPlaying then
+	if
+		self.CurrentActionAnimation
+		and self.CurrentActionAnimation ~= track
+		and self.CurrentActionAnimation.IsPlaying
+	then
 		self.CurrentActionAnimation:Stop(settings.FadeOutTime)
 	end
 
@@ -1419,7 +1606,11 @@ function AnimationController:PlayZiplineAnimation(animationName)
 	if not self:_loadAnimationInstances() then
 		return nil
 	end
-	local track = self.LocalAnimationTracks[animationName]
+	local primary, fallback = self:_getLocalTrackTable()
+	local track = primary[animationName]
+	if not track and fallback then
+		track = fallback[animationName]
+	end
 	if type(track) == "table" then
 		track = track[1]
 	end
@@ -1432,24 +1623,32 @@ function AnimationController:PlayZiplineAnimation(animationName)
 
 	self:StopSlideAnimationUpdates()
 	self:StopWalkAnimationUpdates()
+	self:StopRunAnimationUpdates()
 	self:StopCrouchAnimationUpdates()
 
 	if self.CurrentStateAnimation and self.CurrentStateAnimation.IsPlaying then
-		local settings = self.AnimationSettings[self.CurrentAnimationName] or getDefaultSettings(self.CurrentAnimationName)
+		local settings = self.AnimationSettings[self.CurrentAnimationName]
+			or getDefaultSettings(self.CurrentAnimationName)
 		self.CurrentStateAnimation:Stop(settings.FadeOutTime)
 	end
 	if self.CurrentIdleAnimation and self.CurrentIdleAnimation.IsPlaying then
-		local settings = self.AnimationSettings[self.CurrentAnimationName] or getDefaultSettings(self.CurrentAnimationName)
+		local settings = self.AnimationSettings[self.CurrentAnimationName]
+			or getDefaultSettings(self.CurrentAnimationName)
 		self.CurrentIdleAnimation:Stop(settings.FadeOutTime)
 	end
 	if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
-		local settings = self.AnimationSettings[self.CurrentAnimationName] or getDefaultSettings(self.CurrentAnimationName)
+		local settings = self.AnimationSettings[self.CurrentAnimationName]
+			or getDefaultSettings(self.CurrentAnimationName)
 		self.CurrentAirborneAnimation:Stop(settings.FadeOutTime)
 		self.CurrentAirborneAnimation = nil
 	end
 
 	local settings = self.AnimationSettings[animationName] or getDefaultSettings(animationName)
-	if self.CurrentActionAnimation and self.CurrentActionAnimation ~= track and self.CurrentActionAnimation.IsPlaying then
+	if
+		self.CurrentActionAnimation
+		and self.CurrentActionAnimation ~= track
+		and self.CurrentActionAnimation.IsPlaying
+	then
 		self.CurrentActionAnimation:Stop(settings.FadeOutTime)
 	end
 
@@ -1504,15 +1703,17 @@ function AnimationController:StopZiplineAnimation(fadeOutOverride)
 end
 
 function AnimationController:StopAllLocalAnimations()
-	for _, track in pairs(self.LocalAnimationTracks) do
-		if typeof(track) == "Instance" then
-			if track.IsPlaying then
-				track:Stop()
-			end
-		elseif type(track) == "table" then
-			for _, variant in ipairs(track) do
-				if variant.IsPlaying then
-					variant:Stop()
+	for _, trackTable in ipairs({ self.LocalAnimationTracks, self.WeaponAnimationTracks }) do
+		for _, track in pairs(trackTable) do
+			if typeof(track) == "Instance" then
+				if track.IsPlaying then
+					track:Stop()
+				end
+			elseif type(track) == "table" then
+				for _, variant in ipairs(track) do
+					if variant.IsPlaying then
+						variant:Stop()
+					end
 				end
 			end
 		end
@@ -1525,7 +1726,12 @@ function AnimationController:StopAllLocalAnimations()
 end
 
 function AnimationController:SelectRandomJumpCancelTrack(forceVariantIndex)
-	local jumpCancelTracks = self.LocalAnimationTracks.JumpCancel
+	-- Use weapon (legs-only) JumpCancel tracks if available and weapon mode is on
+	local primary, fallback = self:_getLocalTrackTable()
+	local jumpCancelTracks = primary.JumpCancel
+	if (not jumpCancelTracks or type(jumpCancelTracks) ~= "table") and fallback then
+		jumpCancelTracks = fallback.JumpCancel
+	end
 	if not jumpCancelTracks or type(jumpCancelTracks) ~= "table" then
 		return nil, nil
 	end
@@ -1560,6 +1766,8 @@ function AnimationController:PlayAirborneAnimation(animationName, forceVariantIn
 		return
 	end
 
+	local primary, fallback = self:_getLocalTrackTable()
+
 	local track = nil
 	if animationName == "JumpCancel" then
 		track = self:SelectRandomJumpCancelTrack(forceVariantIndex)
@@ -1567,7 +1775,10 @@ function AnimationController:PlayAirborneAnimation(animationName, forceVariantIn
 			track = track[1]
 		end
 	else
-		track = self.LocalAnimationTracks[animationName]
+		track = primary[animationName]
+		if not track and fallback then
+			track = fallback[animationName]
+		end
 		if type(track) == "table" then
 			track = track[1]
 		end
@@ -1703,7 +1914,7 @@ function AnimationController:StartWalkAnimationUpdates()
 
 	self.WalkAnimationUpdateConnection = RunService.Heartbeat:Connect(function()
 		local currentState = MovementStateManager:GetCurrentState()
-		if currentState ~= "Walking" and currentState ~= "Sprinting" then
+		if currentState ~= "Walking" then
 			self:StopWalkAnimationUpdates()
 			return
 		end
@@ -1769,6 +1980,88 @@ function AnimationController:GetCurrentWalkAnimationName()
 	end
 
 	return WalkDirectionDetector:GetWalkAnimationName(cameraDirection, movementDirection)
+end
+
+function AnimationController:StartRunAnimationUpdates()
+	if not self.LocalCharacter or not self.LocalAnimator then
+		return
+	end
+
+	self:StopRunAnimationUpdates()
+
+	self.CharacterController = ServiceRegistry:GetController("CharacterController")
+	if not self.CharacterController then
+		return
+	end
+
+	local initialAnimationName = self:GetCurrentRunAnimationName()
+	self:PlayStateAnimation(initialAnimationName)
+	self.CurrentRunAnimationName = initialAnimationName
+
+	self.RunAnimationUpdateConnection = RunService.Heartbeat:Connect(function()
+		local currentState = MovementStateManager:GetCurrentState()
+		if currentState ~= "Sprinting" then
+			self:StopRunAnimationUpdates()
+			return
+		end
+
+		if not MovementStateManager:GetIsMoving() then
+			return
+		end
+
+		if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
+			return
+		end
+
+		local newAnimationName = self:GetCurrentRunAnimationName()
+		if newAnimationName ~= self.CurrentRunAnimationName then
+			self:PlayStateAnimation(newAnimationName)
+			self.CurrentRunAnimationName = newAnimationName
+		end
+	end)
+end
+
+function AnimationController:StopRunAnimationUpdates()
+	if self.RunAnimationUpdateConnection then
+		self.RunAnimationUpdateConnection:Disconnect()
+		self.RunAnimationUpdateConnection = nil
+		self.CurrentRunAnimationName = nil
+	end
+end
+
+function AnimationController:GetCurrentRunAnimationName()
+	if not self.CharacterController then
+		return "RunningForward"
+	end
+
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return "RunningForward"
+	end
+
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController and cameraController.CurrentMode == "Orbit" then
+		return "RunningForward"
+	end
+
+	if cameraController then
+		local shouldRotateToCamera = true
+		if cameraController.ShouldRotateCharacterToCamera then
+			shouldRotateToCamera = cameraController:ShouldRotateCharacterToCamera()
+		end
+
+		if not shouldRotateToCamera then
+			return "RunningForward"
+		end
+	end
+
+	local cameraDirection = camera.CFrame.LookVector
+	local movementDirection = self.CharacterController:CalculateMovementDirection()
+	if movementDirection.Magnitude < 0.1 then
+		return "RunningForward"
+	end
+
+	return WalkDirectionDetector:GetRunAnimationName(cameraDirection, movementDirection)
 end
 
 function AnimationController:StartCrouchAnimationUpdates()
@@ -1909,20 +2202,40 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 		return
 	end
 
-	local tracks = self.OtherCharacterTracks[character]
-	if not tracks then
-		tracks = {}
-		self.OtherCharacterTracks[character] = tracks
+	-- Determine if this remote player is in weapon (legs-only) animation mode
+	local useWeaponAnims = self.OtherCharacterWeaponMode[character] == true
+		and next(self.WeaponAnimationInstances) ~= nil
+
+	-- Pick the right track cache and animation instance table
+	local tracks, animInstances, jumpVariants
+	if useWeaponAnims then
+		tracks = self.OtherCharacterWeaponTracks[character]
+		if not tracks then
+			tracks = {}
+			self.OtherCharacterWeaponTracks[character] = tracks
+		end
+		animInstances = self.WeaponAnimationInstances
+		jumpVariants = self.WeaponJumpCancelVariants
+	else
+		tracks = self.OtherCharacterTracks[character]
+		if not tracks then
+			tracks = {}
+			self.OtherCharacterTracks[character] = tracks
+		end
+		animInstances = self.AnimationInstances
+		jumpVariants = self.JumpCancelVariants
 	end
 
 	local track = tracks[animationName]
 	if animationName == "JumpCancel" then
 		if not track then
 			track = {}
-			local variants = #self.JumpCancelVariants > 0 and self.JumpCancelVariants
-				or { self.AnimationInstances.JumpCancel }
+			local variants = #jumpVariants > 0 and jumpVariants
+				or { animInstances.JumpCancel or self.AnimationInstances.JumpCancel }
 			for _, animation in ipairs(variants) do
-				table.insert(track, self:_loadTrack(animator, animation, "JumpCancel"))
+				if animation then
+					table.insert(track, self:_loadTrack(animator, animation, "JumpCancel"))
+				end
 			end
 			tracks[animationName] = track
 		end
@@ -1931,7 +2244,7 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 			track = track[variantIndex or 1] or track[1]
 		end
 	elseif not track then
-		local animation = self.AnimationInstances[animationName]
+		local animation = animInstances[animationName] or self.AnimationInstances[animationName]
 		if not animation then
 			return
 		end
@@ -2061,7 +2374,15 @@ function AnimationController:UpdateAnimationSpeed()
 	end
 
 	local isCrouchAnimation = MovementStateManager:IsCrouching()
-	local baseSpeed = isCrouchAnimation and Config.Gameplay.Character.CrouchSpeed or Config.Gameplay.Character.WalkSpeed
+	local isSprinting = currentState == "Sprinting"
+	local baseSpeed
+	if isCrouchAnimation then
+		baseSpeed = Config.Gameplay.Character.CrouchSpeed
+	elseif isSprinting then
+		baseSpeed = Config.Gameplay.Character.SprintSpeed or Config.Gameplay.Character.WalkSpeed
+	else
+		baseSpeed = Config.Gameplay.Character.WalkSpeed
+	end
 	local speedMultiplier = baseSpeed > 0 and (horizontalSpeed / baseSpeed) or 1
 
 	local maxSpeed = isCrouchAnimation and 1.5 or 2.0
@@ -2102,13 +2423,14 @@ function AnimationController:_loadEmoteAnimation(emoteId: string): Animation?
 	-- Get animation ID from the EmoteService's registered emote class
 	local EmoteService = nil
 	local ok, service = pcall(function()
-		local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+		local Locations =
+			require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 		return require(Locations.Game:WaitForChild("Emotes"))
 	end)
 	if ok then
 		EmoteService = service
 	end
-	
+
 	if EmoteService and EmoteService.getEmoteClass then
 		local emoteClass = EmoteService.getEmoteClass(emoteId)
 		if emoteClass and emoteClass.Animations and emoteClass.Animations.Main then
@@ -2117,11 +2439,11 @@ function AnimationController:_loadEmoteAnimation(emoteId: string): Animation?
 			if not animId:match("^rbxassetid://") then
 				animId = "rbxassetid://" .. animId
 			end
-			
+
 			local animation = Instance.new("Animation")
 			animation.AnimationId = animId
 			animation.Name = emoteId .. "_Main"
-			
+
 			self.EmoteAnimationCache[emoteId] = animation
 			return animation
 		end

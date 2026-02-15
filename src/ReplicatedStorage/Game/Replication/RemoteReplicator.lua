@@ -513,7 +513,7 @@ function RemoteReplicator:ReplicatePlayers(dt)
 
 		if remoteData.WeaponManager then
 			remoteData.WeaponManager:SetCrouching(remoteData.IsCrouching == true)
-			remoteData.WeaponManager:UpdateTransform(cf, remoteData.LastAimPitch)
+			remoteData.WeaponManager:UpdateTransform(cf, remoteData.LastAimPitch, dt)
 		end
 
 		if remoteData.Head and remoteData.Head.Anchored and remoteData.HeadOffset then

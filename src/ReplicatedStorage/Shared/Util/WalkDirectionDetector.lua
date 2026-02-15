@@ -61,4 +61,20 @@ function WalkDirectionDetector:GetWalkAnimationName(cameraDirection, movementDir
 	return "WalkingForward"
 end
 
+function WalkDirectionDetector:GetRunAnimationName(cameraDirection, movementDirection)
+	local animationType = WalkDirectionDetector:GetWalkAnimationType(cameraDirection, movementDirection)
+
+	if animationType == "Forward" then
+		return "RunningForward"
+	elseif animationType == "Left" then
+		return "RunningLeft"
+	elseif animationType == "Right" then
+		return "RunningRight"
+	elseif animationType == "Backward" then
+		return "RunningBackward"
+	end
+
+	return "RunningForward"
+end
+
 return WalkDirectionDetector

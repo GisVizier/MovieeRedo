@@ -87,11 +87,13 @@ ViewmodelConfig.Weapons = {
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			Idle = "rbxassetid://116832822109675",
-			Walk = "rbxassetid://116832822109675",  -- Reuse Idle
-			Run = "rbxassetid://116832822109675",   -- Reuse Idle
+			Walk = "rbxassetid://116832822109675", -- Reuse Idle
+			Run = "rbxassetid://116832822109675", -- Reuse Idle
 			ZiplineHold = "rbxassetid://76927446014111",
 			ZiplineHookUp = "rbxassetid://123241316387450",
 			ZiplineFastHookUp = "rbxassetid://123241316387450",
@@ -100,10 +102,12 @@ ViewmodelConfig.Weapons = {
 
 	Shotgun = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shotgun,
-		Offset = CFrame.new(-.2, -.15, -0.5),
+		Offset = CFrame.new(-0.2, -0.15, -0.5),
 		Replication = {
-			Scale = 0.5725,
+			Scale = 0.475,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
@@ -127,6 +131,8 @@ ViewmodelConfig.Weapons = {
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			-- Using legacy asset IDs (can be migrated to Animation instances later)
@@ -143,10 +149,12 @@ ViewmodelConfig.Weapons = {
 
 	Shorty = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shorty,
-		Offset = CFrame.new(-.2, -.15, -0.5),
+		Offset = CFrame.new(-0.2, -0.15, -0.5),
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			Idle = "Idle",
@@ -164,9 +172,13 @@ ViewmodelConfig.Weapons = {
 	DualPistols = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.DualPistols,
 		Offset = CFrame.new(0, -0.12, -0.35),
+
 		Replication = {
 			Scale = 0.5725,
-			Offset = CFrame.new(),
+			Offset = CFrame.new(0, 0, 0.725),
+
+			LeftAttachment = CFrame.new(-1, 0, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1.15, 0.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			Idle = "Idle",
@@ -186,7 +198,10 @@ ViewmodelConfig.Weapons = {
 		Offset = CFrame.new(0, 0, 0.15),
 		Replication = {
 			Scale = 0.5725,
-			Offset = CFrame.new(),
+			Offset = CFrame.new(0, 0, 0.85),
+
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
@@ -195,7 +210,7 @@ ViewmodelConfig.Weapons = {
 			Run = "Run",
 			ADS = "Aim", -- Maps to your "Aim" animation
 			Fire = "Fire",
-			 Reload = "Reload",
+			Reload = "Reload",
 			Equip = "Equip",
 			--Start = "Start",
 			--Action = "Action",
@@ -206,10 +221,12 @@ ViewmodelConfig.Weapons = {
 
 	Sniper = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Sniper,
-		Offset = CFrame.new(0, -0.3, .7) * CFrame.Angles(math.rad(5), math.rad(0), math.rad(-9)),
+		Offset = CFrame.new(0, -0.3, 0.7) * CFrame.Angles(math.rad(5), math.rad(0), math.rad(-9)),
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Sniper/Viewmodel/
@@ -220,7 +237,7 @@ ViewmodelConfig.Weapons = {
 			Inspect = "Inspect",
 			Fire = "Fire",
 			Reload = "Reload",
-			ADS = "Idle",  -- Uses Idle pose for ADS (add dedicated ADS animation if available)
+			ADS = "Idle", -- Uses Idle pose for ADS (add dedicated ADS animation if available)
 		},
 	},
 
@@ -230,6 +247,8 @@ ViewmodelConfig.Weapons = {
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			Idle = "Idle",
@@ -248,6 +267,8 @@ ViewmodelConfig.Weapons = {
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
+			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			Idle = "Idle",

@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 
@@ -6,7 +7,10 @@ local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitFo
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
 local CrouchUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CrouchUtils"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local R6IKSolver = require(ReplicatedStorage:WaitForChild("R6IKSolver"))
 local DEBUG_VM_REPL = true
+local DISABLE_RIG_ANIMATIONS = false -- Set true to skip all viewmodel animation playback
 local function vmLog(...)
 	if DEBUG_VM_REPL then
 		warn("[VM-ThirdPersonWeaponManager]", ...)
@@ -216,6 +220,14 @@ function ThirdPersonWeaponManager.new(rig: Model)
 	self._lastOwnerResolve = 0
 	self._forcedCrouching = nil
 
+	-- IK state
+	self.IKSolver = nil
+	self._solverL = nil -- Left Arm Solver attachment
+	self._solverR = nil -- Right Arm Solver attachment
+	self._weaponLeftArmMotor = nil  -- cached weapon Motor6D
+	self._weaponRightArmMotor = nil -- cached weapon Motor6D
+	self._steppedConn = nil -- Stepped connection to zero weapon arm transforms after Animator
+
 	return self
 end
 
@@ -263,6 +275,29 @@ function ThirdPersonWeaponManager:_getOwnerPlayer(): Player?
 	end
 
 	return nil
+end
+
+--- Signal AnimationController to switch between legs-only (weapon) and full-body animations.
+--- Works for both the local player and remote players.
+function ThirdPersonWeaponManager:_setWeaponAnimMode(enabled: boolean)
+	local animController = ServiceRegistry:GetController("AnimationController")
+	if not animController then
+		return
+	end
+
+	local ownerPlayer = self:_getOwnerPlayer()
+	if not ownerPlayer then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if ownerPlayer == localPlayer then
+		-- Local player: toggle mode directly
+		animController:SetWeaponAnimationMode(enabled)
+	else
+		-- Remote player: toggle per-player mode
+		animController:SetWeaponAnimationModeForPlayer(ownerPlayer, enabled)
+	end
 end
 
 function ThirdPersonWeaponManager:_loadFistsKitTracks()
@@ -573,6 +608,7 @@ function ThirdPersonWeaponManager:SetCrouching(isCrouching: boolean?)
 end
 
 function ThirdPersonWeaponManager:_playTrack(trackName: string, restart: boolean?)
+	if DISABLE_RIG_ANIMATIONS then return end -- TESTING
 	local track = self.Tracks[trackName] or self:_ensureReplicatedTrack(trackName)
 	if not track then
 		return
@@ -588,6 +624,7 @@ function ThirdPersonWeaponManager:_playTrack(trackName: string, restart: boolean
 end
 
 function ThirdPersonWeaponManager:_stopTrack(trackName: string)
+	if DISABLE_RIG_ANIMATIONS then return end -- TESTING
 	local track = self.Tracks[trackName]
 	if track and track.IsPlaying then
 		track:Stop(0.05)
@@ -595,6 +632,7 @@ function ThirdPersonWeaponManager:_stopTrack(trackName: string)
 end
 
 function ThirdPersonWeaponManager:_setTrackSpeed(trackName: string, speed: number)
+	if DISABLE_RIG_ANIMATIONS then return end -- TESTING
 	local track = self.Tracks[trackName] or self:_ensureReplicatedTrack(trackName)
 	if not track then
 		return
@@ -698,6 +736,67 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 		self:_loadFistsKitTracks()
 	end
 	self:_playTrack("Idle")
+
+	-- ALWAYS switch body animations to legs-only (Base/Weapon/) when a weapon is equipped.
+	-- Upper body is driven by the weapon viewmodel animations + IK, NOT the rig animator.
+	self:_setWeaponAnimMode(true)
+
+	-- IK: Apply config CFrames to rig collar attachments (IK start), find Solver attachments on weapon arms (IK end)
+	local leftAttachCF = replicationConfig and replicationConfig.LeftAttachment
+	local rightAttachCF = replicationConfig and replicationConfig.RightAttachment
+
+	local rigTorso = self.Rig and self.Rig:FindFirstChild("Torso")
+
+	-- Apply LeftAttachment/RightAttachment config to rig's collar attachments
+	if rigTorso then
+		local leftCollar = rigTorso:FindFirstChild("LeftCollarAttachment")
+		if leftCollar and leftAttachCF and typeof(leftAttachCF) == "CFrame" then
+			leftCollar.CFrame = leftAttachCF
+		end
+
+		local rightCollar = rigTorso:FindFirstChild("RightCollarAttachment")
+		if rightCollar and rightAttachCF and typeof(rightAttachCF) == "CFrame" then
+			rightCollar.CFrame = rightAttachCF
+		end
+	end
+
+	-- Find Solver attachments on weapon model arms (IK end targets)
+	local lArm = model:FindFirstChild("Left Arm")
+	local rArm = model:FindFirstChild("Right Arm")
+	local lSolver = lArm and lArm:FindFirstChild("Solver")
+	local rSolver = rArm and rArm:FindFirstChild("Solver")
+
+	if lSolver and lSolver:IsA("Attachment") and rSolver and rSolver:IsA("Attachment") then
+		if rigTorso then
+			self._solverL = lSolver
+			self._solverR = rSolver
+
+			-- Cache weapon model arm Motor6Ds (weapon animations write .Transform here)
+			local weaponHRP = model:FindFirstChild("HumanoidRootPart")
+			if weaponHRP then
+				local wlm = weaponHRP:FindFirstChild("Left Arm")
+				local wrm = weaponHRP:FindFirstChild("Right Arm")
+				self._weaponLeftArmMotor = (wlm and wlm:IsA("Motor6D")) and wlm or nil
+				self._weaponRightArmMotor = (wrm and wrm:IsA("Motor6D")) and wrm or nil
+			end
+
+			local ikOk, solver = pcall(function()
+				return R6IKSolver.new(self.Rig, {
+					smoothing = 0.4,
+				})
+			end)
+			if ikOk and solver then
+				solver:setEnabled("RightArm", true)
+				solver:setEnabled("LeftArm", true)
+				self.IKSolver = solver
+
+				vmLog("IK enabled", "weapon=", weaponId)
+			else
+				vmLog("IK creation failed", "weapon=", weaponId)
+			end
+		end
+	end
+
 	vmLog("Equip success", "weapon=", weaponId, "rig=", self.Rig and self.Rig:GetFullName() or "?")
 
 	return true
@@ -767,18 +866,27 @@ function ThirdPersonWeaponManager:ApplyReplicatedAction(actionName: string, trac
 	end
 end
 
-function ThirdPersonWeaponManager:UpdateTransform(rootCFrame: CFrame, aimPitch: number?)
+function ThirdPersonWeaponManager:UpdateTransform(rootCFrame: CFrame, aimPitch: number?, dt: number?)
 	self.AimPitch = tonumber(aimPitch) or 0
 
 	local stanceOffset = self:_getStanceOffset()
 	local pitchOffset = CFrame.Angles(math.rad(self.AimPitch), 0, 0)
 	if self.Weld then
 		self.Weld.C0 = self.ReplicationOffset * stanceOffset * pitchOffset
-		return
+	elseif self.WeaponModel and self.WeaponModel.PrimaryPart and rootCFrame then
+		self.WeaponModel:PivotTo(rootCFrame * (self.ReplicationOffset * stanceOffset * pitchOffset))
 	end
 
-	if self.WeaponModel and self.WeaponModel.PrimaryPart and rootCFrame then
-		self.WeaponModel:PivotTo(rootCFrame * (self.ReplicationOffset * stanceOffset * pitchOffset))
+	-- IK: Drive rig arms toward weapon Solver attachment WorldPositions.
+	-- The R6IKSolver zeros rig shoulder .Transform and computes C0 directly.
+	if self.IKSolver and self._solverL and self._solverR then
+		local torso = self.Rig and self.Rig:FindFirstChild("Torso")
+		if torso then
+			local pole = torso.Position + torso.CFrame.LookVector * -2 + Vector3.new(0, -1, 0)
+			self.IKSolver:setArmTarget("Left", self._solverL.WorldPosition, pole)
+			self.IKSolver:setArmTarget("Right", self._solverR.WorldPosition, pole)
+			self.IKSolver:update(dt or 0.016)
+		end
 	end
 end
 
@@ -786,6 +894,23 @@ function ThirdPersonWeaponManager:UnequipWeapon()
 	vmLog("Unequip", self.WeaponId or "none")
 	stopTracks(self.Tracks)
 	self.Tracks = {}
+
+	-- IK cleanup
+	if self._steppedConn then
+		self._steppedConn:Disconnect()
+		self._steppedConn = nil
+	end
+	if self.IKSolver then
+		self.IKSolver:destroy()
+		self.IKSolver = nil
+	end
+	self._solverL = nil
+	self._solverR = nil
+	self._weaponLeftArmMotor = nil
+	self._weaponRightArmMotor = nil
+
+	-- Switch body animations back to full-body variants
+	self:_setWeaponAnimMode(false)
 
 	if self.Weld then
 		self.Weld:Destroy()

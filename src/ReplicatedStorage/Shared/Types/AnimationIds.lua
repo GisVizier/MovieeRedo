@@ -21,6 +21,11 @@ AnimationIds.Enum = {
 	CrouchWalkingLeft = 19,
 	CrouchWalkingRight = 20,
 	CrouchWalkingBackward = 21,
+	RunningForward = 33,
+	RunningLeft = 34,
+	RunningRight = 35,
+	RunningBackward = 36,
+
 	WallBoostForward = 22,
 	WallBoostLeft = 23,
 	WallBoostRight = 24,
