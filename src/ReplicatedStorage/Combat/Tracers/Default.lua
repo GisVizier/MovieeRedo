@@ -12,15 +12,142 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 
 local ReturnService = require(ReplicatedStorage.Shared.Util.FXLibaray)
 local Utils = ReturnService()
+local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 
 local CharacterLocations = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Character"):WaitForChild("CharacterLocations"))
 
 local Default = {}
 Default.Id = "Default"
 Default.Name = "Default Tracer"
+
+local cachedLoadoutRaw: string? = nil
+local cachedLoadoutTable: { [string]: any }? = nil
+
+local function scaleNumberRange(rangeValue: NumberRange, scale: number): NumberRange
+	return NumberRange.new(rangeValue.Min * scale, rangeValue.Max * scale)
+end
+
+local function scaleNumberSequence(sequenceValue: NumberSequence, scale: number): NumberSequence
+	local keypoints = sequenceValue.Keypoints
+	local scaled = table.create(#keypoints)
+	for index, point in ipairs(keypoints) do
+		scaled[index] = NumberSequenceKeypoint.new(point.Time, point.Value * scale, point.Envelope * scale)
+	end
+	return NumberSequence.new(scaled)
+end
+
+local function applyMuzzleFxScale(fxRoot: Instance, scale: number)
+	if not fxRoot or scale == 1 then
+		return
+	end
+
+	local function scaleFxItem(item: Instance)
+		if item:IsA("ParticleEmitter") then
+			item.Size = scaleNumberSequence(item.Size, scale)
+			item.Speed = scaleNumberRange(item.Speed, scale)
+		elseif item:IsA("Trail") then
+			item.WidthScale = scaleNumberSequence(item.WidthScale, scale)
+		elseif item:IsA("Beam") then
+			item.Width0 *= scale
+			item.Width1 *= scale
+		elseif item:IsA("PointLight") or item:IsA("SpotLight") or item:IsA("SurfaceLight") then
+			item.Range *= scale
+		end
+	end
+
+	scaleFxItem(fxRoot)
+	for _, item in ipairs(fxRoot:GetDescendants()) do
+		scaleFxItem(item)
+	end
+end
+
+local function getCurrentWeaponMuzzleScale(): number
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return 1
+	end
+
+	local selectedLoadout = localPlayer:GetAttribute("SelectedLoadout")
+	if type(selectedLoadout) ~= "string" or selectedLoadout == "" then
+		cachedLoadoutRaw = nil
+		cachedLoadoutTable = nil
+		return 1
+	end
+
+	if selectedLoadout ~= cachedLoadoutRaw then
+		local ok, decoded = pcall(function()
+			return HttpService:JSONDecode(selectedLoadout)
+		end)
+		if ok and type(decoded) == "table" then
+			cachedLoadoutTable = decoded.loadout or decoded
+			if type(cachedLoadoutTable) ~= "table" then
+				cachedLoadoutTable = nil
+			end
+		else
+			cachedLoadoutTable = nil
+		end
+		cachedLoadoutRaw = selectedLoadout
+	end
+
+	local loadout = cachedLoadoutTable
+	if type(loadout) ~= "table" then
+		return 1
+	end
+
+	local displaySlot = localPlayer:GetAttribute("DisplaySlot")
+	local equippedSlot = localPlayer:GetAttribute("EquippedSlot")
+	if displaySlot == "Ability" then
+		equippedSlot = "Kit"
+	end
+	if type(equippedSlot) ~= "string" or equippedSlot == "" then
+		equippedSlot = "Primary"
+	end
+
+	local weaponId = loadout[equippedSlot]
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return 1
+	end
+
+	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+	if type(weaponConfig) ~= "table" then
+		return 1
+	end
+
+	local configuredScale = weaponConfig.muzzleScale
+	if type(configuredScale) ~= "number" then
+		configuredScale = weaponConfig.MuzzleScale
+	end
+
+	if type(configuredScale) ~= "number" or configuredScale <= 0 then
+		return 1
+	end
+
+	return configuredScale
+end
+
+local function getGunModelScale(gunModel: Model?): number
+	if not gunModel or typeof(gunModel) ~= "Instance" then
+		return 1
+	end
+
+	if not gunModel.GetScale then
+		return 1
+	end
+
+	local ok, modelScale = pcall(function()
+		return gunModel:GetScale()
+	end)
+	if not ok or type(modelScale) ~= "number" or modelScale <= 0 then
+		return 1
+	end
+
+	return modelScale
+end
 
 --[[
 	Muzzle flash effect
@@ -39,6 +166,9 @@ function Default:Muzzle(origin: Vector3, gunModel: Model?, attachment: Attachmen
 	if endFX then
 		endFX = endFX:Clone()
 		endFX.Parent = muzzleAttachment
+
+		local finalScale = math.clamp(getCurrentWeaponMuzzleScale() * getGunModelScale(gunModel), 0.05, 20)
+		applyMuzzleFxScale(endFX, finalScale)
 		
 		Utils.PlayAttachment(endFX, 5)
 		
