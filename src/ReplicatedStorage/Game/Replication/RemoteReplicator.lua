@@ -36,6 +36,18 @@ RemoteReplicator.StatsResetTime = tick()
 RemoteReplicator.PlayerLossStats = {}
 RemoteReplicator.PendingViewmodelActions = {}
 RemoteReplicator.PendingCrouchStates = {}
+RemoteReplicator.ActiveViewmodelState = {} -- [userId] = { [key] = payload }
+
+local function isStatefulViewmodelAction(actionName: string): boolean
+	return actionName == "ADS"
+		or actionName == "PlayWeaponTrack"
+		or actionName == "PlayAnimation"
+		or actionName == "SetTrackSpeed"
+end
+
+local function getViewmodelActionStateKey(weaponId: string, actionName: string, trackName: string): string
+	return string.format("%s|%s|%s", tostring(actionName), tostring(weaponId), tostring(trackName))
+end
 
 function RemoteReplicator:Init(net)
 	self._net = net
@@ -46,6 +58,10 @@ function RemoteReplicator:Init(net)
 
 	self._net:ConnectClient("ViewmodelActionReplicated", function(compressedPayload)
 		self:OnViewmodelActionReplicated(compressedPayload)
+	end)
+
+	self._net:ConnectClient("ViewmodelActionSnapshot", function(snapshot)
+		self:OnViewmodelActionSnapshot(snapshot)
 	end)
 
 	self._net:ConnectClient("CrouchStateChanged", function(otherPlayer, isCrouching)
@@ -111,6 +127,78 @@ function RemoteReplicator:OnViewmodelActionReplicated(compressedPayload)
 
 	vmLog("Apply immediate action", "userId=", userId, "weapon=", tostring(payload.WeaponId), "action=", tostring(payload.ActionName))
 	self:_applyReplicatedViewmodelAction(remoteData, payload)
+end
+
+function RemoteReplicator:_applyViewmodelActionByUserId(userId: number, payload, forceApply: boolean?)
+	local remoteData = self.RemotePlayers[userId]
+	if remoteData then
+		if forceApply == true then
+			payload.ForceApply = true
+		end
+		self:_applyReplicatedViewmodelAction(remoteData, payload)
+		return
+	end
+
+	local pending = self.PendingViewmodelActions[userId]
+	if not pending then
+		pending = {}
+		self.PendingViewmodelActions[userId] = pending
+	end
+	if forceApply == true then
+		payload.ForceApply = true
+	end
+	table.insert(pending, payload)
+	if #pending > 16 then
+		table.remove(pending, 1)
+	end
+end
+
+function RemoteReplicator:OnViewmodelActionSnapshot(snapshot)
+	if type(snapshot) ~= "table" then
+		return
+	end
+
+	local desiredByUser = {}
+	for _, payload in ipairs(snapshot) do
+		if type(payload) == "table" then
+			local userId = tonumber(payload.PlayerUserId)
+			local actionName = tostring(payload.ActionName or "")
+			local isActive = payload.IsActive == true
+			if userId and isStatefulViewmodelAction(actionName) and isActive then
+				local weaponId = tostring(payload.WeaponId or "")
+				local trackName = tostring(payload.TrackName or "")
+				local key = getViewmodelActionStateKey(weaponId, actionName, trackName)
+				local desired = desiredByUser[userId]
+				if not desired then
+					desired = {}
+					desiredByUser[userId] = desired
+				end
+				desired[key] = payload
+			end
+		end
+	end
+
+	for userId, currentMap in pairs(self.ActiveViewmodelState) do
+		local desiredMap = desiredByUser[userId] or {}
+		for key, currentPayload in pairs(currentMap) do
+			if desiredMap[key] == nil then
+				local stopPayload = {
+					PlayerUserId = userId,
+					WeaponId = currentPayload.WeaponId,
+					ActionName = currentPayload.ActionName,
+					TrackName = currentPayload.TrackName,
+					IsActive = false,
+				}
+				self:_applyViewmodelActionByUserId(userId, stopPayload, true)
+			end
+		end
+	end
+
+	for userId, desiredMap in pairs(desiredByUser) do
+		for _, payload in pairs(desiredMap) do
+			self:_applyViewmodelActionByUserId(userId, payload, true)
+		end
+	end
 end
 
 function RemoteReplicator:OnStatesReplicated(batch)
@@ -354,6 +442,7 @@ function RemoteReplicator:ReplicatePlayers(dt)
 				remoteData.WeaponManager:Destroy()
 			end
 			self.PendingViewmodelActions[userId] = nil
+			self.ActiveViewmodelState[userId] = nil
 			self.RemotePlayers[userId] = nil
 			continue
 		end
@@ -547,18 +636,21 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 		return
 	end
 
+	local forceApply = payload.ForceApply == true
 	local sequenceNumber = tonumber(payload.SequenceNumber) or 0
-	local lastSeq = remoteData.LastViewmodelActionSeq
-	if lastSeq ~= nil then
-		local gap = sequenceNumber >= lastSeq and (sequenceNumber - lastSeq) or ((65536 - lastSeq) + sequenceNumber)
-		if gap == 0 then
-			return
+	if not forceApply then
+		local lastSeq = remoteData.LastViewmodelActionSeq
+		if lastSeq ~= nil then
+			local gap = sequenceNumber >= lastSeq and (sequenceNumber - lastSeq) or ((65536 - lastSeq) + sequenceNumber)
+			if gap == 0 then
+				return
+			end
+			if gap > 32768 then
+				return
+			end
 		end
-		if gap > 32768 then
-			return
-		end
+		remoteData.LastViewmodelActionSeq = sequenceNumber
 	end
-	remoteData.LastViewmodelActionSeq = sequenceNumber
 
 	local weaponManager = remoteData.WeaponManager
 	if not weaponManager then
@@ -569,10 +661,15 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 	local actionName = tostring(payload.ActionName or "")
 	local trackName = tostring(payload.TrackName or "")
 	local isActive = payload.IsActive == true
+	local player = remoteData.Player
+	local userId = player and player.UserId or nil
 
 	if actionName == "Unequip" then
 		vmLog("Remote unequip", remoteData.Player and remoteData.Player.Name or "?", "seq=", sequenceNumber)
 		weaponManager:UnequipWeapon()
+		if userId then
+			self.ActiveViewmodelState[userId] = {}
+		end
 		return
 	end
 
@@ -583,6 +680,26 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 
 	vmLog("Remote apply action", remoteData.Player and remoteData.Player.Name or "?", "action=", actionName, "track=", trackName, "active=", tostring(isActive))
 	weaponManager:ApplyReplicatedAction(actionName, trackName, isActive)
+
+	if userId and isStatefulViewmodelAction(actionName) then
+		local userMap = self.ActiveViewmodelState[userId]
+		if not userMap then
+			userMap = {}
+			self.ActiveViewmodelState[userId] = userMap
+		end
+		local stateKey = getViewmodelActionStateKey(weaponId, actionName, trackName)
+		if isActive then
+			userMap[stateKey] = {
+				PlayerUserId = userId,
+				WeaponId = weaponId,
+				ActionName = actionName,
+				TrackName = trackName,
+				IsActive = true,
+			}
+		else
+			userMap[stateKey] = nil
+		end
+	end
 end
 
 function RemoteReplicator:GetPerformanceStats()

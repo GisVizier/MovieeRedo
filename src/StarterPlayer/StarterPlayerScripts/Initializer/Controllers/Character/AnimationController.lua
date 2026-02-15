@@ -2,6 +2,7 @@ local AnimationController = {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
@@ -17,6 +18,8 @@ local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local Net = require(Locations.Shared.Net.Net)
 local Players = game:GetService("Players")
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
+local LocalPlayer = Players.LocalPlayer
+local RIG_ANIMATION_STATE_ATTRIBUTE = "RigAnimationState"
 
 local DEBUG_THROTTLE_SECONDS = 0.2
 local lastDebugTimes = {}
@@ -105,8 +108,30 @@ AnimationController.OtherCharacterEmoteTracks = {}
 AnimationController.CustomAnimationTracks = {}
 AnimationController.PreloadedAnimations = {}
 AnimationController.OtherCharacterKitTracks = {} -- Kit animation tracks for remote players
+AnimationController.LocalRigAnimationState = {} -- [animName] = state payload
+AnimationController.OtherCharacterDesiredRigState = {} -- [player] = { [animName] = state payload }
+AnimationController.RigAnimationStateConnections = {} -- [player] = RBXScriptConnection
+AnimationController._rigAnimationPlayersAddedConn = nil
+AnimationController._rigAnimationPlayersRemovingConn = nil
 AnimationController.ZiplineActive = false
 AnimationController.CurrentZiplineAnimationName = nil
+
+local function encodePriority(priorityValue)
+	if typeof(priorityValue) == "EnumItem" then
+		return priorityValue.Name
+	end
+	if type(priorityValue) == "string" and priorityValue ~= "" then
+		return priorityValue
+	end
+	return nil
+end
+
+local function decodePriority(priorityName)
+	if type(priorityName) ~= "string" or priorityName == "" then
+		return nil
+	end
+	return Enum.AnimationPriority[priorityName]
+end
 
 local STATE_ANIMATIONS = {
 	Walking = "WalkingForward",
@@ -277,6 +302,7 @@ end
 function AnimationController:Start()
 	-- Preload all character animations from Assets.Animations.Character
 	self:PreloadCharacterAnimations()
+	self:_bindRigAnimationStateListeners()
 
 	-- Register as a VFXRep module so other clients' rig animation events arrive here directly.
 	-- No separate ReplicationModules file needed.
@@ -292,6 +318,243 @@ function AnimationController:Start()
 			self_:_onRemoteRigStopAll(originUserId, data)
 		end,
 	}
+end
+
+function AnimationController:_publishLocalRigAnimationState()
+	if not LocalPlayer then
+		return
+	end
+
+	local stateArray = {}
+	for animName, payload in pairs(self.LocalRigAnimationState) do
+		if type(animName) == "string" and type(payload) == "table" then
+			table.insert(stateArray, {
+				animName = animName,
+				Looped = payload.Looped == true,
+				Priority = payload.Priority,
+				FadeInTime = payload.FadeInTime,
+				Speed = payload.Speed,
+			})
+		end
+	end
+
+	local encoded = ""
+	if #stateArray > 0 then
+		local ok, result = pcall(function()
+			return HttpService:JSONEncode(stateArray)
+		end)
+		if ok and type(result) == "string" then
+			encoded = result
+		end
+	end
+
+	LocalPlayer:SetAttribute(RIG_ANIMATION_STATE_ATTRIBUTE, encoded)
+end
+
+function AnimationController:_setLocalRigAnimationState(animName: string, settings: {[string]: any}?)
+	if type(animName) ~= "string" or animName == "" then
+		return
+	end
+
+	local state = {
+		Looped = settings and settings.Looped == true or false,
+		Priority = encodePriority(settings and settings.Priority),
+		FadeInTime = settings and tonumber(settings.FadeInTime) or nil,
+		Speed = settings and tonumber(settings.Speed) or nil,
+	}
+	self.LocalRigAnimationState[animName] = state
+	self:_publishLocalRigAnimationState()
+end
+
+function AnimationController:_removeLocalRigAnimationState(animName: string)
+	if type(animName) ~= "string" or animName == "" then
+		return
+	end
+	self.LocalRigAnimationState[animName] = nil
+	self:_publishLocalRigAnimationState()
+end
+
+function AnimationController:_clearLocalRigAnimationState()
+	table.clear(self.LocalRigAnimationState)
+	self:_publishLocalRigAnimationState()
+end
+
+function AnimationController:_decodeRemoteRigAnimationState(player: Player)
+	local desired = {}
+	if not player then
+		return desired
+	end
+
+	local raw = player:GetAttribute(RIG_ANIMATION_STATE_ATTRIBUTE)
+	if type(raw) ~= "string" or raw == "" then
+		return desired
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+	if not ok or type(decoded) ~= "table" then
+		return desired
+	end
+
+	for _, entry in ipairs(decoded) do
+		if type(entry) == "table" and type(entry.animName) == "string" and entry.animName ~= "" then
+			desired[entry.animName] = entry
+		end
+	end
+
+	return desired
+end
+
+function AnimationController:_getRemoteKitTracks(player: Player)
+	if not player then
+		return nil, nil
+	end
+
+	local character = player.Character
+	if not character or not character.Parent then
+		return nil, nil
+	end
+
+	local animator = self.OtherCharacterAnimators[character]
+	if not animator then
+		return nil, nil
+	end
+
+	if not self.OtherCharacterKitTracks[character] then
+		self.OtherCharacterKitTracks[character] = {}
+	end
+	return self.OtherCharacterKitTracks[character], animator
+end
+
+function AnimationController:_playRemoteRigStateAnimation(player: Player, animName: string, payload)
+	local kitTracks, animator = self:_getRemoteKitTracks(player)
+	if not kitTracks or not animator then
+		return false
+	end
+
+	local animation = self.PreloadedAnimations[animName]
+	if not animation or not animation.AnimationId or animation.AnimationId == "" then
+		return false
+	end
+
+	local track = kitTracks[animName]
+	if track and track.IsPlaying then
+		local speed = tonumber(payload and payload.Speed) or 1
+		track.Looped = payload and payload.Looped == true or false
+		track:AdjustSpeed(speed)
+		return true
+	end
+
+	local loadedTrack = animator:LoadAnimation(animation)
+	if not loadedTrack then
+		return false
+	end
+
+	local priority = decodePriority(payload and payload.Priority) or Enum.AnimationPriority.Action4
+	loadedTrack.Priority = priority
+	loadedTrack.Looped = payload and payload.Looped == true or false
+	loadedTrack:Play(
+		tonumber(payload and payload.FadeInTime) or 0.15,
+		1,
+		tonumber(payload and payload.Speed) or 1
+	)
+
+	kitTracks[animName] = loadedTrack
+	loadedTrack.Stopped:Once(function()
+		if kitTracks[animName] == loadedTrack then
+			kitTracks[animName] = nil
+		end
+	end)
+	return true
+end
+
+function AnimationController:_reconcileRemoteRigAnimationState(player: Player)
+	if not player or player == LocalPlayer then
+		return
+	end
+
+	local desired = self:_decodeRemoteRigAnimationState(player)
+	self.OtherCharacterDesiredRigState[player] = desired
+
+	local kitTracks = nil
+	do
+		local character = player.Character
+		if character then
+			kitTracks = self.OtherCharacterKitTracks[character]
+		end
+	end
+
+	if kitTracks then
+		for animName, track in pairs(kitTracks) do
+			if type(animName) == "string" and desired[animName] == nil then
+				if track and track.IsPlaying then
+					track:Stop(0.1)
+				end
+				kitTracks[animName] = nil
+			end
+		end
+	end
+
+	for animName, payload in pairs(desired) do
+		self:_playRemoteRigStateAnimation(player, animName, payload)
+	end
+end
+
+function AnimationController:_bindRigAnimationStateForPlayer(player: Player)
+	if not player or player == LocalPlayer then
+		return
+	end
+
+	local oldConn = self.RigAnimationStateConnections[player]
+	if oldConn then
+		oldConn:Disconnect()
+		self.RigAnimationStateConnections[player] = nil
+	end
+
+	self.RigAnimationStateConnections[player] = player:GetAttributeChangedSignal(RIG_ANIMATION_STATE_ATTRIBUTE):Connect(function()
+		self:_reconcileRemoteRigAnimationState(player)
+	end)
+
+	task.defer(function()
+		if player and player.Parent then
+			self:_reconcileRemoteRigAnimationState(player)
+		end
+	end)
+end
+
+function AnimationController:_unbindRigAnimationStateForPlayer(player: Player)
+	if not player then
+		return
+	end
+
+	local conn = self.RigAnimationStateConnections[player]
+	if conn then
+		conn:Disconnect()
+	end
+	self.RigAnimationStateConnections[player] = nil
+	self.OtherCharacterDesiredRigState[player] = nil
+end
+
+function AnimationController:_bindRigAnimationStateListeners()
+	if self._rigAnimationPlayersAddedConn then
+		self._rigAnimationPlayersAddedConn:Disconnect()
+	end
+	if self._rigAnimationPlayersRemovingConn then
+		self._rigAnimationPlayersRemovingConn:Disconnect()
+	end
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		self:_bindRigAnimationStateForPlayer(player)
+	end
+
+	self._rigAnimationPlayersAddedConn = Players.PlayerAdded:Connect(function(player)
+		self:_bindRigAnimationStateForPlayer(player)
+	end)
+
+	self._rigAnimationPlayersRemovingConn = Players.PlayerRemoving:Connect(function(player)
+		self:_unbindRigAnimationStateForPlayer(player)
+	end)
 end
 
 function AnimationController:_loadAnimationInstances()
@@ -499,6 +762,9 @@ end
 ]]
 function AnimationController:PlayRigAnimation(animName: string, settings: {[string]: any}?)
 	local track = self:PlayAnimation(animName, settings)
+	if track then
+		self:_setLocalRigAnimationState(animName, settings)
+	end
 
 	VFXRep:Fire("Others", { Module = "RigAnimation", Function = "Play" }, {
 		animName = animName,
@@ -517,6 +783,7 @@ end
 ]]
 function AnimationController:StopRigAnimation(animName: string, fadeOut: number?)
 	self:StopAnimation(animName, fadeOut)
+	self:_removeLocalRigAnimationState(animName)
 
 	VFXRep:Fire("Others", { Module = "RigAnimation", Function = "Stop" }, {
 		animName = animName,
@@ -529,6 +796,7 @@ end
 ]]
 function AnimationController:StopAllRigAnimations(fadeOut: number?)
 	self:StopAllCustomAnimations(fadeOut)
+	self:_clearLocalRigAnimationState()
 
 	VFXRep:Fire("Others", { Module = "RigAnimation", Function = "StopAll" }, {
 		fadeOut = fadeOut or 0.15,
@@ -546,6 +814,17 @@ function AnimationController:_onRemoteRigPlay(originUserId, data)
 
 	local player = Players:GetPlayerByUserId(originUserId)
 	if not player then return end
+	if type(data) == "table" and type(data.animName) == "string" then
+		local desired = self.OtherCharacterDesiredRigState[player] or {}
+		desired[data.animName] = {
+			animName = data.animName,
+			Looped = data.Looped == true,
+			Priority = encodePriority(data.Priority),
+			FadeInTime = data.FadeInTime,
+			Speed = data.Speed,
+		}
+		self.OtherCharacterDesiredRigState[player] = desired
+	end
 
 	local character = player.Character
 	if not character or not character.Parent then return end
@@ -599,6 +878,12 @@ function AnimationController:_onRemoteRigStop(originUserId, data)
 
 	local player = Players:GetPlayerByUserId(originUserId)
 	if not player then return end
+	if type(data) == "table" and type(data.animName) == "string" then
+		local desired = self.OtherCharacterDesiredRigState[player]
+		if desired then
+			desired[data.animName] = nil
+		end
+	end
 
 	local character = player.Character
 	if not character then return end
@@ -619,6 +904,7 @@ function AnimationController:_onRemoteRigStopAll(originUserId, data)
 
 	local player = Players:GetPlayerByUserId(originUserId)
 	if not player then return end
+	self.OtherCharacterDesiredRigState[player] = {}
 
 	local character = player.Character
 	if not character then return end
@@ -739,6 +1025,7 @@ function AnimationController:OnLocalCharacterRemoving()
 	self.CurrentStateAnimation = nil
 	self.CurrentIdleAnimation = nil
 	self.CurrentAirborneAnimation = nil
+	self:_clearLocalRigAnimationState()
 end
 
 function AnimationController:OnOtherCharacterSpawned(character)
@@ -775,6 +1062,15 @@ function AnimationController:OnOtherCharacterSpawned(character)
 	self.OtherCharacterAnimators[character] = animator
 	self.OtherCharacterTracks[character] = {}
 	self.OtherCharacterCurrentAnimations[character] = {}
+
+	local player = Players:GetPlayerFromCharacter(character)
+	if player then
+		task.defer(function()
+			if player and player.Parent then
+				self:_reconcileRemoteRigAnimationState(player)
+			end
+		end)
+	end
 end
 
 function AnimationController:OnOtherCharacterRemoving(character)
@@ -806,6 +1102,11 @@ function AnimationController:OnOtherCharacterRemoving(character)
 			end
 		end
 		self.OtherCharacterKitTracks[character] = nil
+	end
+
+	local player = Players:GetPlayerFromCharacter(character)
+	if player then
+		self.OtherCharacterDesiredRigState[player] = nil
 	end
 end
 

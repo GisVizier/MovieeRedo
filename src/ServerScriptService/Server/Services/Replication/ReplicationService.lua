@@ -25,9 +25,21 @@ local Stance = {
 ReplicationService.PlayerStates = {}
 ReplicationService.PlayerStances = {} -- [player] = stance enum
 ReplicationService.PlayerViewmodelActionSeq = {} -- [player] = latest action sequence number
+ReplicationService.PlayerActiveViewmodelActions = {} -- [player] = { [key] = payload }
 ReplicationService.ReadyPlayers = {} -- [player] = true when client ready to receive replication
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
+
+local function isStatefulViewmodelAction(actionName: string): boolean
+	return actionName == "ADS"
+		or actionName == "PlayWeaponTrack"
+		or actionName == "PlayAnimation"
+		or actionName == "SetTrackSpeed"
+end
+
+local function getViewmodelActionStateKey(weaponId: string, actionName: string, trackName: string): string
+	return string.format("%s|%s|%s", tostring(actionName), tostring(weaponId), tostring(trackName))
+end
 
 function ReplicationService:Init(registry, net)
 	self._registry = registry
@@ -57,12 +69,14 @@ function ReplicationService:Init(registry, net)
 	-- Client signals ready to receive replication events
 	self._net:ConnectServer("ClientReplicationReady", function(player)
 		self.ReadyPlayers[player] = true
+		self:SendViewmodelActionSnapshotToPlayer(player)
 	end)
 
 	-- Cleanup on player leaving
 	game.Players.PlayerRemoving:Connect(function(player)
 		self.ReadyPlayers[player] = nil
 		self.PlayerViewmodelActionSeq[player] = nil
+		self.PlayerActiveViewmodelActions[player] = nil
 	end)
 
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
@@ -92,12 +106,50 @@ function ReplicationService:RegisterPlayer(player)
 		LastUpdateTime = tick(),
 	}
 	self.PlayerStances[player] = Stance.Standing
+	self.PlayerActiveViewmodelActions[player] = {}
 end
 
 function ReplicationService:UnregisterPlayer(player)
 	self.PlayerStates[player] = nil
 	self.PlayerStances[player] = nil
 	self.PlayerViewmodelActionSeq[player] = nil
+	self.PlayerActiveViewmodelActions[player] = nil
+end
+
+function ReplicationService:_updateActiveViewmodelState(player, weaponId, actionName, trackName, isActive, sequenceNumber, timestamp)
+	if not player then
+		return
+	end
+
+	local stateMap = self.PlayerActiveViewmodelActions[player]
+	if not stateMap then
+		stateMap = {}
+		self.PlayerActiveViewmodelActions[player] = stateMap
+	end
+
+	if actionName == "Equip" or actionName == "Unequip" then
+		table.clear(stateMap)
+		return
+	end
+
+	if not isStatefulViewmodelAction(actionName) then
+		return
+	end
+
+	local key = getViewmodelActionStateKey(weaponId, actionName, trackName)
+	if isActive then
+		stateMap[key] = {
+			PlayerUserId = player.UserId,
+			WeaponId = weaponId,
+			ActionName = actionName,
+			TrackName = trackName,
+			IsActive = true,
+			SequenceNumber = sequenceNumber,
+			Timestamp = timestamp,
+		}
+	else
+		stateMap[key] = nil
+	end
 end
 
 function ReplicationService:OnCrouchStateChanged(player, isCrouching)
@@ -195,6 +247,7 @@ function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)
 		end
 	end
 	self.PlayerViewmodelActionSeq[player] = sequenceNumber
+	self:_updateActiveViewmodelState(player, weaponId, actionName, trackName, isActive, sequenceNumber, timestamp)
 
 	local replicated = CompressionUtils:CompressViewmodelAction(
 		player.UserId,
@@ -210,6 +263,25 @@ function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)
 		vmLog("Relay", player.Name, "weapon=", weaponId, "action=", actionName, "track=", trackName, "active=", tostring(isActive))
 		self:_fireToReadyClientsExcept(player, "ViewmodelActionReplicated", replicated)
 	end
+end
+
+function ReplicationService:SendViewmodelActionSnapshotToPlayer(targetPlayer)
+	if not targetPlayer or not targetPlayer.Parent then
+		return
+	end
+
+	local snapshot = {}
+	for sourcePlayer, stateMap in pairs(self.PlayerActiveViewmodelActions) do
+		if sourcePlayer ~= targetPlayer and sourcePlayer.Parent and type(stateMap) == "table" then
+			for _, payload in pairs(stateMap) do
+				if type(payload) == "table" and payload.IsActive == true then
+					table.insert(snapshot, payload)
+				end
+			end
+		end
+	end
+
+	self._net:FireClient("ViewmodelActionSnapshot", targetPlayer, snapshot)
 end
 
 -- Helper to send to only ready players (avoids race condition on join)
