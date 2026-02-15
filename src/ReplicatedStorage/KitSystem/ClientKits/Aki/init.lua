@@ -190,6 +190,22 @@ local function cleanupSounds()
 	activeSounds = {}
 end
 
+local function replicateTrackSpeed(trackName: string, speed: number)
+	if type(trackName) ~= "string" or trackName == "" then
+		return
+	end
+	if type(speed) ~= "number" then
+		return
+	end
+
+	local replicationController = ServiceRegistry:GetController("Replication")
+	if not replicationController or type(replicationController.ReplicateViewmodelAction) ~= "function" then
+		return
+	end
+
+	replicationController:ReplicateViewmodelAction("Fists", "SetTrackSpeed", string.format("%s|%s", trackName, tostring(speed)), true)
+end
+
 --------------------------------------------------------------------------------
 -- Module
 --------------------------------------------------------------------------------
@@ -523,6 +539,7 @@ function Aki.Ability:OnStart(abilityRequest)
 			-- Pause animation until released
 			if state.active and not state.released then
 				animation:AdjustSpeed(0)
+				replicateTrackSpeed(VM_ANIM_NAME, 0)
 				startHitboxPreview(state)
 			end
 		end,
@@ -710,6 +727,7 @@ function Aki.Ability:OnEnded(abilityRequest)
 	-- Resume animation from freeze
 	if state.animation and state.animation.IsPlaying then
 		state.animation:AdjustSpeed(RELEASE_ANIM_SPEED)
+		replicateTrackSpeed(VM_ANIM_NAME, RELEASE_ANIM_SPEED)
 	end
 end
 

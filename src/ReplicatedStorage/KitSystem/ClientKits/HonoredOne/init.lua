@@ -413,6 +413,22 @@ local function clearRedStateAttributes()
 	LocalPlayer:SetAttribute(`red_explosion_pivot`, nil)
 end
 
+local function replicateTrackSpeed(trackName: string, speed: number)
+	if type(trackName) ~= "string" or trackName == "" then
+		return
+	end
+	if type(speed) ~= "number" then
+		return
+	end
+
+	local replicationController = ServiceRegistry:GetController("Replication")
+	if not replicationController or type(replicationController.ReplicateViewmodelAction) ~= "function" then
+		return
+	end
+
+	replicationController:ReplicateViewmodelAction("Fists", "SetTrackSpeed", string.format("%s|%s", trackName, tostring(speed)), true)
+end
+
 local function setExternalMoveMult(multiplier)
 	local value = tonumber(multiplier) or 1
 	LocalPlayer:SetAttribute("ExternalMoveMult", math.clamp(value, 0.1, 1))
@@ -1560,6 +1576,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			if state.cancelled then return end
 			if state.active and not state.released then
 				state.animation:AdjustSpeed(0)
+				replicateTrackSpeed(animName, 0)
 				
 				-- Start max hold timer - auto-fire after MAX_HOLD_TIME seconds
 				task.delay(RED_CONFIG.MAX_HOLD_TIME, function()
@@ -1567,6 +1584,7 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 					if state.active and not state.released and not state.cancelled then
 						state.released = true
 						state.animation:AdjustSpeed(1)
+						replicateTrackSpeed(animName, 1)
 					end
 				end)
 			end
@@ -1753,6 +1771,7 @@ function HonoredOne.Ability:OnEnded(abilityRequest)
 	-- Resume animation from freeze (Red ability)
 	if state.isCrouching and state.animation and state.animation.IsPlaying then
 		state.animation:AdjustSpeed(1)
+		replicateTrackSpeed(RED_ANIM_NAME, 1)
 	end
 end
 

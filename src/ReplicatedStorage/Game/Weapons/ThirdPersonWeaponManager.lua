@@ -594,6 +594,24 @@ function ThirdPersonWeaponManager:_stopTrack(trackName: string)
 	end
 end
 
+function ThirdPersonWeaponManager:_setTrackSpeed(trackName: string, speed: number)
+	local track = self.Tracks[trackName] or self:_ensureReplicatedTrack(trackName)
+	if not track then
+		return
+	end
+
+	local resolvedSpeed = tonumber(speed)
+	if resolvedSpeed == nil then
+		return
+	end
+
+	if not track.IsPlaying then
+		track:Play(0.05, 1, 1)
+	end
+
+	track:AdjustSpeed(resolvedSpeed)
+end
+
 function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 	if type(weaponId) ~= "string" or weaponId == "" then
 		self:UnequipWeapon()
@@ -715,6 +733,25 @@ function ThirdPersonWeaponManager:ApplyReplicatedAction(actionName: string, trac
 				self:_playTrack(resolvedTrack, true)
 			end
 		end
+		return
+	end
+
+	if actionName == "SetTrackSpeed" then
+		if type(resolvedTrack) ~= "string" or resolvedTrack == "" then
+			return
+		end
+
+		local encodedTrack, encodedSpeed = string.match(resolvedTrack, "^(.+)|([%-%d%.]+)$")
+		if not encodedTrack or encodedTrack == "" then
+			return
+		end
+
+		local speedValue = tonumber(encodedSpeed)
+		if speedValue == nil then
+			return
+		end
+
+		self:_setTrackSpeed(encodedTrack, speedValue)
 		return
 	end
 
