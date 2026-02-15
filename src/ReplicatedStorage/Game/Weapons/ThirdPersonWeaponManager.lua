@@ -17,7 +17,7 @@ local ThirdPersonWeaponManager = {}
 ThirdPersonWeaponManager.__index = ThirdPersonWeaponManager
 
 local DEFAULT_SCALE = 0.5725
-local DEFAULT_OFFSET = CFrame.new(0, .5, 0)
+local DEFAULT_OFFSET = CFrame.new(0, .75, 0)
 
 local LOOPED_TRACKS = {
 	Idle = true,
@@ -236,6 +236,7 @@ function ThirdPersonWeaponManager:_loadTracks(weaponId: string, weaponConfig)
 	end
 end
 
+function ThirdPersonWeaponManager:_getOwnerPlayer(): Player?
 	if not self.Rig then
 		return nil
 	end
@@ -254,7 +255,19 @@ end
 end
 
 function ThirdPersonWeaponManager:_loadFistsKitTracks()
-	local ownerPlayer = self:_getOwnerPlayer()
+	local ownerPlayer = nil
+	if self.Rig then
+		local ownerUserId = self.Rig:GetAttribute("OwnerUserId")
+		if type(ownerUserId) == "number" then
+			ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
+		end
+	end
+	if not ownerPlayer then
+		local character = self:_resolveOwnerCharacter()
+		if character then
+			ownerPlayer = Players:GetPlayerFromCharacter(character)
+		end
+	end
 	if not ownerPlayer then
 		return
 	end
