@@ -471,6 +471,12 @@ local function endBlue(state)
 	clearExternalMoveMult()
 	clearBlueSlideGate()
 
+	-- Stop Blue rig animation (replicates to others)
+	local animCtrl = ServiceRegistry:GetController("AnimationController")
+	if animCtrl then
+		animCtrl:StopRigAnimation("Blue", 0.15)
+	end
+
 	if state.hitboxViz and state.hitboxViz.Parent then
 		state.hitboxViz:Destroy()
 	end
@@ -483,6 +489,13 @@ local function endRed(state, preserveExplosionPivot)
 	clearExternalMoveMult()
 	clearRedCrouchGate()
 	clearBlueSlideGate()
+
+	-- Stop Red rig animations (replicates to others)
+	local animCtrl = ServiceRegistry:GetController("AnimationController")
+	if animCtrl then
+		animCtrl:StopRigAnimation("RedIdle", 0.1)
+		animCtrl:StopRigAnimation("RedShoot", 0.1)
+	end
 
 	if state.projectileViz and state.projectileViz.Parent then
 		state.projectileViz:Destroy()
@@ -1475,6 +1488,12 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 		if state.animation and state.animation.IsPlaying then
 			state.animation:Stop(0.1)
 		end
+
+		-- Stop all 3rd person rig animations
+		local ac = ServiceRegistry:GetController("AnimationController")
+		if ac then
+			ac:StopAllRigAnimations(0.1)
+		end
 		
 		-- Cleanup
 		cleanupSounds()
@@ -1506,14 +1525,19 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 	local Events = {
 		["create"] = function()
 			-- VFX/sounds on ability start (charging for Red)
-			-- TODO: Add VFXRep call for start effects
 			if isCrouching then
 				setExternalMoveMult(RED_MOVE_MULT)
 				setRedCrouchGate()
 				VFXRep:Fire("Me", { Module = "HonoredOne", Function = "User" }, {
 					ViewModel = viewmodelRig,
 					forceAction = "red_create",
-				})	
+				})
+
+				-- 3rd person rig: show RedIdle while charging
+				local animCtrl = ServiceRegistry:GetController("AnimationController")
+				if animCtrl then
+					animCtrl:PlayRigAnimation("RedIdle", { Looped = true, Priority = Enum.AnimationPriority.Action4 })
+				end
 			end
 		
 		end,
@@ -1619,6 +1643,12 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 			-- Play "Pulled" voice line
 			Dialogue.generate("HonoredOne", "Ability", "BlueStart", { override = true })
 
+			-- 3rd person rig: show Blue animation while hitbox is active
+			local animCtrl = ServiceRegistry:GetController("AnimationController")
+			if animCtrl then
+				animCtrl:PlayRigAnimation("Blue", { Looped = true, Priority = Enum.AnimationPriority.Action4 })
+			end
+
 			task.spawn(runBlueHitbox, state)
 		end,
 
@@ -1641,12 +1671,28 @@ function HonoredOne.Ability:OnStart(abilityRequest)
 				forceAction = "red_fire",
 			})
 			LocalPlayer:SetAttribute(`red_charge`, nil)
+
+			-- 3rd person rig: RedIdle -> RedShoot
+			local animCtrl = ServiceRegistry:GetController("AnimationController")
+			if animCtrl then
+				animCtrl:StopRigAnimation("RedIdle", 0.05)
+				animCtrl:PlayRigAnimation("RedShoot", { Looped = false, FadeInTime = 0.05 })
+			end
 		end,
 
 		["_finish"] = function()
 			if not state.active then return end
 			
 			state.active = false
+
+			-- Rig animations are stopped by endBlue/endRed when the actual ability finishes.
+			-- If ability never committed, stop here as a safety net.
+			if not state.committed then
+				local animCtrl = ServiceRegistry:GetController("AnimationController")
+				if animCtrl then
+					animCtrl:StopAllRigAnimations(0.1)
+				end
+			end
 
 			-- Cleanup animation connections
 			for _, conn in ipairs(state.connections) do
@@ -1743,6 +1789,12 @@ function HonoredOne.Ability:OnInterrupt(abilityRequest, reason)
 	-- Stop animation
 	if state.animation and state.animation.IsPlaying then
 		state.animation:Stop(0.1)
+	end
+
+	-- Stop all 3rd person rig animations
+	local animCtrl = ServiceRegistry:GetController("AnimationController")
+	if animCtrl then
+		animCtrl:StopAllRigAnimations(0.1)
 	end
 
 	-- Cleanup connections

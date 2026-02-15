@@ -15,6 +15,8 @@ local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local TestMode = require(Locations.Shared.Util:WaitForChild("TestMode"))
 local Net = require(Locations.Shared.Net.Net)
+local Players = game:GetService("Players")
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 
 local DEBUG_THROTTLE_SECONDS = 0.2
 local lastDebugTimes = {}
@@ -102,6 +104,7 @@ AnimationController.OtherCharacterEmoteTracks = {}
 -- Custom/Kit animation system
 AnimationController.CustomAnimationTracks = {}
 AnimationController.PreloadedAnimations = {}
+AnimationController.OtherCharacterKitTracks = {} -- Kit animation tracks for remote players
 AnimationController.ZiplineActive = false
 AnimationController.CurrentZiplineAnimationName = nil
 
@@ -274,6 +277,21 @@ end
 function AnimationController:Start()
 	-- Preload all character animations from Assets.Animations.Character
 	self:PreloadCharacterAnimations()
+
+	-- Register as a VFXRep module so other clients' rig animation events arrive here directly.
+	-- No separate ReplicationModules file needed.
+	local self_ = self
+	VFXRep.Modules["RigAnimation"] = {
+		Play = function(_, originUserId, data)
+			self_:_onRemoteRigPlay(originUserId, data)
+		end,
+		Stop = function(_, originUserId, data)
+			self_:_onRemoteRigStop(originUserId, data)
+		end,
+		StopAll = function(_, originUserId, data)
+			self_:_onRemoteRigStopAll(originUserId, data)
+		end,
+	}
 end
 
 function AnimationController:_loadAnimationInstances()
@@ -467,6 +485,156 @@ function AnimationController:StopAllCustomAnimations(fadeOutTime: number?)
 	self.CustomAnimationTracks = {}
 end
 
+--------------------------------------------------------------------------------
+-- Replicated Rig Animation API
+-- Play/stop animations on your rig AND automatically replicate to all others.
+-- Usage:  animCtrl:PlayRigAnimation("Blue", { Looped = true })
+--------------------------------------------------------------------------------
+
+--[[
+	Play a rig animation locally and replicate to all other players.
+	@param animName: string - Animation name from PreloadedAnimations
+	@param settings: table? - Optional: Looped, Priority, FadeInTime, Speed, StopOthers
+	@return AnimationTrack? - The local track, or nil if failed
+]]
+function AnimationController:PlayRigAnimation(animName: string, settings: {[string]: any}?)
+	local track = self:PlayAnimation(animName, settings)
+
+	VFXRep:Fire("Others", { Module = "RigAnimation", Function = "Play" }, {
+		animName = animName,
+		Looped = settings and settings.Looped,
+		Priority = settings and settings.Priority,
+		FadeInTime = settings and settings.FadeInTime,
+		Speed = settings and settings.Speed,
+		StopOthers = settings and settings.StopOthers,
+	})
+
+	return track
+end
+
+--[[
+	Stop a rig animation locally and replicate the stop to all other players.
+]]
+function AnimationController:StopRigAnimation(animName: string, fadeOut: number?)
+	self:StopAnimation(animName, fadeOut)
+
+	VFXRep:Fire("Others", { Module = "RigAnimation", Function = "Stop" }, {
+		animName = animName,
+		fadeOut = fadeOut or 0.1,
+	})
+end
+
+--[[
+	Stop all rig animations locally and replicate to all other players.
+]]
+function AnimationController:StopAllRigAnimations(fadeOut: number?)
+	self:StopAllCustomAnimations(fadeOut)
+
+	VFXRep:Fire("Others", { Module = "RigAnimation", Function = "StopAll" }, {
+		fadeOut = fadeOut or 0.15,
+	})
+end
+
+--------------------------------------------------------------------------------
+-- Remote Rig Animation Receivers (called via VFXRep from other clients)
+--------------------------------------------------------------------------------
+
+function AnimationController:_onRemoteRigPlay(originUserId, data)
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer.UserId == originUserId then return end
+	if type(data) ~= "table" or type(data.animName) ~= "string" then return end
+
+	local player = Players:GetPlayerByUserId(originUserId)
+	if not player then return end
+
+	local character = player.Character
+	if not character or not character.Parent then return end
+
+	local animator = self.OtherCharacterAnimators[character]
+	if not animator then return end
+
+	local animation = self.PreloadedAnimations[data.animName]
+	if not animation or not animation.AnimationId or animation.AnimationId == "" then return end
+
+	-- Ensure kit tracks table exists for this character
+	if not self.OtherCharacterKitTracks[character] then
+		self.OtherCharacterKitTracks[character] = {}
+	end
+	local kitTracks = self.OtherCharacterKitTracks[character]
+
+	-- Stop other kit animations if requested
+	if data.StopOthers ~= false then
+		for _, track in pairs(kitTracks) do
+			if track and track.IsPlaying then
+				track:Stop(0.1)
+			end
+		end
+	end
+
+	local track = animator:LoadAnimation(animation)
+	if not track then return end
+
+	track.Priority = data.Priority or Enum.AnimationPriority.Action4
+	track.Looped = data.Looped or false
+
+	track:Play(
+		data.FadeInTime or 0.15,
+		1,
+		data.Speed or 1
+	)
+
+	kitTracks[data.animName] = track
+
+	track.Stopped:Once(function()
+		if kitTracks[data.animName] == track then
+			kitTracks[data.animName] = nil
+		end
+	end)
+end
+
+function AnimationController:_onRemoteRigStop(originUserId, data)
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer.UserId == originUserId then return end
+	if type(data) ~= "table" or type(data.animName) ~= "string" then return end
+
+	local player = Players:GetPlayerByUserId(originUserId)
+	if not player then return end
+
+	local character = player.Character
+	if not character then return end
+
+	local kitTracks = self.OtherCharacterKitTracks[character]
+	if not kitTracks then return end
+
+	local track = kitTracks[data.animName]
+	if track and track.IsPlaying then
+		track:Stop(data.fadeOut or 0.1)
+	end
+	kitTracks[data.animName] = nil
+end
+
+function AnimationController:_onRemoteRigStopAll(originUserId, data)
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer.UserId == originUserId then return end
+
+	local player = Players:GetPlayerByUserId(originUserId)
+	if not player then return end
+
+	local character = player.Character
+	if not character then return end
+
+	local kitTracks = self.OtherCharacterKitTracks[character]
+	if not kitTracks then return end
+
+	local fadeOut = type(data) == "table" and data.fadeOut or 0.15
+	for _, track in pairs(kitTracks) do
+		if track and track.IsPlaying then
+			track:Stop(fadeOut)
+		end
+	end
+	self.OtherCharacterKitTracks[character] = {}
+end
+
 function AnimationController:_loadTrack(animator, animation, name)
 	if not animation.AnimationId or animation.AnimationId == "" then
 		if TestMode.Logging.LogAnimationSystem then
@@ -628,6 +796,17 @@ function AnimationController:OnOtherCharacterRemoving(character)
 	self.OtherCharacterAnimators[character] = nil
 	self.OtherCharacterTracks[character] = nil
 	self.OtherCharacterCurrentAnimations[character] = nil
+
+	-- Cleanup kit tracks for this character
+	local kitTracks = self.OtherCharacterKitTracks[character]
+	if kitTracks then
+		for _, track in pairs(kitTracks) do
+			if track and track.IsPlaying then
+				track:Stop(0)
+			end
+		end
+		self.OtherCharacterKitTracks[character] = nil
+	end
 end
 
 function AnimationController:OnMovementStateChanged(previousState, newState, _data)
