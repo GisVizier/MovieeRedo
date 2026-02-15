@@ -425,11 +425,15 @@ function module:_populateKillEntry(entry, data)
 	end
 
 	local weaponFrame = entry:FindFirstChild("Weapon", true)
-	if weaponFrame then
-		local icon = weaponFrame:FindFirstChildWhichIsA("ImageLabel") or (weaponFrame:IsA("ImageLabel") and weaponFrame)
-		if icon and icon:IsA("ImageLabel") then
-			local weaponConfig = LoadoutConfig.getWeapon(weaponId)
-			icon.Image = weaponConfig and weaponConfig.imageId or ""
+	if weaponFrame and weaponId then
+		-- Clone the weapon icon from the Configuration folder inside the killfeed
+		local configFolder = self._killfeedContainer and self._killfeedContainer:FindFirstChild("Configuration")
+		local iconTemplate = configFolder and configFolder:FindFirstChild(weaponId)
+		if iconTemplate and iconTemplate:IsA("ImageLabel") then
+			local iconClone = iconTemplate:Clone()
+			iconClone.Position = UDim2.fromScale(0.5, 0.5)
+			iconClone.AnchorPoint = Vector2.new(0.5, 0.5)
+			iconClone.Parent = weaponFrame
 		end
 	end
 end
