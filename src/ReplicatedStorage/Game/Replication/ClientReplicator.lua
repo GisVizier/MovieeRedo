@@ -14,6 +14,12 @@ local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):Wai
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local ThirdPersonWeaponManager = require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
+local DEBUG_VM_REPL = true
+local function vmLog(...)
+	if DEBUG_VM_REPL then
+		warn("[VM-ClientReplicator]", ...)
+	end
+end
 
 ClientReplicator.Character = nil
 ClientReplicator.PrimaryPart = nil
@@ -34,7 +40,13 @@ ClientReplicator.CurrentLoadout = nil
 ClientReplicator.CurrentEquippedSlot = nil
 ClientReplicator._loadoutConn = nil
 ClientReplicator._slotConn = nil
+ClientReplicator._emoteConn = nil
+ClientReplicator._isEmoting = false
+ClientReplicator._weaponHiddenByEmote = false
 ClientReplicator._lastAnimChangeTime = 0  -- Tracks when animation last changed for retransmit window
+ClientReplicator._viewmodelActionSequence = 0
+ClientReplicator._lastViewmodelActionTimes = {}
+ClientReplicator._pendingViewmodelActions = {}
 
 function ClientReplicator:Init(net)
 	self._net = net
@@ -52,6 +64,9 @@ function ClientReplicator:Start(character)
 	self.LastUpdateTime = 0
 	self.LastSentState = nil
 	self.SequenceNumber = 0
+	self._viewmodelActionSequence = 0
+	self._lastViewmodelActionTimes = {}
+	self._pendingViewmodelActions = {}
 
 	self:CalculateOffsets()
 	self:_cacheRigOffsets()
@@ -66,6 +81,7 @@ function ClientReplicator:Start(character)
 	if localPlayer then
 		-- Parse initial loadout if available
 		self:_parseLoadout(localPlayer:GetAttribute("SelectedLoadout"))
+		self._isEmoting = localPlayer:GetAttribute("IsEmoting") == true
 		self:_equipSlotWeapon(localPlayer:GetAttribute("EquippedSlot"))
 
 		-- Listen for loadout changes
@@ -79,7 +95,26 @@ function ClientReplicator:Start(character)
 		self._slotConn = localPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(function()
 			self:_equipSlotWeapon(localPlayer:GetAttribute("EquippedSlot"))
 		end)
+
+		self._emoteConn = localPlayer:GetAttributeChangedSignal("IsEmoting"):Connect(function()
+			local isEmoting = localPlayer:GetAttribute("IsEmoting") == true
+			self._isEmoting = isEmoting
+
+			if isEmoting then
+				if self.WeaponManager then
+					self.WeaponManager:UnequipWeapon()
+					self._weaponHiddenByEmote = true
+					vmLog("Hide third-person weapon due to emote")
+				end
+			elseif self._weaponHiddenByEmote then
+				self._weaponHiddenByEmote = false
+				self:_equipSlotWeapon(self.CurrentEquippedSlot)
+				vmLog("Restore third-person weapon after emote")
+			end
+		end)
 	end
+
+	self:_flushPendingViewmodelActions()
 
 	local updateInterval = 1 / ReplicationConfig.UpdateRates.ClientToServer
 	self.UpdateConnection = RunService.Heartbeat:Connect(function(dt)
@@ -109,6 +144,11 @@ function ClientReplicator:Stop()
 		self._slotConn = nil
 	end
 
+	if self._emoteConn then
+		self._emoteConn:Disconnect()
+		self._emoteConn = nil
+	end
+
 	if self.WeaponManager then
 		self.WeaponManager:Destroy()
 		self.WeaponManager = nil
@@ -126,6 +166,11 @@ function ClientReplicator:Stop()
 	self.SequenceNumber = 0
 	self.CurrentLoadout = nil
 	self.CurrentEquippedSlot = nil
+	self._isEmoting = false
+	self._weaponHiddenByEmote = false
+	self._viewmodelActionSequence = 0
+	self._lastViewmodelActionTimes = {}
+	self._pendingViewmodelActions = {}
 end
 
 -- Parse the JSON loadout from player attribute
@@ -162,13 +207,23 @@ end
 -- Equip the weapon for a slot on the third-person rig
 function ClientReplicator:_equipSlotWeapon(slot)
 	self.CurrentEquippedSlot = slot
+	vmLog("EquipSlotWeapon", "slot=", tostring(slot), "hasLoadout=", self.CurrentLoadout ~= nil)
 
 	if not self.WeaponManager then
 		return
 	end
 
+	if self._isEmoting then
+		self.WeaponManager:UnequipWeapon()
+		self._weaponHiddenByEmote = true
+		vmLog("Skip equip while emoting")
+		return
+	end
+
 	if not slot or slot == "" then
 		self.WeaponManager:UnequipWeapon()
+		self:ReplicateViewmodelAction("", "Unequip", "", false)
+		vmLog("Unequip due to empty slot")
 		return
 	end
 
@@ -181,11 +236,19 @@ function ClientReplicator:_equipSlotWeapon(slot)
 	-- Fists = no weapon
 	if not weaponId or weaponId == "" or slot == "Fists" then
 		self.WeaponManager:UnequipWeapon()
+		self:ReplicateViewmodelAction("", "Unequip", "", false)
+		vmLog("Unequip due to no weapon or fists", "slot=", tostring(slot), "weaponId=", tostring(weaponId))
 		return
 	end
 
 	-- Equip the weapon
 	local success = self.WeaponManager:EquipWeapon(weaponId)
+	if success then
+		self:ReplicateViewmodelAction(weaponId, "Equip", "Equip", true)
+		vmLog("Local equip success", "weaponId=", tostring(weaponId))
+	else
+		vmLog("Local equip failed", "weaponId=", tostring(weaponId))
+	end
 	
 end
 
@@ -295,6 +358,103 @@ function ClientReplicator:SyncParts(dt)
 		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 
+	if self.WeaponManager then
+		local isCrouched = MovementStateManager:IsCrouching() or MovementStateManager:IsSliding()
+		self.WeaponManager:SetCrouching(isCrouched)
+		self.WeaponManager:UpdateTransform(rootCFrame, self:_getAimPitch())
+	end
+
+end
+
+function ClientReplicator:_getAimPitch()
+	local cameraController = ServiceRegistry:GetController("CameraController")
+	if cameraController and type(cameraController.GetCameraAngles) == "function" then
+		local angles = cameraController:GetCameraAngles()
+		if angles then
+			return tonumber(angles.Y) or 0
+		end
+	end
+
+	local camera = workspace.CurrentCamera
+	if camera then
+		local lookY = math.clamp(camera.CFrame.LookVector.Y, -1, 1)
+		return math.deg(math.asin(lookY))
+	end
+
+	return 0
+end
+
+function ClientReplicator:ReplicateViewmodelAction(weaponId, actionName, trackName, isActive)
+	if not self._net then
+		return
+	end
+
+	if not self.IsActive then
+		local queue = self._pendingViewmodelActions
+		if not queue then
+			queue = {}
+			self._pendingViewmodelActions = queue
+		end
+		table.insert(queue, {
+			WeaponId = weaponId,
+			ActionName = actionName,
+			TrackName = trackName,
+			IsActive = isActive,
+		})
+		while #queue > 24 do
+			table.remove(queue, 1)
+		end
+		return
+	end
+
+	local now = workspace:GetServerTimeNow()
+	self:_sendViewmodelAction(weaponId, actionName, trackName, isActive, now)
+end
+
+function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, isActive, now)
+	now = now or workspace:GetServerTimeNow()
+	local minInterval = ReplicationConfig.ViewmodelActions and ReplicationConfig.ViewmodelActions.MinInterval or 0.03
+	local actionKey = string.format("%s|%s|%s", tostring(actionName), tostring(trackName), tostring(isActive == true))
+	local lastSentAt = self._lastViewmodelActionTimes[actionKey] or 0
+	if now - lastSentAt < minInterval then
+		return
+	end
+
+	self._lastViewmodelActionTimes[actionKey] = now
+	self._viewmodelActionSequence = (self._viewmodelActionSequence + 1) % 65536
+
+	local localPlayer = Players.LocalPlayer
+	local compressed = CompressionUtils:CompressViewmodelAction(
+		localPlayer and localPlayer.UserId or 0,
+		weaponId,
+		actionName,
+		trackName,
+		isActive,
+		self._viewmodelActionSequence,
+		now
+	)
+
+	if compressed then
+		self._net:FireServer("ViewmodelActionUpdate", compressed)
+		vmLog("Sent action", "weaponId=", tostring(weaponId), "action=", tostring(actionName), "track=", tostring(trackName), "active=", tostring(isActive))
+	end
+end
+
+function ClientReplicator:_flushPendingViewmodelActions()
+	if not self.IsActive then
+		return
+	end
+
+	local queue = self._pendingViewmodelActions
+	if not queue or #queue == 0 then
+		return
+	end
+
+	for _, payload in ipairs(queue) do
+		self:_sendViewmodelAction(payload.WeaponId, payload.ActionName, payload.TrackName, payload.IsActive)
+	end
+
+	self._pendingViewmodelActions = {}
 end
 
 function ClientReplicator:SendStateUpdate()
@@ -307,6 +467,7 @@ function ClientReplicator:SendStateUpdate()
 	local velocity = self.PrimaryPart.AssemblyLinearVelocity
 	local timestamp = workspace:GetServerTimeNow()
 	local isGrounded = MovementStateManager:GetIsGrounded()
+	local aimPitch = self:_getAimPitch()
 
 	local animationController = ServiceRegistry:GetController("AnimationController")
 	local animationId = animationController and animationController:GetCurrentAnimationId() or 1
@@ -334,6 +495,7 @@ function ClientReplicator:SendStateUpdate()
 		local shouldSendGrounded = (self.LastSentState.IsGrounded ~= isGrounded)
 		local shouldSendAnimation = (self.LastSentState.AnimationId ~= animationId)
 		local shouldSendRigTilt = math.abs((self.LastSentState.RigTilt or 0) - rigTilt) > 1
+		local shouldSendAimPitch = CompressionUtils:ShouldSendAimPitchUpdate(self.LastSentState.AimPitch, aimPitch)
 
 		if
 			not shouldSendPosition
@@ -342,6 +504,7 @@ function ClientReplicator:SendStateUpdate()
 			and not shouldSendGrounded
 			and not shouldSendAnimation
 			and not shouldSendRigTilt
+			and not shouldSendAimPitch
 			and not recentAnimChange
 		then
 			return
@@ -361,7 +524,8 @@ function ClientReplicator:SendStateUpdate()
 		isGrounded,
 		animationId,
 		rigTilt,
-		self.SequenceNumber
+		self.SequenceNumber,
+		aimPitch
 	)
 
 	if compressedState then
@@ -376,6 +540,7 @@ function ClientReplicator:SendStateUpdate()
 		IsGrounded = isGrounded,
 		AnimationId = animationId,
 		RigTilt = rigTilt,
+		AimPitch = aimPitch,
 	}
 end
 

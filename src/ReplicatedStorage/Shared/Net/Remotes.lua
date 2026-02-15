@@ -18,6 +18,8 @@ local Remotes = {
 
 	{ name = "CharacterStateUpdate", description = "Client state update", unreliable = true },
 	{ name = "CharacterStateReplicated", description = "Server broadcast state batch", unreliable = true },
+	{ name = "ViewmodelActionUpdate", description = "Client viewmodel action update" },
+	{ name = "ViewmodelActionReplicated", description = "Server broadcasts viewmodel actions" },
 	{ name = "ServerCorrection", description = "Server correction to client" },
 	{ name = "RequestInitialStates", description = "Client requests initial states" },
 	{ name = "ClientReplicationReady", description = "Client signals ready to receive replication" },

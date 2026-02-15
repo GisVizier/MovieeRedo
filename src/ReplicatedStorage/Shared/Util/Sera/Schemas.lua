@@ -31,13 +31,14 @@ local SeraSchemas = {}
 SeraSchemas.CharacterState = Sera.Schema({
 	Position = Sera.Vector3, -- 12 bytes (3x float32)
 	Rotation = Sera.Float32, -- 4 bytes (Y rotation in radians)
+	AimPitch = Sera.Int16, -- 2 bytes (look pitch in centidegrees: -9000..9000)
 	Velocity = Sera.Vector3, -- 12 bytes (3x float32)
 	Timestamp = Sera.Float64, -- 8 bytes
 	IsGrounded = Sera.Boolean, -- 1 byte (prevents falling animation bug)
 	AnimationId = Sera.Uint8, -- 1 byte (animation enum, replaces string events)
 	RigTilt = Sera.Int8, -- 1 byte (rig tilt angle in degrees, -128 to 127)
 	SequenceNumber = Sera.Uint16, -- 2 bytes (packet ordering/loss detection, wraps at 65535)
-	-- Total: 41 bytes (unified physics + animation + rig rotation + sequencing!)
+	-- Total: 43 bytes (unified physics + animation + rig rotation + sequencing + aim pitch)
 	-- Previous: 36 bytes physics + ~15 bytes animation event = ~51 bytes total
 	-- Savings: 20% reduction + eliminates race conditions + packet loss detection!
 })
@@ -47,12 +48,23 @@ SeraSchemas.CharacterState = Sera.Schema({
 SeraSchemas.CharacterStateDelta = Sera.Schema({
 	Position = Sera.Vector3,
 	Rotation = Sera.Float32,
+	AimPitch = Sera.Int16,
 	Velocity = Sera.Vector3,
 	Timestamp = Sera.Float64,
 	IsGrounded = Sera.Boolean,
 	AnimationId = Sera.Uint8,
 	RigTilt = Sera.Int8,
 	SequenceNumber = Sera.Uint16,
+})
+
+SeraSchemas.ViewmodelAction = Sera.Schema({
+	PlayerUserId = Sera.Uint32,
+	WeaponId = Sera.String8,
+	ActionName = Sera.String8,
+	TrackName = Sera.String8,
+	IsActive = Sera.Boolean,
+	SequenceNumber = Sera.Uint16,
+	Timestamp = Sera.Float64,
 })
 
 -- Animation State Change

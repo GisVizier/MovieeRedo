@@ -8,6 +8,12 @@ local CompressionUtils = require(Locations.Shared.Util:WaitForChild("Compression
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator)
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
+local DEBUG_VM_REPL = true
+local function vmLog(...)
+	if DEBUG_VM_REPL then
+		warn("[VM-ReplicationService]", ...)
+	end
+end
 
 -- Stance enum (must match PositionHistory.Stance)
 local Stance = {
@@ -18,6 +24,7 @@ local Stance = {
 
 ReplicationService.PlayerStates = {}
 ReplicationService.PlayerStances = {} -- [player] = stance enum
+ReplicationService.PlayerViewmodelActionSeq = {} -- [player] = latest action sequence number
 ReplicationService.ReadyPlayers = {} -- [player] = true when client ready to receive replication
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
@@ -32,6 +39,10 @@ function ReplicationService:Init(registry, net)
 
 	self._net:ConnectServer("CharacterStateUpdate", function(player, compressedState)
 		self:OnClientStateUpdate(player, compressedState)
+	end)
+
+	self._net:ConnectServer("ViewmodelActionUpdate", function(player, compressedAction)
+		self:OnViewmodelActionUpdate(player, compressedAction)
 	end)
 
 	self._net:ConnectServer("RequestInitialStates", function(player)
@@ -51,6 +62,7 @@ function ReplicationService:Init(registry, net)
 	-- Cleanup on player leaving
 	game.Players.PlayerRemoving:Connect(function(player)
 		self.ReadyPlayers[player] = nil
+		self.PlayerViewmodelActionSeq[player] = nil
 	end)
 
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
@@ -85,6 +97,7 @@ end
 function ReplicationService:UnregisterPlayer(player)
 	self.PlayerStates[player] = nil
 	self.PlayerStances[player] = nil
+	self.PlayerViewmodelActionSeq[player] = nil
 end
 
 function ReplicationService:OnCrouchStateChanged(player, isCrouching)
@@ -141,10 +154,76 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 	HitValidator:StorePosition(player, state.Position, state.Timestamp, currentStance)
 end
 
+function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)
+	local payload = CompressionUtils:DecompressViewmodelAction(compressedAction)
+	if not payload then
+		vmLog("Drop: failed decompress", player and player.Name or "?")
+		return
+	end
+
+	local weaponId = tostring(payload.WeaponId or "")
+	local actionName = tostring(payload.ActionName or "")
+	local trackName = tostring(payload.TrackName or "")
+	local isActive = payload.IsActive == true
+	local sequenceNumber = tonumber(payload.SequenceNumber) or 0
+	local timestamp = tonumber(payload.Timestamp) or workspace:GetServerTimeNow()
+
+	if actionName == "" then
+		vmLog("Drop: empty action", player.Name)
+		return
+	end
+	if weaponId == "" and actionName ~= "Unequip" then
+		vmLog("Drop: empty weapon for non-unequip", player.Name, actionName)
+		return
+	end
+
+	if #weaponId > 32 or #actionName > 32 or #trackName > 32 then
+		vmLog("Drop: field too long", player.Name, weaponId, actionName, trackName)
+		return
+	end
+
+	local lastSeq = self.PlayerViewmodelActionSeq[player]
+	if lastSeq ~= nil then
+		local gap = sequenceNumber >= lastSeq and (sequenceNumber - lastSeq) or ((65536 - lastSeq) + sequenceNumber)
+		if gap == 0 then
+			vmLog("Drop: duplicate seq", player.Name, sequenceNumber)
+			return
+		end
+		if gap > 32768 then
+			vmLog("Drop: old seq", player.Name, "seq=", sequenceNumber, "last=", lastSeq)
+			return
+		end
+	end
+	self.PlayerViewmodelActionSeq[player] = sequenceNumber
+
+	local replicated = CompressionUtils:CompressViewmodelAction(
+		player.UserId,
+		weaponId,
+		actionName,
+		trackName,
+		isActive,
+		sequenceNumber,
+		timestamp
+	)
+
+	if replicated then
+		vmLog("Relay", player.Name, "weapon=", weaponId, "action=", actionName, "track=", trackName, "active=", tostring(isActive))
+		self:_fireToReadyClientsExcept(player, "ViewmodelActionReplicated", replicated)
+	end
+end
+
 -- Helper to send to only ready players (avoids race condition on join)
 function ReplicationService:_fireToReadyClients(eventName, data)
 	for player in pairs(self.ReadyPlayers) do
 		if player.Parent then
+			self._net:FireClient(eventName, player, data)
+		end
+	end
+end
+
+function ReplicationService:_fireToReadyClientsExcept(excludedPlayer, eventName, data)
+	for player in pairs(self.ReadyPlayers) do
+		if player.Parent and player ~= excludedPlayer then
 			self._net:FireClient(eventName, player, data)
 		end
 	end
@@ -206,7 +285,8 @@ function ReplicationService:SendInitialStatesToPlayer(newPlayer)
 				state.IsGrounded or false,
 				state.AnimationId or 1,
 				state.RigTilt or 0,
-				0
+				0,
+				state.AimPitch or 0
 			)
 
 			if compressedState then

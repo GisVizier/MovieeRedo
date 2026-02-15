@@ -10,6 +10,7 @@ Replication.Compression = {
 	MinPositionDelta = 0.1,
 	MinRotationDelta = 0.01,
 	MinVelocityDelta = 0.5,
+	MinAimPitchDelta = 0.5,
 }
 
 Replication.Interpolation = {
@@ -24,6 +25,10 @@ Replication.Interpolation = {
 Replication.Optimization = {
 	EnableBatching = true,
 	MaxBatchSize = 20,
+}
+
+Replication.ViewmodelActions = {
+	MinInterval = 0.03,
 }
 
 return Replication

@@ -426,6 +426,12 @@ function module:_populateKillEntry(entry, data)
 
 	local weaponFrame = entry:FindFirstChild("Weapon", true)
 	if weaponFrame and weaponId then
+		-- Remove the existing template icon
+		local existingIcon = weaponFrame:FindFirstChildWhichIsA("ImageLabel")
+		if existingIcon then
+			existingIcon:Destroy()
+		end
+
 		-- Clone the weapon icon from the Configuration folder inside the killfeed
 		local configFolder = self._killfeedContainer and self._killfeedContainer:FindFirstChild("Configuration")
 		local iconTemplate = configFolder and configFolder:FindFirstChild(weaponId)

@@ -19,6 +19,11 @@ function Inspect.Execute(weaponInstance)
 		return false, "InvalidInstance"
 	end
 
+	if Inspect._isInspecting then
+		Inspect.Cancel()
+		return true
+	end
+
 	local state = weaponInstance.State
 	if state.IsReloading or state.IsAttacking then
 		return false, "Busy"
@@ -30,6 +35,12 @@ function Inspect.Execute(weaponInstance)
 	end
 	if viewmodelController.IsADS and viewmodelController:IsADS() then
 		return false, "Busy"
+	end
+
+	local animator = viewmodelController._animator
+	if animator and type(animator.Stop) == "function" then
+		animator:Stop("Inspect", 0.05)
+		animator:Stop("Inspect2", 0.05)
 	end
 
 	Inspect._isInspecting = true

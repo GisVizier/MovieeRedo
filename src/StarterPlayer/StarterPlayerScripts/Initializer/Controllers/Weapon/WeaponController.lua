@@ -52,6 +52,7 @@ WeaponController._inputManager = nil
 WeaponController._viewmodelController = nil
 WeaponController._camera = nil
 WeaponController._crosshair = nil
+WeaponController._replicationController = nil
 
 -- Services
 WeaponController._ammo = nil
@@ -182,6 +183,7 @@ function WeaponController:Start()
 	local inputController = self._registry:TryGet("Input")
 	self._inputManager = inputController and inputController.Manager
 	self._viewmodelController = self._registry:TryGet("Viewmodel")
+	self._replicationController = self._registry:TryGet("Replication")
 	self._crosshair = CrosshairController.new(Players.LocalPlayer)
 
 	local crosshairConfig = LoadoutConfig.Crosshair
@@ -735,10 +737,13 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		-- Animation helpers
 		PlayAnimation = function(name, fade, restart)
 			self:_playViewmodelAnimation(name, fade, restart)
+			self:_replicateViewmodelAction("PlayAnimation", name, true)
 		end,
 		PlayWeaponTrack = function(name, fade)
 			if self._viewmodelController and self._viewmodelController.PlayWeaponTrack then
-				return self._viewmodelController:PlayWeaponTrack(name, fade)
+				local track = self._viewmodelController:PlayWeaponTrack(name, fade)
+				self:_replicateViewmodelAction("PlayWeaponTrack", name, true)
+				return track
 			end
 			return nil
 		end,
@@ -1062,6 +1067,7 @@ function WeaponController:Inspect()
 	if self._currentActions.Inspect then
 		local ok = self._currentActions.Inspect.Execute(self._weaponInstance)
 		if ok then
+			self:_replicateViewmodelAction("Inspect", "Inspect", true)
 			LogService:Debug("WEAPON", "Inspecting", { weaponId = self._equippedWeaponId })
 		end
 	end
@@ -1118,6 +1124,14 @@ function WeaponController:Special(isPressed)
 
 	-- Apply Aim Assist ADS boost
 	self:_updateAimAssistADS(self._isADS)
+
+	local weaponType = self._weaponInstance and self._weaponInstance.WeaponType or "Gun"
+	if weaponType == "Gun" then
+		local trackName = self._isADS and "ADS" or "Hip"
+		self:_replicateViewmodelAction("ADS", trackName, self._isADS)
+	else
+		self:_replicateViewmodelAction("Special", "Special", isPressed)
+	end
 end
 
 function WeaponController:_updateAimAssistADS(isADS: boolean)
@@ -1240,6 +1254,28 @@ function WeaponController:_initializeAmmo()
 	end)
 
 	LogService:Debug("WEAPON", "Ammo initialized for all slots")
+end
+
+function WeaponController:_replicateViewmodelAction(actionName, trackName, isActive)
+	if type(actionName) ~= "string" or actionName == "" then
+		return
+	end
+
+	if not self._replicationController and self._registry then
+		self._replicationController = self._registry:TryGet("Replication")
+	end
+
+	local replicationController = self._replicationController
+	if not replicationController or type(replicationController.ReplicateViewmodelAction) ~= "function" then
+		return
+	end
+
+	local weaponId = self._equippedWeaponId or (self._weaponInstance and self._weaponInstance.WeaponId)
+	if not weaponId or weaponId == "" then
+		return
+	end
+
+	replicationController:ReplicateViewmodelAction(weaponId, actionName, trackName or "", isActive == true)
 end
 
 function WeaponController:_playViewmodelAnimation(name, fade, restart)

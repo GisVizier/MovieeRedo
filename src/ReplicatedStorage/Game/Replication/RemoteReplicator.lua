@@ -16,6 +16,12 @@ local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local ThirdPersonWeaponManager =
 	require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
+local DEBUG_VM_REPL = true
+local function vmLog(...)
+	if DEBUG_VM_REPL then
+		warn("[VM-RemoteReplicator]", ...)
+	end
+end
 
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
@@ -28,6 +34,8 @@ RemoteReplicator.PacketsReceived = 0
 RemoteReplicator.Interpolations = 0
 RemoteReplicator.StatsResetTime = tick()
 RemoteReplicator.PlayerLossStats = {}
+RemoteReplicator.PendingViewmodelActions = {}
+RemoteReplicator.PendingCrouchStates = {}
 
 function RemoteReplicator:Init(net)
 	self._net = net
@@ -36,9 +44,73 @@ function RemoteReplicator:Init(net)
 		self:OnStatesReplicated(batch)
 	end)
 
+	self._net:ConnectClient("ViewmodelActionReplicated", function(compressedPayload)
+		self:OnViewmodelActionReplicated(compressedPayload)
+	end)
+
+	self._net:ConnectClient("CrouchStateChanged", function(otherPlayer, isCrouching)
+		self:OnCrouchStateChanged(otherPlayer, isCrouching)
+	end)
+
 	self.RenderConnection = RunService.Heartbeat:Connect(function(deltaTime)
 		self:ReplicatePlayers(deltaTime)
 	end)
+end
+
+function RemoteReplicator:OnCrouchStateChanged(otherPlayer, isCrouching)
+	if not otherPlayer then
+		return
+	end
+
+	local userId = otherPlayer.UserId
+	local crouchState = isCrouching == true
+	local remoteData = self.RemotePlayers[userId]
+	if not remoteData then
+		self.PendingCrouchStates[userId] = crouchState
+		return
+	end
+
+	remoteData.IsCrouching = crouchState
+	if remoteData.WeaponManager then
+		remoteData.WeaponManager:SetCrouching(crouchState)
+	end
+end
+
+function RemoteReplicator:OnViewmodelActionReplicated(compressedPayload)
+	local payload = CompressionUtils:DecompressViewmodelAction(compressedPayload)
+	if not payload then
+		vmLog("Drop: failed decompress")
+		return
+	end
+
+	local userId = tonumber(payload.PlayerUserId)
+	if not userId then
+		vmLog("Drop: invalid userId")
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer.UserId == userId then
+		return
+	end
+
+	local remoteData = self.RemotePlayers[userId]
+	if not remoteData then
+		vmLog("Queue pending action; remoteData missing", "userId=", userId, "action=", tostring(payload.ActionName))
+		local pending = self.PendingViewmodelActions[userId]
+		if not pending then
+			pending = {}
+			self.PendingViewmodelActions[userId] = pending
+		end
+		table.insert(pending, payload)
+		if #pending > 8 then
+			table.remove(pending, 1)
+		end
+		return
+	end
+
+	vmLog("Apply immediate action", "userId=", userId, "weapon=", tostring(payload.WeaponId), "action=", tostring(payload.ActionName))
+	self:_applyReplicatedViewmodelAction(remoteData, payload)
 end
 
 function RemoteReplicator:OnStatesReplicated(batch)
@@ -80,6 +152,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			end
 
 			if not character or not character.PrimaryPart then
+				vmLog("Skip state: no character/primarypart for", player.Name)
 				continue
 			end
 
@@ -95,6 +168,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			-- Initialize weapon manager for third-person
 			local weaponManager = rig and ThirdPersonWeaponManager.new(rig) or nil
+			vmLog("Created remoteData", "player=", player.Name, "hasRig=", rig ~= nil, "hasWeaponManager=", weaponManager ~= nil)
 
 			remoteData = {
 				Player = player,
@@ -110,17 +184,34 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				SimulatedPosition = state.Position,
 				LastSequenceNumber = state.SequenceNumber,
 				LastAnimationId = state.AnimationId or 1,
+				LastAimPitch = state.AimPitch or 0,
 				Head = character:FindFirstChild("Head"),
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
 				WeaponManager = weaponManager,
 				CurrentLoadout = nil,
 				CurrentEquippedSlot = nil,
+				LastViewmodelActionSeq = nil,
+				IsCrouching = self.PendingCrouchStates[userId] == true,
 			}
+
+			self.PendingCrouchStates[userId] = nil
+			if weaponManager then
+				weaponManager:SetCrouching(remoteData.IsCrouching)
+			end
 
 			-- Parse initial loadout and equipped slot from player attributes
 			self:_updateRemoteLoadout(remoteData, player)
 			self:_updateRemoteEquippedSlot(remoteData, player)
 			self.RemotePlayers[userId] = remoteData
+
+			local pendingActions = self.PendingViewmodelActions[userId]
+			if pendingActions then
+				vmLog("Flushing pending actions", "player=", player.Name, "count=", #pendingActions)
+				for _, pendingPayload in ipairs(pendingActions) do
+					self:_applyReplicatedViewmodelAction(remoteData, pendingPayload)
+				end
+				self.PendingViewmodelActions[userId] = nil
+			end
 
 			local primaryPart = remoteData.PrimaryPart
 			if primaryPart then
@@ -215,6 +306,7 @@ function RemoteReplicator:AddSnapshotToBuffer(remoteData, state, receiveTime)
 	local snapshot = {
 		Position = state.Position,
 		Rotation = state.Rotation,
+		AimPitch = state.AimPitch or 0,
 		Velocity = state.Velocity,
 		ServerTimestamp = state.Timestamp,
 		ReceiveTime = receiveTime,
@@ -261,6 +353,7 @@ function RemoteReplicator:ReplicatePlayers(dt)
 			if remoteData.WeaponManager then
 				remoteData.WeaponManager:Destroy()
 			end
+			self.PendingViewmodelActions[userId] = nil
 			self.RemotePlayers[userId] = nil
 			continue
 		end
@@ -277,12 +370,13 @@ function RemoteReplicator:ReplicatePlayers(dt)
 		local latestSnapshot = buffer[#buffer]
 		local renderTime = currentTime - remoteData.BufferDelay
 
-		local targetPosition, targetRotation, targetIsGrounded, targetAnimationId, targetRigTilt =
+		local targetPosition, targetRotation, targetAimPitch, targetIsGrounded, targetAnimationId, targetRigTilt =
 			self:GetStateAtTime(buffer, renderTime)
 
 		if not targetPosition then
 			targetPosition = latestSnapshot.Position
 			targetRotation = latestSnapshot.Rotation
+			targetAimPitch = latestSnapshot.AimPitch or 0
 			targetIsGrounded = latestSnapshot.IsGrounded
 			targetAnimationId = latestSnapshot.AnimationId
 			targetRigTilt = latestSnapshot.RigTilt or 0
@@ -318,6 +412,7 @@ function RemoteReplicator:ReplicatePlayers(dt)
 		remoteData.LastCFrame = cf
 
 		remoteData.PrimaryPart.CFrame = cf
+		remoteData.LastAimPitch = targetAimPitch or 0
 
 		if remoteData.Rig then
 			self:ApplyReplicatedRigRotation(remoteData, targetRigTilt)
@@ -325,6 +420,11 @@ function RemoteReplicator:ReplicatePlayers(dt)
 			-- Check for loadout/slot changes on the remote player
 			self:_updateRemoteLoadout(remoteData, remoteData.Player)
 			self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
+		end
+
+		if remoteData.WeaponManager then
+			remoteData.WeaponManager:SetCrouching(remoteData.IsCrouching == true)
+			remoteData.WeaponManager:UpdateTransform(cf, remoteData.LastAimPitch)
 		end
 
 		if remoteData.Head and remoteData.Head.Anchored and remoteData.HeadOffset then
@@ -376,7 +476,7 @@ function RemoteReplicator:GetStateAtTime(buffer, renderTime)
 
 	if not from or not to then
 		local latest = buffer[#buffer]
-		return latest.Position, latest.Rotation, latest.IsGrounded, latest.AnimationId, latest.RigTilt or 0
+		return latest.Position, latest.Rotation, latest.AimPitch or 0, latest.IsGrounded, latest.AnimationId, latest.RigTilt or 0
 	end
 
 	local timeDiff = to.ReceiveTime - from.ReceiveTime
@@ -388,13 +488,16 @@ function RemoteReplicator:GetStateAtTime(buffer, renderTime)
 
 	local position = from.Position:Lerp(to.Position, alpha)
 	local rotation = from.Rotation:Lerp(to.Rotation, alpha)
+	local fromAimPitch = from.AimPitch or 0
+	local toAimPitch = to.AimPitch or 0
+	local aimPitch = fromAimPitch + (toAimPitch - fromAimPitch) * alpha
 	local isGrounded = to.IsGrounded
 	local animationId = to.AnimationId
 	local fromTilt = from.RigTilt or 0
 	local toTilt = to.RigTilt or 0
 	local rigTilt = fromTilt + (toTilt - fromTilt) * alpha
 
-	return position, rotation, isGrounded, animationId, rigTilt
+	return position, rotation, aimPitch, isGrounded, animationId, rigTilt
 end
 
 function RemoteReplicator:ApplyReplicatedRigRotation(remoteData, rigTilt)
@@ -437,6 +540,49 @@ function RemoteReplicator:SetPlayerRagdolled(player, isRagdolled)
 	if remoteData then
 		remoteData.IsRagdolled = isRagdolled
 	end
+end
+
+function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
+	if not remoteData or not payload then
+		return
+	end
+
+	local sequenceNumber = tonumber(payload.SequenceNumber) or 0
+	local lastSeq = remoteData.LastViewmodelActionSeq
+	if lastSeq ~= nil then
+		local gap = sequenceNumber >= lastSeq and (sequenceNumber - lastSeq) or ((65536 - lastSeq) + sequenceNumber)
+		if gap == 0 then
+			return
+		end
+		if gap > 32768 then
+			return
+		end
+	end
+	remoteData.LastViewmodelActionSeq = sequenceNumber
+
+	local weaponManager = remoteData.WeaponManager
+	if not weaponManager then
+		return
+	end
+
+	local weaponId = tostring(payload.WeaponId or "")
+	local actionName = tostring(payload.ActionName or "")
+	local trackName = tostring(payload.TrackName or "")
+	local isActive = payload.IsActive == true
+
+	if actionName == "Unequip" then
+		vmLog("Remote unequip", remoteData.Player and remoteData.Player.Name or "?", "seq=", sequenceNumber)
+		weaponManager:UnequipWeapon()
+		return
+	end
+
+	if weaponId ~= "" and weaponManager:GetWeaponId() ~= weaponId then
+		vmLog("Remote equip", remoteData.Player and remoteData.Player.Name or "?", "weapon=", weaponId, "seq=", sequenceNumber)
+		weaponManager:EquipWeapon(weaponId)
+	end
+
+	vmLog("Remote apply action", remoteData.Player and remoteData.Player.Name or "?", "action=", actionName, "track=", trackName, "active=", tostring(isActive))
+	weaponManager:ApplyReplicatedAction(actionName, trackName, isActive)
 end
 
 function RemoteReplicator:GetPerformanceStats()

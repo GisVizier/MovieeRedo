@@ -84,6 +84,10 @@ ViewmodelConfig.Weapons = {
 	Fists = {
 		ModelPath = ViewmodelConfig.Models.Fists,
 		Offset = CFrame.new(0, 0, 0),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			Idle = "rbxassetid://116832822109675",
 			Walk = "rbxassetid://116832822109675",  -- Reuse Idle
@@ -97,6 +101,10 @@ ViewmodelConfig.Weapons = {
 	Shotgun = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shotgun,
 		Offset = CFrame.new(-.2, -.15, -0.5),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
 			Idle = "Idle",
@@ -116,6 +124,10 @@ ViewmodelConfig.Weapons = {
 	Revolver = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Revolver,
 		Offset = CFrame.new(0, 0, 0.4),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			-- Using legacy asset IDs (can be migrated to Animation instances later)
 			Idle = "rbxassetid://109130838280246",
@@ -132,6 +144,10 @@ ViewmodelConfig.Weapons = {
 	Shorty = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Shorty,
 		Offset = CFrame.new(-.2, -.15, -0.5),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			Idle = "Idle",
 			Walk = "Walk",
@@ -148,6 +164,10 @@ ViewmodelConfig.Weapons = {
 	DualPistols = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.DualPistols,
 		Offset = CFrame.new(0, -0.12, -0.35),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			Idle = "Idle",
 			Walk = "Walk",
@@ -164,6 +184,10 @@ ViewmodelConfig.Weapons = {
 	AssaultRifle = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.AssaultRifle,
 		Offset = CFrame.new(0, 0, 0.15),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Shotgun/Viewmodel/
 			Idle = "Idle",
@@ -183,6 +207,10 @@ ViewmodelConfig.Weapons = {
 	Sniper = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Sniper,
 		Offset = CFrame.new(0, -0.3, .7) * CFrame.Angles(math.rad(5), math.rad(0), math.rad(-9)),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			-- Using Animation instances from Assets/Animations/ViewModel/Sniper/Viewmodel/
 			Idle = "Idle",
@@ -199,6 +227,10 @@ ViewmodelConfig.Weapons = {
 	Tomahawk = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Tomahawk,
 		Offset = CFrame.new(0, 0, 0),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			Idle = "Idle",
 			Walk = "Walk",
@@ -213,6 +245,10 @@ ViewmodelConfig.Weapons = {
 	ExecutionerBlade = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.ExecutionerBlade,
 		Offset = CFrame.new(0, 0, 0),
+		Replication = {
+			Scale = 0.5725,
+			Offset = CFrame.new(),
+		},
 		Animations = {
 			Idle = "Idle",
 			Walk = "Walk",

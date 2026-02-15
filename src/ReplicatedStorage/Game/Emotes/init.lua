@@ -87,6 +87,10 @@ function EmoteService.init()
 		return true
 	end
 
+	if LocalPlayer then
+		LocalPlayer:SetAttribute("IsEmoting", false)
+	end
+
 	EmoteService._initialized = true
 	EmoteService._loadEmotes()
 	EmoteService._preloadAnimations()
@@ -537,6 +541,7 @@ function EmoteService.play(emoteId: string): boolean
 
 	EmoteService._activeEmote = emote
 	EmoteService._lastPlayTime = tick()
+	LocalPlayer:SetAttribute("IsEmoting", true)
 
 	-- =========================================================================
 	-- CAMERA MODE SWITCH - Force to Orbit mode while emoting
@@ -618,6 +623,7 @@ end
 -- Stop current emote
 function EmoteService.stop(): boolean
 	if not EmoteService._activeEmote then
+		LocalPlayer:SetAttribute("IsEmoting", false)
 		return true
 	end
 
@@ -676,6 +682,7 @@ function EmoteService.stop(): boolean
 	-- The emote's stop() method handles stopping animations via StopAllAnimations()
 	local emote = EmoteService._activeEmote
 	EmoteService._activeEmote = nil
+	LocalPlayer:SetAttribute("IsEmoting", false)
 	if emote then
 		emote:stop()
 		emote:destroy()
