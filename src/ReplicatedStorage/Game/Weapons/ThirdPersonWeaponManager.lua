@@ -45,7 +45,7 @@ local TRACK_PRIORITIES = {
 	Equip = Enum.AnimationPriority.Action4,
 }
 
-local CROUCH_REPLICATION_OFFSET = CFrame.new(0, -0.55, 0)
+local CROUCH_REPLICATION_OFFSET = CFrame.new(0, -0.75, 0)
 
 local function getAssetsRoot()
 	local assets = ReplicatedStorage:FindFirstChild("Assets")

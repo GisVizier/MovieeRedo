@@ -223,6 +223,7 @@ function KitController:_onLocalPlayerDied()
 		player:SetAttribute("ExternalMoveMult", 1)
 		player:SetAttribute("ForceUncrouch", nil)
 		player:SetAttribute("BlockCrouchWhileAbility", nil)
+		player:SetAttribute("DisplaySlot", nil)
 
 		-- Projectile / VFX replication attributes
 		player:SetAttribute("blue_projectile_activeCFR", nil)
@@ -395,6 +396,13 @@ function KitController:_holsterWeapon()
 	
 	-- Switch to Fists viewmodel
 	viewmodelController:SetActiveSlot("Fists")
+
+	-- HUD + replication state while ability is active.
+	-- DisplaySlot drives bottom text, EquippedSlot=Fists drives remote fist/unequip replication.
+	if self._player then
+		self._player:SetAttribute("DisplaySlot", "Ability")
+		self._player:SetAttribute("EquippedSlot", "Fists")
+	end
 end
 
 --[[
@@ -422,6 +430,10 @@ function KitController:_unholsterWeapon()
 
 	if viewmodelController:GetActiveSlot() == "Fists" then
 		viewmodelController:SetActiveSlot(slotToRestore)
+	end
+
+	if self._player then
+		self._player:SetAttribute("DisplaySlot", nil)
 	end
 end
 

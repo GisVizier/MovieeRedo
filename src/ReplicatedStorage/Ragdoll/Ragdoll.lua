@@ -375,12 +375,16 @@ if IsClient then
 		ragdollClone.Parent = Workspace:FindFirstChild("Rigs") or Workspace
 		data.RagdollClone = ragdollClone
 		
-		-- Hide original rig (save original transparencies)
+		-- Hide original rig (save original transparencies for parts, decals, particles)
 		data.SavedTransparencies = {}
-		for _, part in rig:GetDescendants() do
-			if part:IsA("BasePart") then
-				data.SavedTransparencies[part] = part.Transparency
-				part.Transparency = 1
+		data.SavedParticles = {}
+		for _, desc in rig:GetDescendants() do
+			if desc:IsA("BasePart") or desc:IsA("Decal") or desc:IsA("Texture") then
+				data.SavedTransparencies[desc] = desc.Transparency
+				desc.Transparency = 1
+			elseif desc:IsA("ParticleEmitter") then
+				data.SavedParticles[desc] = desc.Enabled
+				desc.Enabled = false
 			end
 		end
 		
@@ -453,14 +457,18 @@ if IsClient then
 			data.RagdollClone = nil
 		end
 		
-		-- Show original rig (restore original transparencies)
+		-- Show original rig (restore original transparencies + particles)
 		local savedTransparencies = data.SavedTransparencies or {}
-		for _, part in rig:GetDescendants() do
-			if part:IsA("BasePart") then
-				part.Transparency = savedTransparencies[part] or 0
+		local savedParticles = data.SavedParticles or {}
+		for _, desc in rig:GetDescendants() do
+			if desc:IsA("BasePart") or desc:IsA("Decal") or desc:IsA("Texture") then
+				desc.Transparency = savedTransparencies[desc] or 0
+			elseif desc:IsA("ParticleEmitter") then
+				desc.Enabled = savedParticles[desc] ~= nil and savedParticles[desc] or true
 			end
 		end
 		data.SavedTransparencies = nil
+		data.SavedParticles = nil
 		
 		-- Position Root at final location
 		if root and finalPos then

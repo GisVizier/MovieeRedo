@@ -43,8 +43,8 @@ local function getCurrentCamera()
 	return workspace.CurrentCamera
 end
 
-local originalDetailTransparency = setmetatable({}, { __mode = "k" })
-local originalEffectEnabled = setmetatable({}, { __mode = "k" })
+local originalDetailTransparency = {}
+local originalEffectEnabled = {}
 
 local function applyPartChildVisibility(basePart: BasePart, transparency: number)
 	for _, child in ipairs(basePart:GetDescendants()) do
@@ -66,6 +66,11 @@ local function applyPartChildVisibility(basePart: BasePart, transparency: number
 			child.Enabled = transparency < 1 and original or false
 		end
 	end
+end
+
+local function clearVisibilityCaches()
+	table.clear(originalDetailTransparency)
+	table.clear(originalEffectEnabled)
 end
 
 -- =============================================================================
@@ -740,6 +745,9 @@ function CameraController:ShowEntireRig()
 			end
 		end
 	end
+
+	-- Clear cached originals so next hide starts fresh
+	clearVisibilityCaches()
 
 	debugPrint("Rig visibility set to VISIBLE (transparency = 0)")
 end

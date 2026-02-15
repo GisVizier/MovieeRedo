@@ -637,6 +637,7 @@ function module:_initPlayerData()
 	player:SetAttribute("MaxHealth", 100)
 	player:SetAttribute("Ultimate", 0)
 	player:SetAttribute("EquippedSlot", "Primary")
+	player:SetAttribute("DisplaySlot", nil)
 
 	local kitId = equipped.Kit
 	if not hasKitData then
@@ -684,6 +685,7 @@ function module:_clearPlayerData()
 	player:SetAttribute("MaxHealth", nil)
 	player:SetAttribute("Ultimate", nil)
 	player:SetAttribute("EquippedSlot", nil)
+	player:SetAttribute("DisplaySlot", nil)
 	player:SetAttribute("KitData", nil)
 
 	local weaponTypes = { "Primary", "Secondary", "Melee" }
@@ -1160,10 +1162,6 @@ function module:_buildLoadoutTemplates()
 end
 
 function module:_setSelectedSlot(slotType)
-	if slotType == "Kit" then
-		slotType = "Primary"
-	end
-
 	self._selectedSlot = slotType
 
 	for slot, data in self._weaponTemplates do
@@ -1179,7 +1177,15 @@ function module:_setSelectedSlot(slotType)
 		end
 	end
 
-	if slotType and slotType ~= "Kit" then
+	if slotType == "Kit" then
+		local kitData = self:getKitData()
+		if kitData then
+			self:_updateItemDesc(kitData)
+			self:_animateItemDesc()
+		else
+			self:_hideItemDesc()
+		end
+	elseif slotType then
 		local data = self._weaponData[slotType]
 		if data then
 			self:_updateItemDesc(data)
@@ -1196,6 +1202,50 @@ end
 
 function module:_updateItemDesc(weaponData)
 	if not weaponData then
+		return
+	end
+
+	local isKitData = weaponData.AbilityName ~= nil or weaponData.KitName ~= nil
+	if isKitData then
+		if self._itemDescAmmo then
+			self._itemDescAmmo.Text = ""
+		end
+		if self._itemDescMax then
+			self._itemDescMax.Text = ""
+		end
+		if self._ammoCounterAmmo then
+			self._ammoCounterAmmo.Text = ""
+		end
+		if self._ammoCounterMax then
+			self._ammoCounterMax.Text = ""
+		end
+
+		if self._ammoCounterReloading then
+			local isOnCooldown = weaponData.AbilityOnCooldown == true
+			if self._ammoCounterReloading:IsA("TextLabel") then
+				self._ammoCounterReloading.Text = "COOLDOWN"
+			end
+			if self._ammoCounterReloading:IsA("GuiObject") then
+				self._ammoCounterReloading.Visible = isOnCooldown
+			elseif self._ammoCounterReloading:IsA("CanvasGroup") then
+				self._ammoCounterReloading.GroupTransparency = isOnCooldown and 0 or 1
+			end
+		end
+
+		if self._itemDescName then
+			self._itemDescName.Text = tostring(weaponData.AbilityName or weaponData.KitName or "ABILITY")
+		end
+
+		if self._itemDescRarityText then
+			local rarityName = weaponData.Rarity or "Common"
+			self._itemDescRarityText.Text = tostring(rarityName):upper()
+			local rarityInfo = KitConfig.RarityInfo[rarityName]
+			local rarityColor = rarityInfo and rarityInfo.COLOR or Color3.new(1, 1, 1)
+			for _, label in self._itemDescRarityLabels do
+				label.TextColor3 = rarityColor
+			end
+		end
+
 		return
 	end
 
@@ -1534,11 +1584,16 @@ function module:_refreshWeaponData()
 		self:_updateSlotData(slotType)
 	end
 
-	local equippedSlot = self._viewedPlayer and self._viewedPlayer:GetAttribute("EquippedSlot")
-	if not equippedSlot then
-		equippedSlot = "Primary"
+	local selectedSlot = nil
+	if self._viewedPlayer and self._viewedPlayer:GetAttribute("DisplaySlot") == "Ability" then
+		selectedSlot = "Kit"
+	else
+		selectedSlot = self._viewedPlayer and self._viewedPlayer:GetAttribute("EquippedSlot")
+		if not selectedSlot then
+			selectedSlot = "Primary"
+		end
 	end
-	self:_setSelectedSlot(equippedSlot)
+	self:_setSelectedSlot(selectedSlot)
 end
 
 function module:_updateSlotData(slotType)
@@ -1625,8 +1680,22 @@ function module:_setupWeaponConnections()
 		end
 
 		if attributeName == "EquippedSlot" then
-			local slot = self._viewedPlayer:GetAttribute("EquippedSlot")
-			if slot then
+			if self._viewedPlayer:GetAttribute("DisplaySlot") == "Ability" then
+				self:_setSelectedSlot("Kit")
+			else
+				local slot = self._viewedPlayer:GetAttribute("EquippedSlot")
+				if slot then
+					self:_setSelectedSlot(slot)
+				end
+			end
+			return
+		end
+
+		if attributeName == "DisplaySlot" then
+			if self._viewedPlayer:GetAttribute("DisplaySlot") == "Ability" then
+				self:_setSelectedSlot("Kit")
+			else
+				local slot = self._viewedPlayer:GetAttribute("EquippedSlot") or "Primary"
 				self:_setSelectedSlot(slot)
 			end
 			return
