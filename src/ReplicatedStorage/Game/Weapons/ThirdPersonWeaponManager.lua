@@ -631,6 +631,16 @@ function ThirdPersonWeaponManager:_stopTrack(trackName: string)
 	end
 end
 
+function ThirdPersonWeaponManager:_playMovementTrackExclusive(trackName: string)
+	local movementTracks = { "Idle", "Walk", "Run" }
+	for _, name in ipairs(movementTracks) do
+		if name ~= trackName then
+			self:_stopTrack(name)
+		end
+	end
+	self:_playTrack(trackName, true)
+end
+
 function ThirdPersonWeaponManager:_setTrackSpeed(trackName: string, speed: number)
 	if DISABLE_RIG_ANIMATIONS then return end -- TESTING
 	local track = self.Tracks[trackName] or self:_ensureReplicatedTrack(trackName)
@@ -739,7 +749,7 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 
 	-- ALWAYS switch body animations to legs-only (Base/Weapon/) when a weapon is equipped.
 	-- Upper body is driven by the weapon viewmodel animations + IK, NOT the rig animator.
-	self:_setWeaponAnimMode(true)
+	self:_setWeaponAnimMode(weaponId ~= "Fists")
 
 	-- IK: Apply config CFrames to rig collar attachments (IK start), find Solver attachments on weapon arms (IK end)
 	local leftAttachCF = replicationConfig and replicationConfig.LeftAttachment
@@ -829,7 +839,11 @@ function ThirdPersonWeaponManager:ApplyReplicatedAction(actionName: string, trac
 			if isActive == false then
 				self:_stopTrack(resolvedTrack)
 			else
-				self:_playTrack(resolvedTrack, true)
+				if actionName == "PlayWeaponTrack" and (resolvedTrack == "Idle" or resolvedTrack == "Walk" or resolvedTrack == "Run") then
+					self:_playMovementTrackExclusive(resolvedTrack)
+				else
+					self:_playTrack(resolvedTrack, true)
+				end
 			end
 		end
 		return

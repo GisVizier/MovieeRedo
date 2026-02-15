@@ -1291,7 +1291,7 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 
 	self:StopSlideAnimationUpdates()
 
-	local animationName = STATE_ANIMATIONS[newState]
+	local animationName = self:_getStateAnimationName(newState)
 	if not animationName then
 		return
 	end
@@ -1301,8 +1301,13 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 			self:StopRunAnimationUpdates()
 			self:StartWalkAnimationUpdates()
 		elseif newState == "Sprinting" then
-			self:StopWalkAnimationUpdates()
-			self:StartRunAnimationUpdates()
+			if self:_shouldUseWalkAnimationsForSprint() then
+				self:StopRunAnimationUpdates()
+				self:StartWalkAnimationUpdates()
+			else
+				self:StopWalkAnimationUpdates()
+				self:StartRunAnimationUpdates()
+			end
 		elseif newState == "Crouching" then
 			self:StartCrouchAnimationUpdates()
 		else
@@ -1360,12 +1365,17 @@ function AnimationController:OnMovementChanged(_wasMoving, isMoving)
 			self:StopRunAnimationUpdates()
 			self:StartWalkAnimationUpdates()
 		elseif currentState == "Sprinting" then
-			self:StopWalkAnimationUpdates()
-			self:StartRunAnimationUpdates()
+			if self:_shouldUseWalkAnimationsForSprint() then
+				self:StopRunAnimationUpdates()
+				self:StartWalkAnimationUpdates()
+			else
+				self:StopWalkAnimationUpdates()
+				self:StartRunAnimationUpdates()
+			end
 		elseif currentState == "Crouching" then
 			self:StartCrouchAnimationUpdates()
 		else
-			local animationName = STATE_ANIMATIONS[currentState]
+			local animationName = self:_getStateAnimationName(currentState)
 			if animationName then
 				self:PlayStateAnimation(animationName)
 			end
@@ -1411,9 +1421,24 @@ function AnimationController:OnGroundedChanged(wasGrounded, isGrounded)
 
 		local isMoving = MovementStateManager:GetIsMoving()
 		if isSliding or isMoving then
-			local animationName = STATE_ANIMATIONS[currentState]
-			if animationName then
-				self:PlayStateAnimation(animationName)
+			if currentState == "Walking" then
+				self:StopRunAnimationUpdates()
+				self:StartWalkAnimationUpdates()
+			elseif currentState == "Sprinting" then
+				if self:_shouldUseWalkAnimationsForSprint() then
+					self:StopRunAnimationUpdates()
+					self:StartWalkAnimationUpdates()
+				else
+					self:StopWalkAnimationUpdates()
+					self:StartRunAnimationUpdates()
+				end
+			elseif currentState == "Crouching" then
+				self:StartCrouchAnimationUpdates()
+			else
+				local animationName = self:_getStateAnimationName(currentState)
+				if animationName then
+					self:PlayStateAnimation(animationName)
+				end
 			end
 		else
 			local idleAnimationName = self:GetIdleAnimationForState(currentState)
@@ -1477,6 +1502,17 @@ function AnimationController:SetWeaponAnimationModeForPlayer(player: Player, ena
 	if character then
 		self.OtherCharacterWeaponMode[character] = enabled == true or nil
 	end
+end
+
+function AnimationController:_shouldUseWalkAnimationsForSprint(): boolean
+	return self._weaponAnimMode == true
+end
+
+function AnimationController:_getStateAnimationName(stateName: string): string?
+	if stateName == "Sprinting" and self:_shouldUseWalkAnimationsForSprint() then
+		return "WalkingForward"
+	end
+	return STATE_ANIMATIONS[stateName]
 end
 
 --- Returns the correct track lookup table for the local player.
@@ -2030,6 +2066,10 @@ function AnimationController:StopRunAnimationUpdates()
 end
 
 function AnimationController:GetCurrentRunAnimationName()
+	if self:_shouldUseWalkAnimationsForSprint() then
+		return self:GetCurrentWalkAnimationName()
+	end
+
 	if not self.CharacterController then
 		return "RunningForward"
 	end
@@ -2379,7 +2419,11 @@ function AnimationController:UpdateAnimationSpeed()
 	if isCrouchAnimation then
 		baseSpeed = Config.Gameplay.Character.CrouchSpeed
 	elseif isSprinting then
-		baseSpeed = Config.Gameplay.Character.SprintSpeed or Config.Gameplay.Character.WalkSpeed
+		if self:_shouldUseWalkAnimationsForSprint() then
+			baseSpeed = Config.Gameplay.Character.WalkSpeed
+		else
+			baseSpeed = Config.Gameplay.Character.SprintSpeed or Config.Gameplay.Character.WalkSpeed
+		end
 	else
 		baseSpeed = Config.Gameplay.Character.WalkSpeed
 	end

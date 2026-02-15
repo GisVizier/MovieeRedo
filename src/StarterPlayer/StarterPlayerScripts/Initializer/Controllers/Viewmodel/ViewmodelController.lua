@@ -800,6 +800,19 @@ function ViewmodelController:PlayWeaponTrack(name: string, fade: number?)
 	return track
 end
 
+function ViewmodelController:GetCurrentMovementTrack(): string?
+	if not self._animator then
+		return nil
+	end
+
+	local move = self._animator._currentMove
+	if move == "Idle" or move == "Walk" or move == "Run" then
+		return move
+	end
+
+	return nil
+end
+
 function ViewmodelController:SetOffset(offset: CFrame)
 	local pos = offset.Position
 	local rx, ry, rz = offset:ToEulerAnglesXYZ()

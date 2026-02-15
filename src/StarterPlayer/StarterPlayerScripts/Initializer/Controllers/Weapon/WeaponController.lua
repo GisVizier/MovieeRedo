@@ -92,6 +92,7 @@ WeaponController._crosshairRotation = 0
 WeaponController._crosshairRotationTarget = 0
 WeaponController._crosshairRotationConn = nil
 WeaponController._debugRaycastKeyConn = nil
+WeaponController._replicatedMovementTrack = nil
 
 -- =============================================================================
 -- INITIALIZATION
@@ -315,6 +316,8 @@ function WeaponController:_connectSlotChanges()
 			self:_onSlotChanged(currentSlot)
 		end
 
+		self:_syncReplicatedMovementTrack()
+
 		local cameraController = self._registry and self._registry:TryGet("Camera")
 		local currentMode = cameraController and cameraController.GetCurrentMode and cameraController:GetCurrentMode()
 			or nil
@@ -323,6 +326,40 @@ function WeaponController:_connectSlotChanges()
 			self:_onCameraModeChanged(currentMode)
 		end
 	end)
+end
+
+function WeaponController:_syncReplicatedMovementTrack()
+	if not self._viewmodelController then
+		return
+	end
+
+	local equippedWeaponId = self._equippedWeaponId
+	if type(equippedWeaponId) ~= "string" or equippedWeaponId == "" then
+		if self._replicatedMovementTrack then
+			self:_replicateViewmodelAction("PlayWeaponTrack", self._replicatedMovementTrack, false)
+			self._replicatedMovementTrack = nil
+		end
+		return
+	end
+
+	local trackName = nil
+	if type(self._viewmodelController.GetCurrentMovementTrack) == "function" then
+		trackName = self._viewmodelController:GetCurrentMovementTrack()
+	end
+	if trackName ~= "Idle" and trackName ~= "Walk" and trackName ~= "Run" then
+		trackName = "Idle"
+	end
+
+	if trackName == self._replicatedMovementTrack then
+		return
+	end
+
+	if self._replicatedMovementTrack then
+		self:_replicateViewmodelAction("PlayWeaponTrack", self._replicatedMovementTrack, false)
+	end
+
+	self:_replicateViewmodelAction("PlayWeaponTrack", trackName, true)
+	self._replicatedMovementTrack = trackName
 end
 
 function WeaponController:_onSlotChanged(slot)
@@ -656,6 +693,11 @@ function WeaponController:OnRespawnRefresh()
 end
 
 function WeaponController:_unequipCurrentWeapon()
+	if self._replicatedMovementTrack then
+		self:_replicateViewmodelAction("PlayWeaponTrack", self._replicatedMovementTrack, false)
+		self._replicatedMovementTrack = nil
+	end
+
 	if self._currentActions and self._currentActions.Main and self._currentActions.Main.OnUnequip then
 		self._currentActions.Main.OnUnequip(self._weaponInstance)
 	end
