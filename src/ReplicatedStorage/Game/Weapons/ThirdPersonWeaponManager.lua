@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -235,6 +236,76 @@ function ThirdPersonWeaponManager:_loadTracks(weaponId: string, weaponConfig)
 	end
 end
 
+	if not self.Rig then
+		return nil
+	end
+
+	local ownerUserId = self.Rig:GetAttribute("OwnerUserId")
+	if type(ownerUserId) == "number" then
+		return Players:GetPlayerByUserId(ownerUserId)
+	end
+
+	local character = self:_resolveOwnerCharacter()
+	if character then
+		return Players:GetPlayerFromCharacter(character)
+	end
+
+	return nil
+end
+
+function ThirdPersonWeaponManager:_loadFistsKitTracks()
+	local ownerPlayer = self:_getOwnerPlayer()
+	if not ownerPlayer then
+		return
+	end
+
+	local rawKitData = ownerPlayer:GetAttribute("KitData")
+	if type(rawKitData) ~= "string" or rawKitData == "" then
+		return
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(rawKitData)
+	end)
+	if not ok or type(decoded) ~= "table" then
+		return
+	end
+
+	local kitId = decoded.KitId
+	if type(kitId) ~= "string" or kitId == "" then
+		return
+	end
+
+	local kitCfg = ViewmodelConfig.Kits and ViewmodelConfig.Kits[kitId]
+	if type(kitCfg) ~= "table" then
+		return
+	end
+
+	local function loadSection(section)
+		if type(section) ~= "table" then
+			return
+		end
+		for trackName, animRef in pairs(section) do
+			if type(trackName) == "string" and type(animRef) == "string" and animRef ~= "" then
+				local animation = resolveAnimationInstance("Fists", animRef)
+				if animation then
+					local okLoad, track = pcall(function()
+						return self.Animator:LoadAnimation(animation)
+					end)
+					if okLoad and track then
+						track.Priority = TRACK_PRIORITIES[trackName] or Enum.AnimationPriority.Action4
+						track.Looped = false
+						self.Tracks[trackName] = track
+					end
+				end
+			end
+		end
+	end
+
+	loadSection(kitCfg.Ability)
+	loadSection(kitCfg.Ultimate)
+end
+
 function ThirdPersonWeaponManager:_resolveOwnerCharacter(): Model?
 	-- Fast path: cached character still valid.
 	if self._ownerCharacter and self._ownerCharacter.Parent then
@@ -432,6 +503,9 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 	self.WeaponId = weaponId
 
 	self:_loadTracks(weaponId, weaponConfig)
+	if weaponId == "Fists" then
+		self:_loadFistsKitTracks()
+	end
 	self:_playTrack("Idle")
 	vmLog("Equip success", "weapon=", weaponId, "rig=", self.Rig and self.Rig:GetFullName() or "?")
 

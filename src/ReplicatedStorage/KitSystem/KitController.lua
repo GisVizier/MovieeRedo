@@ -323,7 +323,7 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 		abilityStarted = true
 		
 		-- Holster weapon and switch to fists
-		self:_holsterWeapon()
+		self:_holsterWeapon(abilityType)
 		
 		return {
 			viewmodelAnimator = viewmodelAnimator,
@@ -377,7 +377,17 @@ end
 	Holsters the current weapon and switches to Fists viewmodel.
 	Called when an ability starts.
 ]]
-function KitController:_holsterWeapon()
+function KitController:_replicateFistsTrack(trackName: string)
+	if type(trackName) ~= "string" or trackName == "" then
+		return
+	end
+	local replicationController = ServiceRegistry:GetController("Replication")
+	if replicationController and type(replicationController.ReplicateViewmodelAction) == "function" then
+		replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", trackName, true)
+	end
+end
+
+function KitController:_holsterWeapon(abilityType: string?)
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	if not viewmodelController then
 		return
@@ -402,6 +412,13 @@ function KitController:_holsterWeapon()
 	if self._player then
 		self._player:SetAttribute("DisplaySlot", "Ability")
 		self._player:SetAttribute("EquippedSlot", "Fists")
+	end
+
+	-- Replicate fists action begin track so other clients can play it in third-person.
+	if abilityType == "Ultimate" then
+		self:_replicateFistsTrack("Activate")
+	else
+		self:_replicateFistsTrack("Charge")
 	end
 end
 
@@ -435,6 +452,9 @@ function KitController:_unholsterWeapon()
 	if self._player then
 		self._player:SetAttribute("DisplaySlot", nil)
 	end
+
+	-- Ability end track (only ability path uses Release by config convention).
+	self:_replicateFistsTrack("Release")
 end
 
 --[[
