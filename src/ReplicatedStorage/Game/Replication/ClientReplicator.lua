@@ -229,15 +229,16 @@ function ClientReplicator:_equipSlotWeapon(slot)
 
 	-- Get weapon ID from loadout
 	local weaponId = nil
-	if self.CurrentLoadout and type(self.CurrentLoadout) == "table" then
+	if slot == "Fists" then
+		weaponId = "Fists"
+	elseif self.CurrentLoadout and type(self.CurrentLoadout) == "table" then
 		weaponId = self.CurrentLoadout[slot]
 	end
 
-	-- Fists = no weapon
-	if not weaponId or weaponId == "" or slot == "Fists" then
+	if not weaponId or weaponId == "" then
 		self.WeaponManager:UnequipWeapon()
 		self:ReplicateViewmodelAction("", "Unequip", "", false)
-		vmLog("Unequip due to no weapon or fists", "slot=", tostring(slot), "weaponId=", tostring(weaponId))
+		vmLog("Unequip due to no weapon", "slot=", tostring(slot), "weaponId=", tostring(weaponId))
 		return
 	end
 

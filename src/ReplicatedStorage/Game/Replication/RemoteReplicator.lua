@@ -699,14 +699,16 @@ function RemoteReplicator:_equipRemoteWeapon(remoteData)
 	end
 
 	local slot = remoteData.CurrentEquippedSlot
-	if not slot or slot == "" or slot == "Fists" then
+	if not slot or slot == "" then
 		remoteData.WeaponManager:UnequipWeapon()
 		return
 	end
 
 	-- Get weapon ID from loadout
 	local weaponId = nil
-	if remoteData.CurrentLoadout and type(remoteData.CurrentLoadout) == "table" then
+	if slot == "Fists" then
+		weaponId = "Fists"
+	elseif remoteData.CurrentLoadout and type(remoteData.CurrentLoadout) == "table" then
 		weaponId = remoteData.CurrentLoadout[slot]
 	end
 
