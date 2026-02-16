@@ -17,7 +17,9 @@ function InputController:Init(_registry, net)
 	self._net:FireServer("SetPlatform", platform)
 
 	-- Re-send when input device changes (e.g. controller plugged in)
-	UserInputService.LastInputTypeChanged:Connect(function()
+	UserInputService.LastInputTypeChanged:Connect(function(lastInputType)
+		-- Update LastInputType first so DetectInputMode reads the correct value
+		self.Manager.LastInputType = lastInputType
 		self.Manager:DetectInputMode()
 		local newPlatform = self.Manager.InputMode
 		if newPlatform ~= "Unknown" then
