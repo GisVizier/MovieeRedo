@@ -658,7 +658,7 @@ function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
 	self._hitmarkerRotationTween = TweenService:Create(
 		self._hitmarker,
 		TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Rotation = 0 }
+		{ Rotation = 45 }
 	)
 	self._hitmarkerRotationTween:Play()
 
