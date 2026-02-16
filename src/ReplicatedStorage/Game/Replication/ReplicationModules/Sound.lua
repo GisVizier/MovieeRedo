@@ -24,6 +24,11 @@ local Sound = {}
 -- Track looped sounds per player: [userId][soundName] = Sound instance
 Sound._loopedSounds = {}
 
+local REPLICATED_MOVEMENT_VOLUME_MULT = 2.2
+local REPLICATED_MOVEMENT_EMITTER_SIZE_MULT = 3.0
+local REPLICATED_MOVEMENT_MIN_DISTANCE_MULT = 2.25
+local REPLICATED_MOVEMENT_MAX_DISTANCE_MULT = 5.0
+
 local LOOPED_SOUNDS = {
 	Falling = true,
 	Slide = true,
@@ -61,14 +66,24 @@ local function createSoundInstance(definition, parent, pitch, looped)
 		return nil
 	end
 
+	local baseVolume = definition.Volume or 0.5
+	local baseEmitterSize = definition.EmitterSize or 10
+	local baseMinDistance = definition.MinDistance or 5
+	local baseMaxDistance = definition.MaxDistance or 30
+
+	local boostedVolume = math.clamp(baseVolume * REPLICATED_MOVEMENT_VOLUME_MULT, 0, 10)
+	local boostedEmitterSize = math.max(0, baseEmitterSize * REPLICATED_MOVEMENT_EMITTER_SIZE_MULT)
+	local boostedMinDistance = math.max(0, baseMinDistance * REPLICATED_MOVEMENT_MIN_DISTANCE_MULT)
+	local boostedMaxDistance = math.max(boostedMinDistance + 1, baseMaxDistance * REPLICATED_MOVEMENT_MAX_DISTANCE_MULT)
+
 	local sound = Instance.new("Sound")
 	sound.SoundId = definition.Id
-	sound.Volume = definition.Volume or 0.5
+	sound.Volume = boostedVolume
 	sound.PlaybackSpeed = pitch or definition.Pitch or 1.0
 	sound.RollOffMode = definition.RollOffMode or Enum.RollOffMode.Linear
-	sound.EmitterSize = definition.EmitterSize or 10
-	sound.MinDistance = definition.MinDistance or 5
-	sound.MaxDistance = definition.MaxDistance or 30
+	sound.EmitterSize = boostedEmitterSize
+	sound.MinDistance = boostedMinDistance
+	sound.MaxDistance = boostedMaxDistance
 	sound.Looped = looped or false
 	sound.SoundGroup = getMovementSoundGroup()
 	sound.Parent = parent
