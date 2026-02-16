@@ -653,11 +653,11 @@ function CrosshairController:ShowHitmarker(isHeadshot: boolean?)
 	self._hitmarker.Visible = true
 
 	-- Random rotation offset that snaps back to 0 for a punchy feel
-	local randomRotation = math.random(-25, 25)
+	local randomRotation = math.random(-60, 60)
 	self._hitmarker.Rotation = randomRotation
 	self._hitmarkerRotationTween = TweenService:Create(
 		self._hitmarker,
-		TweenInfo.new(showDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 		{ Rotation = 0 }
 	)
 	self._hitmarkerRotationTween:Play()

@@ -70,8 +70,11 @@ local HEALTH_COLORS = {
 	{ threshold = 0, color = Color3.fromRGB(250, 70, 70) },
 }
 
-local HEALTH_SHAKE_OFFSETS = { -8, 8, -4, 0 }
-local HEALTH_SHAKE_TWEEN = TweenInfo.new(0.04, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local HEALTH_SHAKE_STEPS = 7
+local HEALTH_SHAKE_X_RANGE = 10
+local HEALTH_SHAKE_Y_RANGE = 6
+local HEALTH_SHAKE_TWEEN = TweenInfo.new(0.025, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local healthShakeRandom = Random.new()
 
 local currentTweens = {}
 
@@ -97,12 +100,12 @@ local function calculateGradientOffset(percent)
 	return Vector2.new(percent, 0.5)
 end
 
-local function withXOffset(position: UDim2, offset: number): UDim2
+local function withOffset(position: UDim2, xOffset: number, yOffset: number): UDim2
 	return UDim2.new(
 		position.X.Scale,
-		position.X.Offset + offset,
+		position.X.Offset + xOffset,
 		position.Y.Scale,
-		position.Y.Offset
+		position.Y.Offset + yOffset
 	)
 end
 
@@ -164,7 +167,7 @@ function module:_playHealthDamageShake()
 	barHolders.Position = self._barHoldersOriginalPosition
 
 	task.spawn(function()
-		for _, offset in HEALTH_SHAKE_OFFSETS do
+		for _ = 1, HEALTH_SHAKE_STEPS do
 			if self._healthShakeToken ~= shakeToken then
 				return
 			end
@@ -173,8 +176,14 @@ function module:_playHealthDamageShake()
 				return
 			end
 
+			local xOffset = healthShakeRandom:NextInteger(-HEALTH_SHAKE_X_RANGE, HEALTH_SHAKE_X_RANGE)
+			local yOffset = healthShakeRandom:NextInteger(-HEALTH_SHAKE_Y_RANGE, HEALTH_SHAKE_Y_RANGE)
+			if xOffset == 0 and yOffset == 0 then
+				yOffset = 1
+			end
+
 			local tween = TweenService:Create(barHolders, HEALTH_SHAKE_TWEEN, {
-				Position = withXOffset(self._barHoldersOriginalPosition, offset),
+				Position = withOffset(self._barHoldersOriginalPosition, xOffset, yOffset),
 			})
 			currentTweens["hud_health_shake"] = { tween }
 			tween:Play()
