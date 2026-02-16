@@ -31,6 +31,14 @@ local PLATFORM_LABELS = {
 
 local PREMIUM_CHAR = utf8.char(0xE002)
 local VERIFIED_CHAR = utf8.char(0xE000)
+local GROUP_ID = (game.CreatorType == Enum.CreatorType.Group) and game.CreatorId or 0
+
+local ROLE_TO_BADGE = {
+	["lead developer"] = "LEAD",
+	admin = "ADM",
+	developer = "DEV",
+	contributor = "CTB",
+}
 
 -- State
 OverheadService._overheads = {}
@@ -126,6 +134,7 @@ function OverheadService:_populateOverhead(overhead, player)
 	self:_setPlatformInfo(holder, player)
 	self:_setWins(holder, player)
 	self:_setStreak(holder, player)
+	self:_setRoleBadge(holder, player)
 end
 
 -- =============================================================================
@@ -133,10 +142,11 @@ end
 -- =============================================================================
 
 function OverheadService:_setPlayerName(holder, player)
-	local playerNameFrame = holder:FindFirstChild("PlayerName")
+	local root = holder:FindFirstChild("PlayerName")
+	if not root then return end
+	local playerNameFrame = root:FindFirstChild("PlayerName")
 	if not playerNameFrame then return end
-
-	local textLabel = playerNameFrame:FindFirstChildOfClass("TextLabel")
+	local textLabel = playerNameFrame:FindFirstChild("TextLabel")
 	if not textLabel then return end
 
 	local displayName = player.DisplayName or player.Name
@@ -153,6 +163,40 @@ function OverheadService:_setPlayerName(holder, player)
 	end
 
 	textLabel.Text = prefix .. displayName .. suffix
+end
+
+function OverheadService:_setRoleBadge(holder, player)
+	local infoFrame = holder:FindFirstChild("Info")
+	if not infoFrame then return end
+
+	for _, badgeName in pairs(ROLE_TO_BADGE) do
+		local badgeFrame = infoFrame:FindFirstChild(badgeName)
+		if badgeFrame and badgeFrame:IsA("GuiObject") then
+			badgeFrame.Visible = false
+		end
+	end
+
+	if GROUP_ID <= 0 then
+		return
+	end
+
+	local ok, role = pcall(function()
+		return player:GetRoleInGroup(GROUP_ID)
+	end)
+	if not ok or type(role) ~= "string" or role == "" then
+		return
+	end
+
+	local badgeName = ROLE_TO_BADGE[string.lower(role)]
+	if not badgeName then
+		-- No frame for this role (Owner/Tester/Member/Guest/Manager currently).
+		return
+	end
+
+	local badgeFrame = infoFrame:FindFirstChild(badgeName)
+	if badgeFrame and badgeFrame:IsA("GuiObject") then
+		badgeFrame.Visible = true
+	end
 end
 
 function OverheadService:_setPlatformInfo(holder, player)
@@ -185,17 +229,11 @@ function OverheadService:_setWins(holder, player)
 	if not winsFrame then return end
 
 	local wins = LobbyData.getPlayerWins(player.UserId)
-
-	-- Navigate: Wins > Frame (has ZIndex 3) > TextLabel
-	for _, child in winsFrame:GetChildren() do
-		if child:IsA("Frame") then
-			local textLabel = child:FindFirstChildOfClass("TextLabel")
-			if textLabel then
-				textLabel.Text = tostring(wins)
-			end
-			break
-		end
-	end
+	local holderFrame = winsFrame:FindFirstChild("Frame")
+	if not holderFrame then return end
+	local textLabel = holderFrame:FindFirstChild("TextLabel")
+	if not textLabel then return end
+	textLabel.Text = tostring(wins)
 end
 
 function OverheadService:_setStreak(holder, player)
@@ -206,9 +244,9 @@ function OverheadService:_setStreak(holder, player)
 
 	if streak > 0 then
 		streakFrame.Visible = true
-		local innerFrame = streakFrame:FindFirstChildOfClass("Frame")
+		local innerFrame = streakFrame:FindFirstChild("Frame")
 		if innerFrame then
-			local textLabel = innerFrame:FindFirstChildOfClass("TextLabel")
+			local textLabel = innerFrame:FindFirstChild("TextLabel")
 			if textLabel then
 				textLabel.Text = tostring(streak)
 			end
