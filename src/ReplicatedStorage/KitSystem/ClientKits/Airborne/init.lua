@@ -155,7 +155,6 @@ function Airborne:_createUI()
 	
 	local template = script:FindFirstChild("AangBar")
 	if not template then
-		warn("[Airborne Client] AangBar template not found under script!")
 		return
 	end
 	
@@ -472,11 +471,20 @@ function Airborne:_setupFloatPassive(ctx)
 
 	self._connections.jumpInput = inputManager:ConnectToInput("Jump", function(isJumping)
 		if isJumping then
+			local player = Players.LocalPlayer
+			-- Disconnect float when in lobby or when leaving match/training
+			if player and player:GetAttribute("InLobby") then
+				return
+			end
+			-- Disconnect if we're no longer the active Airborne kit (switched kits)
+			if Airborne._activeInstance ~= self then
+				return
+			end
+
 			local isGrounded = MovementStateManager:GetIsGrounded()
 			if isGrounded then
 				return
 			end
-			local player = Players.LocalPlayer
 			if player then
 				local lastZiplineJump = player:GetAttribute("ZiplineJumpDetachTime")
 				if type(lastZiplineJump) == "number" and tick() - lastZiplineJump < ZIPLINE_BUFFER then
@@ -521,11 +529,28 @@ function Airborne:_setupFloatPassive(ctx)
 					return
 				end
 
+				local player = Players.LocalPlayer
+				-- Disconnect when in lobby or leaving match/training
+				if player and player:GetAttribute("InLobby") then
+					if self._connections.floatRender then
+						self._connections.floatRender:Disconnect()
+						self._connections.floatRender = nil
+					end
+					return
+				end
+				-- Disconnect when no longer Airborne kit (switched kits)
+				if Airborne._activeInstance ~= self then
+					if self._connections.floatRender then
+						self._connections.floatRender:Disconnect()
+						self._connections.floatRender = nil
+					end
+					return
+				end
+
 				-- Can't float while ability is active
 				if kitController:IsAbilityActive() then
 					return
 				end
-				local player = Players.LocalPlayer
 				if player then
 					local lastZiplineJump = player:GetAttribute("ZiplineJumpDetachTime")
 					if type(lastZiplineJump) == "number" and tick() - lastZiplineJump < ZIPLINE_BUFFER then

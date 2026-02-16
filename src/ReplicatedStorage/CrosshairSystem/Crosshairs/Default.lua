@@ -267,9 +267,6 @@ task.wait(); --heyy
 		local now = tick()
 		if now - lastDebugTime > DEBUG_LOG_INTERVAL then
 			lastDebugTime = now
-			print("[Default.lua] effSpeed:", string.format("%.2f", effectiveSpeed), "h:", string.format("%.2f", horizontalSpeed), "v:", string.format("%.2f", verticalSpeed))
-			print("[Default.lua] recoil:", string.format("%.2f", self._currentRecoil), "recoveryRate:", self.Config.recoilRecoveryRate)
-			print("[Default.lua] gap:", string.format("%.2f", gap), "spreadX/Y:", string.format("%.2f/%.2f", spreadX, spreadY))
 		end
 	end
 

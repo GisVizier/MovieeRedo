@@ -416,7 +416,6 @@ function module:_createActivePlayerTemplate(userId)
 	end
 
 	if not self._activePlayerTemplate then
-		warn("[Party] ActivePlayerTemplate not found")
 		return nil
 	end
 
@@ -740,7 +739,6 @@ function module:_createPartyTemplate(userId, isLeader)
 	end
 
 	if not self._partyTemplate then
-		warn("[Party] PartyTemplate not found")
 		return nil
 	end
 
@@ -937,7 +935,6 @@ function module:_invitePlayer(userId)
 	end
 
 	if self:_getPartyCount() >= PARTY_LIMIT then
-		warn("[Party] Party is full")
 		return
 	end
 

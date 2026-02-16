@@ -232,18 +232,15 @@ function Kon:User(originUserId, data)
 	local action = data.forceAction
 	if action == "start" then
 		-- Screen shake, viewmodel particles on ability start
-		print("[Kon VFX] User: start effects")
 		ReplicateFX("kon", "shake", { Character = localPlayer.Character, ViewModel = ViewModel})
 		-- TODO: Add screen shake, particles, etc.
 
 	elseif action == "bite" then
 		-- Screen shake on bite impact
-		print("[Kon VFX] User: bite screen effects")
 		-- TODO: Add camera shake for impact
 
 	elseif action == "stop" then
 		-- Cleanup viewmodel effects
-		print("[Kon VFX] User: stop effects")
 	end
 end
 
@@ -256,7 +253,6 @@ function Kon:createKon(originUserId, data)
 
 	local position = parsePosition(data.position)
 	if not position then
-		warn("[Kon VFX] No position provided")
 		return
 	end
 
@@ -302,7 +298,6 @@ function Kon:createKon(originUserId, data)
 			end
 			local track = animator:LoadAnimation(konAnim)
 			track:Play()
-			print("[Kon VFX] Animation playing")
 		end
 	end
 

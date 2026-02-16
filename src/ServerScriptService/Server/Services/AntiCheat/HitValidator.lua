@@ -277,8 +277,6 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	
 	if not targetPosAtHit then
 		if CONFIG.DebugLogging then
-			print(string.format("[HitValidator DEBUG] %s -> %s: NO POSITION HISTORY (allowing hit)",
-				shooter.Name, hitData.hitPlayer and hitData.hitPlayer.Name or "nil"))
 		end
 		-- No position history - allow hit (player just spawned)
 		return true
@@ -330,13 +328,6 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	-- Debug logging
 	if CONFIG.DebugLogging then
 		local targetName = hitData.hitPlayer and hitData.hitPlayer.Name or "Unknown"
-		print(string.format("[HitValidator DEBUG] %s -> %s:", shooter.Name, targetName))
-		print(string.format("  Client hitPos: (%.1f, %.1f, %.1f)", hitData.hitPosition.X, hitData.hitPosition.Y, hitData.hitPosition.Z))
-		print(string.format("  History pos:   (%.1f, %.1f, %.1f)", targetPosAtHit.X, targetPosAtHit.Y, targetPosAtHit.Z))
-		print(string.format("  Adjusted pos:  (%.1f, %.1f, %.1f) %s", adjustedTargetPos.X, adjustedTargetPos.Y, adjustedTargetPos.Z, hitData.isHeadshot and "[+head offset]" or ""))
-		print(string.format("  Offset: %.2f studs | Tolerance: %.2f (base=%.1f * ping=%.2f * stale=%.2f)", offset, tolerance, baseTolerance, pingFactor, staleFactor))
-		print(string.format("  Data age: %.3fs | Headshot: %s", dataAge, tostring(hitData.isHeadshot)))
-		print(string.format("  RESULT: %s", offset <= tolerance and "VALID ✓" or "REJECTED ✗"))
 	end
 	
 	if offset > tolerance then
@@ -508,13 +499,6 @@ function HitValidator:_flagPlayer(player, reason, value)
 		value = value,
 	}
 	
-	warn(string.format(
-		"[HitValidator] FLAGGED: %s (%d) - %s: %.2f",
-		player.Name,
-		player.UserId,
-		reason,
-		value or 0
-	))
 	
 	-- TODO: Send to analytics, notify admins, etc.
 end
@@ -531,13 +515,6 @@ end
 	@param value number? - Associated value
 ]]
 function HitValidator:RecordViolation(player, violationType, value)
-	warn(string.format(
-		"[HitValidator] %s (%d) - %s violation: %.1f",
-		player.Name,
-		player.UserId,
-		violationType,
-		value or 0
-	))
 end
 
 --[[

@@ -36,13 +36,11 @@ end
 local function cacheTemplate()
 	local modelsFolder = ServerStorage:FindFirstChild("Models")
 	if not modelsFolder then
-		warn("[PracticeDummyService] ServerStorage.Models folder not found")
 		return false
 	end
 
 	_template = modelsFolder:FindFirstChild("Dummy")
 	if not _template then
-		warn("[PracticeDummyService] ServerStorage.Models.Dummy template not found")
 		return false
 	end
 
@@ -94,7 +92,6 @@ local function scanPracticeSpawns()
 	local world = workspace:FindFirstChild("World")
 	local spawnFolder = world and world:FindFirstChild("DummySpawns")
 	if not spawnFolder then
-		warn("[PracticeDummyService] workspace.World.DummySpawns not found")
 		return
 	end
 
@@ -123,7 +120,6 @@ end
 local function setupDummyPhysics(dummy)
 	local root = dummy:FindFirstChild("Root")
 	if not root then
-		warn("[PracticeDummyService] No Root part found in dummy")
 		return false
 	end
 
@@ -561,19 +557,8 @@ function PracticeDummyService:Stop()
 end
 
 function PracticeDummyService:Reset(count, moveEnabled)
-	if DEBUG_LOGGING then
-		print("[PracticeDummyService] Reset called with count:", count, "moveEnabled:", moveEnabled)
-	end
-
 	self:Stop()
 	scanPracticeSpawns()
-
-	if DEBUG_LOGGING then
-		print("[PracticeDummyService] Found", #_spawnPositions, "spawn positions")
-		for i, pos in ipairs(_spawnPositions) do
-			print("[PracticeDummyService]   Spawn", i, ":", pos.name)
-		end
-	end
 
 	local maxCount = #_spawnPositions
 	local spawnCount = math.clamp(tonumber(count) or 1, 1, 8)
@@ -583,27 +568,13 @@ function PracticeDummyService:Reset(count, moveEnabled)
 		spawnCount = 0
 	end
 
-	if DEBUG_LOGGING then
-		print("[PracticeDummyService] Will spawn", spawnCount, "dummies (max available:", maxCount, ")")
-	end
-
 	for i = 1, spawnCount do
-		local dummy = spawnDummyAt(i)
-		if dummy then
-			if DEBUG_LOGGING then
-				print("[PracticeDummyService] Spawned dummy", i, ":", dummy.Name)
-			end
-		else
-			if DEBUG_LOGGING then
-				print("[PracticeDummyService] FAILED to spawn dummy", i)
-			end
-		end
+		spawnDummyAt(i)
 	end
 
 	_moveEnabled = moveEnabled == true
 	if _moveEnabled then
 		startMovement()
-		print("[PracticeDummyService] Movement enabled")
 	end
 end
 

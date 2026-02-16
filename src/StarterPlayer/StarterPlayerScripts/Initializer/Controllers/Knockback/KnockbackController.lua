@@ -183,7 +183,6 @@ function KnockbackController:ApplyKnockbackPreset(character, presetName, sourceP
 
 	local preset = KnockbackConfig.Presets[presetName]
 	if not preset then
-		warn("[KnockbackController] Unknown preset:", presetName)
 		preset = KnockbackConfig.Presets.Standard
 	end
 

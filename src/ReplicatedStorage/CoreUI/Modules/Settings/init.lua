@@ -1309,26 +1309,17 @@ end
 
 function module:_updateFullscreenImage(imageId: string)
 	if not self._videoUI then
-		warn("[Settings] _updateFullscreenImage: no _videoUI")
 		return
 	end
 
 	local imageFrame = self._videoUI:FindFirstChild("ImageFrame")
-	warn("[Settings] _updateFullscreenImage: ImageFrame =", imageFrame)
 	if imageFrame then
-		warn("[Settings] ImageFrame children:", imageFrame:GetChildren())
 		local holder = imageFrame:FindFirstChild("Holder")
-		warn("[Settings] Holder =", holder)
 		if holder then
-			warn("[Settings] Holder children:", holder:GetChildren())
 			local canvas = holder:FindFirstChild("CanvasGroup")
-			warn("[Settings] CanvasGroup =", canvas)
 			if canvas then
-				warn("[Settings] CanvasGroup children:", canvas:GetChildren())
 				local image = canvas:FindFirstChild("ImageLabel")
-				warn("[Settings] ImageLabel =", image)
 				if image then
-					warn("[Settings] Setting image to:", imageId)
 					image.Image = imageId
 				end
 			end

@@ -210,11 +210,6 @@ function ProjectileValidator:_validateFlightTime(hitData, projectileConfig)
 	
 	if claimedFlightTime < minTime * 0.8 or claimedFlightTime > maxTime * 1.5 then
 		if CONFIG.DebugLogging then
-			warn(string.format(
-				"[ProjectileValidator] Flight time mismatch: claimed=%.3fs, expected=%.3fs (%.0f%% diff)",
-				claimedFlightTime, expectedFlightTime,
-				math.abs(claimedFlightTime - expectedFlightTime) / expectedFlightTime * 100
-			))
 		end
 		return false, "FlightTimeMismatch"
 	end
@@ -242,7 +237,6 @@ end
 ]]
 function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectileConfig)
 	if not HitDetectionAPI then
-		warn("[ProjectileValidator] HitDetectionAPI not initialized, skipping position validation")
 		return true
 	end
 	
@@ -263,7 +257,6 @@ function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectil
 	if not historicalPosition then
 		-- No position history, be lenient
 		if CONFIG.DebugLogging then
-			warn("[ProjectileValidator] No position history for target, allowing hit")
 		end
 		return true
 	end
@@ -281,19 +274,6 @@ function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectil
 	local tolerance = self:_calculateTolerance(shooter, target, hitData, projectileConfig)
 	
 	if CONFIG.DebugLogging then
-		print(string.format(
-			"[ProjectileValidator DEBUG] %s -> %s:\n  Client hitPos: %s\n  History pos: %s\n  Adjusted pos: %s\n  Offset: %.2f studs | Tolerance: %.2f\n  Flight time: %.3fs | Headshot: %s\n  RESULT: %s",
-			shooter.Name,
-			target.Name,
-			tostring(hitData.hitPosition),
-			tostring(historicalPosition),
-			tostring(adjustedPosition),
-			offset,
-			tolerance,
-			hitData.flightTime or 0,
-			tostring(hitData.isHeadshot),
-			offset <= tolerance and "VALID" or "REJECTED"
-		))
 	end
 	
 	if offset > tolerance then
@@ -348,11 +328,6 @@ function ProjectileValidator:_validateTrajectory(shooter, hitData, projectileCon
 	
 	if not isClear and obstruction then
 		if CONFIG.DebugLogging then
-			warn(string.format(
-				"[ProjectileValidator] Trajectory obstructed by %s at %s",
-				obstruction.Instance:GetFullName(),
-				tostring(obstruction.Position)
-			))
 		end
 		return false, "TrajectoryObstructed"
 	end
@@ -464,10 +439,6 @@ function ProjectileValidator:_flagPlayer(player, reason, value)
 		timestamp = os.clock(),
 	}
 	
-	warn(string.format(
-		"[ProjectileValidator ANTI-CHEAT] Player %s flagged: %s (%.2f)",
-		player.Name, reason, value
-	))
 end
 
 -- =============================================================================
@@ -490,15 +461,6 @@ function ProjectileValidator:_logValidation(shooter, hitData, reason, isValid)
 	end
 	
 	local symbol = isValid and "✓" or "✗"
-	print(string.format(
-		"[ProjectileValidator] %s %s -> %s (%s): %s %s",
-		symbol,
-		shooter.Name,
-		targetName,
-		hitData.weaponName or "Unknown",
-		reason,
-		symbol
-	))
 end
 
 -- =============================================================================

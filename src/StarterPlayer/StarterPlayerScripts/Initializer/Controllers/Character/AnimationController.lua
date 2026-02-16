@@ -125,6 +125,10 @@ AnimationController._rigAnimationPlayersRemovingConn = nil
 AnimationController.ZiplineActive = false
 AnimationController.CurrentZiplineAnimationName = nil
 
+-- Connection for re-acquiring Animator after ApplyDescription invalidates it
+AnimationController._descriptionAppliedConn = nil
+AnimationController._otherDescriptionAppliedConns = {} -- [character] = RBXScriptConnection
+
 local function encodePriority(priorityValue)
 	if typeof(priorityValue) == "EnumItem" then
 		return priorityValue.Name
@@ -1109,6 +1113,60 @@ function AnimationController:OnLocalCharacterReady(character)
 	self:PreloadAnimations()
 	self:PlayIdleAnimation("IdleStanding")
 	self:StartAnimationSpeedUpdates()
+
+	-- Listen for ApplyDescription completion. When it fires, the Animator and all
+	-- AnimationTracks may have been destroyed/recreated, so we must re-acquire
+	-- the Animator and reload every track.
+	if self._descriptionAppliedConn then
+		self._descriptionAppliedConn:Disconnect()
+		self._descriptionAppliedConn = nil
+	end
+	self._descriptionAppliedConn = rig:GetAttributeChangedSignal("DescriptionApplied"):Connect(function()
+		if not self.LocalCharacter or self.LocalCharacter ~= character then
+			return
+		end
+		local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
+		if not rigHumanoid then
+			return
+		end
+		local newAnimator = rigHumanoid:FindFirstChildOfClass("Animator")
+		if not newAnimator then
+			newAnimator = Instance.new("Animator")
+			newAnimator.Parent = rigHumanoid
+		end
+		self.LocalAnimator = newAnimator
+
+		-- Reload all animation tracks on the fresh Animator
+		self:PreloadAnimations()
+
+		-- Re-play the appropriate animation for the current movement state
+		local isGrounded = MovementStateManager:GetIsGrounded()
+		local isMoving = MovementStateManager:GetIsMoving()
+		if isGrounded then
+			if isMoving then
+				local currentState = MovementStateManager:GetCurrentState()
+				local animName = self:_getStateAnimationName(currentState)
+				if animName then
+					self:PlayStateAnimation(animName)
+				end
+			else
+				self:PlayIdleAnimation("IdleStanding")
+			end
+		else
+			self:PlayFallingAnimation()
+		end
+
+		-- Re-play any active rig (kit) animations so they resume on the new Animator
+		for animName, statePayload in pairs(self.LocalRigAnimationState) do
+			self:PlayAnimation(animName, {
+				Looped = statePayload.Looped,
+				Priority = decodePriority(statePayload.Priority) or Enum.AnimationPriority.Action4,
+				FadeInTime = statePayload.FadeInTime or 0.15,
+				Speed = statePayload.Speed or 1,
+				StopOthers = false,
+			})
+		end
+	end)
 end
 
 function AnimationController:OnLocalCharacterRemoving()
@@ -1118,6 +1176,11 @@ function AnimationController:OnLocalCharacterRemoving()
 	self:StopRunAnimationUpdates()
 	self:StopCrouchAnimationUpdates()
 	self:StopAnimationSpeedUpdates()
+
+	if self._descriptionAppliedConn then
+		self._descriptionAppliedConn:Disconnect()
+		self._descriptionAppliedConn = nil
+	end
 
 	self.LocalCharacter = nil
 	self.LocalAnimator = nil
@@ -1173,9 +1236,46 @@ function AnimationController:OnOtherCharacterSpawned(character)
 			end
 		end)
 	end
+
+	-- Listen for ApplyDescription completion on this remote rig.
+	-- Re-acquire the Animator and clear cached tracks so new ones are loaded fresh.
+	local oldConn = self._otherDescriptionAppliedConns[character]
+	if oldConn then
+		oldConn:Disconnect()
+	end
+	self._otherDescriptionAppliedConns[character] = rig:GetAttributeChangedSignal("DescriptionApplied"):Connect(function()
+		local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
+		if not rigHumanoid then
+			return
+		end
+		local newAnimator = rigHumanoid:FindFirstChildOfClass("Animator")
+		if not newAnimator then
+			newAnimator = Instance.new("Animator")
+			newAnimator.Parent = rigHumanoid
+		end
+		self.OtherCharacterAnimators[character] = newAnimator
+
+		-- Invalidate cached tracks so they are reloaded on the new Animator
+		self.OtherCharacterTracks[character] = {}
+		self.OtherCharacterWeaponTracks[character] = {}
+		self.OtherCharacterKitTracks[character] = {}
+
+		-- Re-reconcile any active rig animation state
+		local ownerPlayer = Players:GetPlayerFromCharacter(character)
+		if ownerPlayer then
+			self:_reconcileRemoteRigAnimationState(ownerPlayer)
+		end
+	end)
 end
 
 function AnimationController:OnOtherCharacterRemoving(character)
+	-- Disconnect ApplyDescription listener for this character
+	local descConn = self._otherDescriptionAppliedConns[character]
+	if descConn then
+		descConn:Disconnect()
+		self._otherDescriptionAppliedConns[character] = nil
+	end
+
 	local tracks = self.OtherCharacterTracks[character]
 	if tracks then
 		for _, track in pairs(tracks) do
@@ -1505,7 +1605,13 @@ function AnimationController:SetWeaponAnimationModeForPlayer(player: Player, ena
 end
 
 function AnimationController:_shouldUseWalkAnimationsForSprint(): boolean
-	return self._weaponAnimMode == true
+	-- Run = walk animation sped up (no separate run animation). In lobby, weapons are unequipped
+	-- so weapon mode is off, but we still need to use walk animation for sprint.
+	if self._weaponAnimMode == true then
+		return true
+	end
+	local localPlayer = Players.LocalPlayer
+	return localPlayer and localPlayer:GetAttribute("InLobby") == true
 end
 
 function AnimationController:_getStateAnimationName(stateName: string): string?
@@ -1821,9 +1927,6 @@ function AnimationController:PlayAirborneAnimation(animationName, forceVariantIn
 	end
 
 	if not track then
-		if animationName == "JumpCancel" then
-			warn("[ANIMATION] JumpCancel track missing - cannot play")
-		end
 		return
 	end
 

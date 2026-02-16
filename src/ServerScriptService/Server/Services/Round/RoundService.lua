@@ -129,7 +129,6 @@ function RoundService:_teleportPlayerToTraining(player)
 	local spawns = CollectionService:GetTagged(MatchmakingConfig.Spawns.TrainingTag)
 
 	if #spawns == 0 then
-		warn("[RoundService] No training spawns found")
 		return
 	end
 

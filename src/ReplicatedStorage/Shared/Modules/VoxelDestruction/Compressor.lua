@@ -156,9 +156,7 @@ end
 function CFrameCompressor.PrintSize(value)
 	if typeof(value) == "string" then
 		local size = #value
-		print(string.format("Size: %d bytes (%.2f KB)", size, size / 1024))
 	else
-		warn("PrintSize only supports strings (compressed data) now.")
 	end
 end
 

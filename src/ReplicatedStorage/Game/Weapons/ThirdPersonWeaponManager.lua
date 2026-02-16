@@ -9,13 +9,8 @@ local CharacterLocations = require(Locations.Game:WaitForChild("Character"):Wait
 local CrouchUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CrouchUtils"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local R6IKSolver = require(ReplicatedStorage:WaitForChild("R6IKSolver"))
-local DEBUG_VM_REPL = true
 local DISABLE_RIG_ANIMATIONS = false -- Set true to skip all viewmodel animation playback
-local function vmLog(...)
-	if DEBUG_VM_REPL then
-		warn("[VM-ThirdPersonWeaponManager]", ...)
-	end
-end
+local function vmLog(...) end
 
 local ThirdPersonWeaponManager = {}
 ThirdPersonWeaponManager.__index = ThirdPersonWeaponManager

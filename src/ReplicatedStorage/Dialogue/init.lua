@@ -570,7 +570,6 @@ function Dialogue.testRun(sequence: {any}): boolean
 		end
 		local name = line.Character or "Unknown"
 		local text = line.DialogueText or ""
-		warn("[DialogueTest]", name, text)
 		if line.Dialogue and typeof(line.Dialogue) == "table" then
 			Dialogue.testRun(line.Dialogue)
 		end

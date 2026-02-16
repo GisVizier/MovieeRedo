@@ -250,7 +250,6 @@ function Kit:OnAbility(inputState, clientData)
 					debrisAmount = 8,
 				})
 				if not success then
-					warn("[Aki] Kon destruction failed at position:", bitePos)
 				end
 			end)
 		end

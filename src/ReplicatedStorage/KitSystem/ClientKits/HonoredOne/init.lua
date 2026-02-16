@@ -521,9 +521,6 @@ local function runBlueHitbox(state)
 	local character = state.character
 	
 	local knockbackController = ServiceRegistry:GetController("Knockback")
-	if not knockbackController then
-		warn("[HonoredOne] KnockbackController not found!")
-	end
 	
 	local camera = Workspace.CurrentCamera
 	local hrp = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
@@ -992,9 +989,6 @@ local function runRedProjectile(state)
 	local character = state.character
 	
 	local knockbackController = ServiceRegistry:GetController("Knockback")
-	if not knockbackController then
-		warn("[HonoredOne] KnockbackController not found!")
-	end
 	
 	local camera = Workspace.CurrentCamera
 	local hrp = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")

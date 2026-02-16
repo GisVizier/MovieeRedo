@@ -8,16 +8,12 @@ local KitController = require(ReplicatedStorage.KitSystem.KitController)
 local ClientInit = {}
 
 function ClientInit.start(screenGui)
-	print("[ClientInit] Starting with ScreenGui:", screenGui.Name)
 
 	PlayerDataTable.init()
-	print("[ClientInit] PlayerDataTable initialized")
 
 	local ui = CoreUI.new(screenGui)
-	print("[ClientInit] CoreUI created")
 
 	ui:init()
-	print("[ClientInit] CoreUI initialized")
 
 	local kitController = KitController.new(Players.LocalPlayer, ui)
 	kitController:init()
@@ -35,13 +31,9 @@ function ClientInit.start(screenGui)
 	-- (RojoUiReference had a StartMatch remote listener here.)
 
 	ui:on("LoadoutComplete", function(data)
-		print("[ClientInit] Player ready to spawn!")
-		print("[ClientInit] Map:", data.mapId)
-		print("[ClientInit] Loadout:", data.loadout)
 		-- Rojo UI testing flow (no HUD): stop here.
 	end)
 
-	print("[ClientInit] Waiting for match...")
 
 	return ui
 end

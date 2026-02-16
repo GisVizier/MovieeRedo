@@ -16,12 +16,7 @@ local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local ThirdPersonWeaponManager =
 	require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
-local DEBUG_VM_REPL = true
-local function vmLog(...)
-	if DEBUG_VM_REPL then
-		warn("[VM-RemoteReplicator]", ...)
-	end
-end
+local function vmLog(...) end
 
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
@@ -37,6 +32,8 @@ RemoteReplicator.PlayerLossStats = {}
 RemoteReplicator.PendingViewmodelActions = {}
 RemoteReplicator.PendingCrouchStates = {}
 RemoteReplicator.ActiveViewmodelState = {} -- [userId] = { [key] = payload }
+RemoteReplicator._localInLobby = false
+RemoteReplicator._lobbyConn = nil
 
 local function isStatefulViewmodelAction(actionName: string): boolean
 	return actionName == "ADS"
@@ -67,6 +64,32 @@ function RemoteReplicator:Init(net)
 	self._net:ConnectClient("CrouchStateChanged", function(otherPlayer, isCrouching)
 		self:OnCrouchStateChanged(otherPlayer, isCrouching)
 	end)
+
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		self._localInLobby = localPlayer:GetAttribute("InLobby") == true
+		self._lobbyConn = localPlayer:GetAttributeChangedSignal("InLobby"):Connect(function()
+			local inLobby = localPlayer:GetAttribute("InLobby") == true
+			if inLobby ~= self._localInLobby then
+				self._localInLobby = inLobby
+				if inLobby then
+					-- Entered lobby: unequip weapons for all remote players
+					for _, remoteData in pairs(self.RemotePlayers) do
+						if remoteData.WeaponManager then
+							remoteData.WeaponManager:UnequipWeapon()
+						end
+					end
+				else
+					-- Left lobby: re-equip weapons for all remote players
+					for _, remoteData in pairs(self.RemotePlayers) do
+						if remoteData.WeaponManager then
+							self:_equipRemoteWeapon(remoteData)
+						end
+					end
+				end
+			end
+		end)
+	end
 
 	self.RenderConnection = RunService.Heartbeat:Connect(function(deltaTime)
 		self:ReplicatePlayers(deltaTime)
@@ -125,7 +148,15 @@ function RemoteReplicator:OnViewmodelActionReplicated(compressedPayload)
 		return
 	end
 
-	vmLog("Apply immediate action", "userId=", userId, "weapon=", tostring(payload.WeaponId), "action=", tostring(payload.ActionName))
+	vmLog(
+		"Apply immediate action",
+		"userId=",
+		userId,
+		"weapon=",
+		tostring(payload.WeaponId),
+		"action=",
+		tostring(payload.ActionName)
+	)
 	self:_applyReplicatedViewmodelAction(remoteData, payload)
 end
 
@@ -256,7 +287,15 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			-- Initialize weapon manager for third-person
 			local weaponManager = rig and ThirdPersonWeaponManager.new(rig) or nil
-			vmLog("Created remoteData", "player=", player.Name, "hasRig=", rig ~= nil, "hasWeaponManager=", weaponManager ~= nil)
+			vmLog(
+				"Created remoteData",
+				"player=",
+				player.Name,
+				"hasRig=",
+				rig ~= nil,
+				"hasWeaponManager=",
+				weaponManager ~= nil
+			)
 
 			remoteData = {
 				Player = player,
@@ -287,9 +326,11 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				weaponManager:SetCrouching(remoteData.IsCrouching)
 			end
 
-			-- Parse initial loadout and equipped slot from player attributes
-			self:_updateRemoteLoadout(remoteData, player)
-			self:_updateRemoteEquippedSlot(remoteData, player)
+			-- Parse initial loadout and equipped slot from player attributes (skip equip when in lobby)
+			if not self._localInLobby then
+				self:_updateRemoteLoadout(remoteData, player)
+				self:_updateRemoteEquippedSlot(remoteData, player)
+			end
 			self.RemotePlayers[userId] = remoteData
 
 			local pendingActions = self.PendingViewmodelActions[userId]
@@ -506,12 +547,14 @@ function RemoteReplicator:ReplicatePlayers(dt)
 		if remoteData.Rig then
 			self:ApplyReplicatedRigRotation(remoteData, targetRigTilt)
 
-			-- Check for loadout/slot changes on the remote player
-			self:_updateRemoteLoadout(remoteData, remoteData.Player)
-			self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
+			-- Check for loadout/slot changes on the remote player (skip when in lobby)
+			if not self._localInLobby then
+				self:_updateRemoteLoadout(remoteData, remoteData.Player)
+				self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
+			end
 		end
 
-		if remoteData.WeaponManager then
+		if remoteData.WeaponManager and not self._localInLobby then
 			remoteData.WeaponManager:SetCrouching(remoteData.IsCrouching == true)
 			remoteData.WeaponManager:UpdateTransform(cf, remoteData.LastAimPitch, dt)
 		end
@@ -565,7 +608,12 @@ function RemoteReplicator:GetStateAtTime(buffer, renderTime)
 
 	if not from or not to then
 		local latest = buffer[#buffer]
-		return latest.Position, latest.Rotation, latest.AimPitch or 0, latest.IsGrounded, latest.AnimationId, latest.RigTilt or 0
+		return latest.Position,
+			latest.Rotation,
+			latest.AimPitch or 0,
+			latest.IsGrounded,
+			latest.AnimationId,
+			latest.RigTilt or 0
 	end
 
 	local timeDiff = to.ReceiveTime - from.ReceiveTime
@@ -636,6 +684,10 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 		return
 	end
 
+	if self._localInLobby then
+		return
+	end
+
 	local forceApply = payload.ForceApply == true
 	local sequenceNumber = tonumber(payload.SequenceNumber) or 0
 	if not forceApply then
@@ -674,11 +726,27 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 	end
 
 	if weaponId ~= "" and weaponManager:GetWeaponId() ~= weaponId then
-		vmLog("Remote equip", remoteData.Player and remoteData.Player.Name or "?", "weapon=", weaponId, "seq=", sequenceNumber)
+		vmLog(
+			"Remote equip",
+			remoteData.Player and remoteData.Player.Name or "?",
+			"weapon=",
+			weaponId,
+			"seq=",
+			sequenceNumber
+		)
 		weaponManager:EquipWeapon(weaponId)
 	end
 
-	vmLog("Remote apply action", remoteData.Player and remoteData.Player.Name or "?", "action=", actionName, "track=", trackName, "active=", tostring(isActive))
+	vmLog(
+		"Remote apply action",
+		remoteData.Player and remoteData.Player.Name or "?",
+		"action=",
+		actionName,
+		"track=",
+		trackName,
+		"active=",
+		tostring(isActive)
+	)
 	weaponManager:ApplyReplicatedAction(actionName, trackName, isActive)
 
 	if userId and isStatefulViewmodelAction(actionName) then

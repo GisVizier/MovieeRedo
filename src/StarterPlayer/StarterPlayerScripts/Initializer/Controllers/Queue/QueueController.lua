@@ -29,11 +29,7 @@ local QueueController = {}
 local DEBUG_ENABLED = false
 local DEBUG_INTERVAL = 3
 
-local function debugPrint(...)
-	if DEBUG_ENABLED then
-		print("[QueueController DEBUG]", ...)
-	end
-end
+local function debugPrint(...) end
 
 function QueueController:Init(registry, net)
 	self._registry = registry
@@ -58,13 +54,13 @@ function QueueController:Init(registry, net)
 	-- GUI references (created dynamically)
 	self._countdownGui = nil
 	self._countdownLabel = nil
-	
+
 	-- Debug timing
 	self._lastDebugPrint = 0
 
 	self:_cachePads()
 	self:_setupNetworkListeners()
-	
+
 	debugPrint("=== QueueController:Init() CALLED ===")
 end
 
@@ -75,8 +71,10 @@ function QueueController:Start()
 end
 
 function QueueController:_startClientDebugLoop()
-	if not DEBUG_ENABLED then return end
-	
+	if not DEBUG_ENABLED then
+		return
+	end
+
 	RunService.Heartbeat:Connect(function()
 		local now = tick()
 		if now - self._lastDebugPrint >= DEBUG_INTERVAL then
@@ -89,29 +87,16 @@ end
 function QueueController:_printClientDebugSummary()
 	local player = Players.LocalPlayer
 	local character = player.Character
-	
-	print("=== [QueueController] CLIENT DEBUG SUMMARY ===")
-	print("  Pads cached:", (function()
-		local count = 0
-		for _ in self._pads do count = count + 1 end
-		return count
-	end)())
-	
+
 	if character then
 		local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
 		if rootPart then
-			print("  CLIENT position:", rootPart.Position)
 		else
-			print("  NO rootPart found!")
-			print("  Character children:")
 			for _, child in character:GetChildren() do
-				print("    -", child.Name, "(" .. child.ClassName .. ")")
 			end
 		end
 	else
-		print("  NO character!")
 	end
-	print("===============================================")
 end
 
 --------------------------------------------------------------------------------
@@ -187,9 +172,9 @@ end
 
 function QueueController:_cachePads()
 	local padTag = MatchmakingConfig.Queue.PadTag
-	
+
 	debugPrint("Caching pads with tag:", padTag)
-	
+
 	local taggedPads = CollectionService:GetTagged(padTag)
 	debugPrint("CLIENT found", #taggedPads, "pads with tag '" .. padTag .. "'")
 
@@ -198,7 +183,7 @@ function QueueController:_cachePads()
 		self._pads[pad.Name] = pad
 		self:_cacheBoardForPad(pad)
 		self:_initQueueState(pad.Name)
-		
+
 		-- Debug: print zone positions
 		local team1 = pad:FindFirstChild("Team1")
 		local team2 = pad:FindFirstChild("Team2")
@@ -232,7 +217,7 @@ end
 
 function QueueController:_cacheBoardForPad(pad)
 	debugPrint("Caching board for pad:", pad.Name)
-	
+
 	local board = pad:FindFirstChild("Board")
 	if not board then
 		debugPrint("  No Board found in pad")
@@ -254,17 +239,17 @@ function QueueController:_cacheBoardForPad(pad)
 	local leftSide = frame:FindFirstChild("LeftSide")
 	local rightSide = frame:FindFirstChild("RightSide")
 	local counter = frame:FindFirstChild("Counter")
-	
+
 	debugPrint("  LeftSide found:", leftSide ~= nil)
 	debugPrint("  RightSide found:", rightSide ~= nil)
 	debugPrint("  Counter found:", counter ~= nil)
 
 	local leftImage = leftSide and self:_findImageLabel(leftSide)
 	local rightImage = rightSide and self:_findImageLabel(rightSide)
-	
+
 	debugPrint("  LeftImage found:", leftImage ~= nil, leftImage and leftImage:GetFullName() or "N/A")
 	debugPrint("  RightImage found:", rightImage ~= nil, rightImage and rightImage:GetFullName() or "N/A")
-	
+
 	-- Debug: print all children of LeftSide/RightSide if no image found
 	if leftSide and not leftImage then
 		debugPrint("  LeftSide children (no ImageLabel found):")
@@ -311,7 +296,7 @@ function QueueController:_cacheBoardForPad(pad)
 	if counterText then
 		counterText.Text = "0"
 	end
-	
+
 	debugPrint("  Board cached successfully")
 end
 
@@ -437,7 +422,7 @@ end
 
 function QueueController:_updateBoardDisplay(padName, team, occupied, playerId)
 	debugPrint("_updateBoardDisplay:", padName, team, "occupied:", occupied, "playerId:", playerId)
-	
+
 	local board = self._boards[padName]
 	if not board then
 		debugPrint("  No board cached for pad:", padName)
@@ -505,14 +490,10 @@ end
 
 function QueueController:_setPlayerAvatar(imageLabel, userId)
 	debugPrint("_setPlayerAvatar called, imageLabel:", imageLabel:GetFullName(), "userId:", userId)
-	
+
 	task.spawn(function()
 		local success, content = pcall(function()
-			return Players:GetUserThumbnailAsync(
-				userId,
-				Enum.ThumbnailType.HeadShot,
-				Enum.ThumbnailSize.Size150x150
-			)
+			return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
 		end)
 
 		debugPrint("  GetUserThumbnailAsync result - success:", success, "content:", content and "got content" or "nil")
@@ -521,7 +502,14 @@ function QueueController:_setPlayerAvatar(imageLabel, userId)
 			imageLabel.Image = content
 			debugPrint("  Set imageLabel.Image to:", content)
 		else
-			debugPrint("  FAILED to set avatar - success:", success, "content:", content ~= nil, "imageLabel:", imageLabel ~= nil)
+			debugPrint(
+				"  FAILED to set avatar - success:",
+				success,
+				"content:",
+				content ~= nil,
+				"imageLabel:",
+				imageLabel ~= nil
+			)
 		end
 	end)
 end
@@ -770,29 +758,26 @@ function QueueController:_onMatchTeleport(data)
 	debugPrint("  team:", data.team)
 	debugPrint("  spawnPosition:", data.spawnPosition)
 	debugPrint("  spawnLookVector:", data.spawnLookVector)
-	
+
 	local spawnPos = data.spawnPosition
 	local lookVector = data.spawnLookVector
 	local matchId = data.matchId
-	
+
 	if not spawnPos then
-		warn("[QueueController] MatchTeleport received without spawnPosition")
 		return
 	end
-	
+
 	-- Stop any active emotes before teleporting
 	self._net:FireServer("EmoteStop")
-	
+
 	-- Use MovementController to teleport (handles custom character system)
 	local movementController = self._registry:TryGet("Movement")
-	
+
 	if movementController and type(movementController.Teleport) == "function" then
 		debugPrint("  Calling MovementController:Teleport()")
 		local success = movementController:Teleport(spawnPos, lookVector)
 		debugPrint("  Teleport result:", success)
 	else
-		warn("[QueueController] MovementController not found or missing Teleport method")
-		
 		-- Fallback: Try to move character directly (may not work with anchored HumanoidRootPart)
 		local player = Players.LocalPlayer
 		local character = player.Character
@@ -810,7 +795,7 @@ function QueueController:_onMatchTeleport(data)
 			end
 		end
 	end
-	
+
 	-- Confirm teleport to server (so it knows to start the match)
 	if matchId and matchId ~= "reset" then
 		task.delay(0.1, function()

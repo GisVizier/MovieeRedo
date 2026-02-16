@@ -244,7 +244,6 @@ function PlayerDataTable.get(category: string, key: string): any
 
 	local categoryData = mockData.Settings[category]
 	if not categoryData then
-		warn("[PlayerDataTable] Unknown category:", category)
 		return nil
 	end
 
@@ -265,7 +264,6 @@ function PlayerDataTable.set(category: string, key: string, value: any): boolean
 
 	local categoryData = mockData.Settings[category]
 	if not categoryData then
-		warn("[PlayerDataTable] Unknown category:", category)
 		return false
 	end
 
@@ -331,7 +329,6 @@ function PlayerDataTable.resetCategory(category: string): boolean
 	local categoryDefaults = defaults[category]
 
 	if not categoryDefaults then
-		warn("[PlayerDataTable] Unknown category:", category)
 		return false
 	end
 
@@ -375,11 +372,9 @@ function PlayerDataTable._fireCallbacks(category: string, key: string, newValue:
 end
 
 function PlayerDataTable._saveToServer(category: string, key: string, value: any)
-	warn("[PlayerDataTable] MOCK: Would save to server:", category, key, value)
 end
 
 function PlayerDataTable._saveCategoryToServer(category: string)
-	warn("[PlayerDataTable] MOCK: Would save category to server:", category)
 end
 
 -- Emote System Methods

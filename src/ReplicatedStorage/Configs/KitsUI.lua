@@ -58,7 +58,6 @@ KitsUI.Kits = KitConfig.Kits
 function KitsUI.createKitCard(kitId: string): ItemHolder?
 	local kitData = KitsUI.Kits[kitId]
 	if not kitData then
-		warn("[KitsUI] Kit not found: " .. kitId)
 		return nil
 	end
 

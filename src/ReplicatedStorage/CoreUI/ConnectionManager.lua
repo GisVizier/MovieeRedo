@@ -28,7 +28,6 @@ end
 function ConnectionManager:track(instance, eventName, callback, groupName)
 	local event = instance[eventName]
 	if not event then
-		warn("[ConnectionManager] Event not found:", eventName, "on", instance.Name)
 		return nil
 	end
 

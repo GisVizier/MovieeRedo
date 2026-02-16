@@ -159,7 +159,6 @@ function UIController:_bootstrapUi()
 	local playerGui = player:WaitForChild("PlayerGui")
 	local screenGui = playerGui:WaitForChild("Gui", 30)
 	if not screenGui then
-		warn("[UIController] Gui ScreenGui not found in PlayerGui")
 		return
 	end
 
@@ -244,7 +243,6 @@ end
 function UIController:_setupEmoteWheelInput(ui)
 	local inputController = self._registry and self._registry:TryGet("Input")
 	if not inputController then
-		warn("[UIController] InputController not found, emote wheel input disabled")
 		return
 	end
 

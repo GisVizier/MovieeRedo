@@ -119,7 +119,6 @@ function CharacterController:Init(registry, net)
 		end
 		-- Debug: H = test death (triggers full ragdoll -> respawn flow)
 		if input.KeyCode == Enum.KeyCode.H then
-			print("[CharacterController] Test death requested (H)")
 			self._net:FireServer("RequestTestDeath")
 		end
 	end)
@@ -417,7 +416,6 @@ function CharacterController:_setupLocalCharacter(player, character)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid and not self._deathConnections[character] then
 		self._deathConnections[character] = humanoid.Died:Connect(function()
-			warn("[CHAR_DEATH] Humanoid.Died - server handles ragdoll and respawn")
 			-- Respawn is now server-controlled via CombatService death ragdoll.
 			-- The server will trigger ragdoll, wait for it to play, then respawn.
 			-- We no longer fire RequestRespawn here to avoid racing the ragdoll.
@@ -522,14 +520,12 @@ function CharacterController:_setupRemoteCollider(character, characterTemplate)
 
 	local templateCollider = characterTemplate:FindFirstChild("Collider")
 	if not templateCollider then
-		warn("[CharacterController] CharacterTemplate missing Collider")
 		return
 	end
 
 	-- Get template Root for offset calculations
 	local templateRoot = characterTemplate:FindFirstChild("Root")
 	if not templateRoot then
-		warn("[CharacterController] CharacterTemplate missing Root")
 		return
 	end
 
@@ -589,7 +585,6 @@ function CharacterController:_setupRemoteCollider(character, characterTemplate)
 	local templateHitboxFolder = templateCollider:FindFirstChild("Hitbox")
 
 	if not hitboxFolder or not templateHitboxFolder then
-		warn("[CharacterController] Collider missing Hitbox folder")
 		collider:Destroy()
 		return
 	end
@@ -689,7 +684,6 @@ end
 -- Toggle hitbox debug visualization
 function CharacterController:ToggleHitboxDebug()
 	self._hitboxDebugEnabled = not self._hitboxDebugEnabled
-	print("[CharacterController] Hitbox debug:", self._hitboxDebugEnabled and "ENABLED" or "DISABLED")
 
 	-- Update all existing colliders
 	for character, collider in pairs(self._remoteColliders) do
@@ -839,8 +833,6 @@ function CharacterController:_onRagdollEnded(player)
 			end
 			self._savedCameraMode = nil
 		end
-
-		print("[CharacterController] Local player ragdoll ended")
 	end
 end
 

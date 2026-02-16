@@ -12,7 +12,6 @@ function MovementValidator:Init()
 		self.Players[player] = nil
 	end)
 	
-	print("[MovementValidator] Initialized")
 end
 
 function MovementValidator:Validate(player, state, deltaTime)
@@ -77,14 +76,6 @@ function MovementValidator:RecordViolation(player, violationType, value)
 	
 	data.Violations = data.Violations + 1
 	
-	warn(string.format(
-		"[AntiCheat] %s (%d) - %s violation: %.1f (Total violations: %d)",
-		player.Name,
-		player.UserId,
-		violationType,
-		value,
-		data.Violations
-	))
 	
 	-- Kick after threshold
 	if data.Violations >= 6 then

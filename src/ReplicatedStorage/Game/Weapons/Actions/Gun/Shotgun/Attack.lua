@@ -86,7 +86,6 @@ function Attack.Execute(weaponInstance, currentTime)
 	local projectileService = getWeaponProjectile()
 
 	if not projectileService then
-		warn("[Shotgun Attack] WeaponProjectile service not found")
 		return false, "ServiceNotFound"
 	end
 
@@ -103,7 +102,6 @@ function Attack.Execute(weaponInstance, currentTime)
 	})
 
 	if not projectileIds or #projectileIds == 0 then
-		warn("[Shotgun Attack] Failed to fire pellets")
 		return false, "FireFailed"
 	end
 

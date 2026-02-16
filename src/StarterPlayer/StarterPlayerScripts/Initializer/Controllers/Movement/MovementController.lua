@@ -1090,9 +1090,6 @@ function CharacterController:DebugGroundDetection()
 
 	local info = MovementUtils:GetGroundCheckDebugInfo(self.Character, self.PrimaryPart, self.RaycastParams)
 	if not info then
-		if ConfigCache.DEBUG_GROUND_DETECTION then
-			warn("[MOVEMENT][GROUND] debug skipped - missing ground info")
-		end
 		return
 	end
 
@@ -1264,7 +1261,8 @@ function CharacterController:TryStepUp(deltaTime)
 				+ (forward * forwardDistance)
 			local downDistance = stepHeight + 1
 			local downCastRadius = math.max(0.1, castRadius * 0.75)
-			local hitDown = workspace:Spherecast(downOrigin, downCastRadius, Vector3.new(0, -downDistance, 0), self.RaycastParams)
+			local hitDown =
+				workspace:Spherecast(downOrigin, downCastRadius, Vector3.new(0, -downDistance, 0), self.RaycastParams)
 			if hitDown and hitDown.Normal.Y >= 0.6 then
 				local stepDelta = hitDown.Position.Y - feetBottomY
 				if stepDelta > 0.05 and stepDelta <= stepHeight then
@@ -2211,7 +2209,6 @@ function CharacterController:CheckDeath()
 			return
 		end
 
-		warn(("[CHAR_DEATH] below_threshold y=%.2f threshold=%.2f"):format(currentPosition.Y, deathThreshold))
 		self.RespawnRequested = true
 
 		-- Clear local movement forces/state immediately; server will handle respawn.

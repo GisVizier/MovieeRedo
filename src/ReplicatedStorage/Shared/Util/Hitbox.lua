@@ -498,7 +498,6 @@ end
 
 function Hitbox.GetEntitiesInBox(config: any)
     if type(config) ~= "table" then
-        warn("[Hitbox] GetEntitiesInBox expects a config table")
         return {}
     end
 
@@ -512,7 +511,6 @@ function Hitbox.GetEntitiesInBox(config: any)
     end
 
     if not cframe or not boxSize then
-        warn("[Hitbox] GetEntitiesInBox missing cframe/size")
         return {}
     end
 
@@ -577,7 +575,6 @@ end
 ]]
 function Hitbox.GetCharactersInBox(config: any)
     if type(config) ~= "table" then
-        warn("[Hitbox] GetCharactersInBox expects a config table")
         return {}
     end
 
@@ -591,7 +588,6 @@ function Hitbox.GetCharactersInBox(config: any)
     end
 
     if not cframe or not boxSize then
-        warn("[Hitbox] GetCharactersInBox missing cframe/size")
         return {}
     end
 

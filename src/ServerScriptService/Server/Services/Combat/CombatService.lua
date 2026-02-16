@@ -68,7 +68,6 @@ local function safeAddUltimate(resource, amount, context)
 	end)
 
 	if not ok then
-		warn(string.format("[CombatService] Failed to add ultimate (%s): %s", tostring(context), tostring(err)))
 		return false
 	end
 
@@ -129,12 +128,6 @@ function CombatService:InitializePlayer(
 	-- Create combat resource
 	local resource = CombatResource.new(player, options)
 	self._playerResources[player] = resource
-
-	-- Debug: Log registration
-	local charName = player.Character and player.Character.Name or "no character"
-	if DEBUG_LOGGING then
-		print(string.format("[CombatService] InitializePlayer: Registered '%s' (Character: %s)", player.Name, charName))
-	end
 
 	-- Create status effect manager
 	local effectManager = StatusEffectManager.new(player, resource)
@@ -574,14 +567,6 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 	local effectId = self:_getKillEffect(killer, weaponId)
 	local victimIsRealPlayer = isRealPlayer(victim)
 	local victimCharacter = resolveVictimCharacter(victim)
-	if not victimIsRealPlayer then
-		print(string.format(
-			"[CombatService] Executing kill effect '%s' for non-player victim %s (character=%s)",
-			tostring(effectId),
-			tostring(victim and victim.Name),
-			tostring(victimCharacter and victimCharacter:GetFullName() or "nil")
-		))
-	end
 	KillEffects:Execute(effectId, victim, killer, weaponId, {
 		victimCharacter = victimCharacter,
 		victimIsPlayer = victimIsRealPlayer,
@@ -624,8 +609,6 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 			matchManager:OnPlayerKilled(killer, victim)
 		end
 	end
-
-	print("[CombatService]", killer and killer.Name or "Unknown", "killed", victim.Name)
 
 	-- Server-controlled respawn after ragdoll plays out (only for real players)
 	local characterService = self._registry:TryGet("CharacterService")

@@ -8,12 +8,7 @@ local CompressionUtils = require(Locations.Shared.Util:WaitForChild("Compression
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator)
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
-local DEBUG_VM_REPL = true
-local function vmLog(...)
-	if DEBUG_VM_REPL then
-		warn("[VM-ReplicationService]", ...)
-	end
-end
+local function vmLog(...) end
 
 -- Stance enum (must match PositionHistory.Stance)
 local Stance = {

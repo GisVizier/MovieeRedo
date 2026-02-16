@@ -38,30 +38,12 @@ local function getCharacterFromPart(part)
 			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
 			local humanoid = current:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid then
-				if DEBUG_LOGGING then
-					print(
-						string.format(
-							"[WeaponService] getCharacterFromPart: Found character '%s' from part '%s'",
-							current.Name,
-							part.Name
-						)
-					)
-				end
 				return normalizeCharacterModel(current)
 			end
 		end
 		current = current.Parent
 	end
 
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] getCharacterFromPart: No character found from part '%s' (parent: %s)",
-				part.Name,
-				part.Parent and part.Parent.Name or "nil"
-			)
-		)
-	end
 	return nil
 end
 
@@ -135,7 +117,6 @@ end
 
 function WeaponService:OnWeaponFired(player, shotData)
 	if not player or not shotData then
-		warn("[WeaponService] Invalid shot data from", player and player.Name or "unknown")
 		return
 	end
 
@@ -147,7 +128,6 @@ function WeaponService:OnWeaponFired(player, shotData)
 		-- New buffer-based packet format
 		hitData = HitPacketUtils:ParsePacket(shotData.packet)
 		if not hitData then
-			warn("[WeaponService] Failed to parse hit packet from", player.Name)
 			return
 		end
 		weaponId = hitData.weaponName
@@ -169,14 +149,12 @@ function WeaponService:OnWeaponFired(player, shotData)
 	hitData.serverReceiveTime = workspace:GetServerTimeNow()
 
 	if not weaponId then
-		warn("[WeaponService] No weapon ID from", player.Name)
 		return
 	end
 
 	-- Validate weapon config exists
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
-		warn("[WeaponService] Invalid weapon:", weaponId, "from", player.Name)
 		return
 	end
 
@@ -184,7 +162,6 @@ function WeaponService:OnWeaponFired(player, shotData)
 	if weaponConfig.pelletsPerShot and weaponConfig.pelletsPerShot > 1 and shotData.pelletDirections then
 		local valid, reason = self:_validatePellets(shotData, weaponConfig)
 		if not valid then
-			warn("[WeaponService] Invalid pellet data from", player.Name, "Reason:", reason)
 			return
 		end
 
@@ -198,7 +175,6 @@ function WeaponService:OnWeaponFired(player, shotData)
 
 		local pelletResult = self:_processPellets(player, pelletShotData, weaponConfig)
 		if not pelletResult then
-			warn("[WeaponService] Pellet processing failed for", player.Name)
 			return
 		end
 
@@ -217,39 +193,12 @@ function WeaponService:OnWeaponFired(player, shotData)
 			isHeadshot = pelletResult.headshotCount > 0,
 		})
 
-		if DEBUG_LOGGING then
-			if victimPlayer then
-				print(
-					string.format(
-						"[WeaponService] %s hit player %s with pellets for %d damage (headshots: %d)",
-						player.Name,
-						victimPlayer.Name,
-						pelletResult.damageTotal,
-						pelletResult.headshotCount
-					)
-				)
-			elseif pelletResult.hitCharacter then
-				print(
-					string.format(
-						"[WeaponService] %s hit dummy/rig '%s' with pellets for %d damage (headshots: %d)",
-						player.Name,
-						pelletResult.hitCharacter.Name,
-						pelletResult.damageTotal,
-						pelletResult.headshotCount
-					)
-				)
-			else
-				print(string.format("[WeaponService] %s fired pellets (no target hit)", player.Name))
-			end
-		end
-
 		return
 	end
 
 	-- Validate the hit with anti-cheat (using new HitValidator)
 	local isValid, reason = HitValidator:ValidateHit(player, hitData, weaponConfig)
 	if not isValid then
-		warn("[WeaponService] Invalid shot from", player.Name, "Reason:", reason)
 		HitValidator:RecordViolation(player, reason, 1)
 		return
 	end
@@ -302,23 +251,9 @@ function WeaponService:OnWeaponFired(player, shotData)
 									or result.Instance.Name == "CrouchHead"
 									or result.Instance.Name == "HitboxHead"
 								self:ApplyDamageToCharacter(character, damage, player, isHeadshot, weaponId, hitData.origin, result.Position)
-
-								if DEBUG_LOGGING then
-									print(
-										string.format(
-											"[WeaponService] Server-verified dummy hit: %s on %s (part: %s, damage: %d)",
-											player.Name,
-											character.Name,
-											result.Instance.Name,
-											damage
-										)
-									)
-								end
 							end
 						end
 					end
-				elseif DEBUG_LOGGING then
-					print(string.format("[WeaponService] Server raycast found no target at client hit position"))
 				end
 			end
 		end
@@ -336,38 +271,6 @@ function WeaponService:OnWeaponFired(player, shotData)
 		isHeadshot = hitData.isHeadshot,
 	})
 
-	-- Log successful hit
-	if DEBUG_LOGGING then
-		if victimPlayer then
-			print(
-				string.format(
-					"[WeaponService] %s hit player %s for %d damage (headshot: %s)",
-					player.Name,
-					victimPlayer.Name,
-					damage,
-					tostring(hitData.isHeadshot)
-				)
-			)
-		elseif hitCharacterName then
-			print(
-				string.format(
-					"[WeaponService] %s hit dummy/rig '%s' for %d damage (headshot: %s)",
-					player.Name,
-					hitCharacterName,
-					damage,
-					tostring(hitData.isHeadshot)
-				)
-			)
-		else
-			print(
-				string.format(
-					"[WeaponService] %s shot at position %s (no target hit)",
-					player.Name,
-					tostring(hitData.hitPosition)
-				)
-			)
-		end
-	end
 end
 
 function WeaponService:_validatePellets(shotData, weaponConfig)
@@ -433,17 +336,6 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 	local firstHitPosition = nil
 	local firstHitCharacter = nil
 
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] _processPellets: %s firing %d pellets from %s",
-				player.Name,
-				#shotData.pelletDirections,
-				tostring(origin)
-			)
-		)
-	end
-
 	for i, dir in ipairs(shotData.pelletDirections) do
 		local result = workspace:Raycast(origin, dir * range, raycastParams)
 		if result then
@@ -451,33 +343,10 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 				firstHitPosition = result.Position
 			end
 
-			if DEBUG_LOGGING then
-				print(
-					string.format(
-						"[WeaponService] Pellet %d hit: %s (parent: %s, fullname: %s)",
-						i,
-						result.Instance.Name,
-						result.Instance.Parent and result.Instance.Parent.Name or "nil",
-						result.Instance:GetFullName()
-					)
-				)
-			end
-
 			-- Traverse up to find character (handles nested colliders like Dummy/Root/Head)
 			local character = getCharacterFromPart(result.Instance)
 			-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
 			local humanoid = character and character:FindFirstChildWhichIsA("Humanoid", true)
-
-			if DEBUG_LOGGING then
-				print(
-					string.format(
-						"[WeaponService] Pellet %d: character=%s, humanoid=%s",
-						i,
-						character and character.Name or "nil",
-						humanoid and "found" or "nil"
-					)
-				)
-			end
 
 			if humanoid then
 				if not firstHitCharacter then
@@ -503,17 +372,6 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 		totalDamage = totalDamage + damage
 		totalHeadshots = totalHeadshots + (headshotByCharacter[character] or 0)
 
-		if DEBUG_LOGGING then
-			print(
-				string.format(
-					"[WeaponService] _processPellets: Applying %d damage to '%s' (headshots: %d)",
-					damage,
-					character.Name,
-					headshotByCharacter[character] or 0
-				)
-			)
-		end
-
 		self:ApplyDamageToCharacter(
 			character,
 			damage,
@@ -522,16 +380,6 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 			shotData.weaponId,
 			shotData.origin,
 			hitPositionByCharacter[character]
-		)
-	end
-
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] _processPellets: Total %d characters damaged, %d total damage",
-				damageCount,
-				totalDamage
-			)
 		)
 	end
 
@@ -585,25 +433,12 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	character = normalizeCharacterModel(character)
 
 	if not character or not character.Parent then
-		if DEBUG_LOGGING then
-			print("[WeaponService] ApplyDamageToCharacter: character is nil or has no parent")
-		end
 		return
 	end
 
 	-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
 	local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
-		if DEBUG_LOGGING then
-			print(
-				string.format(
-					"[WeaponService] ApplyDamageToCharacter: %s - humanoid=%s, health=%s",
-					character.Name,
-					humanoid and "found" or "nil",
-					humanoid and tostring(humanoid.Health) or "N/A"
-				)
-			)
-		end
 		return
 	end
 
@@ -615,27 +450,6 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	-- If not a real player, check for pseudo-player (dummies)
 	if not victimPlayer and combatService then
 		victimPlayer = combatService:GetPlayerByCharacter(character)
-		if DEBUG_LOGGING then
-			print(
-				string.format(
-					"[WeaponService] ApplyDamageToCharacter: %s - checked CombatService, victimPlayer=%s",
-					character.Name,
-					victimPlayer and victimPlayer.Name or "nil"
-				)
-			)
-		end
-	end
-
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] ApplyDamageToCharacter: %s - damage=%d, victimPlayer=%s, combatService=%s",
-				character.Name,
-				damage,
-				victimPlayer and victimPlayer.Name or "nil",
-				combatService and "found" or "nil"
-			)
-		)
 	end
 
 	-- Route through CombatService for players and dummies
@@ -657,60 +471,16 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 			impactDirection = impactDirection,
 		})
 
-		if DEBUG_LOGGING then
-			print(
-				string.format(
-					"[WeaponService] CombatService:ApplyDamage result for %s: %s",
-					character.Name,
-					result and "success" or "nil"
-				)
-			)
-			if result then
-				print(
-					string.format(
-						"  - blocked=%s, healthDamage=%s, killed=%s",
-						tostring(result.blocked),
-						tostring(result.healthDamage),
-						tostring(result.killed)
-					)
-				)
-			end
-		end
-
-		if result and result.killed and DEBUG_LOGGING then
-			print(
-				string.format(
-					"[WeaponService] %s killed %s (headshot: %s)",
-					shooter.Name,
-					character.Name,
-					tostring(isHeadshot)
-				)
-			)
-		end
 		return
 	end
 
 	-- Fallback for unregistered NPCs - direct humanoid damage
-	if DEBUG_LOGGING then
-		print(string.format("[WeaponService] Fallback: humanoid:TakeDamage(%d) for %s", damage, character.Name))
-	end
 	humanoid:TakeDamage(damage)
 
 	-- Set last damage dealer (useful for kill attribution)
 	character:SetAttribute("LastDamageDealer", shooter.UserId)
 	character:SetAttribute("WasHeadshot", isHeadshot)
 
-	-- Check if killed
-	if humanoid.Health <= 0 and DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] %s killed %s (headshot: %s)",
-				shooter.Name,
-				character.Name,
-				tostring(isHeadshot)
-			)
-		)
-	end
 end
 
 -- =============================================================================
@@ -723,14 +493,12 @@ end
 ]]
 function WeaponService:OnProjectileSpawned(player, data)
 	if not player or not data then
-		warn("[WeaponService] Invalid projectile spawn data from", player and player.Name or "unknown")
 		return
 	end
 
 	-- Parse spawn packet
 	local spawnData = ProjectilePacketUtils:ParseSpawnPacket(data.packet)
 	if not spawnData then
-		warn("[WeaponService] Failed to parse projectile spawn packet from", player.Name)
 		return
 	end
 
@@ -738,14 +506,12 @@ function WeaponService:OnProjectileSpawned(player, data)
 	local weaponId = data.weaponId or spawnData.weaponName
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
-		warn("[WeaponService] Invalid weapon for projectile:", weaponId, "from", player.Name)
 		return
 	end
 
 	-- Validate spawn
 	local isValid, reason = ProjectileAPI:ValidateSpawn(player, spawnData, weaponConfig)
 	if not isValid then
-		warn("[WeaponService] Invalid projectile spawn from", player.Name, "Reason:", reason)
 		return
 	end
 
@@ -765,18 +531,6 @@ function WeaponService:OnProjectileSpawned(player, data)
 			packet = replicatePacket,
 		})
 	end
-
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] %s spawned projectile %d (%s) at %.0f studs/sec",
-				player.Name,
-				spawnData.projectileId,
-				weaponId,
-				spawnData.speed
-			)
-		)
-	end
 end
 
 --[[
@@ -785,14 +539,12 @@ end
 ]]
 function WeaponService:OnProjectileHit(player, data)
 	if not player or not data then
-		warn("[WeaponService] Invalid projectile hit data from", player and player.Name or "unknown")
 		return
 	end
 
 	-- Parse hit packet
 	local hitData = ProjectilePacketUtils:ParseHitPacket(data.packet)
 	if not hitData then
-		warn("[WeaponService] Failed to parse projectile hit packet from", player.Name)
 		return
 	end
 
@@ -800,7 +552,6 @@ function WeaponService:OnProjectileHit(player, data)
 	local weaponId = data.weaponId or hitData.weaponName
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
-		warn("[WeaponService] Invalid weapon for projectile hit:", weaponId, "from", player.Name)
 		return
 	end
 
@@ -808,21 +559,9 @@ function WeaponService:OnProjectileHit(player, data)
 	local victimPlayer = hitData.hitPlayer
 	local isRig = data.rigName and not victimPlayer
 
-	if DEBUG_LOGGING then
-		print(
-			string.format(
-				"[WeaponService] OnProjectileHit: rigName=%s, victimPlayer=%s, isRig=%s",
-				tostring(data.rigName),
-				victimPlayer and victimPlayer.Name or "nil",
-				tostring(isRig)
-			)
-		)
-	end
-
 	if not isRig then
 		local isValid, reason = ProjectileAPI:ValidateHit(player, hitData, weaponConfig)
 		if not isValid then
-			warn("[WeaponService] Invalid projectile hit from", player.Name, "Reason:", reason)
 			return
 		end
 	end
@@ -844,35 +583,11 @@ function WeaponService:OnProjectileHit(player, data)
 		end
 	elseif isRig then
 		-- Hit a rig/dummy - find it in workspace
-		if DEBUG_LOGGING then
-			print(
-				string.format(
-					"[WeaponService] OnProjectileHit: Looking for rig '%s' near position %s",
-					data.rigName,
-					tostring(hitData.hitPosition)
-				)
-			)
-		end
 		hitCharacter = self:_findRigByName(data.rigName, hitData.hitPosition)
 		if hitCharacter then
 			hitCharacter = normalizeCharacterModel(hitCharacter)
-			if DEBUG_LOGGING then
-				print(
-					string.format(
-						"[WeaponService] OnProjectileHit: Found rig '%s', applying %d damage",
-						hitCharacter.Name,
-						damage
-					)
-				)
-			end
 			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin, hitData.hitPosition)
 			hitCharacterName = hitCharacter.Name
-		else
-			warn("[WeaponService] Could not find rig:", data.rigName)
-		end
-	else
-		if DEBUG_LOGGING then
-			print("[WeaponService] OnProjectileHit: No target (neither player nor rig)")
 		end
 	end
 
@@ -894,40 +609,6 @@ function WeaponService:OnProjectileHit(player, data)
 		bounceCount = hitData.bounceCount,
 	})
 
-	-- Log successful hit
-	if DEBUG_LOGGING then
-		if victimPlayer then
-			print(
-				string.format(
-					"[WeaponService] %s projectile hit player %s for %d damage (headshot: %s, pierce: %d, bounce: %d)",
-					player.Name,
-					victimPlayer.Name,
-					damage,
-					tostring(hitData.isHeadshot),
-					hitData.pierceCount or 0,
-					hitData.bounceCount or 0
-				)
-			)
-		elseif hitCharacterName then
-			print(
-				string.format(
-					"[WeaponService] %s projectile hit rig '%s' for %d damage (headshot: %s)",
-					player.Name,
-					hitCharacterName,
-					damage,
-					tostring(hitData.isHeadshot)
-				)
-			)
-		else
-			print(
-				string.format(
-					"[WeaponService] %s projectile hit environment at %s",
-					player.Name,
-					tostring(hitData.hitPosition)
-				)
-			)
-		end
-	end
 end
 
 function WeaponService:OnProjectileHitBatch(player, data)

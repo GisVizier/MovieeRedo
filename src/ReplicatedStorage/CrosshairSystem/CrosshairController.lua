@@ -104,7 +104,6 @@ function CrosshairController:_warmModuleCache()
 			if ok then
 				self._moduleCache[child.Name] = moduleDef
 			else
-				warn("[CrosshairController] Failed to warm module cache:", child.Name, moduleDef)
 			end
 		end
 	end
@@ -168,13 +167,11 @@ function CrosshairController:_loadModule(crosshairName: string)
 
 	local moduleScript = CrosshairsFolder:FindFirstChild(crosshairName)
 	if not moduleScript then
-		warn("[CrosshairController] Crosshair module missing:", crosshairName)
 		return nil
 	end
 
 	local ok, moduleDef = pcall(require, moduleScript)
 	if not ok then
-		warn("[CrosshairController] Failed to require module:", crosshairName, moduleDef)
 		return nil
 	end
 
@@ -242,7 +239,6 @@ end
 
 function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: any?, player: Player?)
 	if DEBUG_CROSSHAIR then
-		print("[Crosshair] ApplyCrosshair called:", crosshairName)
 	end
 	
 	if player then
@@ -254,32 +250,23 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 
 	local container = self:_resolveGui()
 	if not container then
-		warn("[CrosshairController] Crosshair templates not found.")
 		return
 	end
 	
 	if DEBUG_CROSSHAIR then
-		print("[Crosshair] Container found:", container:GetFullName())
-		print("[Crosshair] Container children:")
 		for _, child in container:GetChildren() do
-			print("  -", child.Name, child.ClassName)
 		end
 	end
 
 	local template = container:FindFirstChild(crosshairName)
 	if not template then
-		warn("[CrosshairController] Crosshair template missing:", crosshairName)
 		return
 	end
 	
 	if DEBUG_CROSSHAIR then
-		print("[Crosshair] Template found:", template:GetFullName())
-		print("[Crosshair] Template children:")
 		for _, child in template:GetChildren() do
-			print("  -", child.Name, child.ClassName)
 			if child:IsA("Frame") or child:IsA("Folder") then
 				for _, subChild in child:GetChildren() do
-					print("    -", subChild.Name, subChild.ClassName)
 				end
 			end
 		end
@@ -306,13 +293,6 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 	end
 	
 	if DEBUG_CROSSHAIR then
-		print("[Crosshair] Module created successfully")
-		print("[Crosshair] Module has _top:", moduleInstance._top ~= nil)
-		print("[Crosshair] Module has _bottom:", moduleInstance._bottom ~= nil)
-		print("[Crosshair] Module has _left:", moduleInstance._left ~= nil)
-		print("[Crosshair] Module has _right:", moduleInstance._right ~= nil)
-		print("[Crosshair] Module has _lines:", moduleInstance._lines ~= nil)
-		print("[Crosshair] Module has _dot:", moduleInstance._dot ~= nil)
 	end
 
 	self._frame = clone
@@ -323,7 +303,6 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 	self:_setReticleHidden(false)
 	
 	if DEBUG_CROSSHAIR then
-		print("[Crosshair] WeaponData:", self._weaponData)
 	end
 
 	if moduleInstance.ApplyCustomization then
@@ -349,7 +328,6 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 	self:_startUpdateLoop()
 	
 	if DEBUG_CROSSHAIR then
-		print("[Crosshair] Update loop started, connection exists:", self._updateConnection ~= nil)
 	end
 end
 
@@ -537,7 +515,6 @@ function CrosshairController:_update(dt: number)
 			local now = tick()
 			if now - lastDebugTime > DEBUG_LOG_INTERVAL then
 				lastDebugTime = now
-				warn("[Crosshair] _update called but self._module is nil!")
 			end
 		end
 		return
@@ -551,12 +528,6 @@ function CrosshairController:_update(dt: number)
 		local now = tick()
 		if now - lastDebugTime > DEBUG_LOG_INTERVAL then
 			lastDebugTime = now
-			print("[Crosshair] UPDATE LOOP RUNNING")
-			print("[Crosshair]   Speed:", string.format("%.2f", speed))
-			print("[Crosshair]   Grounded:", movementState.isGrounded)
-			print("[Crosshair]   Sprinting:", movementState.isSprinting)
-			print("[Crosshair]   Crouching:", movementState.isCrouching)
-			print("[Crosshair]   ADS:", movementState.isADS)
 		end
 	end
 	

@@ -85,8 +85,8 @@ ViewmodelConfig.Weapons = {
 		ModelPath = ViewmodelConfig.Models.Fists,
 		Offset = CFrame.new(0, 0, 0),
 		Replication = {
-			Scale = 0.5725,
-			Offset = CFrame.new(),
+			Scale = 1,
+			Offset = CFrame.new(0, 0, 0.65),
 			LeftAttachment = CFrame.new(-1, 0, -0.5) * CFrame.Angles(0, 0, math.rad(90)),
 			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
@@ -175,10 +175,10 @@ ViewmodelConfig.Weapons = {
 
 		Replication = {
 			Scale = 0.5725,
-			Offset = CFrame.new(0, 0, 0.725),
+			Offset = CFrame.new(0, 0, 0.756),
 
-			LeftAttachment = CFrame.new(-1, 0, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
-			RightAttachment = CFrame.new(1.15, 0.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
+			LeftAttachment = CFrame.new(-1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
+			RightAttachment = CFrame.new(1.15, 0.5, -0.25) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
 			Idle = "Idle",

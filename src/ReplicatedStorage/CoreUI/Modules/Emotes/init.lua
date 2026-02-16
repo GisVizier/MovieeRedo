@@ -38,7 +38,6 @@ local function log(...)
 	if not DEBUG then
 		return
 	end
-	warn("[Emotes]", ...)
 end
 
 local function angleDiff(a, b)
@@ -415,7 +414,6 @@ function module:_setHover(index)
 	self._hoveredIndex = index
 
 	if not index then
-		warn("[Emotes] Hover cleared")
 		log("hover", "none")
 		self._selectedSlot = nil
 		self._selectedEmoteId = nil
@@ -425,13 +423,11 @@ function module:_setHover(index)
 
 	local slot = self._slotsByIndex[index]
 	if not slot then
-		warn("[Emotes] Hover slot not found:", index)
 		return
 	end
 
 	self._selectedSlot = index
 	self._selectedEmoteId = slot.emoteId
-	warn("[Emotes] Hovering slot", index, "emoteId:", slot.emoteId or "none")
 	log("hover", index, slot.emoteId)
 	self:_tweenBar(slot, slot.hoverTransparency)
 	if slot.bar then
@@ -484,7 +480,6 @@ end
 
 function module:_activateHovered()
 	if not self._hoveredIndex then
-		warn("[Emotes] Activate called but no slot hovered")
 		log("activate", "none")
 		return
 	end
@@ -494,17 +489,13 @@ function module:_activateHovered()
 
 	self._selectedSlot = self._hoveredIndex
 	self._selectedEmoteId = emoteId
-	warn("[Emotes] SELECTED slot", self._hoveredIndex, "emoteId:", emoteId or "none")
 	log("activate", self._hoveredIndex, emoteId)
 	
 	-- Play the emote on the actual player
 	local service = getEmotesService()
 	if emoteId and service and type(service.play) == "function" then
-		warn("[Emotes] Playing emote:", emoteId)
 		local success = service.play(emoteId)
-		warn("[Emotes] Play result:", success)
 	else
-		warn("[Emotes] Cannot play - emoteId:", emoteId, "service:", service ~= nil)
 	end
 	
 	self.onActivated:fire(emoteId, self._hoveredIndex)
@@ -599,11 +590,9 @@ function module:_init()
 end
 
 function module:show()
-	warn("[Emotes] show() called")
 	self._ui.Visible = true
 	self:_init()
 	self:_populateSlots()
-	warn("[Emotes] Slots populated, total slots:", #self._slots)
 	
 	-- Unlock mouse for selection
 	self._savedMouseBehavior = UserInputService.MouseBehavior

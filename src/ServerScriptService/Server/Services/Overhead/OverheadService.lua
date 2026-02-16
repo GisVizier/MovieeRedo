@@ -51,10 +51,6 @@ function OverheadService:Init(registry, net)
 	if assets then
 		self._template = assets:FindFirstChild("Overhead")
 	end
-	if not self._template then
-		warn("[OverheadService] Template not found at ReplicatedStorage.Assets.Overhead")
-	end
-
 	-- Bind platform remote
 	self._net:ConnectServer("SetPlatform", function(player, platform)
 		self:_onSetPlatform(player, platform)

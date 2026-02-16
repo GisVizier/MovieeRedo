@@ -67,7 +67,6 @@ local function getCenterPoint(instance: PVInstance): Vector3
 	elseif instance:IsA("BasePart") then
 		return instance.CFrame.Position
 	else
-		warn(`[TargetSelector] Instance {instance.Name} is not a Model or BasePart`)
 		return instance:GetPivot().Position
 	end
 end

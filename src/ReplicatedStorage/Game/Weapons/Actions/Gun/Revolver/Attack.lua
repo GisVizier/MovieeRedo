@@ -68,7 +68,6 @@ function Attack.Execute(weaponInstance, currentTime)
 	local projectileService = getWeaponProjectile()
 	
 	if not projectileService then
-		warn("[Revolver Attack] WeaponProjectile service not found")
 		return false, "ServiceNotFound"
 	end
 	
@@ -82,7 +81,6 @@ function Attack.Execute(weaponInstance, currentTime)
 	local projectileId = projectileService:Fire(weaponInstance, {})
 	
 	if not projectileId then
-		warn("[Revolver Attack] Failed to fire projectile")
 		return false, "FireFailed"
 	end
 

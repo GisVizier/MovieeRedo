@@ -122,7 +122,6 @@ local function getTemplate(): Attachment
 		if template and isUsableTemplate(template) then
 			return template
 		elseif template then
-			warn("[DamageNumbers] Assets.dmgnmbr is missing required DamageNumbers/Frame/MainText structure, using fallback template")
 		end
 	end
 

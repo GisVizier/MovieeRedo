@@ -365,7 +365,6 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 
 	local okCall, result = pcall(callKit)
 	if not okCall then
-		warn("[KitService] Kit error:", result)
 		return
 	end
 
@@ -468,10 +467,7 @@ function KitService:NotifyDamage(player: Player, damage: number, source: Player?
 	
 	-- Call the kit's OnDamageTaken if it exists
 	if kit.OnDamageTaken then
-		local ok, err = pcall(kit.OnDamageTaken, kit, damage, source)
-		if not ok then
-			warn("[KitService] OnDamageTaken error:", err)
-		end
+		pcall(kit.OnDamageTaken, kit, damage, source)
 	end
 end
 

@@ -477,7 +477,6 @@ function Sera.Serialize(schema: Schema, t: any): (buffer?, string?)
 	local success, offset = pcall(SerializeUnsafe, schema, t)
 
 	if not success then
-		warn(debug.traceback("[SERA]"))
 
 		local ser_success
 		offset = 0
@@ -491,18 +490,15 @@ function Sera.Serialize(schema: Schema, t: any): (buffer?, string?)
 					local msg = `Couldn't serialize field "{field.Key}" (Expected: {field.Name};Received: "{typeof(
 						value
 					)}"); Message: {offset}`
-					warn(msg)
 					return nil, msg
 				end
 			else
 				local msg = `Missing field "{field.Key}"`
-				warn(msg)
 				return nil, msg
 			end
 		end
 
 		local msg = `Unknown error`
-		warn(msg)
 		return nil, msg
 	end
 

@@ -355,12 +355,10 @@ end
 
 function module:createTemplate(userId)
 	if self._templateData[userId] then
-		warn("[Actions] Template already exists for userId:", userId)
 		return self._templateData[userId].template
 	end
 
 	if not self._templateSource then
-		warn("[Actions] Template source not found")
 		return nil
 	end
 
@@ -408,7 +406,6 @@ function module:createTemplate(userId)
 			local infoPanel = container:FindFirstChild("Frame")
 			if infoPanel then
 				local canvasGroup = infoPanel:FindFirstChild("CanvasGroup")
-				warn(`ran`)
 
 				if canvasGroup then
 					local nameLabel = canvasGroup:FindFirstChild("_name")

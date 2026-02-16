@@ -35,13 +35,11 @@ local FORCE_ZONE_VISUALIZATION = true -- Always show zone boxes
 
 local function debugPrint(...)
 	if DEBUG_ENABLED then
-		print("[QueueService DEBUG]", ...)
 	end
 end
 
 local function debugWarn(...)
 	if DEBUG_ENABLED then
-		warn("[QueueService DEBUG]", ...)
 	end
 end
 
@@ -383,22 +381,16 @@ function QueueService:_printDebugSummary()
 	
 	local playerCount = #Players:GetPlayers()
 	
-	print("=== [QueueService] PERIODIC DEBUG SUMMARY ===")
-	print("  Zones registered:", zoneCount)
-	print("  Zones occupied:", occupiedCount)
-	print("  Players in game:", playerCount)
 	
 	-- Check each player's position relative to zones
 	for _, player in Players:GetPlayers() do
 		local playerPosition = self:_getPlayerPosition(player)
 		if playerPosition then
-			print("  Player", player.Name, "position:", playerPosition, "(from ReplicationService)")
 			
 			-- Check distance to each zone
 			for zonePart, zoneData in self._zones do
 				local dist = (playerPosition - zonePart.Position).Magnitude
 				if dist < 100 then
-					print("    -> Distance to", zoneData.padName, zoneData.team, ":", string.format("%.1f", dist), "studs")
 				end
 			end
 		else
@@ -407,24 +399,16 @@ function QueueService:_printDebugSummary()
 			if character then
 				local rootPart = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 				if rootPart then
-					print("  Player", player.Name, "position:", rootPart.Position, "(from", rootPart.Name, "- NO ReplicationService data!)")
 				else
-					print("  Player", player.Name, "has NO position data!")
 				end
 			else
-				print("  Player", player.Name, "has NO character!")
 			end
 		end
 	end
 	
 	-- Print zone details
 	for zonePart, zoneData in self._zones do
-		print("  Zone:", zoneData.padName, zoneData.team)
-		print("    Position:", zonePart.Position)
-		print("    Size:", zoneData.size)
-		print("    Current player:", zoneData.currentPlayer and zoneData.currentPlayer.Name or "none")
 	end
-	print("==============================================")
 end
 
 function QueueService:_checkAllZones()
@@ -536,7 +520,6 @@ function QueueService:_getPlayersInZone(zoneData)
 			local inMatch = self:_isPlayerInMatch(player)
 			debugPrint("Player", player.Name, "IS IN ZONE", zoneData.padName, zoneData.team, "| inMatch:", inMatch)
 			if not inMatch then
-				print("[QueueService] In zone:", player.Name, zoneData.padName, zoneData.team, "pos:", playerPosition)
 				table.insert(playersInZone, player)
 				break
 			else
@@ -564,7 +547,6 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 	local padName = zoneData.padName
 	local team = zoneData.team
 
-	print("[QueueService] Player", player.Name, "entered", padName, team)
 
 	self:_removePlayerFromAllQueues(player)
 
@@ -589,7 +571,6 @@ function QueueService:_onPlayerExitZone(zoneData, player)
 	local padName = zoneData.padName
 	local team = zoneData.team
 
-	print("[QueueService] Player", player.Name, "exited", padName, team)
 
 	local queue = self._queues[padName]
 	if queue then
@@ -758,7 +739,6 @@ end
 function QueueService:_startMatch(padName)
 	local queue = self._queues[padName]
 	if not queue then
-		warn("[QueueService] No queue found for pad:", padName)
 		return
 	end
 
@@ -766,7 +746,6 @@ function QueueService:_startMatch(padName)
 	local mode = MatchmakingConfig.getMode(modeId)
 
 	if not mode then
-		warn("[QueueService] Invalid mode for pad:", padName)
 		return
 	end
 
@@ -801,7 +780,6 @@ function QueueService:_startMatch(padName)
 			mapId = MatchmakingConfig.DefaultMap,
 		})
 	else
-		warn("[QueueService] MatchManager not found")
 	end
 
 	self:_clearQueue(padName)

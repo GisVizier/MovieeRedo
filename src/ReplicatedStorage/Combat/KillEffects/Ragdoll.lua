@@ -85,20 +85,17 @@ function Ragdoll:Execute(
 )
 	local registry = context and context.registry
 	if not registry then
-		warn("[KillEffects/Ragdoll] No registry in context — cannot ragdoll")
 		return
 	end
 
 	local characterService = registry:TryGet("CharacterService")
 	if not characterService then
-		warn("[KillEffects/Ragdoll] CharacterService not found in registry")
 		return
 	end
 
 	local options = _options or {}
 	local victimCharacter = resolveCharacter(victim, options.victimCharacter)
 	if not victimCharacter then
-		warn("[KillEffects/Ragdoll] Could not resolve victim character")
 		return
 	end
 
@@ -144,33 +141,15 @@ function Ragdoll:Execute(
 
 	-- Real players use the existing player ragdoll path.
 	if isPlayerInstance(victim) and characterService.Ragdoll then
-		local ok = characterService:Ragdoll(victim, nil, ragdollOptions)
-		if not ok then
-			warn(
-				string.format(
-					"[KillEffects/Ragdoll] CharacterService:Ragdoll returned false for %s",
-					tostring(victim and victim.Name)
-				)
-			)
-		end
+		characterService:Ragdoll(victim, nil, ragdollOptions)
 		return
 	end
 
 	-- Non-player victims (e.g. dummies) use model ragdoll.
 	if characterService.RagdollCharacter then
-		local ok = characterService:RagdollCharacter(victimCharacter, nil, ragdollOptions)
-		if not ok then
-			warn(
-				string.format(
-					"[KillEffects/Ragdoll] RagdollCharacter returned false for %s",
-					victimCharacter:GetFullName()
-				)
-			)
-		end
+		characterService:RagdollCharacter(victimCharacter, nil, ragdollOptions)
 		return
 	end
-
-	warn("[KillEffects/Ragdoll] CharacterService missing RagdollCharacter for non-player victim")
 end
 
 return Ragdoll

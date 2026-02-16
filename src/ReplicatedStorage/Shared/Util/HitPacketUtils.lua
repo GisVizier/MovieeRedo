@@ -148,7 +148,6 @@ end
 ]]
 function HitPacketUtils:CreatePacket(hitData, weaponId)
 	if not hitData or not hitData.origin or not hitData.hitPosition then
-		warn("[HitPacketUtils] Invalid hitData - missing origin or hitPosition")
 		return nil
 	end
 	
@@ -181,7 +180,6 @@ function HitPacketUtils:CreatePacket(hitData, weaponId)
 	-- Serialize
 	local buf, err = Sera.Serialize(SeraSchemas.HitPacket, packet)
 	if not buf then
-		warn("[HitPacketUtils] Serialization failed:", err)
 		return nil
 	end
 	
@@ -201,7 +199,6 @@ end
 ]]
 function HitPacketUtils:CreateShotgunPacket(hitData, weaponId)
 	if not hitData or not hitData.origin or not hitData.hitPosition then
-		warn("[HitPacketUtils] Invalid hitData for shotgun packet")
 		return nil
 	end
 	
@@ -228,7 +225,6 @@ function HitPacketUtils:CreateShotgunPacket(hitData, weaponId)
 	
 	local buf, err = Sera.Serialize(SeraSchemas.ShotgunHitPacket, packet)
 	if not buf then
-		warn("[HitPacketUtils] Shotgun serialization failed:", err)
 		return nil
 	end
 	
@@ -261,7 +257,6 @@ end
 ]]
 function HitPacketUtils:ParsePacket(packetString)
 	if type(packetString) ~= "string" then
-		warn("[HitPacketUtils] Invalid packet type:", type(packetString))
 		return nil
 	end
 	
@@ -272,7 +267,6 @@ function HitPacketUtils:ParsePacket(packetString)
 	end)
 	
 	if not success then
-		warn("[HitPacketUtils] Deserialization failed:", data)
 		return nil
 	end
 	
@@ -325,7 +319,6 @@ function HitPacketUtils:ParseShotgunPacket(packetString)
 	end)
 	
 	if not success then
-		warn("[HitPacketUtils] Shotgun deserialization failed:", data)
 		return nil
 	end
 	

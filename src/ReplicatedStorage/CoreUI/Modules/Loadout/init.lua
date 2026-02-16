@@ -60,7 +60,6 @@ local function log(...)
 	if not DEBUG then
 		return
 	end
-	warn("[Loadout]", ...)
 end
 
 local function getOwnedKits()
@@ -492,12 +491,10 @@ function module:_setupTemplateReferences()
 	if self._currentItems then
 		self._previewTemplates = self._currentItems:FindFirstChild("previewTemplates")
 		if not self._previewTemplates then
-			warn("[Loadout] previewTemplates not found in CurrentItems")
 		else
 			log("previewTemplates", "ok")
 		end
 	else
-		warn("[Loadout] CurrentItems not found")
 	end
 
 	if self._itemScroller then
@@ -506,15 +503,12 @@ function module:_setupTemplateReferences()
 			self._itemScrollerTemplates = inv:FindFirstChild("loayoutTemplates")
 			self._itemScrollerContainer = inv
 			if not self._itemScrollerTemplates then
-				warn("[Loadout] loayoutTemplates not found in Inv")
 			else
 				log("itemScrollerTemplates", "ok")
 			end
 		else
-			warn("[Loadout] Inv not found in ItemScroller")
 		end
 	else
-		warn("[Loadout] ItemScroller not found")
 	end
 end
 

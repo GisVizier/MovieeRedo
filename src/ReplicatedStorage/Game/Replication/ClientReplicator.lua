@@ -14,12 +14,7 @@ local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):Wai
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local ThirdPersonWeaponManager = require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
-local DEBUG_VM_REPL = true
-local function vmLog(...)
-	if DEBUG_VM_REPL then
-		warn("[VM-ClientReplicator]", ...)
-	end
-end
+local function vmLog(...) end
 
 ClientReplicator.Character = nil
 ClientReplicator.PrimaryPart = nil
@@ -43,6 +38,8 @@ ClientReplicator._slotConn = nil
 ClientReplicator._emoteConn = nil
 ClientReplicator._isEmoting = false
 ClientReplicator._weaponHiddenByEmote = false
+ClientReplicator._weaponHiddenByLobby = false
+ClientReplicator._lobbyConn = nil
 ClientReplicator._lastAnimChangeTime = 0  -- Tracks when animation last changed for retransmit window
 ClientReplicator._viewmodelActionSequence = 0
 ClientReplicator._lastViewmodelActionTimes = {}
@@ -112,6 +109,29 @@ function ClientReplicator:Start(character)
 				vmLog("Restore third-person weapon after emote")
 			end
 		end)
+
+		-- Lobby: remove weapon replication and IK
+		self._lobbyConn = localPlayer:GetAttributeChangedSignal("InLobby"):Connect(function()
+			local inLobby = localPlayer:GetAttribute("InLobby") == true
+			if inLobby then
+				if self.WeaponManager then
+					self.WeaponManager:UnequipWeapon()
+					self._weaponHiddenByLobby = true
+					vmLog("Hide third-person weapon due to lobby")
+				end
+			elseif self._weaponHiddenByLobby then
+				self._weaponHiddenByLobby = false
+				self:_equipSlotWeapon(self.CurrentEquippedSlot)
+				vmLog("Restore third-person weapon after leaving lobby")
+			end
+		end)
+		-- Apply initial lobby state
+		if localPlayer:GetAttribute("InLobby") == true then
+			if self.WeaponManager then
+				self.WeaponManager:UnequipWeapon()
+				self._weaponHiddenByLobby = true
+			end
+		end
 	end
 
 	self:_flushPendingViewmodelActions()
@@ -149,6 +169,11 @@ function ClientReplicator:Stop()
 		self._emoteConn = nil
 	end
 
+	if self._lobbyConn then
+		self._lobbyConn:Disconnect()
+		self._lobbyConn = nil
+	end
+
 	if self.WeaponManager then
 		self.WeaponManager:Destroy()
 		self.WeaponManager = nil
@@ -168,6 +193,7 @@ function ClientReplicator:Stop()
 	self.CurrentEquippedSlot = nil
 	self._isEmoting = false
 	self._weaponHiddenByEmote = false
+	self._weaponHiddenByLobby = false
 	self._viewmodelActionSequence = 0
 	self._lastViewmodelActionTimes = {}
 	self._pendingViewmodelActions = {}
@@ -217,6 +243,12 @@ function ClientReplicator:_equipSlotWeapon(slot)
 		self.WeaponManager:UnequipWeapon()
 		self._weaponHiddenByEmote = true
 		vmLog("Skip equip while emoting")
+		return
+	end
+
+	if self._weaponHiddenByLobby then
+		self.WeaponManager:UnequipWeapon()
+		vmLog("Skip equip while in lobby")
 		return
 	end
 
@@ -413,6 +445,11 @@ function ClientReplicator:ReplicateViewmodelAction(weaponId, actionName, trackNa
 end
 
 function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, isActive, now)
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("InLobby") == true then
+		return
+	end
+
 	now = now or workspace:GetServerTimeNow()
 	local minInterval = ReplicationConfig.ViewmodelActions and ReplicationConfig.ViewmodelActions.MinInterval or 0.03
 	local actionKey = string.format("%s|%s|%s", tostring(actionName), tostring(trackName), tostring(isActive == true))
@@ -424,7 +461,6 @@ function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, 
 	self._lastViewmodelActionTimes[actionKey] = now
 	self._viewmodelActionSequence = (self._viewmodelActionSequence + 1) % 65536
 
-	local localPlayer = Players.LocalPlayer
 	local compressed = CompressionUtils:CompressViewmodelAction(
 		localPlayer and localPlayer.UserId or 0,
 		weaponId,

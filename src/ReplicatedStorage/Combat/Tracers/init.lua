@@ -122,7 +122,6 @@ end
 ]]
 function Tracers:GetAssets(tracerId: string): Folder?
 	if not self._assetsFolder then 
-		warn("[Tracers] Assets folder not found at ReplicatedStorage.Assets.Tracers")
 		return nil 
 	end
 	
@@ -141,11 +140,45 @@ function Tracers:GetAssets(tracerId: string): Folder?
 end
 
 --[[
+	Scales VFX elements (ParticleEmitters, Trails, Beams) by a factor.
+	@param fxInstance Instance - FX container (Folder, Model, Attachment, etc.) - scales all descendants
+	@param scale number - Scale factor (e.g. 1.5 = 50% larger, 0.5 = half size)
+]]
+function Tracers:ScaleFX(fxInstance: Instance, scale: number)
+	if not fxInstance or scale == 1 then return end
+
+	local function scaleNumberSequence(seq: NumberSequence): NumberSequence
+		local keypoints = {}
+		for _, kp in seq.Keypoints do
+			table.insert(keypoints, NumberSequenceKeypoint.new(kp.Time, kp.Value * scale))
+		end
+		return NumberSequence.new(keypoints)
+	end
+
+	local function scaleNumberRange(range: NumberRange): NumberRange
+		return NumberRange.new(range.Min * scale, range.Max * scale)
+	end
+
+	for _, fx in fxInstance:GetDescendants() do
+		if fx:IsA("ParticleEmitter") then
+			fx.Size = scaleNumberSequence(fx.Size)
+			fx.Speed = scaleNumberRange(fx.Speed)
+		elseif fx:IsA("Trail") then
+			fx.WidthScale = fx.WidthScale * scale
+		elseif fx:IsA("Beam") then
+			fx.Width0 = fx.Width0 * scale
+			fx.Width1 = fx.Width1 * scale
+		end
+	end
+end
+
+--[[
 	Clones trail FX to an attachment
 	@param tracerId string - Tracer ID
 	@param attachment Attachment - Target attachment
+	@param scale number? - Optional scale factor for VFX size (default 1)
 ]]
-function Tracers:_attachTrailFX(tracerId: string, attachment: Attachment)
+function Tracers:_attachTrailFX(tracerId: string, attachment: Attachment, scale: number?)
 	--warn(attachment, tracerId)
 	--attachment.Visible = true
 	
@@ -166,6 +199,9 @@ function Tracers:_attachTrailFX(tracerId: string, attachment: Attachment)
 
 	local fxclone = fx:Clone()
 	fxclone.Parent = attachment
+	if scale and scale ~= 1 then
+		self:ScaleFX(fxclone, scale)
+	end
 	for _, fx in fxclone:GetDescendants() do
 		if fx:IsA("ParticleEmitter") then
 			fx.Enabled = false
@@ -201,7 +237,6 @@ function Tracers:FindMuzzleAttachment(gunModel: Model?): Attachment?
 	
 	-- Type check - must be an Instance with GetDescendants
 	if typeof(gunModel) ~= "Instance" then
-		warn("[Tracers] FindMuzzleAttachment expected Instance, got:", typeof(gunModel))
 		return nil
 	end
 	
@@ -355,7 +390,6 @@ function Tracers:Get(tracerId: string)
 
 	local ok, tracerModule = pcall(require, moduleScript)
 	if not ok then
-		warn("[Tracers] Failed to load tracer:", tracerId, tracerModule)
 		return nil
 	end
 
@@ -388,9 +422,10 @@ end
 	@param origin Vector3 - Starting position
 	@param gunModel Model? - Weapon model (for muzzle VFX)
 	@param playMuzzle boolean? - Whether to play muzzle FX (default true, set false for pellets 2+)
+	@param scale number? - Optional scale factor for tracer VFX size (default 1, e.g. 1.5 = 50% larger)
 	@return { attachment: Attachment, tracer: TracerModule, cleanup: () -> () }?
 ]]
-function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, playMuzzle: boolean?)
+function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, playMuzzle: boolean?, scale: number?)
 	if not self._initialized then
 		self:Init()
 	end
@@ -406,7 +441,6 @@ function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, play
 	
 	local attachment = self:_getAttachment()
 	if not attachment then
-		warn("[Tracers] Pool exhausted")
 		return nil
 	end
 	
@@ -414,7 +448,7 @@ function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, play
 	attachment.WorldPosition = origin
 	
 	-- Attach trail FX from assets (replicates to all clients)
-	self:_attachTrailFX(resolvedId, attachment)
+	self:_attachTrailFX(resolvedId, attachment, scale)
 	
 	-- Only play muzzle FX once per shot (not per pellet)
 	if playMuzzle and tracer.Muzzle then

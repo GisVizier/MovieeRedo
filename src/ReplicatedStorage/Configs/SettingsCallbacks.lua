@@ -180,7 +180,6 @@ function SettingsCallbacks.fire(category: string, key: string, value: any, oldVa
 	end)
 
 	if not success then
-		warn("[SettingsCallbacks] Error in callback for", category, key, ":", err)
 	end
 end
 
@@ -198,7 +197,6 @@ function SettingsCallbacks.fireAll(category: string, settings: {[string]: any})
 			end)
 
 			if not success then
-				warn("[SettingsCallbacks] Error in callback for", category, key, ":", err)
 			end
 		end
 	end

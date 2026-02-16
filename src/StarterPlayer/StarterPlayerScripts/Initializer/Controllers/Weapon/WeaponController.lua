@@ -36,7 +36,8 @@ local WeaponProjectile = require(WeaponServices:WaitForChild("WeaponProjectile")
 
 -- Aim Assist
 local AimAssist = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"))
-local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
+local AimAssistConfig =
+	require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
 
 local ActionsRoot = ReplicatedStorage:WaitForChild("Game"):WaitForChild("Weapons"):WaitForChild("Actions")
 
@@ -156,23 +157,23 @@ end
 
 function WeaponController:_initializeAimAssist()
 	self._aimAssist = AimAssist.new()
-	
+
 	-- Configure base settings
 	self._aimAssist:setSubject(workspace.CurrentCamera)
 	self._aimAssist:setType(AimAssist.Enum.AimAssistType.Rotational)
-	
+
 	-- Add player targets (ignore local player and teammates)
 	self._aimAssist:addPlayerTargets(true, true, AimAssistConfig.Defaults.TargetBones)
-	
+
 	-- Add tagged targets (dummies, etc.)
 	self._aimAssist:addTargetTag(AimAssistConfig.TargetTags.Primary, AimAssistConfig.Defaults.TargetBones)
-	
+
 	-- Enable debug mode if configured (shows FOV circle and target dots)
 	if AimAssistConfig.Debug then
 		self._aimAssist:setDebug(true)
 		LogService:Info("WEAPON", "Aim Assist DEBUG MODE ENABLED - you should see FOV circle on screen")
 	end
-	
+
 	LogService:Info("WEAPON", "Aim Assist initialized", {
 		AllowMouseInput = AimAssistConfig.AllowMouseInput,
 		Debug = AimAssistConfig.Debug,
@@ -229,8 +230,8 @@ function WeaponController:_ensureCrosshairRotationLoop()
 		end
 		local speed = 12
 		local alpha = math.clamp(1 - math.exp(-speed * dt), 0, 1)
-		self._crosshairRotation =
-			self._crosshairRotation + (self._crosshairRotationTarget - self._crosshairRotation) * alpha
+		self._crosshairRotation = self._crosshairRotation
+			+ (self._crosshairRotationTarget - self._crosshairRotation) * alpha
 		self._crosshair:SetRotation(self._crosshairRotation)
 	end)
 end
@@ -296,7 +297,10 @@ function WeaponController:_connectDebugRaycastKey()
 		end
 		if input.KeyCode == Enum.KeyCode.Y then
 			WeaponRaycast.DebugRaycastEnabled = not WeaponRaycast.DebugRaycastEnabled
-			LogService:Info("WEAPON", "Debug raycast " .. (WeaponRaycast.DebugRaycastEnabled and "ON" or "OFF") .. " (Y to toggle)")
+			LogService:Info(
+				"WEAPON",
+				"Debug raycast " .. (WeaponRaycast.DebugRaycastEnabled and "ON" or "OFF") .. " (Y to toggle)"
+			)
 		end
 	end)
 end
@@ -347,6 +351,11 @@ function WeaponController:_syncReplicatedMovementTrack()
 		trackName = self._viewmodelController:GetCurrentMovementTrack()
 	end
 	if trackName ~= "Idle" and trackName ~= "Walk" and trackName ~= "Run" then
+		trackName = "Idle"
+	end
+
+	-- Don't replicate Run animation for Shorty and DualPistols (their 3D viewmodel doesn't need it)
+	if trackName == "Run" and (equippedWeaponId == "Shorty" or equippedWeaponId == "DualPistols") then
 		trackName = "Idle"
 	end
 
@@ -447,7 +456,7 @@ function WeaponController:_onCameraModeChanged(_mode)
 	-- Entering FirstPerson mode - clear force hidden state and apply crosshair
 	self._crosshairForcedHidden = false
 	UserInputService.MouseIconEnabled = false
-	
+
 	if self._equippedWeaponId then
 		self:_applyCrosshairForWeapon(self._equippedWeaponId)
 	end
@@ -560,7 +569,6 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	end)
 
 	if not success then
-		warn("[WeaponController] Failed to load actions:", actions)
 		return
 	end
 
@@ -660,7 +668,9 @@ function WeaponController:_updateAimAssistSensitivity()
 	end
 
 	-- Get camera config for base sensitivity values
-	local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Config"))
+	local Config = require(
+		game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Config")
+	)
 	local cameraConfig = Config.Camera
 
 	-- Base mouse sensitivity (from config)
@@ -1123,7 +1133,7 @@ function WeaponController:Special(isPressed)
 	if not self._weaponInstance then
 		return
 	end
-	
+
 	-- Only allow special in FirstPerson camera mode
 	local cameraController = ServiceRegistry:GetController("CameraController")
 	if cameraController and cameraController:GetCurrentMode() ~= "FirstPerson" then
@@ -1355,7 +1365,9 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 
 	if not ignoreSpread and LocalPlayer and weaponConfig then
 		local crosshairData = weaponConfig.crosshair or {}
-		local movementState = self._crosshair and self._crosshair._getMovementState and self._crosshair:_getMovementState()
+		local movementState = self._crosshair
+			and self._crosshair._getMovementState
+			and self._crosshair:_getMovementState()
 
 		local horizontalSpeed = 0
 		local character = LocalPlayer.Character
@@ -1418,7 +1430,7 @@ function WeaponController:_playFireEffects(weaponId, hitData)
 	end
 
 	self._viewmodelController:ApplyRecoil(kickPos, kickRot)
-	
+
 	-- Render tracer immediately (client-side prediction)
 	if SHOW_TRACERS and hitData then
 		hitData._localShot = true
@@ -1440,6 +1452,16 @@ function WeaponController:_onHitConfirmed(hitData)
 	-- Tracers are now rendered immediately in _playFireEffects (client-side prediction)
 	-- Only render here for OTHER players' shots (so we see their tracers)
 	if SHOW_TRACERS and hitData.shooter ~= LocalPlayer.UserId then
+		-- Populate gunModel from shooter's 3rd person weapon for muzzle flash
+		if not hitData.gunModel and hitData.shooter then
+			local RemoteReplicator = require(
+				ReplicatedStorage:WaitForChild("Game"):WaitForChild("Replication"):WaitForChild("RemoteReplicator")
+			)
+			local remoteData = RemoteReplicator.RemotePlayers[hitData.shooter]
+			if remoteData and remoteData.WeaponManager then
+				hitData.gunModel = remoteData.WeaponManager:GetWeaponModel()
+			end
+		end
 		self:_renderBulletTracer(hitData)
 	end
 
@@ -1693,7 +1715,7 @@ end
 -- Force hide the crosshair (for emote wheel, menus, etc.)
 function WeaponController:HideCrosshair()
 	self._crosshairForcedHidden = true
-	
+
 	if self._crosshair then
 		self._crosshair:RemoveCrosshair()
 	end
@@ -1702,12 +1724,12 @@ end
 -- Restore crosshair visibility after force hide
 function WeaponController:RestoreCrosshair()
 	self._crosshairForcedHidden = false
-	
+
 	-- Only restore if we're in first person with a weapon equipped
 	if not self:_isFirstPerson() then
 		return
 	end
-	
+
 	-- Re-apply crosshair for equipped weapon
 	if self._equippedWeaponId then
 		self:_applyCrosshairForWeapon(self._equippedWeaponId)
@@ -1723,7 +1745,7 @@ end
 function WeaponController:RefreshCrosshair()
 	-- Clear force hidden state
 	self._crosshairForcedHidden = false
-	
+
 	-- Re-apply based on current state
 	if self:_isFirstPerson() and self._equippedWeaponId then
 		self:_applyCrosshairForWeapon(self._equippedWeaponId)

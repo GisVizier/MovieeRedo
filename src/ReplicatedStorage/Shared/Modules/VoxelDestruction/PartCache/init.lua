@@ -24,7 +24,6 @@ local ERR_INVALID_TYPE = "Invalid type for parameter '%s' (Expected %s, got %s)"
 
 local function assertwarn(requirement: boolean, messageIfNotMet: string)
 	if requirement == false then
-		warn(messageIfNotMet)
 	end
 end
 
@@ -79,13 +78,6 @@ function PartCacheStatic:GetPart(mirror): Part
 	assert(getmetatable(self) == PartCacheStatic, ERR_NOT_INSTANCE:format("GetPart", "PartCache.new"))
 
 	if #self.Open == 0 then
-		warn(
-			"No parts available in the cache! Creating ["
-				.. self.ExpansionSize
-				.. "] new part instance(s) - this amount can be edited by changing the ExpansionSize property of the PartCache instance... (This cache now contains a grand total of "
-				.. tostring(#self.Open + #self.InUse + self.ExpansionSize)
-				.. " parts.)"
-		)
 		for i = 1, self.ExpansionSize, 1 do
 			table.insert(self.Open, MakeFromTemplate(self.Template, self.CurrentCacheParent))
 		end

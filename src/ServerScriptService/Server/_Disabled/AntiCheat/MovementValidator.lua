@@ -16,7 +16,6 @@ function MovementValidator:Init()
 		self.LastPositions[player] = nil
 	end)
 
-	print("[MovementValidator] Initialized")
 end
 
 function MovementValidator:Validate(player, state, deltaTime)
@@ -97,22 +96,9 @@ function MovementValidator:RecordViolation(player, violationType, value)
 	local violations = self.PlayerViolations[player]
 	violations.Count += 1
 
-	warn(string.format(
-		"[MovementValidator] %s (%d) - %s violation: %.1f (Total: %d)",
-		player.Name,
-		player.UserId,
-		violationType,
-		value or 0,
-		violations.Count
-	))
 
 	-- Kick player if too many violations
 	if violations.Count >= MAX_VIOLATIONS_BEFORE_KICK then
-		warn(string.format(
-			"[MovementValidator] Kicking %s (%d) for excessive violations",
-			player.Name,
-			player.UserId
-		))
 		player:Kick("Anti-cheat: Excessive movement violations detected")
 	end
 end

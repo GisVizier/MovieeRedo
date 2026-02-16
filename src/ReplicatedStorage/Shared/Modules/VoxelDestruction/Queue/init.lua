@@ -11,7 +11,6 @@ end
 
 function Queue.New(Token: any?, MassRun: boolean?)
 	if Token ~= nil and Queue.Cache[Token] then
-		warn("[Queue] A queue with the token '" .. Token .. "' was replaced.")
 	end
 
 	local self = {
@@ -80,7 +79,6 @@ function Queue:Run(waits: boolean?)
 
 				local success, error_message = pcall(item.func)
 				if not success then
-					warn("Error processing function in queue:", error_message)
 				end
 
 				if item.completeSignal then
@@ -113,7 +111,6 @@ function Queue:Clear(RunFunctions: boolean?)
 			coroutine.resume(coroutine.create(function()
 				local success, err = pcall(item.func)
 				if not success then
-					warn("Error processing function in queue:", err)
 				end
 				item.completeSignal:Fire()
 			end))

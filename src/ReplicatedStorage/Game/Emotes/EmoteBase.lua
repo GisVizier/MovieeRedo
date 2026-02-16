@@ -150,13 +150,11 @@ function EmoteBase:PlayAnimation(animKey: string, fadeTime: number?, priority: E
 	local emoteClass = getmetatable(self)
 	local animations = emoteClass and emoteClass.Animations
 	if not animations then
-		warn("[EmoteBase] No Animations table found for", self._id)
 		return nil
 	end
 	
 	local animId = animations[animKey]
 	if not animId then
-		warn("[EmoteBase] Animation key not found:", animKey, "for", self._id)
 		return nil
 	end
 	
@@ -168,7 +166,6 @@ function EmoteBase:PlayAnimation(animKey: string, fadeTime: number?, priority: E
 	-- Get animator
 	local animator = self:_getAnimator()
 	if not animator then
-		warn("[EmoteBase] No animator found for", self._id)
 		return nil
 	end
 	
@@ -210,13 +207,11 @@ end
 function EmoteBase:SetupAutoStop(animKey: string)
 	local track = self._tracks[animKey]
 	if not track then
-		warn("[EmoteBase] SetupAutoStop: No track found for", animKey)
 		return
 	end
 	
 	-- Don't setup auto-stop for loopable emotes
 	if self._data.Loopable then
-		warn("[EmoteBase] SetupAutoStop: Skipping - emote is loopable")
 		return
 	end
 	
@@ -229,18 +224,14 @@ function EmoteBase:SetupAutoStop(animKey: string)
 	-- FORCE track to not loop (in case it was set wrong somewhere)
 	track.Looped = false
 	
-	warn("[EmoteBase] SetupAutoStop: Track.Looped =", track.Looped, ", Length =", track.Length)
 	
 	-- Check animation length
 	if track.Length <= 0 then
-		warn("[EmoteBase] Animation has no length, skipping auto-stop for", self._id)
 		return
 	end
 	
-	warn("[EmoteBase] SetupAutoStop: Connecting Ended event for", self._id, "duration:", track.Length)
 	
 	self._endedConnection = track.Ended:Once(function()
-		warn("[EmoteBase] >>> ENDED EVENT FIRED for", self._id)
 		if self._active then
 			self:stop()
 		end

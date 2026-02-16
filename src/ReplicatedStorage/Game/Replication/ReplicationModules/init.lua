@@ -13,8 +13,6 @@ local function loadModules()
 				local ok, mod = pcall(require, child)
 				if ok then
 					VFXRep.Modules[child.Name] = mod
-				else
-					warn("[VFXRep] Failed to load module:", child.Name, mod)
 				end
 			end
 		end
@@ -28,8 +26,6 @@ local function getModule(name)
 			local ok, mod = pcall(require, moduleScript)
 			if ok then
 				VFXRep.Modules[name] = mod
-			else
-				warn("[VFXRep] Failed to load module:", name, mod)
 			end
 		end
 	end
@@ -151,7 +147,6 @@ end
 
 function VFXRep:Fire(targetSpec, moduleInfo, data)
 	if not self._net then
-		warn("[VFXRep] Fire called but VFXRep not initialized! Call VFXRep:Init(net, false) first.")
 		return
 	end
 

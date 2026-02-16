@@ -94,10 +94,6 @@ function WeaponProjectile:Init(net)
 			self:_onProjectileReplicate(data)
 		end)
 	end
-
-	if CONFIG.DebugLogging then
-		print("[WeaponProjectile] Initialized")
-	end
 end
 
 function WeaponProjectile:_flushQueuedProjectileHits()
@@ -165,7 +161,6 @@ function WeaponProjectile:Fire(weaponInstance, options)
 	options = options or {}
 
 	if not weaponInstance or not weaponInstance.Config then
-		warn("[WeaponProjectile] Invalid weapon instance")
 		return nil
 	end
 
@@ -173,7 +168,6 @@ function WeaponProjectile:Fire(weaponInstance, options)
 	local projectileConfig = weaponConfig.projectile
 
 	if not projectileConfig then
-		warn("[WeaponProjectile] Weapon does not have projectile config:", weaponInstance.WeaponId)
 		return nil
 	end
 
@@ -199,7 +193,6 @@ function WeaponProjectile:Fire(weaponInstance, options)
 	-- Get fire origin and direction
 	local origin, direction = self:_getFireOriginAndDirection(weaponInstance)
 	if not origin or not direction then
-		warn("[WeaponProjectile] Failed to get fire origin/direction")
 		return nil
 	end
 
@@ -260,7 +253,6 @@ function WeaponProjectile:Fire(weaponInstance, options)
 		}, weaponInstance.WeaponId, spreadSeed)
 
 		if not packetString or not projectileId then
-			warn("[WeaponProjectile] Failed to create spawn packet")
 			continue
 		end
 
@@ -320,17 +312,6 @@ function WeaponProjectile:Fire(weaponInstance, options)
 		self:_spawnVisual(projectileData, gunModel, true)
 
 		table.insert(projectileIds, projectileId)
-
-		if CONFIG.DebugLogging then
-			print(
-				string.format(
-					"[WeaponProjectile] Fired %s (ID: %d) at %.0f studs/sec",
-					weaponInstance.WeaponId,
-					projectileId,
-					speed
-				)
-			)
-		end
 	end
 
 	-- Return first projectile ID (or array if multiple)
@@ -358,7 +339,6 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 	options = options or {}
 
 	if not weaponInstance or not weaponInstance.Config then
-		warn("[WeaponProjectile] Invalid weapon instance for pellets")
 		return nil
 	end
 
@@ -366,7 +346,6 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 	local projectileConfig = weaponConfig.projectile
 
 	if not projectileConfig then
-		warn("[WeaponProjectile] Weapon does not have projectile config:", weaponInstance.WeaponId)
 		return nil
 	end
 
@@ -377,7 +356,6 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 	-- Get fire origin and direction
 	local origin, baseDirection = self:_getFireOriginAndDirection(weaponInstance)
 	if not origin or not baseDirection then
-		warn("[WeaponProjectile] Failed to get fire origin/direction for pellets")
 		return nil
 	end
 
@@ -430,7 +408,6 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 		}, weaponInstance.WeaponId, spreadSeed)
 
 		if not packetString or not projectileId then
-			warn("[WeaponProjectile] Failed to create pellet spawn packet", i)
 			continue
 		end
 
@@ -499,17 +476,6 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 		self:_spawnVisual(projectileData, gunModel, playMuzzle)
 
 		table.insert(projectileIds, projectileId)
-	end
-
-	if CONFIG.DebugLogging then
-		print(
-			string.format(
-				"[WeaponProjectile] Fired %d pellets (%s) at %.0f studs/sec",
-				#projectileIds,
-				weaponInstance.WeaponId,
-				speed
-			)
-		)
 	end
 
 	return projectileIds
@@ -602,17 +568,6 @@ function WeaponProjectile:_simulateProjectile(projectile, dt)
 
 	-- Handle collision
 	if hitResult then
-		if CONFIG.DebugLogging then
-			print(
-				string.format(
-					"[WeaponProjectile] Collision detected: Part=%s, Parent=%s, FullName=%s",
-					hitResult.Instance.Name,
-					hitResult.Instance.Parent and hitResult.Instance.Parent.Name or "nil",
-					hitResult.Instance:GetFullName()
-				)
-			)
-		end
-
 		local shouldContinue, reason = self:_handleCollision(projectile, hitResult)
 
 		if not shouldContinue then
@@ -654,7 +609,8 @@ function WeaponProjectile:_handleCollision(projectile, hitResult)
 
 	-- Pass through destroyed breakable walls (invisible remnants from VoxelDestruction)
 	-- Also pass through loose debris (flying rubble)
-	if hitInstance:GetAttribute("__Breakable") == false
+	if
+		hitInstance:GetAttribute("__Breakable") == false
 		or hitInstance:GetAttribute("__BreakableClient") == false
 		or hitInstance:HasTag("Debris")
 	then
@@ -744,17 +700,6 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 	if Net and hitPacket then
 		local rigName = not hitPlayer and hitCharacter.Name or nil
 
-		if CONFIG.DebugLogging then
-			print(
-				string.format(
-					"[WeaponProjectile] Sending hit to server - Target: %s, Rig: %s, Position: %s",
-					hitPlayer and hitPlayer.Name or hitCharacter.Name,
-					tostring(rigName),
-					tostring(hitResult.Position)
-				)
-			)
-		end
-
 		self:_enqueueProjectileHit({
 			packet = hitPacket,
 			weaponId = projectile.weaponId,
@@ -762,25 +707,12 @@ function WeaponProjectile:_handleTargetHit(projectile, hitResult, hitPlayer, hit
 			isRocketSpecial = projectile.isRocketSpecial == true,
 		})
 	else
-		warn("[WeaponProjectile] Cannot send hit - Net:", Net ~= nil, "Packet:", hitPacket ~= nil)
 	end
 
 	-- Play local impact effect (pass hitCharacter for tracer HitPlayer)
 	self:_playImpactEffect(projectile, hitResult, true, hitCharacter)
 
 	local targetName = hitPlayer and hitPlayer.Name or hitCharacter.Name
-	if CONFIG.DebugLogging then
-		print(
-			string.format(
-				"[WeaponProjectile] Hit %s (%s) - Pierce: %d/%d",
-				targetName,
-				isHeadshot and "HEAD" or "Body",
-				projectile.pierceCount,
-				projectile.maxPierce + 1
-			)
-		)
-	end
-
 	-- Check if should continue (pierce)
 	if projectile.pierceCount <= projectile.maxPierce then
 		-- Continue through target
@@ -811,10 +743,6 @@ function WeaponProjectile:_handleEnvironmentHit(projectile, hitResult)
 
 		-- Play ricochet effect
 		self:_playRicochetEffect(projectile, hitResult)
-
-		if CONFIG.DebugLogging then
-			print(string.format("[WeaponProjectile] Ricochet %d/%d", projectile.bounceCount, projectile.maxBounce))
-		end
 
 		-- Continue
 		return true, nil
@@ -893,10 +821,6 @@ function WeaponProjectile:_handleAoEExplosion(projectile, hitResult)
 
 	-- Play explosion effect
 	self:_playExplosionEffect(projectile, hitResult, aoeConfig)
-
-	if CONFIG.DebugLogging then
-		print(string.format("[WeaponProjectile] AoE explosion hit %d targets", #hitTargets))
-	end
 end
 
 -- =============================================================================
@@ -1100,14 +1024,14 @@ function WeaponProjectile:_getSpreadState(weaponInstance)
 
 	-- Get character state from CharacterController (more reliable)
 	local characterController = ServiceRegistry:GetController("CharacterController")
-	
+
 	if characterController and characterController.PrimaryPart then
 		local velocity = characterController.PrimaryPart.AssemblyLinearVelocity
 		local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 
 		state.isMoving = horizontalSpeed > 1
 		state.velocitySpread = math.clamp(horizontalSpeed * 0.01, 0, 1)
-		
+
 		-- Use CharacterController's grounded state
 		state.inAir = not characterController.IsGrounded
 	elseif LocalPlayer and LocalPlayer.Character then
@@ -1132,7 +1056,7 @@ function WeaponProjectile:_getSpreadState(weaponInstance)
 	pcall(function()
 		MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 	end)
-	
+
 	if MovementStateManager then
 		state.isCrouching = MovementStateManager:IsCrouching()
 		state.isSliding = MovementStateManager:IsSliding()
@@ -1186,7 +1110,6 @@ function WeaponProjectile:_spawnVisual(projectile, gunModel, playMuzzle)
 	-- Fire tracer - get attachment handle (playMuzzle controls muzzle FX)
 	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel, playMuzzle)
 	if not handle then
-		warn("[WeaponProjectile] Failed to get tracer handle")
 		return
 	end
 
@@ -1306,10 +1229,6 @@ function WeaponProjectile:_destroyProjectile(projectileId, reason)
 
 	-- Remove from active
 	ActiveProjectiles[projectileId] = nil
-
-	if CONFIG.DebugLogging then
-		print(string.format("[WeaponProjectile] Destroyed projectile %d: %s", projectileId, reason or "Unknown"))
-	end
 end
 
 -- =============================================================================
@@ -1321,10 +1240,6 @@ end
 ]]
 function WeaponProjectile:_onHitConfirmed(data)
 	-- Play confirmed hit effect
-	if CONFIG.DebugLogging then
-		print("[WeaponProjectile] Hit confirmed by server")
-	end
-
 	if not data then
 		return
 	end
@@ -1402,17 +1317,16 @@ function WeaponProjectile:_onProjectileReplicate(data)
 	}
 
 	ActiveProjectiles[parsed.projectileId] = projectileData
-	-- Remote projectiles don't have access to gun model, don't play muzzle (already played on owner's client)
-	self:_spawnVisual(projectileData, nil, false)
 
-	if CONFIG.DebugLogging then
-		print(
-			string.format(
-				"[WeaponProjectile] Replicated projectile from %s",
-				parsed.shooter and parsed.shooter.Name or "Unknown"
-			)
-		)
+	-- Get shooter's 3rd person weapon model for tracers + muzzle flash
+	local gunModel = nil
+	local RemoteReplicator =
+		require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Replication"):WaitForChild("RemoteReplicator"))
+	local remoteData = RemoteReplicator.RemotePlayers[parsed.shooterUserId]
+	if remoteData and remoteData.WeaponManager then
+		gunModel = remoteData.WeaponManager:GetWeaponModel()
 	end
+	self:_spawnVisual(projectileData, gunModel, gunModel ~= nil)
 end
 
 -- =============================================================================

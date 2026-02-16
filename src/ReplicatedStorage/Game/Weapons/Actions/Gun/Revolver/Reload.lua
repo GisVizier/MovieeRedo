@@ -64,11 +64,8 @@ function Reload.Execute(weaponInstance)
 		weaponInstance.PlayAnimation("Reload", 0.1, true)
 	end
 
-	local ammoService = weaponInstance.Ammo
-	if ammoService and ammoService.UpdateHUDAmmo then
-		ammoService:UpdateHUDAmmo(weaponInstance.Slot, config, weaponInstance.Player, true, function()
-			return weaponInstance.Slot
-		end)
+	if weaponInstance.ApplyState then
+		weaponInstance.ApplyState(state)
 	end
 
 	local reloadTime = config.reloadTime or 1.5
@@ -85,10 +82,8 @@ function Reload.Execute(weaponInstance)
 
 		setReloading(weaponInstance, state, false)
 
-		if ammoService and ammoService.UpdateHUDAmmo then
-			ammoService:UpdateHUDAmmo(weaponInstance.Slot, config, weaponInstance.Player, false, function()
-				return weaponInstance.Slot
-			end)
+		if weaponInstance.ApplyState then
+			weaponInstance.ApplyState(state)
 		end
 	end)
 

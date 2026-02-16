@@ -124,7 +124,6 @@ function EmoteService._preloadAnimations()
 				ContentProvider:PreloadAsync(animationIds)
 			end)
 			if not ok then
-				warn("[EmoteService] Failed to preload animations:", err)
 			end
 		end)
 	end
@@ -134,7 +133,6 @@ end
 function EmoteService._loadEmotes()
 	local folder = getEmotesFolder()
 	if not folder then
-		warn("[EmoteService] Emotes folder not found")
 		return
 	end
 
@@ -144,7 +142,6 @@ function EmoteService._loadEmotes()
 			if ok and typeof(emoteClass) == "table" then
 				EmoteService.register(emoteClass)
 			else
-				warn("[EmoteService] Failed to load emote:", moduleScript.Name, emoteClass)
 			end
 		end
 	end
@@ -200,7 +197,6 @@ function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 
 	local emoteClass = EmoteService.getEmoteClass(emoteId)
 	if not emoteClass then
-		warn("[EmoteService] Emote not found for other player:", emoteId)
 		return
 	end
 
@@ -210,7 +206,6 @@ function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 	-- Get the player's cosmetic rig
 	local rig = EmoteService._getRigForPlayer(player)
 	if not rig then
-		warn("[EmoteService] No rig found for player:", player.Name)
 		return
 	end
 
@@ -225,7 +220,6 @@ function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 		if ok then
 			emote = result
 		else
-			warn("[EmoteService] Failed to create emote for other player:", result)
 		end
 	end
 
@@ -236,7 +230,6 @@ function EmoteService._playForOtherPlayer(playerId: number, emoteId: string)
 	-- Start the emote (spawns props, etc.)
 	local started = emote:start()
 	if not started then
-		warn("[EmoteService] Failed to start emote for other player")
 		emote:destroy()
 		return
 	end
@@ -289,13 +282,11 @@ end
 -- Play emote for a rig directly (dummies/NPCs)
 function EmoteService._playForRig(rig: Model, emoteId: string)
 	if not rig or not rig:IsA("Model") then
-		warn("[EmoteService] Invalid rig provided to _playForRig")
 		return
 	end
 
 	local emoteClass = EmoteService.getEmoteClass(emoteId)
 	if not emoteClass then
-		warn("[EmoteService] Emote not found for rig:", emoteId)
 		return
 	end
 
@@ -313,7 +304,6 @@ function EmoteService._playForRig(rig: Model, emoteId: string)
 		if ok then
 			emote = result
 		else
-			warn("[EmoteService] Failed to create emote for rig:", result)
 		end
 	end
 
@@ -324,7 +314,6 @@ function EmoteService._playForRig(rig: Model, emoteId: string)
 	-- Start the emote (spawns props, etc.)
 	local started = emote:start()
 	if not started then
-		warn("[EmoteService] Failed to start emote for rig")
 		pcall(function()
 			emote:destroy()
 		end)
@@ -377,7 +366,6 @@ end
 function EmoteService.register(emoteClass: { [string]: any }): boolean
 	local emoteId = getEmoteId(emoteClass)
 	if not emoteId then
-		warn("[EmoteService] Emote missing Id")
 		return false
 	end
 
@@ -469,7 +457,6 @@ function EmoteService.play(emoteId: string): boolean
 
 	local emoteClass = EmoteService.getEmoteClass(emoteId)
 	if not emoteClass then
-		warn("[EmoteService] Emote not found:", emoteId)
 		return false
 	end
 
@@ -481,7 +468,6 @@ function EmoteService.play(emoteId: string): boolean
 	-- Get rig
 	local rig = EmoteService._getLocalRig()
 	if not rig then
-		warn("[EmoteService] No rig found for local player")
 		return false
 	end
 

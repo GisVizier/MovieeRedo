@@ -37,7 +37,6 @@ export type EasingFunction = (number) -> number
 local DEBUG_LOGS = false
 local function debugLog(...)
 	if DEBUG_LOGS then
-		print(...)
 	end
 end
 

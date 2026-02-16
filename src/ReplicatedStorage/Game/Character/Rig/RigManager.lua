@@ -103,13 +103,11 @@ function RigManager:CreateRig(player, character)
 
 	local template = ReplicatedStorage:FindFirstChild("CharacterTemplate")
 	if not template then
-		warn("[RigManager] CharacterTemplate missing")
 		return nil
 	end
 
 	local templateRig = template:FindFirstChild("Rig")
 	if not templateRig then
-		warn("[RigManager] CharacterTemplate Rig missing")
 		return nil
 	end
 
@@ -158,6 +156,12 @@ function RigManager:CreateRig(player, character)
 					end)
 					-- Re-apply collision rules immediately after ApplyDescription
 					configureRigDefault(rig)
+
+					-- Signal that ApplyDescription finished. Other systems (e.g.
+					-- AnimationController) listen for this to re-acquire the Animator
+					-- and reload animation tracks, because ApplyDescription can
+					-- destroy/recreate the Animator and invalidate all AnimationTracks.
+					rig:SetAttribute("DescriptionApplied", tick())
 				end
 			end)
 		end

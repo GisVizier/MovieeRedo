@@ -21,7 +21,6 @@ function DebugLogService:Init(_registry, net)
 			return HttpService:JSONEncode(payload)
 		end)
 		if not ok then
-			warn("[DebugLogService] Failed to encode payload")
 			return
 		end
 
@@ -29,7 +28,6 @@ function DebugLogService:Init(_registry, net)
 			HttpService:PostAsync(DEBUG_LOG_ENDPOINT, body, Enum.HttpContentType.ApplicationJson)
 		end)
 		if not okPost then
-			warn("[DebugLogService] PostAsync failed:", err)
 		end
 	end)
 end

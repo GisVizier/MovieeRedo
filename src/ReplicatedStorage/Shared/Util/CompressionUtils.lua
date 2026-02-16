@@ -115,7 +115,6 @@ function CompressionUtils:SerializeToBuffer(
 	})
 
 	if not buf then
-		warn("[CompressionUtils] Serialization failed", err)
 		return nil
 	end
 
@@ -128,7 +127,6 @@ function CompressionUtils:DeserializeFromBuffer(buf)
 	end)
 
 	if not success then
-		warn("[CompressionUtils] Deserialization failed", data)
 		return nil
 	end
 
@@ -232,7 +230,6 @@ function CompressionUtils:CompressDeltaState(
 
 	local buf, err = Sera.DeltaSerialize(SeraSchemas.CharacterStateDelta, delta)
 	if not buf then
-		warn("[CompressionUtils] Delta serialization failed", err)
 		return nil
 	end
 
@@ -247,7 +244,6 @@ function CompressionUtils:DecompressDeltaState(deltaString, lastState)
 	end)
 
 	if not success then
-		warn("[CompressionUtils] Delta deserialization failed", delta)
 		return nil
 	end
 
@@ -291,7 +287,6 @@ function CompressionUtils:CompressViewmodelAction(playerUserId, weaponId, action
 	})
 
 	if not buf then
-		warn("[CompressionUtils] Viewmodel action serialization failed", err)
 		return nil
 	end
 
@@ -312,7 +307,6 @@ function CompressionUtils:DecompressViewmodelAction(compressed)
 	end)
 
 	if not success then
-		warn("[CompressionUtils] Viewmodel action deserialization failed", data)
 		return nil
 	end
 

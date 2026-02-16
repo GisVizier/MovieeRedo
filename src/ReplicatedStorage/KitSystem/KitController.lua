@@ -94,7 +94,6 @@ function KitController:_loadClientKit(kitId: string?)
 
 	local okRequire, kitDef = pcall(require, moduleScript)
 	if not okRequire or type(kitDef) ~= "table" then
-		warn("[KitController] Bad client kit module", kitId, moduleName)
 		return nil
 	end
 
@@ -118,7 +117,6 @@ function KitController:_loadClientKit(kitId: string?)
 	end
 
 	if type(kitInstance) ~= "table" then
-		warn("[KitController] Failed to create client kit instance", kitId, moduleName)
 		return nil
 	end
 
@@ -361,10 +359,7 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 	end
 
 	if type(fn) == "function" then
-		local ok, err = pcall(fn, handlerTable, abilityRequest)
-		if not ok then
-			warn("[KitController] Client kit error:", err)
-		end
+		pcall(fn, handlerTable, abilityRequest)
 		return
 	end
 

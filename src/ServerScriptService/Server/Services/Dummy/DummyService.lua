@@ -40,11 +40,7 @@ local CORPSE_FREEZE_DELAY = 0.35
 -- Private Functions
 --------------------------------------------------
 
-local function logEmote(message)
-	if EMOTE_DEBUG_LOGGING then
-		print("[DummyService][Emote] " .. tostring(message))
-	end
-end
+local function logEmote(message) end
 
 -- Get unique negative ID for dummy (to distinguish from real players)
 local function getNextDummyId()
@@ -56,13 +52,11 @@ end
 local function cacheTemplate()
 	local modelsFolder = ServerStorage:FindFirstChild("Models")
 	if not modelsFolder then
-		warn("[DummyService] ServerStorage.Models folder not found")
 		return false
 	end
 
 	_template = modelsFolder:FindFirstChild("Dummy")
 	if not _template then
-		warn("[DummyService] ServerStorage.Models.Dummy template not found")
 		return false
 	end
 
@@ -90,9 +84,22 @@ local function cacheEmoteModules()
 						class = emoteClass,
 						id = emoteClass.Id,
 					})
-					logEmote(string.format("loaded module emote id='%s' from %s", tostring(emoteClass.Id), moduleScript:GetFullName()))
+					logEmote(
+						string.format(
+							"loaded module emote id='%s' from %s",
+							tostring(emoteClass.Id),
+							moduleScript:GetFullName()
+						)
+					)
 				else
-					logEmote(string.format("skipped module %s (ok=%s, hasId=%s)", moduleScript:GetFullName(), tostring(ok), tostring(ok and emoteClass and emoteClass.Id ~= nil)))
+					logEmote(
+						string.format(
+							"skipped module %s (ok=%s, hasId=%s)",
+							moduleScript:GetFullName(),
+							tostring(ok),
+							tostring(ok and emoteClass and emoteClass.Id ~= nil)
+						)
+					)
 				end
 			end
 		end
@@ -119,7 +126,13 @@ local function cacheEmoteModules()
 						class = { Id = emoteFolder.Name, Loopable = isLoopable },
 						id = emoteFolder.Name,
 					})
-					logEmote(string.format("loaded fallback emote id='%s' from %s", tostring(emoteFolder.Name), emoteFolder:GetFullName()))
+					logEmote(
+						string.format(
+							"loaded fallback emote id='%s' from %s",
+							tostring(emoteFolder.Name),
+							emoteFolder:GetFullName()
+						)
+					)
 				end
 			end
 		else
@@ -158,13 +171,11 @@ end
 local function scanSpawnMarkers()
 	local world = workspace:FindFirstChild("World")
 	if not world then
-		warn("[DummyService] workspace.World not found")
 		return
 	end
 
 	local spawnFolder = world:FindFirstChild("DummySpawns")
 	if not spawnFolder then
-		warn("[DummyService] workspace.World.DummySpawns not found")
 		return
 	end
 
@@ -196,7 +207,6 @@ end
 local function setupDummyPhysics(dummy)
 	local root = dummy:FindFirstChild("Root")
 	if not root then
-		warn("[DummyService] No Root part found in dummy")
 		return false
 	end
 
@@ -360,25 +370,29 @@ local function fireEmoteToNearbyPlayers(dummyPosition, emoteId, action, rig, dum
 		end)
 		if ok and type(trainingPlayers) == "table" and #trainingPlayers > 0 then
 			recipients = trainingPlayers
-			logEmote(string.format(
-				"replicate using training recipients action='%s' emote='%s' dummy='%s' count=%d",
-				tostring(action),
-				tostring(emoteId),
-				tostring(dummyName),
-				#trainingPlayers
-			))
+			logEmote(
+				string.format(
+					"replicate using training recipients action='%s' emote='%s' dummy='%s' count=%d",
+					tostring(action),
+					tostring(emoteId),
+					tostring(dummyName),
+					#trainingPlayers
+				)
+			)
 		end
 	end
 
 	if not recipients then
 		recipients = Players:GetPlayers()
-		logEmote(string.format(
-			"replicate using fallback recipients (all players) action='%s' emote='%s' dummy='%s' count=%d",
-			tostring(action),
-			tostring(emoteId),
-			tostring(dummyName),
-			#recipients
-		))
+		logEmote(
+			string.format(
+				"replicate using fallback recipients (all players) action='%s' emote='%s' dummy='%s' count=%d",
+				tostring(action),
+				tostring(emoteId),
+				tostring(dummyName),
+				#recipients
+			)
+		)
 	end
 
 	for _, player in recipients do
@@ -388,13 +402,15 @@ local function fireEmoteToNearbyPlayers(dummyPosition, emoteId, action, rig, dum
 		end
 	end
 
-	logEmote(string.format(
-		"replicate action='%s' emote='%s' dummy='%s' recipients=%d",
-		tostring(action),
-		tostring(emoteId),
-		tostring(dummyName),
-		playerCount
-	))
+	logEmote(
+		string.format(
+			"replicate action='%s' emote='%s' dummy='%s' recipients=%d",
+			tostring(action),
+			tostring(emoteId),
+			tostring(dummyName),
+			playerCount
+		)
+	)
 
 	return playerCount
 end
@@ -414,7 +430,6 @@ local function playSpawnEmote(dummy, spawnReason)
 	-- Get the Rig (this is where animations play on client)
 	local rig = dummy:FindFirstChild("Rig")
 	if not rig then
-		warn("[DummyService] No Rig found in dummy, cannot play emote")
 		logEmote(string.format("playSpawnEmote skipped for %s: Rig missing", dummy.Name))
 		return nil
 	end
@@ -428,7 +443,9 @@ local function playSpawnEmote(dummy, spawnReason)
 	end
 
 	if #validEmotes == 0 then
-		logEmote(string.format("playSpawnEmote skipped for %s: only excluded entries found (e.g. Template)", dummy.Name))
+		logEmote(
+			string.format("playSpawnEmote skipped for %s: only excluded entries found (e.g. Template)", dummy.Name)
+		)
 		return nil
 	end
 
@@ -441,13 +458,15 @@ local function playSpawnEmote(dummy, spawnReason)
 
 	-- Fire to nearby players
 	local playerCount = fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "play", rig, dummy.Name)
-	logEmote(string.format(
-		"playSpawnEmote success for %s: emote='%s' loopable=%s recipients=%d",
-		dummy.Name,
-		tostring(emoteEntry.id),
-		tostring(isLoopable),
-		playerCount
-	))
+	logEmote(
+		string.format(
+			"playSpawnEmote success for %s: emote='%s' loopable=%s recipients=%d",
+			dummy.Name,
+			tostring(emoteEntry.id),
+			tostring(isLoopable),
+			playerCount
+		)
+	)
 	-- Store emote info for stopping later
 	local emoteInfo = {
 		id = emoteEntry.id,
@@ -462,13 +481,15 @@ local function playSpawnEmote(dummy, spawnReason)
 		task.delay(stopDelay, function()
 			-- Fire stop to nearby players
 			local stopCount = fireEmoteToNearbyPlayers(dummyPosition, emoteEntry.id, "stop", rig, dummy.Name)
-			logEmote(string.format(
-				"loop stop fired for %s: emote='%s' recipients=%d delay=%.2f",
-				dummy.Name,
-				tostring(emoteEntry.id),
-				stopCount,
-				stopDelay
-			))
+			logEmote(
+				string.format(
+					"loop stop fired for %s: emote='%s' recipients=%d delay=%.2f",
+					dummy.Name,
+					tostring(emoteEntry.id),
+					stopCount,
+					stopDelay
+				)
+			)
 		end)
 	end
 
@@ -547,7 +568,6 @@ end
 -- Returns the resource so caller can connect to OnDeath directly
 local function initializeCombat(dummy, pseudoPlayer)
 	if not DummyConfig.CombatEnabled then
-		warn("[DummyService] Combat disabled in config, skipping combat init for", dummy.Name)
 		return nil
 	end
 
@@ -557,11 +577,9 @@ local function initializeCombat(dummy, pseudoPlayer)
 		-- Return the resource immediately after initialization
 		local resource = combatService:GetResource(pseudoPlayer)
 		if not resource then
-			warn(string.format("[DummyService] Failed to get CombatResource for %s", pseudoPlayer.Name))
 		end
 		return resource
 	else
-		warn("[DummyService] CombatService not found! Registry:", _registry and "exists" or "nil")
 		return nil
 	end
 end
@@ -581,13 +599,11 @@ end
 -- Spawn a dummy at the given spawn index
 local function spawnDummy(spawnIndex, spawnReason)
 	if not _template then
-		warn("[DummyService] No template cached")
 		return nil
 	end
 
 	local spawnData = _spawnPositions[spawnIndex]
 	if not spawnData then
-		warn("[DummyService] Invalid spawn index:", spawnIndex)
 		return nil
 	end
 
@@ -640,7 +656,6 @@ local function spawnDummy(spawnIndex, spawnReason)
 		humanoid.MaxHealth = DummyConfig.MaxHealth
 		humanoid.Health = DummyConfig.Health
 	else
-		warn(string.format("[DummyService] %s: NO HUMANOID FOUND! This will break combat.", dummy.Name))
 	end
 
 	-- Create pseudo-player for combat system
@@ -677,23 +692,13 @@ local function spawnDummy(spawnIndex, spawnReason)
 	-- This is more reliable than humanoid.Died since CombatService tracks health separately
 	if resource then
 		resource.OnDeath:once(function(killer, weaponId)
-			if DEBUG_LOGGING then
-				print(string.format("[DummyService] OnDeath fired for %s (killer=%s, weapon=%s)",
-					dummy.Name, killer and killer.Name or "nil", tostring(weaponId)))
-			end
-
 			local dummyInfo = _activeDummies[dummy]
 			if not dummyInfo then
-				warn("[DummyService] OnDeath: dummyInfo not found for", dummy.Name)
 				return
 			end
 
 			local savedSpawnIndex = dummyInfo.spawnIndex
 			local savedPseudoPlayer = dummyInfo.pseudoPlayer
-			if DEBUG_LOGGING then
-				print(string.format("[DummyService] %s died, savedSpawnIndex=%d, scheduling respawn in %ds",
-					dummy.Name, savedSpawnIndex, DummyConfig.RespawnDelay))
-			end
 
 			stopEmote(dummy)
 			cleanupCombat(savedPseudoPlayer)
@@ -701,35 +706,23 @@ local function spawnDummy(spawnIndex, spawnReason)
 			scheduleCorpseQuarantine(dummy)
 
 			task.delay(DummyConfig.RespawnDelay, function()
-				if DEBUG_LOGGING then
-					print(string.format("[DummyService] Respawn timer fired for spawnIndex=%d", savedSpawnIndex))
-				end
 				if dummy and dummy.Parent then
 					dummy:Destroy()
 				end
-				local newDummy = spawnDummy(savedSpawnIndex, "respawn")
-				if DEBUG_LOGGING then
-					print(string.format("[DummyService] Respawn result for spawnIndex=%d: %s",
-						savedSpawnIndex, newDummy and newDummy.Name or "FAILED"))
-				end
+				spawnDummy(savedSpawnIndex, "respawn")
 			end)
 		end)
 	else
 		-- Fallback to humanoid.Died if CombatService not available
-		warn(string.format("[DummyService] No CombatResource for %s - using humanoid.Died fallback", dummy.Name))
 		if humanoid then
 			humanoid.Died:Once(function()
-				print(string.format("[DummyService] Humanoid.Died fallback fired for %s", dummy.Name))
-
 				local dummyInfo = _activeDummies[dummy]
 				if not dummyInfo then
-					warn("[DummyService] Humanoid.Died: dummyInfo not found for", dummy.Name)
 					return
 				end
 
 				local savedSpawnIndex = dummyInfo.spawnIndex
 				local savedPseudoPlayer = dummyInfo.pseudoPlayer
-				print(string.format("[DummyService] %s died (fallback), savedSpawnIndex=%d", dummy.Name, savedSpawnIndex))
 
 				stopEmote(dummy)
 				cleanupCombat(savedPseudoPlayer)
@@ -737,13 +730,10 @@ local function spawnDummy(spawnIndex, spawnReason)
 				scheduleCorpseQuarantine(dummy)
 
 				task.delay(DummyConfig.RespawnDelay, function()
-					print(string.format("[DummyService] Respawn timer (fallback) fired for spawnIndex=%d", savedSpawnIndex))
 					if dummy and dummy.Parent then
 						dummy:Destroy()
 					end
 					local newDummy = spawnDummy(savedSpawnIndex, "respawn")
-					print(string.format("[DummyService] Respawn result (fallback) for spawnIndex=%d: %s",
-						savedSpawnIndex, newDummy and newDummy.Name or "FAILED"))
 				end)
 			end)
 		end
@@ -772,7 +762,6 @@ function DummyService:Init(registry, net)
 
 	-- Cache template
 	if not cacheTemplate() then
-		warn("[DummyService] Failed to cache template - dummies will not spawn")
 		return
 	end
 

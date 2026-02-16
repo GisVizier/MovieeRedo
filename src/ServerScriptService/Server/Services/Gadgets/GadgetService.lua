@@ -87,12 +87,10 @@ end
 
 function GadgetService:CreateForMap(mapInstance, dataByType)
 	if not mapInstance or not mapInstance.Parent then
-		print("[GadgetService] CreateForMap: mapInstance invalid or has no parent")
 		return {}
 	end
 
 	if DEBUG_LOGGING then
-		print("[GadgetService] CreateForMap: Scanning", mapInstance:GetFullName())
 	end
 	
 	-- Debug: Find all models with GadgetType attribute
@@ -106,9 +104,7 @@ function GadgetService:CreateForMap(mapInstance, dataByType)
 		end
 	end
 	if DEBUG_LOGGING then
-		print("[GadgetService] Found", #gadgetModels, "models with GadgetType attribute:")
 		for _, entry in ipairs(gadgetModels) do
-			print("[GadgetService]   ", entry.model:GetFullName(), "->", entry.gadgetType)
 		end
 	end
 
@@ -119,13 +115,11 @@ function GadgetService:CreateForMap(mapInstance, dataByType)
 	self._gadgetsByMap[mapInstance] = created
 
 	if DEBUG_LOGGING then
-		print("[GadgetService] scanMap created", #created, "gadgets:")
 		for _, gadget in ipairs(created) do
 			local model = gadget.getModel and gadget:getModel() or gadget.model
 			local typeName = gadget.getTypeName and gadget:getTypeName() or gadget.typeName
 			local id = gadget.getId and gadget:getId() or "no-id"
 			if model and typeName then
-				print("[GadgetService]   ", id, "->", typeName, "(", model.Name, ")")
 			end
 		end
 	end
@@ -262,24 +256,17 @@ end
 
 function GadgetService:_onUseRequest(player, gadgetId, payload)
 	if DEBUG_LOGGING then
-		print("[GadgetService] _onUseRequest from:", player.Name)
-		print("[GadgetService]   gadgetId:", gadgetId)
-		print("[GadgetService]   payload:", payload)
 	end
 	
 	if typeof(gadgetId) ~= "string" then
-		print("[GadgetService] REJECTED: gadgetId is not a string, type:", typeof(gadgetId))
 		return
 	end
 
 	local gadget = self._gadgetSystem:getById(gadgetId)
 	if not gadget then
 		if DEBUG_LOGGING then
-			print("[GadgetService] REJECTED: gadget not found for id:", gadgetId)
-			print("[GadgetService] Available gadgets:")
 			for id, g in pairs(self._gadgetSystem.instances or {}) do
 				local typeName = g.getTypeName and g:getTypeName() or "unknown"
-				print("[GadgetService]   ", id, "->", typeName)
 			end
 		end
 		self._net:FireClient("GadgetUseResponse", player, gadgetId, false)
@@ -288,14 +275,12 @@ function GadgetService:_onUseRequest(player, gadgetId, payload)
 	
 	local typeName = gadget.getTypeName and gadget:getTypeName() or "unknown"
 	if DEBUG_LOGGING then
-		print("[GadgetService] Found gadget:", typeName)
 	end
 
 	local approved = false
 	local responseData = nil
 	if type(gadget.onUseRequest) == "function" then
 		if DEBUG_LOGGING then
-			print("[GadgetService] Calling onUseRequest on gadget")
 		end
 		local result = gadget:onUseRequest(player, payload)
 		if type(result) == "table" then
@@ -305,11 +290,9 @@ function GadgetService:_onUseRequest(player, gadgetId, payload)
 			approved = result == true
 		end
 		if DEBUG_LOGGING then
-			print("[GadgetService] onUseRequest result: approved =", approved)
 		end
 	else
 		if DEBUG_LOGGING then
-			print("[GadgetService] gadget has no onUseRequest method")
 		end
 	end
 

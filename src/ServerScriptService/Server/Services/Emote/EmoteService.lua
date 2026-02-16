@@ -51,7 +51,6 @@ end
 function EmoteService:_handleEmotePlay(player, emoteId)
 	-- Validate emoteId
 	if type(emoteId) ~= "string" or emoteId == "" then
-		warn("[EmoteService] Invalid emoteId from", player.Name)
 		return
 	end
 

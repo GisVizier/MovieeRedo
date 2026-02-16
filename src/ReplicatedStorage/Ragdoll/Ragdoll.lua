@@ -246,7 +246,14 @@ if IsClient then
 				desc:Destroy()
 			end
 		end
-		
+
+		-- Remove third-person weapon models (no weapons visible on death)
+		for _, child in ipairs(clone:GetChildren()) do
+			if child:IsA("Model") and string.match(child.Name, "^ThirdPerson_") then
+				child:Destroy()
+			end
+		end
+
 		-- Collect main limb parts for colliders
 		local mainLimbs = {}
 		for _, part in clone:GetChildren() do

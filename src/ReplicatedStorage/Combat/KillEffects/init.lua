@@ -38,13 +38,11 @@ local function loadEffectModule(effectId: string)
 	
 	local moduleScript = script:FindFirstChild(effectId)
 	if not moduleScript then
-		warn("[KillEffects] Effect module not found:", effectId)
 		return nil
 	end
 	
 	local ok, effectModule = pcall(require, moduleScript)
 	if not ok then
-		warn("[KillEffects] Failed to load effect module:", effectId, effectModule)
 		return nil
 	end
 	
@@ -90,7 +88,6 @@ function KillEffects:Execute(effectId: string, victim: Player, killer: Player?, 
 		-- Fall back to default
 		effectModule = loadEffectModule(KillEffects.DefaultEffect)
 		if not effectModule then
-			warn("[KillEffects] Could not load default effect:", KillEffects.DefaultEffect)
 			return
 		end
 	end
@@ -106,10 +103,8 @@ function KillEffects:Execute(effectId: string, victim: Player, killer: Player?, 
 		end)
 		
 		if not ok then
-			warn("[KillEffects] Error executing effect:", effectId, err)
 		end
 	else
-		warn("[KillEffects] Effect module missing Execute function:", effectId)
 	end
 end
 

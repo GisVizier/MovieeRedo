@@ -971,7 +971,6 @@ function module:_onBuyComplete()
 end
 
 function module:_onKitPurchased(kitId: string)
-	print("[Kits] Purchased:", kitId)
 end
 
 function module:_resetBuyButton()

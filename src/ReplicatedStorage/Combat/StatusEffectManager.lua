@@ -26,19 +26,16 @@ local function loadEffectModule(effectId: string)
 	
 	local effectsFolder = script.Parent:FindFirstChild("StatusEffects")
 	if not effectsFolder then
-		warn("[StatusEffectManager] StatusEffects folder not found")
 		return nil
 	end
 	
 	local moduleScript = effectsFolder:FindFirstChild(effectId)
 	if not moduleScript then
-		warn("[StatusEffectManager] Effect module not found:", effectId)
 		return nil
 	end
 	
 	local ok, effectModule = pcall(require, moduleScript)
 	if not ok then
-		warn("[StatusEffectManager] Failed to load effect module:", effectId, effectModule)
 		return nil
 	end
 	
@@ -130,7 +127,6 @@ function StatusEffectManager:Apply(effectId: string, settings: {
 			effectModule:OnApply(self._player, settings, self._combatResource)
 		end)
 		if not ok then
-			warn("[StatusEffectManager] OnApply error for", effectId, err)
 		end
 	end
 	
@@ -162,7 +158,6 @@ function StatusEffectManager:Remove(effectId: string, reason: string?)
 			activeEffect.module:OnRemove(self._player, activeEffect.settings, reason, self._combatResource)
 		end)
 		if not ok then
-			warn("[StatusEffectManager] OnRemove error for", effectId, err)
 		end
 	end
 	
@@ -260,7 +255,6 @@ function StatusEffectManager:Tick(deltaTime: number)
 					end)
 					
 					if not ok then
-						warn("[StatusEffectManager] OnTick error for", effectId, result)
 					elseif result == false then
 						-- Module returned false, remove effect early
 						table.insert(toRemove, effectId)

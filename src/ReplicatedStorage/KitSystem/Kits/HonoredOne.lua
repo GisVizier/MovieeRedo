@@ -46,7 +46,6 @@ local DESTRUCTION_RADIUS = {
 --------------------------------------------------------------------------------
 
 local function log(...)
-	warn("[HonoredOneKit]", ...)
 end
 local DEBUG_PROJECTILE_RELAY = true
 local RELAY_LOG_INTERVAL = 0.25
@@ -63,7 +62,6 @@ local function relayDebugLog(key, ...)
 		return
 	end
 	_lastRelayLogByKey[key] = now
-	warn("[HonoredOneKitRelay]", ...)
 end
 
 --------------------------------------------------------------------------------

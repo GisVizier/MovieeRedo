@@ -84,7 +84,6 @@ local function debugLog(key, ...)
 		return
 	end
 	_lastLogByKey[key] = now
-	warn("[HonoredOneRep]", ...)
 end
 
 local function resolveReplicatedPlayer(originUserId, data)
@@ -301,7 +300,6 @@ function HonoredOne:Execute(originUserId, data)
 		if self[action] then
 			self[action](self, originUserId, data)
 		else
-			warn("[HonoredOne VFX] Unknown action:", action)
 		end
 	end
 end

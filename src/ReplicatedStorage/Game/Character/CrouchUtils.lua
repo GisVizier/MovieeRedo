@@ -68,7 +68,6 @@ function CrouchUtils:SetupRigOnlyWelds(character)
 	end)
 
 	if not success then
-		warn("Failed to create Rig weld for other player")
 		return false
 	end
 
@@ -98,7 +97,6 @@ function CrouchUtils:SetupHitboxWelds(character)
 
 	local characterTemplate = ReplicatedStorage:FindFirstChild("CharacterTemplate")
 	if not characterTemplate then
-		warn("CharacterTemplate not found in ReplicatedStorage")
 		return false
 	end
 
@@ -106,7 +104,6 @@ function CrouchUtils:SetupHitboxWelds(character)
 	local templateRig = characterTemplate:FindFirstChild("Rig")
 
 	if not templateHitbox or not templateRig then
-		warn("CharacterTemplate missing Hitbox or Rig model")
 		return false
 	end
 
@@ -134,10 +131,8 @@ function CrouchUtils:SetupHitboxWelds(character)
 			end)
 		else
 			if not hitboxPart then
-				warn("Hitbox part not found:", hitboxPartName)
 			end
 			if not rigPart then
-				warn("Rig part not found:", rigPartName)
 			end
 		end
 	end

@@ -95,6 +95,24 @@ local function isFirstPerson(self): boolean
 	return camController:GetCurrentMode() == "FirstPerson"
 end
 
+local function isLocalPlayerDead(): boolean
+	if not LocalPlayer then
+		return false
+	end
+	local character = LocalPlayer.Character
+	if not character then
+		return true
+	end
+	if character:GetAttribute("RagdollActive") == true then
+		return true
+	end
+	local health = LocalPlayer:GetAttribute("Health")
+	if type(health) == "number" and health <= 0 then
+		return true
+	end
+	return false
+end
+
 local function getCamera(): Camera?
 	return workspace.CurrentCamera
 end
@@ -950,7 +968,7 @@ function ViewmodelController:_render(dt: number)
 		return
 	end
 
-	if not isFirstPerson(self) then
+	if not isFirstPerson(self) or isLocalPlayerDead() then
 		for _, rig in pairs(self._loadoutVm.Rigs) do
 			if rig and rig.Model then
 				rig.Model.Parent = nil
@@ -1075,12 +1093,10 @@ function ViewmodelController:_render(dt: number)
 	local aimPosition = rig.Model:FindFirstChild("AimPosition", true)
 
 	if not basePosition then
-		warn("[ViewmodelController] Missing BasePosition attachment on rig:", self._activeSlot)
 		return
 	end
 
 	if not aimPosition then
-		warn("[ViewmodelController] Missing AimPosition attachment on rig:", self._activeSlot)
 		return
 	end
 

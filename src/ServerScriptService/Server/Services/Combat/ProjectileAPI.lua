@@ -47,7 +47,6 @@ local Initialized = false
 ]]
 function ProjectileAPI:Init(net, hitDetectionAPI)
 	if Initialized then
-		warn("[ProjectileAPI] Already initialized")
 		return
 	end
 	

@@ -12,7 +12,6 @@ function HitValidator:Init()
 		self.LastFireTimes[player] = nil
 	end)
 
-	print("[HitValidator] Initialized")
 end
 
 function HitValidator:StorePosition(player, position, timestamp)
@@ -109,13 +108,6 @@ function HitValidator:GetHistoricalPosition(player, timestamp)
 end
 
 function HitValidator:RecordViolation(player, violationType, value)
-	warn(string.format(
-		"[HitValidator] %s (%d) - %s violation: %.1f",
-		player.Name,
-		player.UserId,
-		violationType,
-		value or 0
-	))
 
 	-- Future: Track violations and kick repeat offenders
 end

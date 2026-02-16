@@ -164,7 +164,6 @@ end
 ]]
 function ProjectilePacketUtils:CreateSpawnPacket(spawnData, weaponId, spreadSeed)
 	if not spawnData or not spawnData.origin or not spawnData.direction then
-		warn("[ProjectilePacketUtils] Invalid spawnData - missing origin or direction")
 		return nil, nil
 	end
 	
@@ -187,7 +186,6 @@ function ProjectilePacketUtils:CreateSpawnPacket(spawnData, weaponId, spreadSeed
 	
 	local buf, err = Sera.Serialize(SeraSchemas.ProjectileSpawnPacket, packet)
 	if not buf then
-		warn("[ProjectilePacketUtils] Spawn serialization failed:", err)
 		return nil, nil
 	end
 	
@@ -202,7 +200,6 @@ end
 ]]
 function ProjectilePacketUtils:ParseSpawnPacket(packetString)
 	if type(packetString) ~= "string" then
-		warn("[ProjectilePacketUtils] Invalid spawn packet type:", type(packetString))
 		return nil
 	end
 	
@@ -213,7 +210,6 @@ function ProjectilePacketUtils:ParseSpawnPacket(packetString)
 	end)
 	
 	if not success then
-		warn("[ProjectilePacketUtils] Spawn deserialization failed:", data)
 		return nil
 	end
 	
@@ -256,7 +252,6 @@ end
 ]]
 function ProjectilePacketUtils:CreateHitPacket(hitData, weaponId)
 	if not hitData or not hitData.origin or not hitData.hitPosition then
-		warn("[ProjectilePacketUtils] Invalid hitData - missing origin or hitPosition")
 		return nil
 	end
 	
@@ -285,7 +280,6 @@ function ProjectilePacketUtils:CreateHitPacket(hitData, weaponId)
 	
 	local buf, err = Sera.Serialize(SeraSchemas.ProjectileHitPacket, packet)
 	if not buf then
-		warn("[ProjectilePacketUtils] Hit serialization failed:", err)
 		return nil
 	end
 	
@@ -300,7 +294,6 @@ end
 ]]
 function ProjectilePacketUtils:ParseHitPacket(packetString)
 	if type(packetString) ~= "string" then
-		warn("[ProjectilePacketUtils] Invalid hit packet type:", type(packetString))
 		return nil
 	end
 	
@@ -311,7 +304,6 @@ function ProjectilePacketUtils:ParseHitPacket(packetString)
 	end)
 	
 	if not success then
-		warn("[ProjectilePacketUtils] Hit deserialization failed:", data)
 		return nil
 	end
 	
@@ -372,7 +364,6 @@ end
 ]]
 function ProjectilePacketUtils:CreateReplicatePacket(replicateData, weaponId)
 	if not replicateData or not replicateData.origin or not replicateData.direction then
-		warn("[ProjectilePacketUtils] Invalid replicateData")
 		return nil
 	end
 	
@@ -393,7 +384,6 @@ function ProjectilePacketUtils:CreateReplicatePacket(replicateData, weaponId)
 	
 	local buf, err = Sera.Serialize(SeraSchemas.ProjectileReplicatePacket, packet)
 	if not buf then
-		warn("[ProjectilePacketUtils] Replicate serialization failed:", err)
 		return nil
 	end
 	
@@ -418,7 +408,6 @@ function ProjectilePacketUtils:ParseReplicatePacket(packetString)
 	end)
 	
 	if not success then
-		warn("[ProjectilePacketUtils] Replicate deserialization failed:", data)
 		return nil
 	end
 	
@@ -464,7 +453,6 @@ function ProjectilePacketUtils:CreateDestroyedPacket(projectileId, hitPosition, 
 	
 	local buf, err = Sera.Serialize(SeraSchemas.ProjectileDestroyedPacket, packet)
 	if not buf then
-		warn("[ProjectilePacketUtils] Destroyed serialization failed:", err)
 		return nil
 	end
 	
@@ -489,7 +477,6 @@ function ProjectilePacketUtils:ParseDestroyedPacket(packetString)
 	end)
 	
 	if not success then
-		warn("[ProjectilePacketUtils] Destroyed deserialization failed:", data)
 		return nil
 	end
 	
