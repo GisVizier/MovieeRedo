@@ -69,8 +69,16 @@ local function CheckKeybindMatch(input, keybind)
 end
 
 function InputManager:IsKeybind(input, keybindKey)
-	local keyPrefix = (self.InputMode == "Controller") and "Controller_Keybind_" or "Keybind_"
-	local keybindsArray = (self.InputMode == "Controller") and Config.Controls.CustomizableControllerKeybinds
+	-- Determine which keybind array to use based on the actual input device,
+	-- not self.InputMode, because InputBegan can fire before LastInputTypeChanged
+	-- updates the mode.
+	local inputType = input.UserInputType
+	local isGamepadInput = inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+
+	local keybindsArray = isGamepadInput and Config.Controls.CustomizableControllerKeybinds
 		or Config.Controls.CustomizableKeybinds
 
 	local defaultConfig = nil

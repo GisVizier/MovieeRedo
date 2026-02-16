@@ -1287,11 +1287,16 @@ function WeaponController:_executeQuickMeleeAction()
 		return false, "NotMelee"
 	end
 
-	if not self:_isActiveWeaponEquipped() then
+	local activeSlot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
+	if not self:_isActiveWeaponEquipped() and activeSlot ~= "Melee" then
 		return false, "NotEquipped"
 	end
 
 	self:_updateWeaponInstanceState()
+	if self._weaponInstance.State then
+		-- Quick melee should still execute even if camera mode is not first-person.
+		self._weaponInstance.State.Equipped = true
+	end
 
 	local now = workspace:GetServerTimeNow()
 	local main = self._currentActions.Main
@@ -1338,7 +1343,7 @@ function WeaponController:QuickMelee()
 
 	task.spawn(function()
 		if needsEquip then
-			local deadline = os.clock() + 0.35
+			local deadline = os.clock() + 1.5
 			while os.clock() < deadline do
 				if not self:_isQuickMeleeSessionActive(sessionId) then
 					return
@@ -1358,7 +1363,12 @@ function WeaponController:QuickMelee()
 		end
 
 		if not self._weaponInstance or self._weaponInstance.WeaponType ~= "Melee" then
-			self:_clearQuickMeleeSession()
+			local activeSession = self._quickMeleeSession
+			if activeSession and activeSession.id == sessionId and activeSession.returnPending then
+				self:_attemptQuickMeleeReturn(activeSession)
+			else
+				self:_clearQuickMeleeSession()
+			end
 			return
 		end
 

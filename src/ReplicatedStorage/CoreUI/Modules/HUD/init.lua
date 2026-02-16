@@ -753,8 +753,32 @@ function module:_cacheWeaponUI()
 		end
 	end
 
-	-- Cache LB/RB bumper info frame for controller cycling display
-	local bumperInfo = actionsFrame:FindFirstChild("Info") or self._itemHolderSpace:FindFirstChild("Info")
+	-- Cache LB/RB bumper info frame for controller cycling display.
+	-- Search the ItemHolder first (sibling of weapon slots), then broader areas.
+	-- Verify the frame has Lb/Rb children to avoid grabbing the wrong "Info".
+	local bumperInfo = nil
+	local searchOrder = {
+		self._itemListFrame,
+		actionsFrame,
+		self._itemHolderSpace,
+	}
+	for _, parent in searchOrder do
+		if parent then
+			local candidate = parent:FindFirstChild("Info")
+			if candidate and candidate:FindFirstChild("Lb") then
+				bumperInfo = candidate
+				break
+			end
+		end
+	end
+	if not bumperInfo then
+		-- Deep search as last resort
+		local candidate = self._ui:FindFirstChild("Info", true)
+		if candidate and candidate:FindFirstChild("Lb") then
+			bumperInfo = candidate
+		end
+	end
+
 	if bumperInfo then
 		self._bumperInfoFrame = bumperInfo
 		self._bumperLb = bumperInfo:FindFirstChild("Lb")
@@ -2206,6 +2230,7 @@ function module:_init()
 		self:_setupUltConnection()
 		self:_setupWeaponConnections()
 		self:_refreshWeaponData()
+		self:_updateBumperVisibility()
 		return
 	end
 
