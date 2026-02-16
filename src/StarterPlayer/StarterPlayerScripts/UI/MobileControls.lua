@@ -7,6 +7,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
+local Controls = require(ReplicatedStorage:WaitForChild("Global"):WaitForChild("Controls"))
+local Positions = Controls.DefaultPositions
 
 local LogService = nil
 local function getLogService()
@@ -19,30 +21,8 @@ end
 local LocalPlayer = Players.LocalPlayer
 
 -- =============================================================================
--- LAYOUT CONSTANTS
+-- STYLE CONSTANTS (colors only — layout comes from Controls.DefaultPositions)
 -- =============================================================================
-local EDGE = 14
-local GAP = 10
-local BOTTOM = 46             -- Bottom offset for action cluster
-
--- Sticks
-local STICK_SIZE = 130
-local THUMB_SIZE = 52
-local CAM_STICK_SIZE = 120
-local CAM_THUMB_SIZE = 46
-
--- Action button sizes (visual hierarchy)
-local JUMP_SIZE = 86          -- Biggest  — primary thumb target
-local FIRE_SIZE = 66          -- Medium   — second most used
-local BTN = 48                -- Small    — utility buttons
-
--- Weapon slot bar
-local SLOT_BTN_W = 72
-local SLOT_BTN_H = 56
-local SLOT_GAP = 6
-local SLOT_TOP = 8            -- Top of screen, overlap CoreGui if needed
-
--- Colors
 local COLOR = Color3.new(0, 0, 0)
 local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220)
 local ALPHA = 0.55
@@ -192,10 +172,14 @@ end
 -- MOVEMENT STICK (Bottom-left)
 -- =============================================================================
 function MobileControls:CreateMovementStick()
+	local cfg = Positions.MovementStick
+	local stickSize = cfg.Size
+	local thumbSize = cfg.ThumbSize
+
 	local container = Instance.new("Frame")
 	container.Name = "MovementStickContainer"
-	container.Size = UDim2.fromOffset(STICK_SIZE, STICK_SIZE)
-	container.Position = UDim2.new(0, EDGE, 1, -(STICK_SIZE + BOTTOM))
+	container.Size = UDim2.fromOffset(stickSize, stickSize)
+	container.Position = cfg.Position
 	container.BackgroundTransparency = 0.6
 	container.BackgroundColor3 = COLOR
 	container.BorderSizePixel = 0
@@ -204,8 +188,8 @@ function MobileControls:CreateMovementStick()
 
 	local thumb = Instance.new("Frame")
 	thumb.Name = "Thumb"
-	thumb.Size = UDim2.fromOffset(THUMB_SIZE, THUMB_SIZE)
-	thumb.Position = UDim2.new(0.5, -THUMB_SIZE / 2, 0.5, -THUMB_SIZE / 2)
+	thumb.Size = UDim2.fromOffset(thumbSize, thumbSize)
+	thumb.Position = UDim2.new(0.5, -thumbSize / 2, 0.5, -thumbSize / 2)
 	thumb.BackgroundColor3 = WHITE
 	thumb.BackgroundTransparency = 0.3
 	thumb.BorderSizePixel = 0
@@ -215,8 +199,9 @@ function MobileControls:CreateMovementStick()
 	self.MovementStick = {
 		Container = container,
 		Stick = thumb,
-		CenterPosition = UDim2.new(0.5, -THUMB_SIZE / 2, 0.5, -THUMB_SIZE / 2),
-		MaxRadius = (STICK_SIZE - THUMB_SIZE) / 2,
+		ThumbSize = thumbSize,
+		CenterPosition = UDim2.new(0.5, -thumbSize / 2, 0.5, -thumbSize / 2),
+		MaxRadius = (stickSize - thumbSize) / 2,
 		IsDragging = false,
 	}
 	self:SetupStickInput()
@@ -226,12 +211,14 @@ end
 -- CAMERA STICK (Right side, left of action cluster)
 -- =============================================================================
 function MobileControls:CreateCameraStick()
-	-- Widest row is row 2: FIRE + GAP + ADS + GAP + Reload = 66+10+48+10+48 = 182 from EDGE
-	local clusterWidth = EDGE + FIRE_SIZE + GAP + BTN + GAP + BTN
+	local cfg = Positions.CameraStick
+	local camSize = cfg.Size
+	local thumbSize = cfg.ThumbSize
+
 	local container = Instance.new("Frame")
 	container.Name = "CameraStickContainer"
-	container.Size = UDim2.fromOffset(CAM_STICK_SIZE, CAM_STICK_SIZE)
-	container.Position = UDim2.new(1, -(clusterWidth + GAP + CAM_STICK_SIZE), 1, -(CAM_STICK_SIZE + BOTTOM))
+	container.Size = UDim2.fromOffset(camSize, camSize)
+	container.Position = cfg.Position
 	container.BackgroundTransparency = 0.6
 	container.BackgroundColor3 = COLOR
 	container.BorderSizePixel = 0
@@ -240,8 +227,8 @@ function MobileControls:CreateCameraStick()
 
 	local thumb = Instance.new("Frame")
 	thumb.Name = "CamThumb"
-	thumb.Size = UDim2.fromOffset(CAM_THUMB_SIZE, CAM_THUMB_SIZE)
-	thumb.Position = UDim2.new(0.5, -CAM_THUMB_SIZE / 2, 0.5, -CAM_THUMB_SIZE / 2)
+	thumb.Size = UDim2.fromOffset(thumbSize, thumbSize)
+	thumb.Position = UDim2.new(0.5, -thumbSize / 2, 0.5, -thumbSize / 2)
 	thumb.BackgroundColor3 = WHITE
 	thumb.BackgroundTransparency = 0.3
 	thumb.BorderSizePixel = 0
@@ -251,8 +238,9 @@ function MobileControls:CreateCameraStick()
 	self.CameraStick = {
 		Container = container,
 		Stick = thumb,
-		CenterPosition = UDim2.new(0.5, -CAM_THUMB_SIZE / 2, 0.5, -CAM_THUMB_SIZE / 2),
-		MaxRadius = (CAM_STICK_SIZE - CAM_THUMB_SIZE) / 2,
+		ThumbSize = thumbSize,
+		CenterPosition = UDim2.new(0.5, -thumbSize / 2, 0.5, -thumbSize / 2),
+		MaxRadius = (camSize - thumbSize) / 2,
 		IsDragging = false,
 	}
 	self:SetupCameraStickInput()
@@ -270,31 +258,15 @@ end
 --  Jump is biggest (86), Fire is medium (66), rest are small (48).
 -- =============================================================================
 function MobileControls:CreateActionCluster()
-	-- Row bottom offsets
-	local r1 = BOTTOM
-	local r2 = BOTTOM + JUMP_SIZE + GAP
-	local r3 = r2 + FIRE_SIZE + GAP
+	local P = Positions
 
-	-- Row 1 — Jump (big) + CrouchSlide
-	local jump = self:_makeBtn("Jump", JUMP_SIZE, EDGE, r1, "JUMP")
-	local csRight = EDGE + JUMP_SIZE + GAP
-	local csBottom = r1 + (JUMP_SIZE - BTN) / 2
-	local crouchSlide = self:_makeBtn("CrouchSlide", BTN, csRight, csBottom, "C")
-
-	-- Row 2 — Fire (medium) + ADS + Reload
-	local fireRight = EDGE + (JUMP_SIZE - FIRE_SIZE) / 2 -- centered under Jump
-	local fire = self:_makeBtn("Fire", FIRE_SIZE, fireRight, r2, "FIRE")
-	local adsRight = fireRight + FIRE_SIZE + GAP
-	local adsBottom = r2 + (FIRE_SIZE - BTN) / 2
-	local ads = self:_makeBtn("ADS", BTN, adsRight, adsBottom, "ADS")
-	local reloadRight = adsRight + BTN + GAP
-	local reload = self:_makeBtn("Reload", BTN, reloadRight, adsBottom, "R")
-
-	-- Row 3 — Ability + Ultimate
-	local eRight = EDGE + (JUMP_SIZE - BTN) / 2 -- centered under Jump
-	local ability = self:_makeBtn("Ability", BTN, eRight, r3, "E")
-	local qRight = eRight + BTN + GAP
-	local ultimate = self:_makeBtn("Ultimate", BTN, qRight, r3, "Q")
+	local jump        = self:_makeBtn("Jump",        P.Jump)
+	local crouchSlide = self:_makeBtn("CrouchSlide", P.CrouchSlide)
+	local fire        = self:_makeBtn("Fire",        P.Fire)
+	local ads         = self:_makeBtn("ADS",         P.ADS)
+	local reload      = self:_makeBtn("Reload",      P.Reload)
+	local ability     = self:_makeBtn("Ability",     P.Ability)
+	local ultimate    = self:_makeBtn("Ultimate",    P.Ultimate)
 
 	self._buttons.Jump       = jump
 	self._buttons.CrouchSlide = crouchSlide
@@ -320,13 +292,15 @@ local SLOT_DEFS = {
 }
 
 function MobileControls:CreateWeaponSlots()
+	local slotCfg = Positions.WeaponSlots
+
 	local container = Instance.new("Frame")
 	container.Name = "WeaponSlots"
 	container.BackgroundTransparency = 1
 	container.AnchorPoint = Vector2.new(1, 0)
 	container.AutomaticSize = Enum.AutomaticSize.XY
 	container.Size = UDim2.fromOffset(0, 0)
-	container.Position = UDim2.new(1, -EDGE, 0, SLOT_TOP)
+	container.Position = slotCfg.Position
 	container.Parent = self.ScreenGui
 	self._slotContainer = container
 
@@ -334,7 +308,7 @@ function MobileControls:CreateWeaponSlots()
 	layout.FillDirection = Enum.FillDirection.Horizontal
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, SLOT_GAP)
+	layout.Padding = UDim.new(0, slotCfg.Gap)
 	layout.Parent = container
 
 	self._slotButtons = {}
@@ -345,7 +319,7 @@ function MobileControls:CreateWeaponSlots()
 		local btn = Instance.new("TextButton")
 		btn.Name = "Slot_" .. def.slot
 		btn.LayoutOrder = i
-		btn.Size = UDim2.fromOffset(SLOT_BTN_W, SLOT_BTN_H)
+		btn.Size = UDim2.fromOffset(slotCfg.ButtonWidth, slotCfg.ButtonHeight)
 		btn.BackgroundColor3 = COLOR
 		btn.BackgroundTransparency = ALPHA
 		btn.BorderSizePixel = 0
@@ -386,17 +360,17 @@ end
 -- =============================================================================
 -- MOBILE AMMO DISPLAY (Super small, rightmost corner - reference style)
 -- =============================================================================
-local AMMO_FONT = Enum.Font.GothamBold  -- Clean bold sans-serif like reference
-local AMMO_RIGHT = 0   -- Rightmost, ignore padding
-local AMMO_BOTTOM = 28  -- Moved up from bottom edge
+local AMMO_FONT = Enum.Font.GothamBold
 
 function MobileControls:CreateMobileAmmoDisplay()
+	local ammoCfg = Positions.AmmoDisplay
+
 	local container = Instance.new("Frame")
 	container.Name = "MobileAmmoDisplay"
 	container.BackgroundTransparency = 1
 	container.AnchorPoint = Vector2.new(1, 1)
-	container.Size = UDim2.fromOffset(56, 32)
-	container.Position = UDim2.new(1, -AMMO_RIGHT, 1, -AMMO_BOTTOM)
+	container.Size = ammoCfg.Size
+	container.Position = ammoCfg.Position
 	container.Parent = self.ScreenGui
 	self._ammoDisplay = container
 
@@ -578,7 +552,12 @@ end
 -- =============================================================================
 -- BUTTON HELPERS
 -- =============================================================================
-function MobileControls:_makeBtn(name, size, rightOff, bottomOff, text)
+function MobileControls:_makeBtn(name, cfg)
+	local size = cfg.Size
+	local rightOff = cfg.RightOffset
+	local bottomOff = cfg.BottomOffset
+	local text = cfg.Label or ""
+
 	local b = Instance.new("TextButton")
 	b.Name = name
 	b.Size = UDim2.fromOffset(size, size)
@@ -613,7 +592,7 @@ function MobileControls:SetupStickInput()
 		if delta.Magnitude > 0 then
 			local dir = delta.Unit
 			local fp = dir * dist
-			local half = THUMB_SIZE / 2
+			local half = stick.ThumbSize / 2
 			stick.Stick.Position = UDim2.fromOffset(cSize.X / 2 + fp.X - half, cSize.Y / 2 + fp.Y - half)
 			local dz = 0.15
 			local norm = dist / stick.MaxRadius
@@ -684,7 +663,7 @@ function MobileControls:SetupCameraStickInput()
 		if delta.Magnitude > 0 then
 			local dir = delta.Unit
 			local fp = dir * dist
-			local half = CAM_THUMB_SIZE / 2
+			local half = stick.ThumbSize / 2
 			stick.Stick.Position = UDim2.fromOffset(cSize.X / 2 + fp.X - half, cSize.Y / 2 + fp.Y - half)
 			local dz = 0.2
 			local norm = dist / stick.MaxRadius

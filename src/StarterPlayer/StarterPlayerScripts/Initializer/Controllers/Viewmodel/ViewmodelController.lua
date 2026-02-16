@@ -291,8 +291,6 @@ function ViewmodelController:Init(registry, net)
 				self:_tryEquipSlotFromLoadout("Secondary")
 			elseif key == Enum.KeyCode.Three then
 				self:_tryEquipSlotFromLoadout("Melee")
-			elseif key == Enum.KeyCode.Four then
-				self:SetActiveSlot("Fists")
 			elseif isGamepad then
 				if isLoadoutVisible() then
 					return
@@ -637,6 +635,12 @@ function ViewmodelController:CreateLoadout(loadout: { [string]: any })
 
 	self:SetActiveSlot("Primary")
 
+	-- Deferred re-bind ensures idle/walk animations play on join (and respawn via RefreshLoadoutFromAttributes).
+	-- Without this, animations sometimes don't start until manual re-equip.
+	task.defer(function()
+		self:ForceRebindCurrentSlot()
+	end)
+
 	LogService:Info("VIEWMODEL", "CreateLoadout complete", {
 		Primary = tostring(loadout.Primary),
 		Secondary = tostring(loadout.Secondary),
@@ -677,6 +681,20 @@ function ViewmodelController:RefreshLoadoutFromAttributes()
 	end
 	self:CreateLoadout(loadout)
 	local slot = LocalPlayer:GetAttribute("EquippedSlot") or "Primary"
+	self:SetActiveSlot(slot)
+end
+
+--[[
+	Forces a re-bind of the animator to the current slot's rig.
+	Fixes idle/walk animations not playing on join or respawn until re-equip.
+]]
+function ViewmodelController:ForceRebindCurrentSlot()
+	if not self._loadoutVm or not self._activeSlot then
+		return
+	end
+	local slot = self._activeSlot
+	-- Bypass early return by temporarily clearing _activeSlot
+	self._activeSlot = nil
 	self:SetActiveSlot(slot)
 end
 

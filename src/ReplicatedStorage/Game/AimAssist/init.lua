@@ -136,6 +136,14 @@ function AimAssist:updateGamepadEligibility(keyCode: Enum.KeyCode, position: Vec
 end
 
 function AimAssist:getTouchEligibility(): boolean
+	-- Mobile-only device (phone/tablet): always eligible — cursor lock & PreferredInput
+	-- are desktop concepts that don't apply on mobile.
+	local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	if isMobile then
+		return true
+	end
+
+	-- PC with touchscreen / hybrid: use standard timeout gate
 	if UserInputService.PreferredInput ~= Enum.PreferredInput.Touch or not self.lastActiveTouch then
 		return false
 	end
@@ -164,12 +172,20 @@ function AimAssist:isEligible(): boolean
 	if self:getMouseEligibility() then
 		return true
 	end
-	
-	-- For gamepad/touch: require cursor lock (combat mode)
+
+	-- Mobile-only device: camera uses touch controls, NOT MouseBehavior.LockCenter.
+	-- CameraController explicitly skips LockCenter on touch, so isCursorLocked() is
+	-- always false on mobile. Bypass the lock check and go straight to touch eligibility.
+	local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	if isMobile then
+		return self:getTouchEligibility()
+	end
+
+	-- Desktop / gamepad: require cursor lock (combat mode)
 	if not self:isCursorLocked() then
 		return false
 	end
-	
+
 	-- Check gamepad/touch eligibility
 	return self:getGamepadEligibility() or self:getTouchEligibility()
 end

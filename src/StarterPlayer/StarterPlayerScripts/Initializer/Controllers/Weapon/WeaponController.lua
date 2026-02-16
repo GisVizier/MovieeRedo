@@ -206,6 +206,17 @@ function WeaponController:Start()
 	self:_connectMovementState()
 	self:_ensureCrosshairRotationLoop()
 
+	-- Mobile auto-shoot: fire immediately when a player/dummy is in crosshair (no ADS, no delay)
+	if UserInputService.TouchEnabled then
+		AimAssistConfig.AutoShoot.Enabled = true
+		AimAssistConfig.AutoShoot.ADSOnly = false
+		AimAssistConfig.AutoShoot.AcquisitionDelay = 0
+		AimAssistConfig.AutoShoot.MaxAngleForAutoShoot = 8
+		AimAssistConfig.Input.TouchInactivityTimeout = 1.5
+	else
+		AimAssistConfig.AutoShoot.Enabled = false
+	end
+
 	-- Initialize ammo when loadout changes
 	if LocalPlayer then
 		LocalPlayer:GetAttributeChangedSignal("SelectedLoadout"):Connect(function()

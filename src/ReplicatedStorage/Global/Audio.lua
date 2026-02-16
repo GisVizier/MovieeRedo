@@ -29,14 +29,14 @@ Audio.Sounds = {
 		SlideLaunch = { Id = Audio.SoundIds.SlideLaunch, Volume = 0.6, Pitch = 1.0 },
 		WallJump = { Id = Audio.SoundIds.WallJump, Volume = 0.6, Pitch = 1.0 },
 
-		FootstepPlastic = { Id = Audio.SoundIds.FootstepPlastic, Volume = 0.5, Pitch = 1.0 },
-		FootstepGrass = { Id = Audio.SoundIds.FootstepGrass, Volume = 0.5, Pitch = 1.0 },
-		FootstepMetal = { Id = Audio.SoundIds.FootstepMetal, Volume = 0.5, Pitch = 1.0 },
-		FootstepWood = { Id = Audio.SoundIds.FootstepWood, Volume = 0.5, Pitch = 1.0 },
-		FootstepConcrete = { Id = Audio.SoundIds.FootstepConcrete, Volume = 0.5, Pitch = 1.0 },
-		FootstepFabric = { Id = Audio.SoundIds.FootstepFabric, Volume = 0.4, Pitch = 1.0 },
-		FootstepSand = { Id = Audio.SoundIds.FootstepSand, Volume = 0.5, Pitch = 1.0 },
-		FootstepGlass = { Id = Audio.SoundIds.FootstepGlass, Volume = 0.4, Pitch = 1.0 },
+		FootstepPlastic = { Id = Audio.SoundIds.FootstepPlastic, Volume = 0.85, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepGrass = { Id = Audio.SoundIds.FootstepGrass, Volume = 0.85, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepMetal = { Id = Audio.SoundIds.FootstepMetal, Volume = 0.85, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepWood = { Id = Audio.SoundIds.FootstepWood, Volume = 0.85, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepConcrete = { Id = Audio.SoundIds.FootstepConcrete, Volume = 0.85, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepFabric = { Id = Audio.SoundIds.FootstepFabric, Volume = 0.75, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepSand = { Id = Audio.SoundIds.FootstepSand, Volume = 0.85, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
+		FootstepGlass = { Id = Audio.SoundIds.FootstepGlass, Volume = 0.75, Pitch = 1.0, MinDistance = 5, MaxDistance = 80 },
 	},
 }
 

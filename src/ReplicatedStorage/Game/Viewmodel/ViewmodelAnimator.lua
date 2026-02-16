@@ -372,14 +372,13 @@ function ViewmodelAnimator:BindRig(rig, weaponId: string?, skinId: string?)
 	self:Play("Idle", 0.15, true)
 	self._currentMove = "Idle"
 
+	-- Mark as initialized immediately so movement updates (Idle/Walk/Run) run right away.
+	-- The previous 0.1s delay caused animations to not play on join/respawn until re-equip.
+	self._initialized = true
+
 	-- Start the movement update loop immediately
 	self._conn = RunService.Heartbeat:Connect(function(dt)
 		self:_updateMovement(dt)
-	end)
-
-	-- Mark as initialized after a short delay to ensure animation system is ready
-	task.delay(0.1, function()
-		self._initialized = true
 	end)
 end
 
