@@ -6,6 +6,7 @@
 ]]
 
 local ExecutionerBlade = {}
+local Attack = require(script:WaitForChild("Attack"))
 
 ExecutionerBlade.Cancels = {
 	FireCancelsSpecial = true,     -- Attack cancels special windup
@@ -73,6 +74,10 @@ function ExecutionerBlade.CanSpecial(weaponInstance)
 	end
 
 	return true
+end
+
+function ExecutionerBlade.QuickAction(weaponInstance, currentTime)
+	return Attack.Execute(weaponInstance, currentTime)
 end
 
 return ExecutionerBlade

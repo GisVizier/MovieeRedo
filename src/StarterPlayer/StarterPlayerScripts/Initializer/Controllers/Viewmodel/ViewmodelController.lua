@@ -70,6 +70,7 @@ ViewmodelController._startMatchConn = nil
 ViewmodelController._attrConn = nil
 ViewmodelController._ziplineAttrConn = nil
 ViewmodelController._equipKeysConn = nil
+ViewmodelController._skipNextEquipAnimation = false
 
 ViewmodelController._rigStorage = nil
 ViewmodelController._storedRigs = nil
@@ -264,14 +265,14 @@ function ViewmodelController:Init(registry, net)
 		local manager = inputController and inputController.Manager or nil
 
 		self._equipKeysConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-			local key = input.KeyCode
 			local isGamepad = input.UserInputType == Enum.UserInputType.Gamepad1
 				or input.UserInputType == Enum.UserInputType.Gamepad2
 				or input.UserInputType == Enum.UserInputType.Gamepad3
 				or input.UserInputType == Enum.UserInputType.Gamepad4
-			local isShoulder = key == Enum.KeyCode.ButtonL1 or key == Enum.KeyCode.ButtonR1
+			local isCycleInput = manager
+				and (manager:IsKeybind(input, "CycleWeaponLeft") or manager:IsKeybind(input, "CycleWeaponRight"))
 
-			if gameProcessed and not (isGamepad and isShoulder and isHudVisible() and not isLoadoutVisible()) then
+			if gameProcessed and not (isGamepad and isCycleInput and isHudVisible() and not isLoadoutVisible()) then
 				return
 			end
 
@@ -285,22 +286,22 @@ function ViewmodelController:Init(registry, net)
 				end
 			end
 
-			if key == Enum.KeyCode.One then
+			if not manager then
+				return
+			end
+
+			if manager:IsKeybind(input, "EquipPrimary") then
 				self:_tryEquipSlotFromLoadout("Primary")
-			elseif key == Enum.KeyCode.Two then
+			elseif manager:IsKeybind(input, "EquipSecondary") then
 				self:_tryEquipSlotFromLoadout("Secondary")
-			elseif key == Enum.KeyCode.Three then
+			elseif manager:IsKeybind(input, "EquipMelee") then
 				self:_tryEquipSlotFromLoadout("Melee")
-			elseif isGamepad then
-				if isLoadoutVisible() then
-					return
-				end
-				if not isHudVisible() then
-					return
-				end
-				if key == Enum.KeyCode.ButtonL1 then
+			elseif manager:IsKeybind(input, "CycleWeaponLeft") then
+				if not isLoadoutVisible() and isHudVisible() then
 					self:_cycleEquipSlot(-1)
-				elseif key == Enum.KeyCode.ButtonR1 then
+				end
+			elseif manager:IsKeybind(input, "CycleWeaponRight") then
+				if not isLoadoutVisible() and isHudVisible() then
 					self:_cycleEquipSlot(1)
 				end
 			end
@@ -698,6 +699,10 @@ function ViewmodelController:ForceRebindCurrentSlot()
 	self:SetActiveSlot(slot)
 end
 
+function ViewmodelController:SkipNextEquipAnimation()
+	self._skipNextEquipAnimation = true
+end
+
 function ViewmodelController:SetActiveSlot(slot: string)
 	if type(slot) ~= "string" then
 		return
@@ -756,7 +761,10 @@ function ViewmodelController:SetActiveSlot(slot: string)
 		self._animator:BindRig(rig, weaponId, skinId)
 	end
 
-	if self._animator then
+	local shouldPlayEquipAnimation = self._skipNextEquipAnimation ~= true
+	self._skipNextEquipAnimation = false
+
+	if shouldPlayEquipAnimation and self._animator then
 		self._animator:Play("Equip", 0.1, true)
 	end
 	if self._ziplineActive and self._animator then

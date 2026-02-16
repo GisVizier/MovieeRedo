@@ -607,12 +607,12 @@ SettingsConfig.Categories = {
 				Bind = {
 					PC = Enum.KeyCode.E,
 					PC2 = nil,
-					Console = Enum.KeyCode.ButtonX,
+					Console = Enum.KeyCode.DPadRight,
 				},
 				DefaultBind = {
 					PC = Enum.KeyCode.E,
 					PC2 = nil,
-					Console = Enum.KeyCode.ButtonX,
+					Console = Enum.KeyCode.DPadRight,
 				},
 			},
 
@@ -680,6 +680,96 @@ SettingsConfig.Categories = {
 					{ Display = "Toggle", Value = "Toggle" },
 				},
 				Default = 1,
+			},
+
+			EquipPrimary = {
+				Name = "Equip Primary",
+				Description = "Select primary weapon.",
+				Order = 19,
+				SettingType = "keybind",
+				Action = "EquipPrimary",
+				Bind = {
+					PC = Enum.KeyCode.One,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.One,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
+			EquipSecondary = {
+				Name = "Equip Secondary",
+				Description = "Select secondary weapon.",
+				Order = 19.1,
+				SettingType = "keybind",
+				Action = "EquipSecondary",
+				Bind = {
+					PC = Enum.KeyCode.Two,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.Two,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
+			EquipMelee = {
+				Name = "Equip Melee",
+				Description = "Select melee weapon.",
+				Order = 19.2,
+				SettingType = "keybind",
+				Action = "EquipMelee",
+				Bind = {
+					PC = Enum.KeyCode.Three,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.Three,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
+			CycleWeaponLeft = {
+				Name = "Cycle Weapon Left",
+				Description = "Cycle to previous weapon.",
+				Order = 19.3,
+				SettingType = "keybind",
+				Action = "CycleWeaponLeft",
+				Bind = {
+					PC = nil,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonL1,
+				},
+				DefaultBind = {
+					PC = nil,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonL1,
+				},
+			},
+
+			CycleWeaponRight = {
+				Name = "Cycle Weapon Right",
+				Description = "Cycle to next weapon.",
+				Order = 19.4,
+				SettingType = "keybind",
+				Action = "CycleWeaponRight",
+				Bind = {
+					PC = nil,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonR1,
+				},
+				DefaultBind = {
+					PC = nil,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonR1,
+				},
 			},
 
 			Divider2 = {
@@ -937,7 +1027,7 @@ SettingsConfig.DefaultSettings = {
 		Ability = {
 			PC = Enum.KeyCode.E,
 			PC2 = nil,
-			Console = Enum.KeyCode.ButtonX,
+			Console = Enum.KeyCode.DPadRight,
 		},
 		Ultimate = {
 			PC = Enum.KeyCode.Q,
@@ -955,6 +1045,31 @@ SettingsConfig.DefaultSettings = {
 			Console = Enum.KeyCode.DPadDown,
 		},
 		EmoteWheelMode = 1, -- 1 = Hold, 2 = Toggle
+		EquipPrimary = {
+			PC = Enum.KeyCode.One,
+			PC2 = nil,
+			Console = nil,
+		},
+		EquipSecondary = {
+			PC = Enum.KeyCode.Two,
+			PC2 = nil,
+			Console = nil,
+		},
+		EquipMelee = {
+			PC = Enum.KeyCode.Three,
+			PC2 = nil,
+			Console = nil,
+		},
+		CycleWeaponLeft = {
+			PC = nil,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonL1,
+		},
+		CycleWeaponRight = {
+			PC = nil,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonR1,
+		},
 	},
 
 	Crosshair = {

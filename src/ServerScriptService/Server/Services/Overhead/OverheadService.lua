@@ -1,12 +1,12 @@
 --[[
 	OverheadService.lua
-	Server-side service that manages lobby overhead BillboardGuis.
+	Server-side service that manages overhead BillboardGuis.
 
 	Clones the template from ReplicatedStorage.Assets.Overhead and attaches
-	it to each player's character while they are in the lobby.
+	it to each player's character while they are in Lobby or Training.
 
 	Displays: player name (with premium/verified badges), platform icon,
-	win count, and kill streak.
+	win count, kill streak, and role badge.
 ]]
 
 local Players = game:GetService("Players")
@@ -29,7 +29,7 @@ local PLATFORM_LABELS = {
 	Mobile = "MBL",
 }
 
-local PREMIUM_CHAR = utf8.char(0xE002)
+local PREMIUM_CHAR = utf8.char(0xE001)
 local VERIFIED_CHAR = utf8.char(0xE000)
 local GROUP_ID = (game.CreatorType == Enum.CreatorType.Group) and game.CreatorId or 0
 
@@ -45,6 +45,11 @@ OverheadService._overheads = {}
 OverheadService._template = nil
 OverheadService._registry = nil
 OverheadService._net = nil
+
+local function shouldShowOverhead(player)
+	local state = player:GetAttribute("PlayerState")
+	return state == "Lobby" or state == "Training"
+end
 
 -- =============================================================================
 -- LIFECYCLE
@@ -86,16 +91,15 @@ end
 
 function OverheadService:_setupPlayer(player)
 	player:GetAttributeChangedSignal("PlayerState"):Connect(function()
-		local state = player:GetAttribute("PlayerState")
-		if state == "Lobby" then
+		if shouldShowOverhead(player) then
 			self:_tryAttachOverhead(player)
 		else
 			self:_removeOverhead(player)
 		end
 	end)
 
-	-- Handle player already in lobby
-	if player:GetAttribute("PlayerState") == "Lobby" then
+	-- Handle player already in a state that should show overhead.
+	if shouldShowOverhead(player) then
 		self:_tryAttachOverhead(player)
 	end
 end

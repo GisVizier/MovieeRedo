@@ -6,6 +6,7 @@
 ]]
 
 local Tomahawk = {}
+local Attack = require(script:WaitForChild("Attack"))
 
 Tomahawk.Cancels = {
 	FireCancelsSpecial = false,
@@ -75,6 +76,10 @@ function Tomahawk.CanSpecial(weaponInstance)
 	end
 
 	return true
+end
+
+function Tomahawk.QuickAction(weaponInstance, currentTime)
+	return Attack.Execute(weaponInstance, currentTime)
 end
 
 return Tomahawk

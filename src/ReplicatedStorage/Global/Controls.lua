@@ -18,6 +18,7 @@ Controls.Input = {
 	Fire = Enum.UserInputType.MouseButton1,
 	Special = Enum.UserInputType.MouseButton2,  -- ADS
 	Reload = Enum.KeyCode.R,
+	QuickMelee = Enum.KeyCode.F,
 	Inspect = Enum.KeyCode.F,
 	Ability = Enum.KeyCode.E,
 	Ultimate = Enum.KeyCode.Q,
@@ -31,6 +32,7 @@ Controls.Input = {
 	ControllerFire = Enum.KeyCode.ButtonR2,
 	ControllerSpecial = Enum.KeyCode.ButtonL2,  -- ADS
 	ControllerReload = Enum.KeyCode.ButtonX,
+	ControllerQuickMelee = Enum.KeyCode.ButtonY,
 	ControllerAbility = Enum.KeyCode.ButtonL1,
 	ControllerUltimate = Enum.KeyCode.ButtonY,
 
@@ -209,6 +211,13 @@ Controls.CustomizableKeybinds = {
 		Category = "Combat",
 	},
 	{
+		Key = "QuickMelee",
+		Label = "Quick Melee",
+		DefaultPrimary = Enum.KeyCode.F,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
 		Key = "Inspect",
 		Label = "Inspect Weapon",
 		DefaultPrimary = Enum.KeyCode.F,
@@ -226,6 +235,27 @@ Controls.CustomizableKeybinds = {
 		Key = "Ultimate",
 		Label = "Use Ultimate",
 		DefaultPrimary = Enum.KeyCode.Q,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
+		Key = "EquipPrimary",
+		Label = "Equip Primary",
+		DefaultPrimary = Enum.KeyCode.One,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
+		Key = "EquipSecondary",
+		Label = "Equip Secondary",
+		DefaultPrimary = Enum.KeyCode.Two,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
+		Key = "EquipMelee",
+		Label = "Equip Melee",
+		DefaultPrimary = Enum.KeyCode.Three,
 		DefaultSecondary = nil,
 		Category = "Combat",
 	},
@@ -302,16 +332,23 @@ Controls.CustomizableControllerKeybinds = {
 		Category = "Combat",
 	},
 	{
+		Key = "QuickMelee",
+		Label = "Quick Melee",
+		DefaultPrimary = Enum.KeyCode.ButtonY,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
 		Key = "Inspect",
 		Label = "Inspect Weapon",
-		DefaultPrimary = Enum.KeyCode.DPadRight,
+		DefaultPrimary = nil,
 		DefaultSecondary = nil,
 		Category = "Combat",
 	},
 	{
 		Key = "Ability",
 		Label = "Use Ability",
-		DefaultPrimary = Enum.KeyCode.ButtonL1,
+		DefaultPrimary = Enum.KeyCode.DPadRight,
 		DefaultSecondary = nil,
 		Category = "Combat",
 	},
@@ -322,7 +359,21 @@ Controls.CustomizableControllerKeybinds = {
 		DefaultSecondary = nil,
 		Category = "Combat",
 	},
-	
+	{
+		Key = "CycleWeaponLeft",
+		Label = "Cycle Weapon Left",
+		DefaultPrimary = Enum.KeyCode.ButtonL1,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+	{
+		Key = "CycleWeaponRight",
+		Label = "Cycle Weapon Right",
+		DefaultPrimary = Enum.KeyCode.ButtonR1,
+		DefaultSecondary = nil,
+		Category = "Combat",
+	},
+
 	-- Camera & UI
 	{
 		Key = "ToggleCameraMode",

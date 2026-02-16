@@ -46,6 +46,7 @@ InputManager.Callbacks = {
 	Ultimate = {},
 	Fire = {},
 	Reload = {},
+	QuickMelee = {},
 	Inspect = {},
 	Special = {},
 	Camera = {},
@@ -206,6 +207,7 @@ function InputManager:StopAllInputs()
 	self:FireCallbacks("Slide", false)
 	self:FireCallbacks("Fire", false)
 	self:FireCallbacks("Special", false)
+	self:FireCallbacks("QuickMelee", false)
 	self:FireCallbacks("Camera", Vector2.new(0, 0))
 end
 
@@ -254,6 +256,8 @@ function InputManager:SetupKeyboardMouse()
 			self:FireCallbacks("Special", true)
 		elseif self:IsKeybind(input, "Reload") then
 			self:FireCallbacks("Reload", true)
+		elseif self:IsKeybind(input, "QuickMelee") then
+			self:FireCallbacks("QuickMelee", true)
 		elseif self:IsKeybind(input, "Inspect") then
 			self:FireCallbacks("Inspect", true)
 		elseif self:IsKeybind(input, "MoveForward") then
@@ -316,6 +320,8 @@ function InputManager:SetupKeyboardMouse()
 			self:FireCallbacks("Special", false)
 		elseif self:IsKeybind(input, "Reload") then
 			self:FireCallbacks("Reload", false)
+		elseif self:IsKeybind(input, "QuickMelee") then
+			self:FireCallbacks("QuickMelee", false)
 		elseif self:IsKeybind(input, "Inspect") then
 			self:FireCallbacks("Inspect", false)
 		elseif self:IsKeybind(input, "MoveForward") then
@@ -515,6 +521,8 @@ function InputManager:SetupGamepad()
 			self:FireCallbacks("Special", true)
 		elseif self:IsKeybind(input, "Reload") then
 			self:FireCallbacks("Reload", true)
+		elseif self:IsKeybind(input, "QuickMelee") then
+			self:FireCallbacks("QuickMelee", true)
 		elseif self:IsKeybind(input, "Inspect") then
 			self:FireCallbacks("Inspect", true)
 		elseif self:IsKeybind(input, "Ability") then
@@ -569,6 +577,8 @@ function InputManager:SetupGamepad()
 			self:FireCallbacks("Special", false)
 		elseif self:IsKeybind(input, "Reload") then
 			self:FireCallbacks("Reload", false)
+		elseif self:IsKeybind(input, "QuickMelee") then
+			self:FireCallbacks("QuickMelee", false)
 		elseif self:IsKeybind(input, "Inspect") then
 			self:FireCallbacks("Inspect", false)
 		elseif self:IsKeybind(input, "Ability") then

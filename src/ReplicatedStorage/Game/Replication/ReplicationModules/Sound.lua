@@ -25,10 +25,10 @@ local Sound = {}
 Sound._loopedSounds = {}
 
 local REPLICATED_MOVEMENT_VOLUME = 1.25
-local REPLICATED_MOVEMENT_ROLLOFF_MODE = Enum.RollOffMode.Inverse
-local REPLICATED_MOVEMENT_ROLLOFF_MIN_DISTANCE = 12
-local REPLICATED_MOVEMENT_ROLLOFF_MAX_DISTANCE = 300
-local REPLICATED_MOVEMENT_EMITTER_SIZE = 12
+local REPLICATED_MOVEMENT_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
+local REPLICATED_MOVEMENT_MIN_DISTANCE = 5.65
+local REPLICATED_MOVEMENT_MAX_DISTANCE = 165
+local REPLICATED_FOOTSTEP_VOLUME_MULT = 0.35
 
 local LOOPED_SOUNDS = {
 	Falling = true,
@@ -70,13 +70,22 @@ local function createSoundInstance(definition, parent, pitch, looped)
 	local sound = Instance.new("Sound")
 	sound.SoundId = definition.Id
 	sound.Volume = REPLICATED_MOVEMENT_VOLUME
+	if definition.Id == Config.Audio.SoundIds.FootstepPlastic
+		or definition.Id == Config.Audio.SoundIds.FootstepGrass
+		or definition.Id == Config.Audio.SoundIds.FootstepMetal
+		or definition.Id == Config.Audio.SoundIds.FootstepWood
+		or definition.Id == Config.Audio.SoundIds.FootstepConcrete
+		or definition.Id == Config.Audio.SoundIds.FootstepFabric
+		or definition.Id == Config.Audio.SoundIds.FootstepSand
+		or definition.Id == Config.Audio.SoundIds.FootstepGlass then
+		sound.Volume *= REPLICATED_FOOTSTEP_VOLUME_MULT
+	end
 	if type(pitch) == "number" then
 		sound.PlaybackSpeed = pitch
 	end
 	sound.RollOffMode = REPLICATED_MOVEMENT_ROLLOFF_MODE
-	sound.RollOffMinDistance = REPLICATED_MOVEMENT_ROLLOFF_MIN_DISTANCE
-	sound.RollOffMaxDistance = REPLICATED_MOVEMENT_ROLLOFF_MAX_DISTANCE
-	sound.EmitterSize = REPLICATED_MOVEMENT_EMITTER_SIZE
+	sound.RollOffMinDistance = REPLICATED_MOVEMENT_MIN_DISTANCE
+	sound.RollOffMaxDistance = REPLICATED_MOVEMENT_MAX_DISTANCE
 	sound.Looped = looped or false
 	sound.SoundGroup = getMovementSoundGroup()
 	sound.Parent = parent

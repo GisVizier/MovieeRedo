@@ -93,6 +93,8 @@ WeaponController._crosshairRotation = 0
 WeaponController._crosshairRotationTarget = 0
 WeaponController._crosshairRotationConn = nil
 WeaponController._debugRaycastKeyConn = nil
+WeaponController._quickMeleeToken = 0
+WeaponController._quickMeleeSession = nil
 WeaponController._replicatedMovementTrack = nil
 
 -- =============================================================================
@@ -295,6 +297,12 @@ function WeaponController:_connectInputs()
 	self._inputManager:ConnectToInput("Special", function(isPressed)
 		self:Special(isPressed)
 	end)
+
+	self._inputManager:ConnectToInput("QuickMelee", function(isPressed)
+		if isPressed then
+			self:QuickMelee()
+		end
+	end)
 end
 
 function WeaponController:_connectDebugRaycastKey()
@@ -383,6 +391,8 @@ function WeaponController:_syncReplicatedMovementTrack()
 end
 
 function WeaponController:_onSlotChanged(slot)
+	self:_onQuickMeleeSlotChanged(slot)
+
 	if not slot or slot == "Fists" then
 		self:_unequipCurrentWeapon()
 		return
@@ -599,10 +609,18 @@ function WeaponController:_equipWeapon(weaponId, slot)
 
 	-- Initialize and equip
 	if self._currentActions.Main then
+		local quickSession = self._quickMeleeSession
+		local shouldSkipOnEquip = quickSession
+			and quickSession.skipEquipAnimation == true
+			and slot == "Melee"
+
 		if self._currentActions.Main.Initialize then
 			self._currentActions.Main.Initialize(self._weaponInstance)
 		end
-		if self._currentActions.Main.OnEquip then
+
+		if shouldSkipOnEquip then
+			quickSession.skipEquipAnimation = false
+		elseif self._currentActions.Main.OnEquip then
 			self._currentActions.Main.OnEquip(self._weaponInstance)
 		end
 	end
@@ -953,16 +971,23 @@ function WeaponController:_updateWeaponInstanceState()
 
 	local slot = self:_getCurrentSlot()
 	local ammo = self._ammo and self._ammo:GetAmmo(slot) or nil
+	local previousState = self._weaponInstance.State
+	local nextState = {}
+	if type(previousState) == "table" then
+		for key, value in pairs(previousState) do
+			nextState[key] = value
+		end
+	end
 
-	self._weaponInstance.State = {
-		CurrentAmmo = ammo and ammo.currentAmmo or 0,
-		ReserveAmmo = ammo and ammo.reserveAmmo or 0,
-		IsReloading = self._isReloading,
-		ReloadFireLocked = self._reloadFireLocked,
-		IsAttacking = self._isFiring,
-		LastFireTime = self._lastFireTime,
-		Equipped = self:_isActiveWeaponEquipped(),
-	}
+	nextState.CurrentAmmo = ammo and ammo.currentAmmo or 0
+	nextState.ReserveAmmo = ammo and ammo.reserveAmmo or 0
+	nextState.IsReloading = self._isReloading
+	nextState.ReloadFireLocked = self._reloadFireLocked
+	nextState.IsAttacking = self._isFiring
+	nextState.LastFireTime = self._lastFireTime
+	nextState.Equipped = self:_isActiveWeaponEquipped()
+
+	self._weaponInstance.State = nextState
 end
 
 -- =============================================================================
@@ -1048,6 +1073,314 @@ function WeaponController:_onFirePressed()
 	-- Update state after attack
 	self._lastFireTime = currentTime
 	self:_updateWeaponInstanceState()
+end
+
+function WeaponController:_canQuickMeleeFromWeapon(weaponConfig)
+	if not weaponConfig then
+		return false
+	end
+
+	local actionFlags = weaponConfig.actions
+	if actionFlags and actionFlags.canQuickUseMelee ~= nil then
+		return actionFlags.canQuickUseMelee == true
+	end
+
+	return weaponConfig.weaponType ~= "Melee"
+end
+
+function WeaponController:_clearQuickMeleeSession()
+	self._quickMeleeSession = nil
+end
+
+function WeaponController:_startQuickMeleeSession(returnSlot)
+	self._quickMeleeToken = (self._quickMeleeToken or 0) + 1
+
+	local session = {
+		id = self._quickMeleeToken,
+		returnSlot = returnSlot,
+		returnPending = type(returnSlot) == "string" and returnSlot ~= "" and returnSlot ~= "Melee",
+		isReturning = false,
+		skipEquipAnimation = true,
+		readyToReturnAt = os.clock() + 0.12,
+		nextReturnAttemptAt = 0,
+	}
+
+	self._quickMeleeSession = session
+	return session
+end
+
+function WeaponController:_isQuickMeleeSessionActive(sessionId)
+	local session = self._quickMeleeSession
+	return session ~= nil and session.id == sessionId
+end
+
+function WeaponController:_onQuickMeleeSlotChanged(slot)
+	local session = self._quickMeleeSession
+	if not session then
+		return
+	end
+
+	if session.isReturning then
+		self:_clearQuickMeleeSession()
+		return
+	end
+
+	-- Player manually swapped off melee during quick action: treat as canceled.
+	if slot ~= "Melee" then
+		self:_clearQuickMeleeSession()
+	end
+end
+
+function WeaponController:_isQuickMeleeActionBlocking()
+	if self._isReloading or self._isFiring then
+		return true
+	end
+
+	local actions = self._currentActions
+	if not actions then
+		return false
+	end
+
+	if actions.Special and type(actions.Special.IsActive) == "function" then
+		local ok, active = pcall(function()
+			return actions.Special.IsActive()
+		end)
+		if ok and active == true then
+			return true
+		end
+	end
+
+	if actions.Inspect and type(actions.Inspect.IsInspecting) == "function" then
+		local ok, inspecting = pcall(function()
+			return actions.Inspect.IsInspecting()
+		end)
+		if ok and inspecting == true then
+			return true
+		end
+	end
+
+	if actions.Attack and type(actions.Attack.IsActive) == "function" then
+		local ok, attacking = pcall(function()
+			return actions.Attack.IsActive()
+		end)
+		if ok and attacking == true then
+			return true
+		end
+	end
+
+	return false
+end
+
+function WeaponController:_attemptQuickMeleeReturn(session)
+	if not self._viewmodelController then
+		self:_clearQuickMeleeSession()
+		return
+	end
+
+	local returnSlot = session.returnSlot
+	if type(returnSlot) ~= "string" or returnSlot == "" or returnSlot == "Melee" then
+		self:_clearQuickMeleeSession()
+		return
+	end
+
+	session.isReturning = true
+	session.nextReturnAttemptAt = os.clock() + 0.1
+
+	if type(self._viewmodelController._tryEquipSlotFromLoadout) == "function" then
+		self._viewmodelController:_tryEquipSlotFromLoadout(returnSlot)
+		return
+	end
+
+	if type(self._viewmodelController.SetActiveSlot) == "function" then
+		self._viewmodelController:SetActiveSlot(returnSlot)
+		return
+	end
+
+	self:_clearQuickMeleeSession()
+end
+
+function WeaponController:_scheduleQuickMeleeReturn(sessionId)
+	task.spawn(function()
+		while true do
+			local session = self._quickMeleeSession
+			if not session or session.id ~= sessionId then
+				return
+			end
+
+			if not session.returnPending then
+				self:_clearQuickMeleeSession()
+				return
+			end
+
+			local activeSlot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
+			if session.isReturning then
+				if activeSlot == session.returnSlot then
+					self:_clearQuickMeleeSession()
+					return
+				end
+				if activeSlot ~= "Melee" then
+					self:_clearQuickMeleeSession()
+					return
+				end
+			elseif activeSlot ~= "Melee" then
+				-- Manual slot change canceled quick melee.
+				self:_clearQuickMeleeSession()
+				return
+			end
+
+			local now = os.clock()
+			if now < session.readyToReturnAt then
+				RunService.Heartbeat:Wait()
+				continue
+			end
+
+			if self:_isQuickMeleeActionBlocking() then
+				RunService.Heartbeat:Wait()
+				continue
+			end
+
+			if now >= (session.nextReturnAttemptAt or 0) then
+				self:_attemptQuickMeleeReturn(session)
+			end
+
+			RunService.Heartbeat:Wait()
+		end
+	end)
+end
+
+function WeaponController:_requestEquipMelee()
+	if not self._viewmodelController then
+		return false
+	end
+
+	local loadout = self._viewmodelController._loadout
+	if type(loadout) ~= "table" then
+		return false
+	end
+
+	local meleeWeaponId = loadout.Melee
+	if type(meleeWeaponId) ~= "string" or meleeWeaponId == "" then
+		return false
+	end
+
+	if type(self._viewmodelController.SkipNextEquipAnimation) == "function" then
+		self._viewmodelController:SkipNextEquipAnimation()
+	end
+
+	if type(self._viewmodelController._tryEquipSlotFromLoadout) == "function" then
+		self._viewmodelController:_tryEquipSlotFromLoadout("Melee")
+	elseif type(self._viewmodelController.SetActiveSlot) == "function" then
+		self._viewmodelController:SetActiveSlot("Melee")
+	else
+		return false
+	end
+
+	return true
+end
+
+function WeaponController:_executeQuickMeleeAction()
+	if not self._weaponInstance or not self._currentActions then
+		return false, "NoWeapon"
+	end
+
+	if self._weaponInstance.WeaponType ~= "Melee" then
+		return false, "NotMelee"
+	end
+
+	if not self:_isActiveWeaponEquipped() then
+		return false, "NotEquipped"
+	end
+
+	self:_updateWeaponInstanceState()
+
+	local now = workspace:GetServerTimeNow()
+	local main = self._currentActions.Main
+	if main and type(main.QuickAction) == "function" then
+		return main.QuickAction(self._weaponInstance, now)
+	end
+
+	local quickAction = self._currentActions.QuickAction
+	if quickAction and type(quickAction.Execute) == "function" then
+		return quickAction.Execute(self._weaponInstance, now)
+	end
+
+	if self._currentActions.Attack and type(self._currentActions.Attack.Execute) == "function" then
+		return self._currentActions.Attack.Execute(self._weaponInstance, now)
+	end
+
+	return false, "NoQuickAction"
+end
+
+function WeaponController:QuickMelee()
+	if not self._viewmodelController then
+		return false, "NoViewmodel"
+	end
+
+	local activeSlot = self._viewmodelController:GetActiveSlot()
+	local needsEquip = activeSlot ~= "Melee"
+	local returnSlot = needsEquip and activeSlot or nil
+
+	if needsEquip then
+		local currentConfig = self._weaponInstance and self._weaponInstance.Config
+		if not self:_canQuickMeleeFromWeapon(currentConfig) then
+			return false, "QuickMeleeDisabled"
+		end
+	end
+
+	local session = self:_startQuickMeleeSession(returnSlot)
+
+	if needsEquip and not self:_requestEquipMelee() then
+		self:_clearQuickMeleeSession()
+		return false, "NoMelee"
+	end
+
+	local sessionId = session.id
+
+	task.spawn(function()
+		if needsEquip then
+			local deadline = os.clock() + 0.35
+			while os.clock() < deadline do
+				if not self:_isQuickMeleeSessionActive(sessionId) then
+					return
+				end
+
+				local currentSlot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
+				if currentSlot == "Melee" and self._weaponInstance and self._weaponInstance.WeaponType == "Melee" then
+					break
+				end
+
+				RunService.Heartbeat:Wait()
+			end
+		end
+
+		if not self:_isQuickMeleeSessionActive(sessionId) then
+			return
+		end
+
+		if not self._weaponInstance or self._weaponInstance.WeaponType ~= "Melee" then
+			self:_clearQuickMeleeSession()
+			return
+		end
+
+		self:_executeQuickMeleeAction()
+
+		if not self:_isQuickMeleeSessionActive(sessionId) then
+			return
+		end
+
+		local activeSession = self._quickMeleeSession
+		if not activeSession or activeSession.id ~= sessionId then
+			return
+		end
+
+		if activeSession.returnPending then
+			self:_scheduleQuickMeleeReturn(sessionId)
+		else
+			self:_clearQuickMeleeSession()
+		end
+	end)
+
+	return true
 end
 
 function WeaponController:Reload()

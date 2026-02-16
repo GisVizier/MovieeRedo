@@ -7,6 +7,8 @@ local UserInputService = game:GetService("UserInputService")
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local LoadoutConfig = require(Configs.LoadoutConfig)
 local KitConfig = require(Configs.KitConfig)
+local ActionsIcon = require(Configs.ActionsIcon)
+local SharedConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Config"))
 local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 local TweenConfig = require(script.TweenConfig)
 
@@ -77,6 +79,33 @@ local HEALTH_SHAKE_TWEEN = TweenInfo.new(0.025, Enum.EasingStyle.Quad, Enum.Easi
 local healthShakeRandom = Random.new()
 
 local currentTweens = {}
+local CONTROLLER_INPUT_TYPES = {
+	[Enum.UserInputType.Gamepad1] = true,
+	[Enum.UserInputType.Gamepad2] = true,
+	[Enum.UserInputType.Gamepad3] = true,
+	[Enum.UserInputType.Gamepad4] = true,
+}
+local KEY_LABEL_OVERRIDES = {
+	[Enum.KeyCode.ButtonA] = "A",
+	[Enum.KeyCode.ButtonB] = "B",
+	[Enum.KeyCode.ButtonX] = "X",
+	[Enum.KeyCode.ButtonY] = "TRIANGLE",
+	[Enum.KeyCode.ButtonL1] = "L1",
+	[Enum.KeyCode.ButtonR1] = "R1",
+	[Enum.KeyCode.ButtonL2] = "L2",
+	[Enum.KeyCode.ButtonR2] = "R2",
+	[Enum.KeyCode.ButtonL3] = "L3",
+	[Enum.KeyCode.ButtonR3] = "R3",
+	[Enum.KeyCode.DPadUp] = "D-PAD UP",
+	[Enum.KeyCode.DPadDown] = "D-PAD DOWN",
+	[Enum.KeyCode.DPadLeft] = "D-PAD LEFT",
+	[Enum.KeyCode.DPadRight] = "D-PAD RIGHT",
+}
+local USER_INPUT_LABEL_OVERRIDES = {
+	[Enum.UserInputType.MouseButton1] = "M1",
+	[Enum.UserInputType.MouseButton2] = "M2",
+	[Enum.UserInputType.MouseButton3] = "M3",
+}
 
 local function cancelTweens(key)
 	if currentTweens[key] then
@@ -111,6 +140,68 @@ end
 
 local function getRarityColor(rarityName)
 	return LoadoutConfig.getRarityColor(rarityName)
+end
+
+function module:_isControllerInputActive()
+	local lastInputType = UserInputService:GetLastInputType()
+	return CONTROLLER_INPUT_TYPES[lastInputType] == true
+end
+
+function module:_formatKeybindLabel(keybind)
+	if typeof(keybind) == "EnumItem" then
+		if keybind.EnumType == Enum.KeyCode then
+			local label = KEY_LABEL_OVERRIDES[keybind]
+			if label then
+				return label
+			end
+
+			local keyName = keybind.Name
+			keyName = keyName:gsub("Button", "")
+			keyName = keyName:gsub("DPad", "D-PAD ")
+			return keyName
+		end
+
+		if keybind.EnumType == Enum.UserInputType then
+			return USER_INPUT_LABEL_OVERRIDES[keybind] or keybind.Name
+		end
+	end
+
+	if type(keybind) == "string" then
+		return keybind
+	end
+
+	return ""
+end
+
+function module:_getActionKeyLabel(actionKey, fallback)
+	local controls = SharedConfig and SharedConfig.Controls
+	if not controls then
+		return fallback or ""
+	end
+
+	local keybinds = self:_isControllerInputActive() and controls.CustomizableControllerKeybinds
+		or controls.CustomizableKeybinds
+	if type(keybinds) ~= "table" then
+		return fallback or ""
+	end
+
+	for _, keybindInfo in ipairs(keybinds) do
+		if keybindInfo.Key == actionKey then
+			local primaryLabel = self:_formatKeybindLabel(keybindInfo.DefaultPrimary)
+			if primaryLabel ~= "" then
+				return primaryLabel
+			end
+
+			local secondaryLabel = self:_formatKeybindLabel(keybindInfo.DefaultSecondary)
+			if secondaryLabel ~= "" then
+				return secondaryLabel
+			end
+
+			break
+		end
+	end
+
+	return fallback or ""
 end
 
 function module.start(export, ui: UI)
@@ -661,6 +752,15 @@ function module:_cacheWeaponUI()
 			end
 		end
 	end
+
+	-- Cache LB/RB bumper info frame for controller cycling display
+	local bumperInfo = actionsFrame:FindFirstChild("Info") or self._itemHolderSpace:FindFirstChild("Info")
+	if bumperInfo then
+		self._bumperInfoFrame = bumperInfo
+		self._bumperLb = bumperInfo:FindFirstChild("Lb")
+		self._bumperRb = bumperInfo:FindFirstChild("Rb")
+		bumperInfo.Visible = false
+	end
 end
 
 function module:setViewedPlayer(player, character)
@@ -1084,6 +1184,106 @@ function module:_setupCooldownText(templateData, isOnCooldown, cooldownTime)
 	end)
 end
 
+function module:_setupCooldownBar(templateData, isOnCooldown, cooldownTime)
+	if not templateData or not templateData.cooldownFrame or not templateData.cooldownGradient then
+		return
+	end
+
+	local key = "cooldown_bar_" .. templateData.slot
+	cancelTweens(key)
+
+	if not isOnCooldown then
+		templateData.cooldownFrame.Visible = false
+		templateData.cooldownGradient.Offset = Vector2.new(0, 0)
+		return
+	end
+
+	local duration = cooldownTime and cooldownTime > 0 and cooldownTime or TweenConfig.Values.ReloadDuration
+
+	templateData.cooldownFrame.Visible = true
+	templateData.cooldownGradient.Offset = Vector2.new(0, 0)
+
+	local gradTween = TweenService:Create(
+		templateData.cooldownGradient,
+		TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+		{ Offset = Vector2.new(-1, 0) }
+	)
+	gradTween:Play()
+
+	gradTween.Completed:Once(function()
+		templateData.cooldownFrame.Visible = false
+		templateData.cooldownGradient.Offset = Vector2.new(0, 0)
+	end)
+
+	currentTweens[key] = { gradTween }
+end
+
+function module:_cancelCooldownBar(slotType)
+	local key = "cooldown_bar_" .. slotType
+	cancelTweens(key)
+
+	local templateData = self._weaponTemplates[slotType]
+	if templateData and templateData.cooldownFrame then
+		templateData.cooldownFrame.Visible = false
+		templateData.cooldownGradient.Offset = Vector2.new(0, 0)
+	end
+end
+
+function module:_isControllerActive()
+	local lastInput = UserInputService:GetLastInputType()
+	return lastInput == Enum.UserInputType.Gamepad1
+		or lastInput == Enum.UserInputType.Gamepad2
+		or lastInput == Enum.UserInputType.Gamepad3
+		or lastInput == Enum.UserInputType.Gamepad4
+end
+
+function module:_updateBumperVisibility()
+	local isController = self:_isControllerActive()
+
+	if self._bumperInfoFrame then
+		self._bumperInfoFrame.Visible = isController
+	end
+
+	-- Toggle slot keybind labels: show on PC, hide on controller
+	for _, data in self._weaponTemplates do
+		if data.slotFrame then
+			data.slotFrame.Visible = not isController
+		end
+	end
+end
+
+function module:_animateBumperPress(side)
+	local label = side == "Lb" and self._bumperLb or self._bumperRb
+	if not label then
+		return
+	end
+
+	-- Ensure UIScale exists for animation
+	local uiScale = label:FindFirstChild("UIScale")
+	if not uiScale then
+		uiScale = Instance.new("UIScale")
+		uiScale.Parent = label
+	end
+
+	local key = "bumper_" .. side
+	cancelTweens(key)
+
+	uiScale.Scale = 1
+	local pressDown = TweenService:Create(uiScale, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Scale = 0.8,
+	})
+	local pressUp = TweenService:Create(uiScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	})
+
+	pressDown:Play()
+	pressDown.Completed:Once(function()
+		pressUp:Play()
+	end)
+
+	currentTweens[key] = { pressDown, pressUp }
+end
+
 function module:_createTemplate(slotType, templateSource, iconImage, rarityColor, order)
 	if not templateSource or not self._itemListFrame then
 		return nil
@@ -1149,6 +1349,40 @@ function module:_createTemplate(slotType, templateSource, iconImage, rarityColor
 		reloadGradImage.Image = iconImage
 	end
 
+	-- Set slot keybind label (PC only — hidden on controller)
+	local slotFrame = template:FindFirstChild("Slot")
+	local inputFrame = slotFrame and slotFrame:FindFirstChild("InputFrame")
+	local kbImage = inputFrame and inputFrame:FindFirstChild("KeyboardImageLabel")
+	local actionLabel = kbImage and kbImage:FindFirstChild("ActionLabel")
+
+	local SLOT_KEYBIND_MAP = {
+		Primary = "EquipPrimary",
+		Secondary = "EquipSecondary",
+		Melee = "EquipMelee",
+	}
+	local bindAction = SLOT_KEYBIND_MAP[slotType]
+	if actionLabel and bindAction then
+		local boundKey = PlayerDataTable.getBind(bindAction, "PC")
+		local displayName = ActionsIcon.getKeyDisplayName(boundKey)
+		actionLabel.Text = displayName
+	end
+
+	-- Hide slot frame on controller (uses LB/RB cycling instead)
+	if slotFrame then
+		local isController = self:_isControllerActive()
+		slotFrame.Visible = not isController
+	end
+
+	-- Cache cooldown bar elements
+	local cooldownFrame = template:FindFirstChild("Cooldown")
+	local cooldownBig = cooldownFrame and cooldownFrame:FindFirstChild("Frame")
+	cooldownBig = cooldownBig and cooldownBig:FindFirstChild("Big")
+	local cooldownGradient = cooldownBig and cooldownBig:FindFirstChild("UIGradient")
+
+	if cooldownFrame then
+		cooldownFrame.Visible = false
+	end
+
 	local data = {
 		slot = slotType,
 		template = template,
@@ -1158,6 +1392,11 @@ function module:_createTemplate(slotType, templateSource, iconImage, rarityColor
 		reloadBg = reloadBg,
 		ammoFrame = ammoFrame,
 		ammoLabel = ammoLabel,
+		actionLabel = actionLabel,
+		bindAction = bindAction,
+		slotFrame = slotFrame,
+		cooldownFrame = cooldownFrame,
+		cooldownGradient = cooldownGradient,
 	}
 
 	self._weaponTemplates[slotType] = data
@@ -1222,7 +1461,13 @@ function module:_buildLoadoutTemplates()
 end
 
 function module:_setSelectedSlot(slotType)
+	local previousSlot = self._selectedSlot
 	self._selectedSlot = slotType
+
+	-- Cancel cooldown bar on the previous slot when swapping weapons (reload cancel)
+	if previousSlot and previousSlot ~= slotType and previousSlot ~= "Kit" then
+		self:_cancelCooldownBar(previousSlot)
+	end
 
 	for slot, data in self._weaponTemplates do
 		local targetScale = slot == slotType and TweenConfig.Values.SelectedScale or TweenConfig.Values.DeselectedScale
@@ -1316,7 +1561,12 @@ function module:_updateItemDesc(weaponData)
 	-- Check if weapon uses ammo (melee weapons don't)
 	local usesAmmo = clipSize > 0 or maxAmmo > 0
 
-	-- Only update ammo text elements - don't touch frame visibility
+	-- Hide entire ammo frame when weapon doesn't use ammo
+	if self._itemDescAmmoFrame then
+		self._itemDescAmmoFrame.Visible = usesAmmo
+	end
+
+	-- Only update ammo text elements
 	if self._itemDescAmmo then
 		self._itemDescAmmo.Text = usesAmmo and tostring(ammo) or ""
 	end
@@ -1417,11 +1667,19 @@ function module:_getActionList(slotType, weaponData)
 	end
 
 	if canQuickMelee and slotType ~= "Melee" then
-		table.insert(actions, { id = "QuickMelee", label = "QUICK MELEE", key = "V" })
+		table.insert(actions, {
+			id = "QuickMelee",
+			label = "QUICK MELEE",
+			key = self:_getActionKeyLabel("QuickMelee", "F"),
+		})
 	end
 
 	if canQuickAbility then
-		table.insert(actions, { id = "QuickAbility", label = "USE ABILITY", key = "E" })
+		table.insert(actions, {
+			id = "QuickAbility",
+			label = "USE ABILITY",
+			key = self:_getActionKeyLabel("Ability", "E"),
+		})
 	end
 
 	return actions
@@ -1716,11 +1974,13 @@ function module:_updateSlotData(slotType)
 	if slotType ~= "Kit" then
 		self:_setupTemplateReloadState(templateData, data.Reloading == true, data.ReloadTime)
 		self:_setupCooldownText(templateData, data.Reloading == true, data.ReloadTime)
+		self:_setupCooldownBar(templateData, data.Reloading == true, data.ReloadTime)
 	else
 		local isOnCooldown = data.AbilityOnCooldown == true
 		local cooldownTime = data.AbilityCooldownRemaining or data.AbilityCooldown
 		self:_setupTemplateReloadState(templateData, isOnCooldown, cooldownTime)
 		self:_setupCooldownText(templateData, isOnCooldown, cooldownTime)
+		self:_setupCooldownBar(templateData, isOnCooldown, cooldownTime)
 	end
 
 	if self._selectedSlot == slotType and slotType ~= "Kit" then
@@ -1778,6 +2038,31 @@ function module:_setupWeaponConnections()
 			end
 		end
 	end, "hud_weapons")
+end
+
+function module:_setupBumperConnections()
+	if not self._bumperInfoFrame then
+		return
+	end
+
+	self._connections:cleanupGroup("hud_bumpers")
+
+	self:_updateBumperVisibility()
+
+	self._connections:track(UserInputService, "LastInputTypeChanged", function()
+		self:_updateBumperVisibility()
+	end, "hud_bumpers")
+
+	self._connections:track(UserInputService, "InputBegan", function(input)
+		if not self._bumperInfoFrame or not self._bumperInfoFrame.Visible then
+			return
+		end
+		if input.KeyCode == Enum.KeyCode.ButtonL1 then
+			self:_animateBumperPress("Lb")
+		elseif input.KeyCode == Enum.KeyCode.ButtonR1 then
+			self:_animateBumperPress("Rb")
+		end
+	end, "hud_bumpers")
 end
 
 function module:_setInitialState()
@@ -1931,6 +2216,7 @@ function module:_init()
 	self:_setupUltConnection()
 	self:_setupWeaponConnections()
 	self:_refreshWeaponData()
+	self:_setupBumperConnections()
 end
 
 function module:show()
@@ -1992,6 +2278,7 @@ function module:_cleanup()
 	self._connections:cleanupGroup("hud_health")
 	self._connections:cleanupGroup("hud_ult")
 	self._connections:cleanupGroup("hud_weapons")
+	self._connections:cleanupGroup("hud_bumpers")
 
 	for slotType in self._cooldownThreads do
 		self:_cancelCooldownThread(slotType)
@@ -2033,6 +2320,7 @@ function module:ForceCooldown(slotType: string, duration: number)
 
 	self:_setupTemplateReloadState(templateData, true, duration)
 	self:_setupCooldownText(templateData, true, duration)
+	self:_setupCooldownBar(templateData, true, duration)
 end
 
 return module
