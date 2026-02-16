@@ -26,8 +26,9 @@ Sound._loopedSounds = {}
 
 local REPLICATED_MOVEMENT_VOLUME = 1.25
 local REPLICATED_MOVEMENT_ROLLOFF_MODE = Enum.RollOffMode.Inverse
-local REPLICATED_MOVEMENT_MIN_DISTANCE = 0
-local REPLICATED_MOVEMENT_MAX_DISTANCE = 270
+local REPLICATED_MOVEMENT_ROLLOFF_MIN_DISTANCE = 12
+local REPLICATED_MOVEMENT_ROLLOFF_MAX_DISTANCE = 300
+local REPLICATED_MOVEMENT_EMITTER_SIZE = 12
 
 local LOOPED_SOUNDS = {
 	Falling = true,
@@ -73,8 +74,9 @@ local function createSoundInstance(definition, parent, pitch, looped)
 		sound.PlaybackSpeed = pitch
 	end
 	sound.RollOffMode = REPLICATED_MOVEMENT_ROLLOFF_MODE
-	sound.MinDistance = REPLICATED_MOVEMENT_MIN_DISTANCE
-	sound.MaxDistance = REPLICATED_MOVEMENT_MAX_DISTANCE
+	sound.RollOffMinDistance = REPLICATED_MOVEMENT_ROLLOFF_MIN_DISTANCE
+	sound.RollOffMaxDistance = REPLICATED_MOVEMENT_ROLLOFF_MAX_DISTANCE
+	sound.EmitterSize = REPLICATED_MOVEMENT_EMITTER_SIZE
 	sound.Looped = looped or false
 	sound.SoundGroup = getMovementSoundGroup()
 	sound.Parent = parent
@@ -126,7 +128,7 @@ function Sound:_handleOneShotSound(soundName, primaryPart, data)
 	end
 
 	sound:Play()
-	Debris:AddItem(sound, sound.TimeLength + 0.5)
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 end
 
 function Sound:_handleLoopedSound(userId, soundName, primaryPart, data)
