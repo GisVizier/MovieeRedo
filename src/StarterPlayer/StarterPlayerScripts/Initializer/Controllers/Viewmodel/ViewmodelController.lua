@@ -80,6 +80,8 @@ ViewmodelController._cachedKitTracks = nil
 ViewmodelController._adsActive = false
 ViewmodelController._adsBlend = 0
 ViewmodelController._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
+ViewmodelController._adsCustomAimAttachment = nil
+ViewmodelController._adsCustomLookAtAttachment = nil
 ViewmodelController._ziplineActive = false
 
 local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
@@ -659,6 +661,8 @@ function ViewmodelController:ClearLoadout()
 	self._previousSlot = nil
 	self._adsActive = false
 	self._adsBlend = 0
+	self._adsCustomAimAttachment = nil
+	self._adsCustomLookAtAttachment = nil
 	if self._animator then
 		self._animator:Unbind()
 	end
@@ -724,6 +728,8 @@ function ViewmodelController:SetActiveSlot(slot: string)
 	self._activeSlot = slot
 	self._adsActive = false
 	self._adsBlend = 0
+	self._adsCustomAimAttachment = nil
+	self._adsCustomLookAtAttachment = nil
 
 	do
 		if LocalPlayer then
@@ -781,6 +787,25 @@ function ViewmodelController:SetADS(active: boolean, effectsMultiplier: number?)
 	else
 		self._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
 	end
+end
+
+function ViewmodelController:SetCustomADSTarget(aimAttachment: Attachment?, lookAtAttachment: Attachment?)
+	if aimAttachment and aimAttachment:IsA("Attachment") then
+		self._adsCustomAimAttachment = aimAttachment
+	else
+		self._adsCustomAimAttachment = nil
+	end
+
+	if lookAtAttachment and lookAtAttachment:IsA("Attachment") then
+		self._adsCustomLookAtAttachment = lookAtAttachment
+	else
+		self._adsCustomLookAtAttachment = nil
+	end
+end
+
+function ViewmodelController:ClearCustomADSTarget()
+	self._adsCustomAimAttachment = nil
+	self._adsCustomLookAtAttachment = nil
 end
 
 function ViewmodelController:IsADS(): boolean
@@ -1116,7 +1141,29 @@ function ViewmodelController:_render(dt: number)
 	local configOffset = (cfg and cfg.Offset) or CFrame.new()
 
 	local basePosition = rig.Model:FindFirstChild("BasePosition", true)
-	local aimPosition = rig.Model:FindFirstChild("AimPosition", true)
+	local aimPosition = nil
+	local lookAtPosition = nil
+	if
+		self._adsCustomAimAttachment
+		and self._adsCustomAimAttachment:IsA("Attachment")
+		and self._adsCustomAimAttachment:IsDescendantOf(rig.Model)
+	then
+		aimPosition = self._adsCustomAimAttachment
+	end
+	if
+		self._adsCustomLookAtAttachment
+		and self._adsCustomLookAtAttachment:IsA("Attachment")
+		and self._adsCustomLookAtAttachment:IsDescendantOf(rig.Model)
+	then
+		lookAtPosition = self._adsCustomLookAtAttachment
+	end
+
+	if not aimPosition then
+		aimPosition = rig.Model:FindFirstChild("AimPosition", true)
+	end
+	if not lookAtPosition then
+		lookAtPosition = rig.Model:FindFirstChild("LookAt", true)
+	end
 
 	if not basePosition then
 		return
@@ -1126,9 +1173,17 @@ function ViewmodelController:_render(dt: number)
 		return
 	end
 
-	-- Get LOCAL offsets from pivot (constant, doesn't change with model position)
+	-- Get LOCAL offsets from pivot (constant, doesn't change with model position).
 	local hipOffset = pivot:ToObjectSpace(basePosition.WorldCFrame)
-	local adsOffset = pivot:ToObjectSpace(aimPosition.WorldCFrame)
+	local adsWorldCF = aimPosition.WorldCFrame
+	if lookAtPosition and lookAtPosition:IsA("Attachment") then
+		local aimPos = aimPosition.WorldPosition
+		local lookPos = lookAtPosition.WorldPosition
+		if (lookPos - aimPos).Magnitude > 0.001 then
+			adsWorldCF = CFrame.lookAt(aimPos, lookPos, aimPosition.WorldCFrame.UpVector)
+		end
+	end
+	local adsOffset = pivot:ToObjectSpace(adsWorldCF)
 
 	-- Smooth ADS blend
 	local targetBlend = self._adsActive and 1 or 0

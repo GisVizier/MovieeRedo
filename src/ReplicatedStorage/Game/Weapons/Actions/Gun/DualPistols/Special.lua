@@ -18,6 +18,34 @@ local function getADSAnimation(side)
 	return "SpecailRight"
 end
 
+local function findGunAttachment(model, gunName, attachmentName)
+	if not model then
+		return nil
+	end
+
+	local partsFolder = model:FindFirstChild("Parts")
+	if partsFolder and (partsFolder:IsA("Model") or partsFolder:IsA("Folder")) then
+		local gunNode = partsFolder:FindFirstChild(gunName)
+		if gunNode then
+			local direct = gunNode:FindFirstChild(attachmentName, true)
+			if direct and direct:IsA("Attachment") then
+				return direct
+			end
+		end
+	end
+
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc.Name == gunName and (desc:IsA("BasePart") or desc:IsA("Model")) then
+			local found = desc:FindFirstChild(attachmentName, true)
+			if found and found:IsA("Attachment") then
+				return found
+			end
+		end
+	end
+
+	return nil
+end
+
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
@@ -65,6 +93,15 @@ function Special:_enterADS(weaponInstance, side)
 		return
 	end
 
+	local rig = weaponInstance.GetRig and weaponInstance.GetRig() or nil
+	local model = rig and rig.Model or nil
+	local gunName = (side == "left") and "LeftGun" or "RightGun"
+	local aimAttachment = findGunAttachment(model, gunName, "AimPosition")
+	local lookAtAttachment = findGunAttachment(model, gunName, "LookAt")
+	if viewmodelController.SetCustomADSTarget then
+		viewmodelController:SetCustomADSTarget(aimAttachment, lookAtAttachment)
+	end
+
 	local config = weaponInstance.Config
 	local adsFOV = config and config.adsFOV
 	local adsEffectsMultiplier = config and config.adsEffectsMultiplier or 0.15
@@ -90,6 +127,9 @@ end
 function Special:_exitADS(weaponInstance)
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	if viewmodelController then
+		if viewmodelController.ClearCustomADSTarget then
+			viewmodelController:ClearCustomADSTarget()
+		end
 		viewmodelController:SetADS(false)
 	end
 

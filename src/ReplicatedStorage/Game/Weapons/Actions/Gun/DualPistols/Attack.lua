@@ -80,6 +80,34 @@ local function isWeaponStillActive(weaponInstance)
 	return true
 end
 
+local function findGunAttachment(model, gunName, attachmentName)
+	if not model then
+		return nil
+	end
+
+	local partsFolder = model:FindFirstChild("Parts")
+	if partsFolder and (partsFolder:IsA("Model") or partsFolder:IsA("Folder")) then
+		local gunNode = partsFolder:FindFirstChild(gunName)
+		if gunNode then
+			local direct = gunNode:FindFirstChild(attachmentName, true)
+			if direct and direct:IsA("Attachment") then
+				return direct
+			end
+		end
+	end
+
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc.Name == gunName and (desc:IsA("BasePart") or desc:IsA("Model")) then
+			local found = desc:FindFirstChild(attachmentName, true)
+			if found and found:IsA("Attachment") then
+				return found
+			end
+		end
+	end
+
+	return nil
+end
+
 local function getDualMuzzleAttachments(weaponInstance)
 	local rightMuzzle = nil
 	local leftMuzzle = nil
@@ -93,22 +121,8 @@ local function getDualMuzzleAttachments(weaponInstance)
 		return nil, nil, nil
 	end
 
-	local rightGun = gunModel:FindFirstChild("RightGun", true)
-	local leftGun = gunModel:FindFirstChild("LeftGun", true)
-
-	if rightGun then
-		local found = rightGun:FindFirstChild("MuzzleAttachment", true)
-		if found and found:IsA("Attachment") then
-			rightMuzzle = found
-		end
-	end
-
-	if leftGun then
-		local found = leftGun:FindFirstChild("MuzzleAttachment", true)
-		if found and found:IsA("Attachment") then
-			leftMuzzle = found
-		end
-	end
+	rightMuzzle = findGunAttachment(gunModel, "RightGun", "MuzzleAttachment")
+	leftMuzzle = findGunAttachment(gunModel, "LeftGun", "MuzzleAttachment")
 
 	return rightMuzzle, leftMuzzle, gunModel
 end
