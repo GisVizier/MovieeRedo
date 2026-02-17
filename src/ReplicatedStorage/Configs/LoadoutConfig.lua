@@ -418,20 +418,20 @@ LoadoutConfig.Weapons = {
 
 		recoil = {
 			pitchUp = 4.0,
-			yawRandom = 1.2,
+			yawRandom = 0.2, -- Minimal horizontal randomness for precision
 			recoverySpeed = 6,
 		},
 
 		crosshair = {
 			type = "Default",
-			spreadX = 2.2,
-			spreadY = 2.2,
+			spreadX = 0.5,
+			spreadY = 0.5,
 			recoilMultiplier = 3.0,
-			-- Revolver: precision secondary with big kick
-			crouchMult = 0.25, -- 75% reduction when crouching
-			sprintMult = 2.5, -- 150% more spread when sprinting
-			airMult = 3.0, -- Triple spread in air
-			adsMult = 0.2, -- 80% reduction when ADS
+			-- Revolver: precision secondary with minimal spread
+			crouchMult = 0.1, -- 90% reduction when crouching
+			sprintMult = 1.0, -- No extra spread when sprinting
+			airMult = 1.0, -- No extra spread in air
+			adsMult = 0.05, -- 95% reduction when ADS
 			baseGap = 10, -- Base gap
 		},
 
@@ -445,11 +445,11 @@ LoadoutConfig.Weapons = {
 			spreadMode = "Cone",
 			baseSpread = 0,
 			crosshairSpreadScale = 0,
-			movementSpreadMult = 1.05,
-			hipfireSpreadMult = 1.05,
-			airSpreadMult = 1.1,
-			crouchSpreadMult = 0.95,
-			slideSpreadMult = 1.05,
+			movementSpreadMult = 0.3,
+			hipfireSpreadMult = 0.3,
+			airSpreadMult = 0.4,
+			crouchSpreadMult = 0.2,
+			slideSpreadMult = 0.3,
 
 			pelletsPerShot = 1,
 

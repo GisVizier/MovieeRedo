@@ -298,14 +298,6 @@ function ViewmodelController:Init(registry, net)
 				self:_tryEquipSlotFromLoadout("Melee")
 			elseif manager:IsKeybind(input, "CycleWeaponLeft") then
 				if not isLoadoutVisible() and isHudVisible() then
-			elseif isGamepad then
-				if isLoadoutVisible() then
-					return
-				end
-				if not isHudVisible() then
-					return
-				end
-				if key == Enum.KeyCode.ButtonL1 then
 					self:_cycleEquipSlot(-1)
 				end
 			elseif manager:IsKeybind(input, "CycleWeaponRight") then
@@ -709,20 +701,6 @@ end
 
 function ViewmodelController:SkipNextEquipAnimation()
 	self._skipNextEquipAnimation = true
-end
-
---[[
-	Forces a re-bind of the animator to the current slot's rig.
-	Fixes idle/walk animations not playing on join or respawn until re-equip.
-]]
-function ViewmodelController:ForceRebindCurrentSlot()
-	if not self._loadoutVm or not self._activeSlot then
-		return
-	end
-	local slot = self._activeSlot
-	-- Bypass early return by temporarily clearing _activeSlot
-	self._activeSlot = nil
-	self:SetActiveSlot(slot)
 end
 
 function ViewmodelController:SetActiveSlot(slot: string)

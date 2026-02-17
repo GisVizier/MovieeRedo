@@ -11,7 +11,7 @@ local DEBUG_LOGGING = false
 -- Debug raycast visualization (toggle with Y key) - only YOU see red lines showing shot path
 WeaponRaycast.DebugRaycastEnabled = true
 local _debugRayLines = {}
-local DEBUG_RAY_DURATION = 2.5
+local DEBUG_RAY_DURATION = 5
 
 -- =============================================================================
 -- HELPER FUNCTIONS
@@ -153,23 +153,57 @@ end
 
 --[[
 	Debug raycast visualization - draws red line showing shot path.
-	Uses Drawing API (client-only) so only the local player sees it.
-	Lines follow the path in world space and update as camera moves.
+	Uses Beam (client-only) so only the local player sees it.
+	Lines persist in 3D world space for DEBUG_RAY_DURATION seconds.
 ]]
+local _debugRayFolder = nil
+local function getDebugRayFolder()
+	if _debugRayFolder and _debugRayFolder.Parent then
+		return _debugRayFolder
+	end
+	_debugRayFolder = Instance.new("Folder")
+	_debugRayFolder.Name = "WeaponRaycastDebug"
+	_debugRayFolder.Parent = Workspace.CurrentCamera
+	return _debugRayFolder
+end
+
 local function addDebugRay(origin, hitPosition, camera)
 	if not camera or not WeaponRaycast.DebugRaycastEnabled then
 		return
 	end
-	local line = Drawing.new("Line")
-	line.Color = Color3.new(1, 0, 0)
-	line.Thickness = 2
-	line.Transparency = 0
-	line.Visible = true
+	local distance = (hitPosition - origin).Magnitude
+	if distance < 0.01 then
+		return
+	end
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Transparency = 1
+	part.Size = Vector3.new(0.1, 0.1, 0.1)
+	part.CFrame = CFrame.new(origin)
+	part.Parent = getDebugRayFolder()
+
+	local att0 = Instance.new("Attachment")
+	att0.Position = Vector3.zero
+	att0.Parent = part
+
+	local att1 = Instance.new("Attachment")
+	att1.Position = part.CFrame:PointToObjectSpace(hitPosition)
+	att1.Parent = part
+
+	local beam = Instance.new("Beam")
+	beam.Attachment0 = att0
+	beam.Attachment1 = att1
+	beam.Color = ColorSequence.new(Color3.new(1, 0.2, 0.2))
+	beam.Width0 = 0.08
+	beam.Width1 = 0.08
+	beam.Parent = part
+
 	local expireTime = os.clock() + DEBUG_RAY_DURATION
 	table.insert(_debugRayLines, {
-		origin = origin,
-		hitPosition = hitPosition,
-		line = line,
+		part = part,
 		expireTime = expireTime,
 	})
 end
@@ -179,29 +213,23 @@ local function ensureDebugRayUpdate()
 	if _debugRayUpdateConn then
 		return
 	end
-	_debugRayUpdateConn = RunService.RenderStepped:Connect(function()
-		local camera = Workspace.CurrentCamera
-		if not camera or #_debugRayLines == 0 then
+	_debugRayUpdateConn = RunService.Heartbeat:Connect(function()
+		if #_debugRayLines == 0 then
+			if _debugRayUpdateConn then
+				_debugRayUpdateConn:Disconnect()
+				_debugRayUpdateConn = nil
+			end
 			return
 		end
 		local now = os.clock()
 		for i = #_debugRayLines, 1, -1 do
 			local entry = _debugRayLines[i]
 			if now >= entry.expireTime then
-				entry.line.Visible = false
-				entry.line:Remove()
+				if entry.part then
+					entry.part:Destroy()
+				end
 				table.remove(_debugRayLines, i)
-			else
-				local v0, onScreen0 = camera:WorldToViewportPoint(entry.origin)
-				local v1, onScreen1 = camera:WorldToViewportPoint(entry.hitPosition)
-				entry.line.From = Vector2.new(v0.X, v0.Y)
-				entry.line.To = Vector2.new(v1.X, v1.Y)
-				entry.line.Visible = onScreen0 or onScreen1
 			end
-		end
-		if #_debugRayLines == 0 and _debugRayUpdateConn then
-			_debugRayUpdateConn:Disconnect()
-			_debugRayUpdateConn = nil
 		end
 	end)
 end
