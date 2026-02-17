@@ -14,6 +14,7 @@ function MatchService:Init(_registry, net)
 	self._loadouts = {} -- [userId] = payload
 	self._started = false
 	self._pendingTrainingEntry = {} -- [userId] = { areaId, spawnPosition, spawnLookVector }
+	self._trainingLoadoutShields = {} -- [userId] = { forceField, characterAddedConn }
 
 	self._net:ConnectServer("SubmitLoadout", function(player, payload)
 		self:_onSubmitLoadout(player, payload)
@@ -24,6 +25,7 @@ function MatchService:Init(_registry, net)
 		self._ready[userId] = nil
 		self._loadouts[userId] = nil
 		self._pendingTrainingEntry[userId] = nil
+		self:_removeTrainingLoadoutShield(player)
 	end)
 end
 
@@ -31,6 +33,7 @@ end
 function MatchService:SetPendingTrainingEntry(player, entryData)
 	if not player then return end
 	self._pendingTrainingEntry[player.UserId] = entryData
+	self:_applyTrainingLoadoutShield(player)
 end
 
 function MatchService:GetPendingTrainingEntry(player)
@@ -41,6 +44,80 @@ end
 function MatchService:ClearPendingTrainingEntry(player)
 	if not player then return end
 	self._pendingTrainingEntry[player.UserId] = nil
+end
+
+--[[
+	Adds default ForceField and invulnerability while player is picking weapons in training ground.
+	Ensures they cannot be hit during loadout selection.
+]]
+function MatchService:_applyTrainingLoadoutShield(player)
+	if not player then return end
+	local userId = player.UserId
+
+	-- Clean up any existing shield first
+	self:_removeTrainingLoadoutShield(player)
+
+	local function addForceFieldToCharacter(character)
+		if not character or not character:IsA("Model") then return end
+		local existing = character:FindFirstChildOfClass("ForceField")
+		if existing then return end
+		local ff = Instance.new("ForceField")
+		ff.Visible = true
+		ff.Parent = character
+		return ff
+	end
+
+	local forceField = addForceFieldToCharacter(player.Character)
+
+	-- Set invulnerable via CombatService (blocks damage through our pipeline)
+	local combatService = self._registry and self._registry:TryGet("CombatService")
+	if combatService and combatService.SetInvulnerable then
+		combatService:SetInvulnerable(player, true)
+	end
+
+	-- Re-apply ForceField if character respawns while still picking
+	local characterAddedConn = player.CharacterAdded:Connect(function(newCharacter)
+		if not self._pendingTrainingEntry[userId] then return end
+		task.defer(function()
+			addForceFieldToCharacter(newCharacter)
+		end)
+	end)
+
+	self._trainingLoadoutShields[userId] = {
+		forceField = forceField,
+		characterAddedConn = characterAddedConn,
+	}
+end
+
+--[[
+	Removes ForceField and invulnerability when loadout is confirmed or player leaves.
+]]
+function MatchService:_removeTrainingLoadoutShield(player)
+	if not player then return end
+	local userId = player.UserId
+	local data = self._trainingLoadoutShields[userId]
+	if not data then return end
+	self._trainingLoadoutShields[userId] = nil
+
+	if data.characterAddedConn then
+		data.characterAddedConn:Disconnect()
+	end
+
+	if data.forceField and data.forceField.Parent then
+		data.forceField:Destroy()
+	end
+
+	-- Also remove any ForceField that might have been added by CharacterAdded
+	local character = player.Character
+	if character then
+		local ff = character:FindFirstChildOfClass("ForceField")
+		if ff then ff:Destroy() end
+	end
+
+	local combatService = self._registry and self._registry:TryGet("CombatService")
+	if combatService and combatService.SetInvulnerable then
+		combatService:SetInvulnerable(player, false)
+	end
 end
 
 -- Called when player exits training to reset their state for re-entry
@@ -77,7 +154,8 @@ function MatchService:_onSubmitLoadout(player, payload)
 	local pendingEntry = self._pendingTrainingEntry[userId]
 	if pendingEntry then
 		self._pendingTrainingEntry[userId] = nil
-		
+		self:_removeTrainingLoadoutShield(player)
+
 		-- Add player to training match
 		local roundService = self._registry:TryGet("Round")
 		if roundService then
