@@ -547,6 +547,24 @@ function AnimationController:_unbindRigAnimationStateForPlayer(player: Player)
 	self.OtherCharacterDesiredRigState[player] = nil
 end
 
+function AnimationController:_resendLocalRigStateToPlayer(player: Player)
+	if not player or player == LocalPlayer then
+		return
+	end
+	for animName, payload in pairs(self.LocalRigAnimationState) do
+		if type(animName) == "string" and type(payload) == "table" then
+			VFXRep:Fire({ Players = { player } }, { Module = "RigAnimation", Function = "Play" }, {
+				animName = animName,
+				Looped = payload.Looped,
+				Priority = payload.Priority,
+				FadeInTime = payload.FadeInTime,
+				Speed = payload.Speed,
+				StopOthers = false,
+			})
+		end
+	end
+end
+
 function AnimationController:_bindRigAnimationStateListeners()
 	if self._rigAnimationPlayersAddedConn then
 		self._rigAnimationPlayersAddedConn:Disconnect()
@@ -561,6 +579,7 @@ function AnimationController:_bindRigAnimationStateListeners()
 
 	self._rigAnimationPlayersAddedConn = Players.PlayerAdded:Connect(function(player)
 		self:_bindRigAnimationStateForPlayer(player)
+		self:_resendLocalRigStateToPlayer(player)
 	end)
 
 	self._rigAnimationPlayersRemovingConn = Players.PlayerRemoving:Connect(function(player)
