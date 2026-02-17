@@ -320,6 +320,16 @@ function module.start(export, ui)
 		Melee = nil,
 	}
 
+	-- Timer race-condition guard: each startTimer() increments this;
+	-- the timer loop exits when its captured generation differs.
+	self._timerGeneration = 0
+	-- Mutable end-time so the server can halve the remaining countdown.
+	self._timerEndTime = 0
+	self._timerDuration = TIMER_DURATION
+	-- Tracks the task.delay inside hide() that sets Visible=false,
+	-- so show() can cancel it if re-opened before the delay fires.
+	self._pendingHideTask = nil
+
 	log("start", ui and ui.Name)
 
 	return self
@@ -1678,6 +1688,17 @@ function module:startTimer()
 		return
 	end
 	self._timerRunning = true
+
+	-- Bump generation so any zombie timer loop from a previous session exits.
+	self._timerGeneration = (self._timerGeneration or 0) + 1
+	local gen = self._timerGeneration
+
+	-- Compute initial end time and cache duration for progress bar ratio.
+	local startTime = RoundData.timeStarted or os.clock()
+	local duration = RoundData.duration or TIMER_DURATION
+	self._timerEndTime = startTime + duration
+	self._timerDuration = duration
+
 	log("timerStart")
 
 	task.spawn(function()
@@ -1690,21 +1711,18 @@ function module:startTimer()
 		local orangeOriginalSize = orangeBar and orangeBar.Size
 		local whiteOriginalSize = whiteBar and whiteBar.Size
 
-		local startTime = RoundData.timeStarted or os.clock()
-		local endTime = startTime + TIMER_DURATION
-
-		while self._initialized and self._timerRunning do
+		while self._initialized and self._timerRunning and self._timerGeneration == gen do
 			local currentTime = os.clock()
-			local timeLeft = endTime - currentTime
+			local timeLeft = math.max(0, self._timerEndTime - currentTime)
 
-			if timeLeft < 0 then
-				timeLeft = 0
-			end
-
-			local progress = timeLeft / TIMER_DURATION
+			local progress = if self._timerDuration > 0 then timeLeft / self._timerDuration else 0
 
 			if timerText then
-				timerText.Text = string.format("%.2fs", timeLeft)
+				if self._showReady then
+					timerText.Text = "READY"
+				else
+					timerText.Text = string.format("%.2fs", timeLeft)
+				end
 			end
 
 			if orangeBar and orangeOriginalSize then
@@ -1716,6 +1734,7 @@ function module:startTimer()
 
 			if whiteBar and whiteOriginalSize then
 				task.delay(TweenConfig.getDelay("TimerWhiteBar"), function()
+					if self._timerGeneration ~= gen then return end
 					local whiteTween = TweenService:Create(whiteBar, TweenConfig.get("Timer", "whiteBar"), {
 						Size = UDim2.new(progress, 0, whiteOriginalSize.Y.Scale, whiteOriginalSize.Y.Offset),
 					})
@@ -1734,6 +1753,14 @@ function module:startTimer()
 
 		self._timerRunning = false
 	end)
+end
+
+function module:halveTimer(newRemaining)
+	if not self._timerRunning then return end
+	if newRemaining and newRemaining > 0 then
+		self._timerEndTime = os.clock() + newRemaining
+		log("timerHalved", newRemaining)
+	end
 end
 
 function module:_fillEmptySlots()
@@ -1775,15 +1802,17 @@ function module:_setButtonsActive(active: boolean)
 end
 
 function module:_showLoadoutReview()
-	-- Stop timer + hide the scroller so you can review your picked slots.
-	self._timerRunning = false
-
+	-- Show "READY" on the timer text but keep the timer bar counting down.
+	-- The loadout UI stays visible until the server fires RoundStart.
 	if self._timer then
 		local timerText = self._timer:FindFirstChild("TimerText")
 		if timerText then
 			timerText.Text = "READY"
 		end
 	end
+
+	-- Mark that we should show "READY" instead of time (timer loop checks this)
+	self._showReady = true
 
 	if self._itemScroller then
 		local canvas = getCanvasGroup(self._itemScroller)
@@ -1825,12 +1854,8 @@ function module:finishLoadout()
 		gamemodeId = RoundData.gamemodeId,
 	})
 
-	-- After a short review moment, close the Loadout screen.
-	task.delay(REVIEW_DURATION, function()
-		if self._loadoutFinished and self._ui and self._ui.Parent then
-			self._export:hide("Loadout")
-		end
-	end)
+	-- Loadout stays visible until the server fires RoundStart (UIController._onRoundStart hides it).
+	-- No auto-hide here so the player can see their selections while waiting.
 end
 
 function module:setRoundData(data)
@@ -1847,6 +1872,11 @@ function module:setRoundData(data)
 	end
 
 	RoundData.timeStarted = data.timeStarted or os.clock()
+
+	-- Server-provided duration overrides hardcoded TIMER_DURATION
+	if data.duration then
+		RoundData.duration = data.duration
+	end
 end
 
 function module:getRoundData()
@@ -1884,6 +1914,20 @@ function module:_clearItemTemplates()
 end
 
 function module:show()
+	-- Cancel any pending hide-delay from a previous hide() so it doesn't
+	-- turn off visibility on the loadout we are about to open.
+	if self._pendingHideTask then
+		pcall(task.cancel, self._pendingHideTask)
+		self._pendingHideTask = nil
+	end
+
+	-- If we are re-opening without a prior cleanup (e.g. force-show while
+	-- still initialised), tear down the old session first so we don't
+	-- accumulate duplicate UI elements or zombie timer loops.
+	if self._initialized then
+		self:_cleanup()
+	end
+
 	self._ui.Visible = true
 	if self._prevAutoSelectGuiEnabled == nil then
 		local ok, value = pcall(function()
@@ -1898,6 +1942,7 @@ function module:show()
 	
 	-- Reset loadout state for fresh entry (allows re-entry to training)
 	self._loadoutFinished = false
+	self._showReady = false
 	self._initialized = false
 	self._selectedSlot = "Kit"
 	self._currentLoadout = {
@@ -1929,7 +1974,17 @@ function module:hide()
 		end)
 	end
 
-	task.delay(0.6, function()
+	-- Stop the timer immediately so zombie loops don't linger.
+	self._timerRunning = false
+
+	-- Cancel any previously scheduled hide-delay before creating a new one.
+	if self._pendingHideTask then
+		pcall(task.cancel, self._pendingHideTask)
+		self._pendingHideTask = nil
+	end
+
+	self._pendingHideTask = task.delay(0.6, function()
+		self._pendingHideTask = nil
 		self._ui.Visible = false
 	end)
 
@@ -1940,6 +1995,16 @@ function module:_cleanup()
 	self._initialized = false
 	self._timerRunning = false
 	self._loadoutFinished = false
+	self._showReady = false
+
+	-- Bump timer generation so any running timer loop exits on next wake.
+	self._timerGeneration = (self._timerGeneration or 0) + 1
+
+	-- Cancel any pending hide-delay so it doesn't affect a future show().
+	if self._pendingHideTask then
+		pcall(task.cancel, self._pendingHideTask)
+		self._pendingHideTask = nil
+	end
 
 	self:_cancelTweens("show")
 	self:_cancelTweens("hide")
@@ -1972,6 +2037,7 @@ function module:_cleanup()
 	self._pendingSelectedItemId = nil
 	self._gamepadInputsBound = false
 	self._connections:cleanupGroup("loadout_uinav")
+	self._connections:cleanupGroup("loadout_gamepad")
 	self._prevAutoSelectGuiEnabled = nil
 	table.clear(self._currentLoadout)
 	self._currentLoadout = {

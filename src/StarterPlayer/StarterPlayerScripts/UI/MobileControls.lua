@@ -295,21 +295,21 @@ end
 function MobileControls:CreateActionCluster()
 	local P = Positions
 
-	local jump        = self:_makeBtn("Jump",        P.Jump)
+	local jump = self:_makeBtn("Jump", P.Jump)
 	local crouchSlide = self:_makeBtn("CrouchSlide", P.CrouchSlide)
-	local fire        = self:_makeBtn("Fire",        P.Fire)
-	local ads         = self:_makeBtn("ADS",         P.ADS)
-	local reload      = self:_makeBtn("Reload",      P.Reload)
-	local ability     = self:_makeBtn("Ability",     P.Ability)
-	local ultimate    = self:_makeBtn("Ultimate",    P.Ultimate)
+	local fire = self:_makeBtn("Fire", P.Fire)
+	local ads = self:_makeBtn("ADS", P.ADS)
+	local reload = self:_makeBtn("Reload", P.Reload)
+	local ability = self:_makeBtn("Ability", P.Ability)
+	local ultimate = self:_makeBtn("Ultimate", P.Ultimate)
 
-	self._buttons.Jump       = jump
+	self._buttons.Jump = jump
 	self._buttons.CrouchSlide = crouchSlide
-	self._buttons.Fire       = fire
-	self._buttons.ADS        = ads
-	self._buttons.Reload     = reload
-	self._buttons.Ability    = ability
-	self._buttons.Ultimate   = ultimate
+	self._buttons.Fire = fire
+	self._buttons.ADS = ads
+	self._buttons.Reload = reload
+	self._buttons.Ability = ability
+	self._buttons.Ultimate = ultimate
 
 	-- CrouchSlide stays visible in lobby (for sliding); rest are combat-only
 	self._combatButtons = { fire, ads, reload, ability, ultimate }
@@ -321,9 +321,9 @@ end
 -- WEAPON SLOT BUTTONS (Top-right, horizontal)
 -- =============================================================================
 local SLOT_DEFS = {
-	{ slot = "Primary",   label = "1" },
+	{ slot = "Primary", label = "1" },
 	{ slot = "Secondary", label = "2" },
-	{ slot = "Melee",     label = "3" },
+	{ slot = "Melee", label = "3" },
 }
 
 function MobileControls:CreateWeaponSlots()
@@ -507,9 +507,15 @@ end
 
 function MobileControls:SetupWeaponSlotInput()
 	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp or self:_isBlocked() then return end
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
-		if self:IsTouchClaimed(input) then return end
+		if gp or self:_isBlocked() then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if self:IsTouchClaimed(input) then
+			return
+		end
 
 		for _, def in ipairs(SLOT_DEFS) do
 			local btn = self._slotButtons[def.slot]
@@ -522,7 +528,9 @@ function MobileControls:SetupWeaponSlotInput()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, _)
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
 		local claim = self.ClaimedTouches[input]
 		if claim and type(claim) == "string" and claim:sub(1, 5) == "slot_" then
 			self.ClaimedTouches[input] = nil
@@ -533,12 +541,16 @@ end
 function MobileControls:SetupWeaponSlotListener()
 	local function refreshIcons()
 		local raw = LocalPlayer:GetAttribute("SelectedLoadout")
-		if type(raw) ~= "string" or raw == "" then return end
+		if type(raw) ~= "string" or raw == "" then
+			return
+		end
 
 		local ok, loadout = pcall(function()
 			return HttpService:JSONDecode(raw)
 		end)
-		if not ok or type(loadout) ~= "table" then return end
+		if not ok or type(loadout) ~= "table" then
+			return
+		end
 
 		local data = loadout.loadout or loadout
 
@@ -589,13 +601,23 @@ end
 -- =============================================================================
 function MobileControls:SetupEmoteButtonInput()
 	local btn = self._buttons.Emote
-	if not btn or not self._input then return end
+	if not btn or not self._input then
+		return
+	end
 
 	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp or self:_isBlocked() then return end
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
-		if self:IsTouchClaimed(input) then return end
-		if not self:_hitTest(input, btn) then return end
+		if gp or self:_isBlocked() then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if self:IsTouchClaimed(input) then
+			return
+		end
+		if not self:_hitTest(input, btn) then
+			return
+		end
 
 		self.ActiveTouches.Emote = input
 		self.ClaimedTouches[input] = "emote"
@@ -603,8 +625,12 @@ function MobileControls:SetupEmoteButtonInput()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, _)
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
-		if input ~= self.ActiveTouches.Emote then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if input ~= self.ActiveTouches.Emote then
+			return
+		end
 
 		self.ActiveTouches.Emote = nil
 		self.ClaimedTouches[input] = nil
@@ -645,7 +671,9 @@ function MobileControls:SetupStickInput()
 	local stick = self.MovementStick
 
 	local function update(input)
-		if not stick.IsDragging then return end
+		if not stick.IsDragging then
+			return
+		end
 		local cSize = stick.Container.AbsoluteSize
 		local cCenter = stick.Container.AbsolutePosition + cSize / 2
 		local pos = Vector2.new(input.Position.X, input.Position.Y)
@@ -677,7 +705,9 @@ function MobileControls:SetupStickInput()
 	end
 
 	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp or self:_isBlocked() then return end
+		if gp or self:_isBlocked() then
+			return
+		end
 		if input.UserInputType == Enum.UserInputType.Touch and not self.ActiveTouches.Movement then
 			local p = Vector2.new(input.Position.X, input.Position.Y)
 			local cp = stick.Container.AbsolutePosition
@@ -716,7 +746,9 @@ function MobileControls:SetupCameraStickInput()
 	local stick = self.CameraStick
 
 	local function update(input)
-		if not stick.IsDragging then return end
+		if not stick.IsDragging then
+			return
+		end
 		local cSize = stick.Container.AbsoluteSize
 		local cCenter = stick.Container.AbsolutePosition + cSize / 2
 		local pos = Vector2.new(input.Position.X, input.Position.Y)
@@ -732,10 +764,7 @@ function MobileControls:SetupCameraStickInput()
 			local norm = dist / stick.MaxRadius
 			if norm > dz then
 				local s = (norm - dz) / (1 - dz)
-				self.CameraVector = Vector2.new(
-					(-fp.X / stick.MaxRadius) * s,
-					(-fp.Y / stick.MaxRadius) * s
-				)
+				self.CameraVector = Vector2.new((-fp.X / stick.MaxRadius) * s, (-fp.Y / stick.MaxRadius) * s)
 			else
 				self.CameraVector = Vector2.new(0, 0)
 			end
@@ -747,7 +776,9 @@ function MobileControls:SetupCameraStickInput()
 	end
 
 	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp or self:_isBlocked() then return end
+		if gp or self:_isBlocked() then
+			return
+		end
 		if input.UserInputType == Enum.UserInputType.Touch and not self.ActiveTouches.Camera then
 			local p = Vector2.new(input.Position.X, input.Position.Y)
 			local cp = stick.Container.AbsolutePosition
@@ -781,7 +812,9 @@ end
 -- ACTION BUTTON INPUT
 -- =============================================================================
 function MobileControls:_hitTest(input, button)
-	if not button or not button.Visible then return false end
+	if not button or not button.Visible then
+		return false
+	end
 	local p = Vector2.new(input.Position.X, input.Position.Y)
 	local bp = button.AbsolutePosition
 	local bs = button.AbsoluteSize
@@ -793,9 +826,15 @@ function MobileControls:SetupButtonInput()
 	local B = self._buttons
 
 	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp or self:_isBlocked() then return end
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
-		if self:IsTouchClaimed(input) then return end
+		if gp or self:_isBlocked() then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if self:IsTouchClaimed(input) then
+			return
+		end
 
 		-- Jump (hold)
 		if not self.ActiveTouches.Jump and self:_hitTest(input, B.Jump) then
@@ -865,7 +904,9 @@ function MobileControls:SetupButtonInput()
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, _)
-		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
 
 		if input == self.ActiveTouches.Fire then
 			self.ActiveTouches.Fire = nil
@@ -908,7 +949,9 @@ end
 -- =============================================================================
 function MobileControls:_updateCrouchSlideLabel()
 	local btn = self._buttons.CrouchSlide
-	if not btn then return end
+	if not btn then
+		return
+	end
 	local isMoving = self.MovementVector.Magnitude > 0.1
 	btn.Text = isMoving and "SLIDE" or "C"
 end
@@ -916,22 +959,32 @@ end
 -- =============================================================================
 -- UTILITY
 -- =============================================================================
-function MobileControls:GetMovementVector() return self.MovementVector end
-function MobileControls:GetCameraVector() return self.CameraVector end
-function MobileControls:IsTouchClaimed(input) return self.ClaimedTouches[input] ~= nil end
+function MobileControls:GetMovementVector()
+	return self.MovementVector
+end
+function MobileControls:GetCameraVector()
+	return self.CameraVector
+end
+function MobileControls:IsTouchClaimed(input)
+	return self.ClaimedTouches[input] ~= nil
+end
 function MobileControls:IsTouchBeingUsedForCamera(input)
 	return self.CameraTouches and self.CameraTouches[input] ~= nil
 end
 
 function MobileControls:StartAutoJump()
-	if self.IsAutoJumping then return end
+	if self.IsAutoJumping then
+		return
+	end
 	self.IsAutoJumping = true
 	self._input.IsJumping = true
 	self._input:FireCallbacks("Jump", true)
 end
 
 function MobileControls:StopAutoJump()
-	if not self.IsAutoJumping then return end
+	if not self.IsAutoJumping then
+		return
+	end
 	self.IsAutoJumping = false
 	self._input.IsJumping = false
 	self._input:FireCallbacks("Jump", false)

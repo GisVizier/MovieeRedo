@@ -797,7 +797,8 @@ function QueueController:_onMatchTeleport(data)
 	end
 
 	-- Confirm teleport to server (so it knows to start the match)
-	if matchId and matchId ~= "reset" then
+	-- Skip for round reset (server doesn't wait for this) or lobby return
+	if matchId and matchId ~= "reset" and not data.roundReset then
 		task.delay(0.1, function()
 			self._net:FireServer("MatchTeleportReady", {
 				matchId = matchId,

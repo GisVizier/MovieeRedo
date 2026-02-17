@@ -1104,11 +1104,8 @@ function module:_onActionActivated(actionName, actionButton)
 			self._actionDebounce = false
 		end)
 	elseif actionName == "Play" then
+		-- Competitive matches use queue pads (MatchManager). No lobby Map flow.
 		self._actionDebounce = true
-
-		self._export:show("Map")
-		self:hideAll()
-
 		task.delay(1, function()
 			self._actionDebounce = false
 		end)

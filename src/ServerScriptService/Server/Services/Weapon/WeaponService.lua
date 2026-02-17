@@ -120,6 +120,11 @@ function WeaponService:OnWeaponFired(player, shotData)
 		return
 	end
 
+	-- Block weapon fire while frozen (loadout / between rounds)
+	if player:GetAttribute("MatchFrozen") then
+		return
+	end
+
 	-- Parse the hit packet (new buffer format) or use legacy table format
 	local hitData
 	local weaponId = shotData.weaponId

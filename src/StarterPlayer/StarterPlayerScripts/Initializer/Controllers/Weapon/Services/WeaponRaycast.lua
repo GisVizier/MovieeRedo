@@ -9,7 +9,7 @@ local TrainingRangeShot = nil
 local DEBUG_LOGGING = false
 
 -- Debug raycast visualization (toggle with Y key) - only YOU see red lines showing shot path
-WeaponRaycast.DebugRaycastEnabled = true
+WeaponRaycast.DebugRaycastEnabled = false
 local _debugRayLines = {}
 local DEBUG_RAY_DURATION = 5
 

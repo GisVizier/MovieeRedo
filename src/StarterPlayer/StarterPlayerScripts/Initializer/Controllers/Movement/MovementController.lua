@@ -727,6 +727,27 @@ function CharacterController:UpdateMovement(deltaTime)
 		return
 	end
 
+	-- Match freeze (loadout selection, between rounds): completely prevent ALL movement
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("MatchFrozen") == true then
+		if SlidingSystem then
+			if SlidingSystem.IsSliding then
+				SlidingSystem:StopSlide(false, true, "MatchFrozen")
+			end
+			if SlidingSystem.IsSlideBuffered then
+				SlidingSystem:CancelSlideBuffer("MatchFrozen")
+			end
+		end
+		if self.VectorForce then
+			self.VectorForce.Force = Vector3.zero
+		end
+		if self.PrimaryPart then
+			local v = self.PrimaryPart.AssemblyLinearVelocity
+			self.PrimaryPart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+		end
+		return
+	end
+
 	-- Enforce forced-stand ability gates every frame (not only on crouch input events).
 	self:EnforceAbilityCrouchGate()
 
@@ -1347,12 +1368,12 @@ function CharacterController:ApplyMovement()
 	local emoteMult = localPlayer and localPlayer:GetAttribute("EmoteSpeedMultiplier") or 1
 	targetSpeed = targetSpeed * emoteMult
 
-	-- External movement multiplier (ability/system-controlled, clamped for safety)
+	-- External movement multiplier (ability/system-controlled). 0 = complete freeze (loadout, between rounds).
 	local externalMoveMult = localPlayer and localPlayer:GetAttribute("ExternalMoveMult") or 1
 	if typeof(externalMoveMult) ~= "number" then
 		externalMoveMult = 1
 	end
-	externalMoveMult = math.clamp(externalMoveMult, 0.1, 1)
+	externalMoveMult = math.clamp(externalMoveMult, 0, 1)
 	targetSpeed = targetSpeed * externalMoveMult
 
 	local weightMultiplier = 1.0
@@ -1840,10 +1861,14 @@ function CharacterController:HandleCrouch(isCrouching)
 		return
 	end
 
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("MatchFrozen") == true then
+		return
+	end
+
 	-- Ability crouch gate enforcement: force stand even if crouch input state doesn't change.
 	self:EnforceAbilityCrouchGate()
 
-	local localPlayer = Players.LocalPlayer
 	local forceUncrouch = localPlayer and localPlayer:GetAttribute("ForceUncrouch") == true
 	local blockCrouch = localPlayer and localPlayer:GetAttribute("BlockCrouchWhileAbility") == true
 
@@ -1943,6 +1968,17 @@ function CharacterController:HandleSlideInput(isSliding)
 		return
 	end
 
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("MatchFrozen") == true then
+		if SlidingSystem.IsSliding then
+			SlidingSystem:StopSlide(false, true, "MatchFrozen")
+		end
+		if SlidingSystem.IsSlideBuffered then
+			SlidingSystem:CancelSlideBuffer("MatchFrozen")
+		end
+		return
+	end
+
 	if isSliding then
 		if self:IsSlideBlockedByAbility() then
 			if SlidingSystem.IsSliding then
@@ -2010,6 +2046,11 @@ end
 
 function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 	if not self.Character then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("MatchFrozen") == true then
 		return
 	end
 

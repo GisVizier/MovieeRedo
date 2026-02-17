@@ -27,7 +27,6 @@ local Remotes = {
 
 	-- Match / loadout gating
 	{ name = "SubmitLoadout", description = "Client submits selected loadout and ready" },
-	{ name = "StartMatch", description = "Server notifies clients match started" },
 
 	-- VFX replication (generic)
 	{ name = "VFXRep", description = "VFX replication", unreliable = true },
@@ -91,11 +90,19 @@ local Remotes = {
 	{ name = "RoundKill", description = "Kill occurred during round" },
 	{ name = "ScoreUpdate", description = "Match score changed" },
 	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
+	{ name = "LoadoutTimerHalved", description = "Server notifies clients that loadout timer was halved after all players confirmed" },
 	{ name = "MatchEnd", description = "Match complete, winner declared" },
 	{ name = "ReturnToLobby", description = "Teleport players back to lobby" },
 	{ name = "PlayerJoinedMatch", description = "Player joined match (training mode)" },
 	{ name = "PlayerLeftMatch", description = "Player left match" },
 	{ name = "PlayerRespawned", description = "Player respawned (training mode)" },
+
+	-- Map selection (competitive)
+	{ name = "ShowMapSelection", description = "Server tells clients to show map voting UI" },
+	{ name = "SubmitMapVote", description = "Client sends map vote to server" },
+	{ name = "MapVoteUpdate", description = "Server broadcasts a player's map vote" },
+	{ name = "MapVoteResult", description = "Server announces winning map" },
+	{ name = "BetweenRoundFreeze", description = "Server tells clients round reset freeze started" },
 
 	-- Training entry flow
 	{ name = "ShowTrainingLoadout", description = "Server tells client to show loadout UI for training entry" },

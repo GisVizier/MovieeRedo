@@ -106,6 +106,8 @@ local USER_INPUT_LABEL_OVERRIDES = {
 	[Enum.UserInputType.MouseButton2] = "M2",
 	[Enum.UserInputType.MouseButton3] = "M3",
 }
+local COUNTER_DISCONNECTED_COLOR = Color3.fromRGB(0, 0, 0)
+local COUNTER_DEAD_COLOR = Color3.fromRGB(90, 90, 90)
 
 local function cancelTweens(key)
 	if currentTweens[key] then
@@ -130,16 +132,62 @@ local function calculateGradientOffset(percent)
 end
 
 local function withOffset(position: UDim2, xOffset: number, yOffset: number): UDim2
-	return UDim2.new(
-		position.X.Scale,
-		position.X.Offset + xOffset,
-		position.Y.Scale,
-		position.Y.Offset + yOffset
-	)
+	return UDim2.new(position.X.Scale, position.X.Offset + xOffset, position.Y.Scale, position.Y.Offset + yOffset)
 end
 
 local function getRarityColor(rarityName)
 	return LoadoutConfig.getRarityColor(rarityName)
+end
+
+local function getCounterUserId(entry)
+	local entryType = typeof(entry)
+	if entryType == "Instance" and entry:IsA("Player") then
+		return entry.UserId
+	end
+
+	if type(entry) == "number" then
+		return entry
+	end
+
+	if type(entry) == "string" then
+		return tonumber(entry)
+	end
+
+	if type(entry) ~= "table" then
+		return nil
+	end
+
+	local raw = entry.userId or entry.UserId or entry.id or entry.Id
+	local rawType = typeof(raw)
+	if rawType == "Instance" and raw:IsA("Player") then
+		return raw.UserId
+	end
+	if type(raw) == "number" then
+		return raw
+	end
+	if type(raw) == "string" then
+		return tonumber(raw)
+	end
+
+	return nil
+end
+
+local function getScoreFromLabel(label)
+	if not label or not label:IsA("TextLabel") then
+		return 0
+	end
+
+	local score = tonumber(label.Text)
+	if score then
+		return score
+	end
+
+	local numericText = string.match(label.Text, "%d+")
+	if numericText then
+		return tonumber(numericText) or 0
+	end
+
+	return 0
 end
 
 function module:_isControllerInputActive()
@@ -224,6 +272,11 @@ function module.start(export, ui: UI)
 	self._selectedSlot = nil
 	self._cooldownThreads = {}
 	self._healthShakeToken = 0
+	self._counterPlayerByUserId = {}
+	self._counterPlayerStateByUserId = {}
+	self._counterFrame = nil
+	self._counterOriginalPosition = nil
+	self._counterHiddenPosition = nil
 
 	local playerSpace = ui.PlayerSpace
 
@@ -295,14 +348,40 @@ function module:_cacheMatchUI()
 		return
 	end
 
+	self._counterFrame = counter
+	self._counterOriginalPosition = counter.Position
+	self._counterHiddenPosition = self:_getCounterHiddenPosition()
+
 	local timer = counter:FindFirstChild("Timer")
-	self._roundNumberLabel = timer and timer:FindFirstChild("RoundNumber")
+	self._roundNumberLabel = timer and (timer:FindFirstChild("RoundNumber") or timer:FindFirstChild("Text"))
 
 	local redScore = counter:FindFirstChild("RedScore")
 	self._redScoreLabel = redScore and redScore:FindFirstChild("Text")
 
 	local blueScore = counter:FindFirstChild("BlueScore")
 	self._blueScoreLabel = blueScore and blueScore:FindFirstChild("Text")
+
+	if (not self._redScoreLabel or not self._blueScoreLabel) and timer then
+		local scorePanels = {}
+		for _, child in ipairs(timer:GetChildren()) do
+			if child:IsA("CanvasGroup") and child.Name == "Timer" then
+				table.insert(scorePanels, child)
+			end
+		end
+
+		if #scorePanels >= 2 then
+			table.sort(scorePanels, function(a, b)
+				return a.Position.X.Scale < b.Position.X.Scale
+			end)
+
+			if not self._blueScoreLabel then
+				self._blueScoreLabel = scorePanels[1]:FindFirstChild("Text")
+			end
+			if not self._redScoreLabel then
+				self._redScoreLabel = scorePanels[#scorePanels]:FindFirstChild("Text")
+			end
+		end
+	end
 
 	self._yourTeamFrame = counter:FindFirstChild("YourTeam")
 	self._enemyTeamFrame = counter:FindFirstChild("EnemyTeam")
@@ -312,64 +391,330 @@ function module:_cacheMatchUI()
 
 	self._yourTeamSlots = {}
 	self._enemyTeamSlots = {}
+	self._counterPlayerByUserId = {}
+	self._counterPlayerStateByUserId = {}
 
 	self._matchTeam1 = {}
 	self._matchTeam2 = {}
 end
 
-function module:_getTeamPlayerTemplate(teamFrame)
-	if not teamFrame then
+function module:_getCounterHiddenPosition()
+	if not self._counterOriginalPosition then
 		return nil
 	end
 
+	local offset = 106
+	if self._counterFrame then
+		local sizeOffset = self._counterFrame.Size.Y.Offset
+		if sizeOffset > 0 then
+			offset = sizeOffset
+		else
+			local absoluteSize = self._counterFrame.AbsoluteSize.Y
+			if absoluteSize > 0 then
+				offset = absoluteSize
+			end
+		end
+	end
+
+	return UDim2.new(
+		self._counterOriginalPosition.X.Scale,
+		self._counterOriginalPosition.X.Offset,
+		self._counterOriginalPosition.Y.Scale,
+		self._counterOriginalPosition.Y.Offset - offset - 10
+	)
+end
+
+function module:_resolveCounterUserId(entry)
+	return getCounterUserId(entry)
+end
+
+function module:_getCounterState(userId)
+	if type(userId) ~= "number" then
+		return nil
+	end
+
+	self._counterPlayerStateByUserId = self._counterPlayerStateByUserId or {}
+
+	local state = self._counterPlayerStateByUserId[userId]
+	if not state then
+		state = {
+			disconnected = false,
+			dead = false,
+			chatting = false,
+			chatText = nil,
+			imageColor = nil,
+		}
+		self._counterPlayerStateByUserId[userId] = state
+	end
+
+	return state
+end
+
+function module:_getCounterHolder(userId)
+	if type(userId) ~= "number" then
+		return nil
+	end
+
+	self._counterPlayerByUserId = self._counterPlayerByUserId or {}
+
+	local holder = self._counterPlayerByUserId[userId]
+	if holder and holder.Parent then
+		return holder
+	end
+
+	local function findInSlots(slots)
+		if type(slots) ~= "table" then
+			return nil
+		end
+
+		for _, slot in ipairs(slots) do
+			if slot and slot:GetAttribute("CounterUserId") == userId then
+				return slot
+			end
+		end
+
+		return nil
+	end
+
+	holder = findInSlots(self._yourTeamSlots) or findInSlots(self._enemyTeamSlots)
+	if holder then
+		self._counterPlayerByUserId[userId] = holder
+	end
+
+	return holder
+end
+
+function module:_untrackCounterHolder(holder)
+	if not holder then
+		return
+	end
+
+	self._counterPlayerByUserId = self._counterPlayerByUserId or {}
+
+	for userId, mappedHolder in self._counterPlayerByUserId do
+		if mappedHolder == holder then
+			self._counterPlayerByUserId[userId] = nil
+		end
+	end
+
+	pcall(function()
+		holder:SetAttribute("CounterUserId", nil)
+	end)
+end
+
+function module:_resetCounterHolderVisuals(holder)
+	if not holder then
+		return
+	end
+
+	local playerImage = holder:FindFirstChild("PlayerImage", true)
+	if playerImage and playerImage:IsA("ImageLabel") then
+		local defaultImageColor = holder:GetAttribute("CounterDefaultImageColor")
+		if typeof(defaultImageColor) ~= "Color3" then
+			defaultImageColor = playerImage.ImageColor3
+			holder:SetAttribute("CounterDefaultImageColor", defaultImageColor)
+		end
+		playerImage.ImageColor3 = defaultImageColor
+	end
+
+	local disconnectedIcon = holder:FindFirstChild("Disconnected", true)
+	if disconnectedIcon and disconnectedIcon:IsA("GuiObject") then
+		disconnectedIcon.Visible = false
+	end
+
+	local diedIcon = holder:FindFirstChild("Died", true)
+	if diedIcon and diedIcon:IsA("GuiObject") then
+		diedIcon.Visible = false
+	end
+
+	local chatBubble = holder:FindFirstChild("chat", true)
+	if chatBubble and chatBubble:IsA("GuiObject") then
+		chatBubble.Visible = false
+	end
+end
+
+function module:_setCounterChatText(chatContainer, chatText)
+	if not chatContainer or type(chatText) ~= "string" then
+		return
+	end
+
+	local setAny = false
+	for _, descendant in ipairs(chatContainer:GetDescendants()) do
+		if descendant:IsA("TextLabel") and descendant.Name == "Temp" then
+			descendant.Text = chatText
+			setAny = true
+		end
+	end
+
+	if not setAny then
+		local fallbackLabel = chatContainer:FindFirstChildWhichIsA("TextLabel", true)
+		if fallbackLabel then
+			fallbackLabel.Text = chatText
+		end
+	end
+end
+
+function module:_applyCounterPlayerState(userId)
+	local state = self:_getCounterState(userId)
+	local holder = self:_getCounterHolder(userId)
+	if not state or not holder then
+		return
+	end
+
+	local playerImage = holder:FindFirstChild("PlayerImage", true)
+	if playerImage and playerImage:IsA("ImageLabel") then
+		local defaultImageColor = holder:GetAttribute("CounterDefaultImageColor")
+		if typeof(defaultImageColor) ~= "Color3" then
+			defaultImageColor = playerImage.ImageColor3
+			holder:SetAttribute("CounterDefaultImageColor", defaultImageColor)
+		end
+
+		if typeof(state.imageColor) ~= "Color3" then
+			state.imageColor = defaultImageColor
+		end
+
+		if state.disconnected then
+			playerImage.ImageColor3 = COUNTER_DISCONNECTED_COLOR
+		elseif state.dead then
+			playerImage.ImageColor3 = COUNTER_DEAD_COLOR
+		else
+			playerImage.ImageColor3 = state.imageColor
+		end
+	end
+
+	local disconnectedIcon = holder:FindFirstChild("Disconnected", true)
+	if disconnectedIcon and disconnectedIcon:IsA("GuiObject") then
+		disconnectedIcon.Visible = state.disconnected == true
+	end
+
+	local diedIcon = holder:FindFirstChild("Died", true)
+	if diedIcon and diedIcon:IsA("GuiObject") then
+		diedIcon.Visible = state.dead == true
+	end
+
+	local chatBubble = holder:FindFirstChild("chat", true)
+	if chatBubble and chatBubble:IsA("GuiObject") then
+		chatBubble.Visible = state.chatting == true
+		if state.chatting and type(state.chatText) == "string" and state.chatText ~= "" then
+			self:_setCounterChatText(chatBubble, state.chatText)
+		end
+	end
+end
+
+function module:_applyEntryCounterState(userId, entry)
+	if type(entry) ~= "table" then
+		return
+	end
+
+	local state = self:_getCounterState(userId)
+	if not state then
+		return
+	end
+
+	local disconnected = entry.disconnected
+	if disconnected == nil then
+		disconnected = entry.isDisconnected
+	end
+	if disconnected ~= nil then
+		state.disconnected = disconnected == true
+	end
+
+	local dead = entry.dead
+	if dead == nil then
+		dead = entry.isDead
+	end
+	if dead ~= nil then
+		state.dead = dead == true
+	end
+
+	local chatting = entry.chatting
+	if chatting == nil then
+		chatting = entry.isChatting
+	end
+	if chatting == nil and type(entry.chat) == "boolean" then
+		chatting = entry.chat
+	end
+	if chatting ~= nil then
+		state.chatting = chatting == true
+	end
+
+	local chatText = entry.chatText
+	if type(chatText) ~= "string" then
+		if type(entry.chatMessage) == "string" then
+			chatText = entry.chatMessage
+		elseif type(entry.message) == "string" then
+			chatText = entry.message
+		elseif type(entry.chat) == "string" then
+			chatText = entry.chat
+		end
+	end
+	if chatText ~= nil then
+		state.chatText = chatText
+	end
+	if state.chatting == false then
+		state.chatText = nil
+	end
+end
+
+function module:_getTeamPlayerTemplate(teamFrame)
 	local template = nil
 
-	for _, child in ipairs(teamFrame:GetChildren()) do
-		if child.Name == "PlayerHolder" and child:IsA("GuiObject") then
-			child.Visible = false
-			if not template then
-				template = child
+	if teamFrame then
+		for _, child in ipairs(teamFrame:GetChildren()) do
+			if child.Name == "PlayerHolder" and child:IsA("GuiObject") then
+				child.Visible = false
+				if not template then
+					template = child
+				end
 			end
+		end
+	end
+
+	if not template and self._counterFrame then
+		local configuration = self._counterFrame:FindFirstChild("Template")
+		local fallbackTemplate = configuration and configuration:FindFirstChild("PlayerHolder", true)
+		if fallbackTemplate and fallbackTemplate:IsA("GuiObject") then
+			fallbackTemplate.Visible = false
+			template = fallbackTemplate
 		end
 	end
 
 	return template
 end
 
-function module:_setupMatchListeners()
-	self._export:on("MatchStart", function(matchData)
-		self:_onMatchStart(matchData)
-	end)
+function module:_teamHasUserId(teamEntries, userId)
+	if type(teamEntries) ~= "table" or type(userId) ~= "number" then
+		return false
+	end
 
-	self._export:on("RoundStart", function(data)
-		self:_onRoundStart(data)
-	end)
+	for _, entry in ipairs(teamEntries) do
+		local entryUserId = self:_resolveCounterUserId(entry)
+		if entryUserId == userId then
+			return true
+		end
+	end
 
-	self._export:on("ScoreUpdate", function(data)
-		self:_onScoreUpdate(data)
-	end)
-
-	self._export:on("ReturnToLobby", function()
-		self:_clearMatchTeams()
-		self:_clearKillfeedEntries()
-	end)
-
-	self._export:on("PlayerKilled", function(data)
-		self:_onPlayerKilled(data)
-	end)
+	return false
 end
 
-function module:_onMatchStart(matchData)
-	if typeof(matchData) ~= "table" then
+function module:SetCounterPlayers(matchData)
+	if type(matchData) ~= "table" then
 		return
 	end
 
 	local team1 = matchData.team1
 	local team2 = matchData.team2
+	local playersList = nil
 
-	if team1 == nil and typeof(matchData.teams) == "table" then
+	if team1 == nil and type(matchData.teams) == "table" then
 		team1 = matchData.teams.team1
 		team2 = matchData.teams.team2
+	end
+
+	if type(matchData.players) == "table" then
+		playersList = matchData.players
+	elseif #matchData > 0 then
+		playersList = matchData
 	end
 
 	if type(team1) ~= "table" then
@@ -379,14 +724,81 @@ function module:_onMatchStart(matchData)
 		team2 = {}
 	end
 
-	if #team1 == 0 and #team2 == 0 and type(matchData.players) == "table" then
-		team1 = matchData.players
+	if #team1 == 0 and #team2 == 0 and type(playersList) == "table" then
+		local parsedTeam1 = {}
+		local parsedTeam2 = {}
+		local hasTeamMetadata = false
+
+		for _, entry in ipairs(playersList) do
+			local teamValue = type(entry) == "table" and (entry.team or entry.teamId or entry.Team or entry.TeamId)
+				or nil
+			local normalizedTeam = teamValue
+			if type(normalizedTeam) == "string" then
+				normalizedTeam = string.lower(normalizedTeam)
+			end
+
+			if normalizedTeam == 2 or normalizedTeam == "team2" or normalizedTeam == "blue" then
+				table.insert(parsedTeam2, entry)
+				hasTeamMetadata = true
+			else
+				if normalizedTeam == 1 or normalizedTeam == "team1" or normalizedTeam == "red" then
+					hasTeamMetadata = true
+				end
+				table.insert(parsedTeam1, entry)
+			end
+		end
+
+		if hasTeamMetadata then
+			team1 = parsedTeam1
+			team2 = parsedTeam2
+		else
+			team1 = playersList
+		end
 	end
 
 	self._matchTeam1 = team1
 	self._matchTeam2 = team2
 
 	self:_populateMatchTeams()
+end
+
+function module:_setupMatchListeners()
+	self._export:on("MatchStart", function(matchData)
+		self:_onMatchStart(matchData)
+	end)
+
+	self._export:on("RoundStart", function(data)
+		self:_onRoundStart(data)
+		self:_hideMToChangePrompt()
+	end)
+
+	self._export:on("BetweenRoundFreeze", function(data)
+		self:_showMToChangePrompt(data)
+	end)
+
+	self._export:on("ScoreUpdate", function(data)
+		self:_onScoreUpdate(data)
+	end)
+
+	self._export:on("RoundKill", function(data)
+		if type(data) == "table" and data.victimId then
+			self:SetCounterPlayerDead(data.victimId, true)
+		end
+	end)
+
+	self._export:on("ReturnToLobby", function()
+		self:_clearMatchTeams()
+		self:_clearKillfeedEntries()
+		self:_hideMToChangePrompt()
+	end)
+
+	self._export:on("PlayerKilled", function(data)
+		self:_onPlayerKilled(data)
+	end)
+end
+
+function module:_onMatchStart(matchData)
+	self:SetCounterPlayers(matchData)
 end
 
 function module:_populateMatchTeams()
@@ -396,45 +808,66 @@ function module:_populateMatchTeams()
 	local team1 = self._matchTeam1 or {}
 	local team2 = self._matchTeam2 or {}
 
-	local localIsTeam1 = localUserId and table.find(team1, localUserId) ~= nil
-	local localIsTeam2 = localUserId and table.find(team2, localUserId) ~= nil
+	local localIsTeam1 = localUserId and self:_teamHasUserId(team1, localUserId) or false
+	local localIsTeam2 = localUserId and self:_teamHasUserId(team2, localUserId) or false
 
-	local yourTeamIds = team1
-	local enemyTeamIds = team2
+	local yourTeamEntries = team1
+	local enemyTeamEntries = team2
 
 	if localIsTeam2 and not localIsTeam1 then
-		yourTeamIds = team2
-		enemyTeamIds = team1
+		yourTeamEntries = team2
+		enemyTeamEntries = team1
 	end
+
+	-- Track whether the local player's team is swapped relative to team1/team2,
+	-- so score labels display on the correct side (YourTeam vs EnemyTeam).
+	self._scoreSwapped = localIsTeam2 and not localIsTeam1
 
 	self._yourTeamSlots = self._yourTeamSlots or {}
 	self._enemyTeamSlots = self._enemyTeamSlots or {}
 
-	self:_populateTeamSlots(self._yourTeamFrame, self._yourTeamTemplate, self._yourTeamSlots, yourTeamIds)
-	self:_populateTeamSlots(self._enemyTeamFrame, self._enemyTeamTemplate, self._enemyTeamSlots, enemyTeamIds)
+	self:_populateTeamSlots(self._yourTeamFrame, self._yourTeamTemplate, self._yourTeamSlots, yourTeamEntries)
+	self:_populateTeamSlots(self._enemyTeamFrame, self._enemyTeamTemplate, self._enemyTeamSlots, enemyTeamEntries)
 end
 
-function module:_populateTeamSlots(teamFrame, template, slotCache, userIds)
-	if not teamFrame or not template or type(slotCache) ~= "table" or type(userIds) ~= "table" then
+function module:_populateTeamSlots(teamFrame, template, slotCache, teamEntries)
+	if not teamFrame or not template or type(slotCache) ~= "table" or type(teamEntries) ~= "table" then
 		return
 	end
 
-	for i = #slotCache + 1, #userIds do
+	for i = #slotCache + 1, #teamEntries do
 		local clone = template:Clone()
 		clone.Visible = true
 		clone.Parent = teamFrame
 		table.insert(slotCache, clone)
 	end
 
-	for i = #slotCache, #userIds + 1, -1 do
+	for i = #slotCache, #teamEntries + 1, -1 do
+		self:_untrackCounterHolder(slotCache[i])
 		slotCache[i]:Destroy()
 		table.remove(slotCache, i)
 	end
 
-	for i, userId in ipairs(userIds) do
+	for i, entry in ipairs(teamEntries) do
 		local holder = slotCache[i]
 		if holder then
+			local userId = self:_resolveCounterUserId(entry)
+			holder.LayoutOrder = i
+			self:_untrackCounterHolder(holder)
+			self:_resetCounterHolderVisuals(holder)
+
+			if not userId then
+				holder.Visible = false
+				continue
+			end
+
+			holder.Visible = true
+			holder:SetAttribute("CounterUserId", userId)
+			self._counterPlayerByUserId[userId] = holder
+
 			self:_setTeamPlayerThumbnail(holder, userId)
+			self:_applyEntryCounterState(userId, entry)
+			self:_applyCounterPlayerState(userId)
 		end
 	end
 end
@@ -460,21 +893,126 @@ function module:_setTeamPlayerThumbnail(holder, userId)
 end
 
 function module:_onRoundStart(data)
-	if self._roundNumberLabel and data and data.roundNumber then
-		self._roundNumberLabel.Text = tostring(data.roundNumber)
+	if type(data) ~= "table" then
+		return
+	end
+
+	-- Update round number
+	if self._roundNumberLabel then
+		local roundNumber = data.roundNumber or data.round
+		if roundNumber ~= nil then
+			self._roundNumberLabel.Text = tostring(roundNumber)
+		end
+	end
+
+	-- Refresh all counter player states (players are revived between rounds)
+	self:RefreshCounterPlayers()
+end
+
+function module:_showMToChangePrompt(data)
+	if not self._ui or not self._ui.Parent then
+		return
+	end
+
+	-- Cancel any existing timer
+	if self._betweenRoundTimerThread then
+		task.cancel(self._betweenRoundTimerThread)
+		self._betweenRoundTimerThread = nil
+	end
+
+	-- Create "M to change" label
+	if not self._mToChangeLabel then
+		local label = Instance.new("TextLabel")
+		label.Name = "MToChangePrompt"
+		label.Text = "M to change"
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 18
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.BackgroundTransparency = 1
+		label.AnchorPoint = Vector2.new(0.5, 1)
+		label.Position = UDim2.new(0.5, 0, 1, -100)
+		label.Size = UDim2.new(0, 200, 0, 28)
+		label.Parent = self._ui
+		self._mToChangeLabel = label
+	end
+
+	-- Create timer label
+	if not self._betweenRoundTimerLabel then
+		local timerLabel = Instance.new("TextLabel")
+		timerLabel.Name = "BetweenRoundTimer"
+		timerLabel.Text = "10"
+		timerLabel.Font = Enum.Font.GothamBold
+		timerLabel.TextSize = 28
+		timerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		timerLabel.BackgroundTransparency = 1
+		timerLabel.AnchorPoint = Vector2.new(0.5, 1)
+		timerLabel.Position = UDim2.new(0.5, 0, 1, -60)
+		timerLabel.Size = UDim2.new(0, 120, 0, 36)
+		timerLabel.Parent = self._ui
+		self._betweenRoundTimerLabel = timerLabel
+	end
+
+	self._mToChangeLabel.Visible = true
+	self._betweenRoundTimerLabel.Visible = true
+
+	local duration = (data and type(data.duration) == "number") and data.duration or 10
+	local remaining = math.ceil(duration)
+
+	local function updateTimerText(secs)
+		if self._betweenRoundTimerLabel then
+			self._betweenRoundTimerLabel.Text = tostring(secs) .. "s"
+		end
+	end
+
+	updateTimerText(remaining)
+
+	-- Countdown loop
+	self._betweenRoundTimerThread = task.spawn(function()
+		local startTime = os.clock()
+		while remaining > 0 do
+			task.wait(1)
+			if not self._betweenRoundTimerLabel or not self._betweenRoundTimerLabel.Parent then
+				return
+			end
+			remaining = math.max(0, math.ceil(duration - (os.clock() - startTime)))
+			updateTimerText(remaining)
+		end
+		self._betweenRoundTimerThread = nil
+	end)
+end
+
+function module:_hideMToChangePrompt()
+	if self._betweenRoundTimerThread then
+		task.cancel(self._betweenRoundTimerThread)
+		self._betweenRoundTimerThread = nil
+	end
+
+	if self._mToChangeLabel then
+		self._mToChangeLabel.Visible = false
+	end
+
+	if self._betweenRoundTimerLabel then
+		self._betweenRoundTimerLabel.Visible = false
 	end
 end
 
 function module:_onScoreUpdate(data)
-	if not data then
+	if type(data) ~= "table" then
 		return
 	end
 
-	if self._redScoreLabel and data.team1Score ~= nil then
-		self._redScoreLabel.Text = tostring(data.team1Score)
+	if data.team1Score ~= nil or data.team2Score ~= nil or data.redScore ~= nil or data.blueScore ~= nil then
+		self:SetCounterScore(data.redScore or data.team1Score, data.blueScore or data.team2Score)
+		return
 	end
-	if self._blueScoreLabel and data.team2Score ~= nil then
-		self._blueScoreLabel.Text = tostring(data.team2Score)
+
+	local teamKey = data.teamKey
+	if teamKey == nil then
+		teamKey = data.team
+	end
+
+	if teamKey ~= nil then
+		self:AddCounterScore(teamKey, data.amount or data.points or 1)
 	end
 end
 
@@ -483,6 +1021,9 @@ function module:_clearMatchTeams()
 	self:_clearTeamSlots(self._enemyTeamSlots)
 	self._matchTeam1 = {}
 	self._matchTeam2 = {}
+	self._scoreSwapped = false
+	self._counterPlayerByUserId = {}
+	self._counterPlayerStateByUserId = {}
 end
 
 function module:_clearTeamSlots(slotCache)
@@ -490,9 +1031,186 @@ function module:_clearTeamSlots(slotCache)
 		return
 	end
 	for i = #slotCache, 1, -1 do
+		self:_untrackCounterHolder(slotCache[i])
 		slotCache[i]:Destroy()
 		table.remove(slotCache, i)
 	end
+end
+
+function module:SetCounterScore(redScore, blueScore)
+	-- When the local player is on team2, swap so "your team" side shows your score
+	if self._scoreSwapped then
+		redScore, blueScore = blueScore, redScore
+	end
+
+	if self._redScoreLabel and redScore ~= nil then
+		self._redScoreLabel.Text = tostring(redScore)
+	end
+	if self._blueScoreLabel and blueScore ~= nil then
+		self._blueScoreLabel.Text = tostring(blueScore)
+	end
+end
+
+function module:AddCounterScore(teamKey, amount)
+	local delta = type(amount) == "number" and amount or 1
+
+	local normalized = teamKey
+	if type(normalized) == "string" then
+		normalized = string.lower(normalized)
+	end
+
+	-- When the local player is on team2, flip the team key so the score
+	-- increments on the correct side (YourTeam vs EnemyTeam).
+	if self._scoreSwapped then
+		if normalized == 1 or normalized == "team1" or normalized == "red" or normalized == "r" then
+			normalized = 2
+		elseif normalized == 2 or normalized == "team2" or normalized == "blue" or normalized == "b" then
+			normalized = 1
+		end
+	end
+
+	local targetLabel = nil
+	if normalized == 1 or normalized == "team1" or normalized == "red" or normalized == "r" then
+		targetLabel = self._redScoreLabel
+	elseif normalized == 2 or normalized == "team2" or normalized == "blue" or normalized == "b" then
+		targetLabel = self._blueScoreLabel
+	end
+
+	if not targetLabel then
+		return
+	end
+
+	local currentScore = getScoreFromLabel(targetLabel)
+	targetLabel.Text = tostring(currentScore + delta)
+end
+
+function module:SetCounterPlayerDisconnected(userId, isDisconnected)
+	local resolvedUserId = self:_resolveCounterUserId(userId)
+	local state = self:_getCounterState(resolvedUserId)
+	if not state then
+		return
+	end
+
+	state.disconnected = isDisconnected == true
+	if state.disconnected then
+		state.chatting = false
+		state.chatText = nil
+	end
+
+	self:_applyCounterPlayerState(resolvedUserId)
+end
+
+function module:SetCounterPlayerDead(userId, isDead)
+	local resolvedUserId = self:_resolveCounterUserId(userId)
+	local state = self:_getCounterState(resolvedUserId)
+	if not state then
+		return
+	end
+
+	state.dead = isDead == true
+	self:_applyCounterPlayerState(resolvedUserId)
+end
+
+function module:SetCounterPlayerChatting(userId, isChatting, chatText)
+	local resolvedUserId = self:_resolveCounterUserId(userId)
+	local state = self:_getCounterState(resolvedUserId)
+	if not state then
+		return
+	end
+
+	state.chatting = isChatting == true
+	if type(chatText) == "string" then
+		state.chatText = chatText
+	elseif state.chatting == false then
+		state.chatText = nil
+	end
+
+	self:_applyCounterPlayerState(resolvedUserId)
+end
+
+function module:RefreshCounterPlayer(userId)
+	local resolvedUserId = self:_resolveCounterUserId(userId)
+	local state = self:_getCounterState(resolvedUserId)
+	if not state then
+		return
+	end
+
+	state.disconnected = false
+	state.dead = false
+	state.chatting = false
+	state.chatText = nil
+
+	self:_applyCounterPlayerState(resolvedUserId)
+end
+
+function module:RefreshCounterPlayers(userList)
+	if type(userList) == "table" then
+		for _, entry in ipairs(userList) do
+			local userId = self:_resolveCounterUserId(entry)
+			if userId then
+				self:RefreshCounterPlayer(userId)
+			end
+		end
+		return
+	end
+
+	for userId in self._counterPlayerByUserId do
+		self:RefreshCounterPlayer(userId)
+	end
+end
+
+function module:ShowCounter()
+	if not self._counterFrame or not self._counterOriginalPosition then
+		return
+	end
+
+	if not self._counterHiddenPosition then
+		self._counterHiddenPosition = self:_getCounterHiddenPosition()
+	end
+
+	cancelTweens("show_counter")
+
+	self._counterFrame.Visible = true
+	if self._counterHiddenPosition then
+		self._counterFrame.Position = self._counterHiddenPosition
+	end
+
+	local tween = TweenService:Create(self._counterFrame, TweenConfig.get("Counter", "show"), {
+		Position = self._counterOriginalPosition,
+	})
+	tween:Play()
+	currentTweens["show_counter"] = { tween }
+
+	return tween
+end
+
+function module:HideCounter()
+	if not self._counterFrame or not self._counterOriginalPosition then
+		return
+	end
+
+	local hiddenPosition = self._counterHiddenPosition or self:_getCounterHiddenPosition()
+	if not hiddenPosition then
+		return
+	end
+
+	self._counterHiddenPosition = hiddenPosition
+
+	cancelTweens("show_counter")
+
+	local tween = TweenService:Create(self._counterFrame, TweenConfig.get("Counter", "hide"), {
+		Position = hiddenPosition,
+	})
+	tween:Play()
+	currentTweens["show_counter"] = { tween }
+
+	tween.Completed:Once(function()
+		if self._counterFrame then
+			self._counterFrame.Visible = false
+		end
+	end)
+
+	return tween
 end
 
 -- =============================================================================
@@ -511,19 +1229,175 @@ function module:_cacheKillfeedUI()
 	if not killfeed and self._playerSpace then
 		killfeed = self._playerSpace:FindFirstChild("Killfeed")
 	end
+
+	-- Create killfeed container if it doesn't exist
 	if not killfeed then
-		return
+		killfeed = Instance.new("Frame")
+		killfeed.Name = "Killfeed"
+		killfeed.Size = UDim2.new(0, 320, 0, 300)
+		killfeed.Position = UDim2.new(1, -10, 0, 80)
+		killfeed.AnchorPoint = Vector2.new(1, 0)
+		killfeed.BackgroundTransparency = 1
+		killfeed.BorderSizePixel = 0
+		killfeed.ClipsDescendants = true
+		killfeed.Parent = screenGui
+
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Vertical
+		layout.VerticalAlignment = Enum.VerticalAlignment.Top
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Padding = UDim.new(0, 4)
+		layout.Parent = killfeed
 	end
 
 	self._killfeedContainer = killfeed
 	self._killfeedContainer.Visible = true
 
-	self._killfeedTemplate = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Gui"):WaitForChild("KillfeedTemplate")
+	-- Try to find existing template, or create one
+	local assetsGui = ReplicatedStorage:FindFirstChild("Assets")
+	assetsGui = assetsGui and assetsGui:FindFirstChild("Gui")
+	local template = assetsGui and assetsGui:FindFirstChild("KillfeedTemplate")
+
+	if not template then
+		template = self:_createKillfeedTemplate()
+	end
+
+	self._killfeedTemplate = template
 	self._killfeedEntries = {}
 end
 
+function module:_createKillfeedTemplate()
+	-- Build a killfeed entry: [KillerAvatar KillerName] ⚔ [VictimName VictimAvatar]
+	local entry = Instance.new("Frame")
+	entry.Name = "KillfeedTemplate"
+	entry.Size = UDim2.new(1, 0, 0, 32)
+	entry.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	entry.BackgroundTransparency = 0.3
+	entry.BorderSizePixel = 0
+	entry.Visible = false
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = entry
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 6)
+	padding.PaddingRight = UDim.new(0, 6)
+	padding.Parent = entry
+
+	-- Attacker section (left)
+	local attacker = Instance.new("Frame")
+	attacker.Name = "Attacker"
+	attacker.Size = UDim2.new(0.4, 0, 1, 0)
+	attacker.Position = UDim2.fromScale(0, 0)
+	attacker.BackgroundTransparency = 1
+	attacker.Parent = entry
+
+	local attackerImage = Instance.new("ImageLabel")
+	attackerImage.Name = "PlayerImage"
+	attackerImage.Size = UDim2.new(0, 24, 0, 24)
+	attackerImage.Position = UDim2.new(0, 0, 0.5, 0)
+	attackerImage.AnchorPoint = Vector2.new(0, 0.5)
+	attackerImage.BackgroundTransparency = 1
+	attackerImage.ScaleType = Enum.ScaleType.Crop
+	attackerImage.Parent = attacker
+
+	local attackerCorner = Instance.new("UICorner")
+	attackerCorner.CornerRadius = UDim.new(1, 0)
+	attackerCorner.Parent = attackerImage
+
+	local attackerInfo = Instance.new("Frame")
+	attackerInfo.Name = "Info"
+	attackerInfo.Size = UDim2.new(1, -28, 1, 0)
+	attackerInfo.Position = UDim2.new(0, 28, 0, 0)
+	attackerInfo.BackgroundTransparency = 1
+	attackerInfo.Parent = attacker
+
+	local attackerText = Instance.new("TextLabel")
+	attackerText.Name = "Text"
+	attackerText.Size = UDim2.fromScale(1, 1)
+	attackerText.BackgroundTransparency = 1
+	attackerText.Font = Enum.Font.GothamBold
+	attackerText.TextSize = 12
+	attackerText.TextColor3 = Color3.fromRGB(255, 100, 100)
+	attackerText.TextXAlignment = Enum.TextXAlignment.Left
+	attackerText.TextTruncate = Enum.TextTruncate.AtEnd
+	attackerText.Text = ""
+	attackerText.Parent = attackerInfo
+
+	-- Weapon icon (center)
+	local weapon = Instance.new("Frame")
+	weapon.Name = "Weapon"
+	weapon.Size = UDim2.new(0.2, 0, 1, 0)
+	weapon.Position = UDim2.fromScale(0.4, 0)
+	weapon.BackgroundTransparency = 1
+	weapon.Parent = entry
+
+	local swordIcon = Instance.new("TextLabel")
+	swordIcon.Name = "Icon"
+	swordIcon.Size = UDim2.fromScale(1, 1)
+	swordIcon.BackgroundTransparency = 1
+	swordIcon.Font = Enum.Font.GothamBold
+	swordIcon.TextSize = 14
+	swordIcon.TextColor3 = Color3.fromRGB(200, 200, 200)
+	swordIcon.Text = ">"
+	swordIcon.Parent = weapon
+
+	-- Attacked section (right)
+	local attacked = Instance.new("Frame")
+	attacked.Name = "Attacked"
+	attacked.Size = UDim2.new(0.4, 0, 1, 0)
+	attacked.Position = UDim2.fromScale(0.6, 0)
+	attacked.BackgroundTransparency = 1
+	attacked.Parent = entry
+
+	local attackedInfo = Instance.new("Frame")
+	attackedInfo.Name = "Info"
+	attackedInfo.Size = UDim2.new(1, -28, 1, 0)
+	attackedInfo.Position = UDim2.new(0, 0, 0, 0)
+	attackedInfo.BackgroundTransparency = 1
+	attackedInfo.Parent = attacked
+
+	local attackedText = Instance.new("TextLabel")
+	attackedText.Name = "Text"
+	attackedText.Size = UDim2.fromScale(1, 1)
+	attackedText.BackgroundTransparency = 1
+	attackedText.Font = Enum.Font.GothamBold
+	attackedText.TextSize = 12
+	attackedText.TextColor3 = Color3.fromRGB(100, 150, 255)
+	attackedText.TextXAlignment = Enum.TextXAlignment.Right
+	attackedText.TextTruncate = Enum.TextTruncate.AtEnd
+	attackedText.Text = ""
+	attackedText.Parent = attackedInfo
+
+	local attackedImage = Instance.new("ImageLabel")
+	attackedImage.Name = "PlayerImage"
+	attackedImage.Size = UDim2.new(0, 24, 0, 24)
+	attackedImage.Position = UDim2.new(1, 0, 0.5, 0)
+	attackedImage.AnchorPoint = Vector2.new(1, 0.5)
+	attackedImage.BackgroundTransparency = 1
+	attackedImage.ScaleType = Enum.ScaleType.Crop
+	attackedImage.Parent = attacked
+
+	local attackedCorner = Instance.new("UICorner")
+	attackedCorner.CornerRadius = UDim.new(1, 0)
+	attackedCorner.Parent = attackedImage
+
+	return entry
+end
+
 function module:_onPlayerKilled(data)
-	if not data or not self._killfeedContainer or not self._killfeedTemplate then
+	if type(data) ~= "table" then
+		return
+	end
+
+	local victimUserId = self:_resolveCounterUserId(data.victimUserId or data.victim or data.userId)
+	if victimUserId then
+		self:SetCounterPlayerDead(victimUserId, true)
+	end
+
+	if not self._killfeedContainer or not self._killfeedTemplate then
 		return
 	end
 
@@ -544,7 +1418,11 @@ function module:_onPlayerKilled(data)
 		uiScale.Parent = entry
 	end
 	uiScale.Scale = 0
-	local popUp = TweenService:Create(uiScale, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	local popUp = TweenService:Create(
+		uiScale,
+		TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Scale = 1 }
+	)
 	popUp:Play()
 
 	self:_scheduleEntryHide(entry)
@@ -600,7 +1478,11 @@ function module:_setKillfeedPlayerSection(section, userId, name, isPremium, isVe
 	if playerImage and playerImage:IsA("ImageLabel") and userId then
 		task.spawn(function()
 			local ok, thumb = pcall(function()
-				return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+				return Players:GetUserThumbnailAsync(
+					userId,
+					Enum.ThumbnailType.HeadShot,
+					Enum.ThumbnailSize.Size420x420
+				)
 			end)
 			if ok and thumb then
 				playerImage.Image = thumb
@@ -669,7 +1551,11 @@ function module:_hideKillfeedEntry(entry)
 	-- Scale down before destroying
 	local uiScale = entry:FindFirstChildWhichIsA("UIScale")
 	if uiScale then
-		local shrink = TweenService:Create(uiScale, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Scale = 0 })
+		local shrink = TweenService:Create(
+			uiScale,
+			TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.In),
+			{ Scale = 0 }
+		)
 		shrink:Play()
 		shrink.Completed:Once(function()
 			if entry and entry.Parent then
@@ -761,12 +1647,15 @@ function module:_cacheWeaponUI()
 				self._bumperLb = lb
 				self._bumperRb = rb
 				-- Keep Lb/Rb hidden by default; visibility toggled by _updateBumperVisibility
-				if lb then lb.Visible = false end
-				if rb then rb.Visible = false end
+				if lb then
+					lb.Visible = false
+				end
+				if rb then
+					rb.Visible = false
+				end
 			end
 		end
 	end
-
 end
 
 function module:setViewedPlayer(player, character)
@@ -1279,9 +2168,10 @@ function module:_animateBumperPress(side)
 	cancelTweens(key)
 
 	uiScale.Scale = 1
-	local pressDown = TweenService:Create(uiScale, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Scale = 0.8,
-	})
+	local pressDown =
+		TweenService:Create(uiScale, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Scale = 0.8,
+		})
 	local pressUp = TweenService:Create(uiScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Scale = 1,
 	})
@@ -2122,6 +3012,16 @@ function module:_setInitialState()
 		self._barHoldersOriginalPosition.Y.Scale + 0.1,
 		self._barHoldersOriginalPosition.Y.Offset
 	)
+
+	if self._counterFrame and self._counterOriginalPosition then
+		if not self._counterHiddenPosition then
+			self._counterHiddenPosition = self:_getCounterHiddenPosition()
+		end
+		self._counterFrame.Visible = true
+		if self._counterHiddenPosition then
+			self._counterFrame.Position = self._counterHiddenPosition
+		end
+	end
 end
 
 function module:_animateShow()
@@ -2131,6 +3031,7 @@ function module:_animateShow()
 	cancelTweens("show_player")
 	cancelTweens("show_bars")
 	cancelTweens("show_items")
+	cancelTweens("show_counter")
 
 	-- Skip bottom bar animation on mobile (hidden; MobileControls shows compact ammo)
 	if not UserInputService.TouchEnabled and self._itemHolderSpace and self._itemHolderOriginalPosition then
@@ -2164,6 +3065,8 @@ function module:_animateShow()
 		currentTweens["show_bars"] = { barsTween }
 	end)
 
+	self:ShowCounter()
+
 	return playerTween
 end
 
@@ -2174,6 +3077,7 @@ function module:_animateHide()
 	cancelTweens("show_player")
 	cancelTweens("show_bars")
 	cancelTweens("show_items")
+	cancelTweens("show_counter")
 
 	-- Skip bottom bar on mobile (already hidden)
 	if not UserInputService.TouchEnabled and self._itemHolderSpace and self._itemHolderOriginalPosition then
@@ -2219,6 +3123,8 @@ function module:_animateHide()
 	})
 	barsTween:Play()
 	currentTweens["show_bars"] = { barsTween }
+
+	self:HideCounter()
 
 	return barsTween
 end
@@ -2324,6 +3230,8 @@ function module:_cleanup()
 	self._weaponData = {}
 	self._selectedSlot = nil
 	self._healthShakeToken += 1
+	self._counterPlayerByUserId = {}
+	self._counterPlayerStateByUserId = {}
 
 	self._viewedPlayer = nil
 	self._viewedCharacter = nil

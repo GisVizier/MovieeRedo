@@ -1,5 +1,6 @@
 local MovementInputProcessor = {}
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -124,6 +125,11 @@ function MovementInputProcessor:ProcessJumpInput(isImmediatePress)
 	end
 
 	if not self.CharacterController then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("MatchFrozen") == true then
 		return
 	end
 

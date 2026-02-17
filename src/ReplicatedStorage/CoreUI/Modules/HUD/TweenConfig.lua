@@ -81,6 +81,17 @@ TweenConfig.Elements = {
 			easing = { Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.In },
 		},
 	},
+
+	Counter = {
+		show = {
+			duration = 0.4,
+			easing = { Style = Enum.EasingStyle.Quint, Direction = Enum.EasingDirection.Out },
+		},
+		hide = {
+			duration = 0.3,
+			easing = { Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.In },
+		},
+	},
 }
 
 function TweenConfig.get(elementName, animationType)

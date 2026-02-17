@@ -712,6 +712,11 @@ function KitService:start()
 
 	if self._net then
 		self._net:ConnectServer("KitRequest", function(player, payload)
+			-- Block all kit actions (abilities, equip) while frozen
+			if player:GetAttribute("MatchFrozen") then
+				return
+			end
+
 			local info = self:_ensurePlayer(player)
 			if typeof(payload) ~= "table" then
 				self:_fireState(player, info, { lastError = "BadRequest" })

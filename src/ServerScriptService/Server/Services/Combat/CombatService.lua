@@ -324,14 +324,9 @@ function CombatService:ApplyDamage(
 	local dealtDamage = (result.healthDamage or 0) + (result.shieldDamage or 0) + (result.overshieldDamage or 0)
 	self:_broadcastDamage(targetPlayer, dealtDamage, options)
 
-	-- Handle death synchronously with shot context (sourcePosition, hitPosition from where they were shot)
-	if result.killed then
-		self:_handleDeath(targetPlayer, options.source, options.weaponId, {
-			sourcePosition = options.sourcePosition,
-			hitPosition = options.hitPosition,
-			impactDirection = options.impactDirection,
-		})
-	end
+	-- Death is already handled by the OnDeath signal fired from CombatResource:TakeDamage.
+	-- Do NOT call _handleDeath here: _resetRound (triggered by OnPlayerKilled) immediately
+	-- revives players and resets _deathHandled, so a second call would run fully and double-count kills.
 
 	return result
 end
@@ -581,11 +576,34 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 		effectManager:RemoveAll("death")
 	end
 
+	-- Check if ult should be preserved (competitive elimination rounds)
+	local savedUlt = nil
+	if victimIsRealPlayer then
+		local matchManager = self._registry:TryGet("MatchManager")
+		local match = matchManager and matchManager:GetMatchForPlayer(victim)
+		if match and match.modeConfig and match.modeConfig.preserveUltOnRoundReset then
+			local kitService = self._registry and self._registry:TryGet("KitService")
+			if kitService and kitService._data and kitService._data[victim] then
+				savedUlt = kitService._data[victim].ultimate
+			end
+		end
+	end
+
 	-- Interrupt active kit abilities (prevents moves/VFX from continuing after death)
 	if victimIsRealPlayer then
 		local kitService = self._registry and self._registry:TryGet("KitService")
 		if kitService and kitService.OnPlayerDeath then
 			kitService:OnPlayerDeath(victim)
+		end
+
+		-- Restore preserved ultimate meter
+		if savedUlt and savedUlt > 0 then
+			if kitService and kitService._data and kitService._data[victim] then
+				kitService._data[victim].ultimate = savedUlt
+				if kitService._applyAttributes then
+					kitService:_applyAttributes(victim, kitService._data[victim])
+				end
+			end
 		end
 	end
 
@@ -625,7 +643,8 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 		if isTraining then
 			respawnDelay = MatchmakingConfig.Modes.Training.respawnDelay or 2
 		elseif isCompetitive then
-			respawnDelay = match.modeConfig.roundResetDelay or DEATH_RAGDOLL_DURATION
+			-- Use postKillDelay for ragdoll duration (matches the delay before round reset)
+			respawnDelay = match.modeConfig.postKillDelay or DEATH_RAGDOLL_DURATION
 		else
 			respawnDelay = DEATH_RAGDOLL_DURATION
 		end
@@ -635,15 +654,16 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 				return
 			end
 
-			-- Always clean up ragdoll
-			characterService:Unragdoll(victim)
-
 			-- Competitive round-based modes: MatchManager._resetRound handles
-			-- respawning BOTH players, loadout UI, round counter, etc.
-			-- Just clean up the ragdoll and let MatchManager take it from here.
+			-- unragdoll, revive, teleport, loadout UI, round counter, etc.
+			-- Do NOT unragdoll here — MatchManager does it to ensure correct
+			-- ordering (freeze → unragdoll → teleport to spawn).
 			if isCompetitive and match.modeConfig.hasScoring then
 				return
 			end
+
+			-- Non-competitive: clean up ragdoll here
+			characterService:Unragdoll(victim)
 
 			-- Training: revive + teleport to a random Exit gadget Spawn
 			-- (same approach as Exit gadget — no character recreation, just teleport)

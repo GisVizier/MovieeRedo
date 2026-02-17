@@ -70,8 +70,13 @@ function module.start(export, ui)
 	self._mapBlipsByMap = {}
 	self._selectedMapId = nil
 	self._rightSideHolderVisible = false
+	self._competitiveMode = false
 
 	return self
+end
+
+function module:setCompetitiveMode(enabled)
+	self._competitiveMode = enabled == true
 end
 
 function module:_getTeamColor(isUserTeam)
@@ -110,7 +115,22 @@ function module:_setupNetworkListeners()
 end
 
 function module:fireMapVote(mapId)
+	self._export:emit("MapVote", mapId)
 	return mapId
+end
+
+function module:onRemoteVote(userId, mapId)
+	if not mapId then return end
+	-- Remove old blip if player changed vote
+	for existingMapId, blips in self._mapBlipsByMap do
+		if blips[userId] and existingMapId ~= mapId then
+			self:_removePlayerBlip(existingMapId, userId)
+		end
+	end
+	self:_addPlayerBlip(mapId, userId)
+	self:_recalculateVotes()
+	-- Also update the player template map name display
+	self:setMapPicked(userId, mapId)
 end
 
 function module:_getLocalPlayer()
@@ -1361,6 +1381,10 @@ function module:setRoundData(data)
 	end
 
 	RoundCreateData.matchCreatedTime = data.matchCreatedTime or os.time()
+
+	if data.mapSelectionDuration then
+		RoundCreateData.mapSelectionDuration = data.mapSelectionDuration
+	end
 end
 
 function module:getRoundData()
@@ -1425,7 +1449,7 @@ function module:startTimer()
 		end
 
 		local matchCreatedTime = RoundCreateData.matchCreatedTime or os.time()
-		local duration = 5
+		local duration = RoundCreateData.mapSelectionDuration or 20
 		local endTime = matchCreatedTime + duration
 
 		while self._initialized and self._timerRunning do
@@ -1478,7 +1502,15 @@ function module:finishVoting()
 	local selectedMapId = self:_determineWinningMap(votesData, mapPool)
 
 	self:fireVotingFinished(votesData, mapPool)
+	self._export:emit("MapVoteComplete", selectedMapId)
 
+	if self._competitiveMode then
+		-- In competitive mode, server controls the transition.
+		-- UIController hides Map when it receives MapVoteResult from server.
+		return
+	end
+
+	-- Non-competitive (lobby play button): transition to Loadout directly
 	self._export:hide("Map")
 
 	local loadoutModule = self._export:getModule("Loadout")
@@ -1492,7 +1524,6 @@ function module:finishVoting()
 	end
 
 	self._export:show("Loadout")
-	self._export:emit("MapVoteComplete", selectedMapId)
 end
 
 function module:_determineWinningMap(votesData, mapPool)
@@ -1524,6 +1555,7 @@ function module:_cleanup()
 	self._timerRunning = false
 	self._votingFinished = false
 	self._allVoted = false
+	self._competitiveMode = false
 
 	for userId in self._playerTemplates do
 		local data = self._playerTemplates[userId]

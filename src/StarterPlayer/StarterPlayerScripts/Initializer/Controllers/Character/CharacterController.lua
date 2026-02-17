@@ -99,6 +99,23 @@ function CharacterController:Init(registry, net)
 		end)
 	end)
 
+	-- Round reset: MatchTeleport with roundReset triggers same thorough character refresh
+	-- (QueueController handles the actual teleport; we handle refresh)
+	self._net:ConnectClient("MatchTeleport", function(data)
+		if not data or not data.roundReset then
+			return
+		end
+
+		local movementController = self._registry and self._registry:TryGet("Movement")
+		if movementController and movementController.ResetRespawnLocalState then
+			movementController:ResetRespawnLocalState()
+		end
+
+		task.defer(function()
+			self:_onRespawnLoadoutRefresh()
+		end)
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		local character = player.Character
 		if character then

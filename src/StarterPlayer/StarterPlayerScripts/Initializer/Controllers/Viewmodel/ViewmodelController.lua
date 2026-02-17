@@ -217,7 +217,7 @@ function ViewmodelController:Init(registry, net)
 	self._slideTiltTarget = Vector3.zero
 
 	if self._net and self._net.ConnectClient then
-		self._startMatchConn = self._net:ConnectClient("StartMatch", function(_matchData)
+		self._startMatchConn = self._net:ConnectClient("MatchStart", function(_matchData)
 			self:SetActiveSlot("Primary")
 		end)
 
