@@ -7,9 +7,9 @@ local Character = {
 
 	JumpFatigue = {
 		Enabled = true,
-		FreeJumps = 3,
-		DecayPerJump = 0.065,
-		MinMultiplier = 0.75,
+		FreeJumps = 5,
+		DecayPerJump = 0.03,
+		MinMultiplier = 0.9,
 
 		MinVerticalVelocity = 12.5,
 		MinVerticalEnforceTime = 0.12,
@@ -46,9 +46,9 @@ local Character = {
 		},
 	},
 	MovementForce = 500,
-	FrictionMultiplier = 0.95,
-	AirControlMultiplier = 10.18,
-	AirResistance = 25.12,
+	FrictionMultiplier = 0.8,
+	AirControlMultiplier = 2.8,
+	AirResistance = 8,
 	AirborneSlideDownforce = 420,
 	FallSpeed = {
 		Enabled = true,
@@ -78,8 +78,8 @@ local Character = {
 	},
 	LandingMomentum = {
 		Enabled = true,
-		PreservationMultiplier = 0.8,
-		MinPreservationSpeed = 15,
+		PreservationMultiplier = 0.92,
+		MinPreservationSpeed = 10,
 		DecayRate = 0.92,
 	},
 	WallStop = {
