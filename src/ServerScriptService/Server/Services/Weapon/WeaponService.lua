@@ -158,6 +158,8 @@ function WeaponService:OnWeaponFired(player, shotData)
 		return
 	end
 
+	hitData.adsShot = (weaponId == "DualPistols") and (shotData.adsShot == true) or false
+
 	-- Shotgun pellet handling (server-authoritative)
 	if weaponConfig.pelletsPerShot and weaponConfig.pelletsPerShot > 1 and shotData.pelletDirections then
 		local valid, reason = self:_validatePellets(shotData, weaponConfig)
@@ -399,6 +401,10 @@ end
 
 function WeaponService:CalculateDamage(shotData, weaponConfig)
 	local baseDamage = weaponConfig.damage or 10
+	local dropoffScale = 1
+	if weaponConfig.id == "DualPistols" and shotData.adsShot == true then
+		dropoffScale = 0.5
+	end
 
 	-- Headshot multiplier
 	if shotData.isHeadshot then
@@ -415,7 +421,7 @@ function WeaponService:CalculateDamage(shotData, weaponConfig)
 			local falloffPercent = math.clamp(distanceBeyondMin / falloffRange, 0, 1)
 
 			local minDamage = weaponConfig.minDamage or (baseDamage * 0.3)
-			baseDamage = baseDamage - ((baseDamage - minDamage) * falloffPercent)
+			baseDamage = baseDamage - ((baseDamage - minDamage) * (falloffPercent * dropoffScale))
 		end
 	end
 

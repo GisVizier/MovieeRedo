@@ -22,10 +22,31 @@ local function getRuntime(weaponInstance)
 		}
 		runtimeByWeapon[weaponInstance] = runtime
 	end
-	if not runtime.mode then
-		runtime.mode = DualPistolsState.GetMode(weaponInstance.Slot)
-	end
 	return runtime
+end
+
+local function getOtherSide(side)
+	return (side == "left") and "right" or "left"
+end
+
+local function getHipfirePatternSide(shotIndex)
+	local shotPattern = { "right", "left", "right" }
+	return shotPattern[((shotIndex - 1) % #shotPattern) + 1]
+end
+
+local function getFireAnimationName(side, isADS)
+	if isADS then
+		return (side == "left") and "SpecailLeftFire" or "SpecailRightFire"
+	end
+	return (side == "left") and "Fire2" or "Fire1"
+end
+
+local function getSideAmmo(slot, side)
+	return DualPistolsState.GetGunAmmo(slot, side)
+end
+
+local function syncSlotAmmoState(weaponInstance, state, config)
+	DualPistolsState.SyncToTotal(weaponInstance.Slot, state.CurrentAmmo or 0, config.clipSize or 16)
 end
 
 local function isWeaponStillActive(weaponInstance)
@@ -92,11 +113,20 @@ local function getDualMuzzleAttachments(weaponInstance)
 	return rightMuzzle, leftMuzzle, gunModel
 end
 
-local function consumeShotAmmo(weaponInstance, state)
+local function consumeShotAmmo(weaponInstance, state, config, side)
+	local clipSize = config.clipSize or 16
+	if not DualPistolsState.TryConsumeGunAmmo(weaponInstance.Slot, side, 1) then
+		if (state.CurrentAmmo or 0) <= 0 then
+			return false, "NoAmmo"
+		end
+		return false, "SideEmpty"
+	end
+
 	if weaponInstance.DecrementAmmo then
 		local ok = weaponInstance.DecrementAmmo()
 		if not ok then
-			return false
+			DualPistolsState.AddGunAmmo(weaponInstance.Slot, side, 1, clipSize)
+			return false, "NoAmmo"
 		end
 		if weaponInstance.GetCurrentAmmo then
 			state.CurrentAmmo = weaponInstance.GetCurrentAmmo()
@@ -104,6 +134,8 @@ local function consumeShotAmmo(weaponInstance, state)
 	else
 		state.CurrentAmmo = math.max((state.CurrentAmmo or 0) - 1, 0)
 	end
+
+	syncSlotAmmoState(weaponInstance, state, config)
 
 	if weaponInstance.ApplyState then
 		weaponInstance.ApplyState(state)
@@ -113,24 +145,29 @@ local function consumeShotAmmo(weaponInstance, state)
 	return true
 end
 
-local function fireShot(weaponInstance, side)
+local function fireShot(weaponInstance, side, shotOptions)
 	local state = weaponInstance.State
-	if not state then
+	local config = weaponInstance.Config
+	if not state or not config then
 		return false, "InvalidState"
 	end
 	if (state.CurrentAmmo or 0) <= 0 then
 		return false, "NoAmmo"
 	end
+	if getSideAmmo(weaponInstance.Slot, side) <= 0 then
+		return false, "SideEmpty"
+	end
 
+	local options = shotOptions or {}
 	local now = workspace:GetServerTimeNow()
 	state.LastFireTime = now
 
-	local ammoOk = consumeShotAmmo(weaponInstance, state)
+	local ammoOk, ammoReason = consumeShotAmmo(weaponInstance, state, config, side)
 	if not ammoOk then
-		return false, "NoAmmo"
+		return false, ammoReason or "NoAmmo"
 	end
 
-	local animName = (side == "left") and "Fire2" or "Fire1"
+	local animName = options.animName or getFireAnimationName(side, options.adsShot == true)
 	if weaponInstance.PlayWeaponTrack then
 		weaponInstance.PlayWeaponTrack(animName, 0.03)
 	elseif weaponInstance.PlayAnimation then
@@ -140,7 +177,8 @@ local function fireShot(weaponInstance, side)
 	local rightMuzzle, leftMuzzle, gunModel = getDualMuzzleAttachments(weaponInstance)
 	local muzzleAttachment = (side == "left") and leftMuzzle or rightMuzzle
 
-	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(false)
+	local ignoreSpread = options.ignoreSpread == true
+	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(ignoreSpread)
 	if hitData then
 		hitData.timestamp = now
 		hitData.muzzleAttachment = muzzleAttachment
@@ -152,6 +190,7 @@ local function fireShot(weaponInstance, side)
 				weaponInstance.Net:FireServer("WeaponFired", {
 					packet = packet,
 					weaponId = weaponInstance.WeaponName,
+					adsShot = options.adsShot == true,
 				})
 			end
 		end
@@ -164,8 +203,33 @@ local function fireShot(weaponInstance, side)
 	return true
 end
 
+local function selectBurstSide(weaponInstance, shotIndex)
+	local slot = weaponInstance.Slot
+	local preferred = getHipfirePatternSide(shotIndex)
+	if getSideAmmo(slot, preferred) > 0 then
+		return preferred
+	end
+
+	local fallback = getOtherSide(preferred)
+	if getSideAmmo(slot, fallback) > 0 then
+		return fallback
+	end
+
+	return nil
+end
+
+local function selectSemiHipfireSide(weaponInstance)
+	local slot = weaponInstance.Slot
+	if getSideAmmo(slot, "right") > 0 then
+		return "right"
+	end
+	if getSideAmmo(slot, "left") > 0 then
+		return "left"
+	end
+	return nil
+end
+
 local function runBurstTail(weaponInstance, runtime, token, shotsPerBurst, shotInterval)
-	local shotPattern = { "right", "left", "right" }
 	for shotIndex = 2, shotsPerBurst do
 		if runtime.token ~= token then
 			break
@@ -190,13 +254,21 @@ local function runBurstTail(weaponInstance, runtime, token, shotsPerBurst, shotI
 		if not isWeaponStillActive(weaponInstance) then
 			break
 		end
+
 		state = weaponInstance.State
 		if not state or state.IsReloading or (state.CurrentAmmo or 0) <= 0 then
 			break
 		end
 
-		local side = shotPattern[((shotIndex - 1) % #shotPattern) + 1]
-		local ok = fireShot(weaponInstance, side)
+		local side = selectBurstSide(weaponInstance, shotIndex)
+		if not side then
+			break
+		end
+
+		local ok = fireShot(weaponInstance, side, {
+			ignoreSpread = false,
+			adsShot = false,
+		})
 		if not ok then
 			break
 		end
@@ -218,6 +290,9 @@ function Attack.Execute(weaponInstance, currentTime)
 	local config = weaponInstance.Config
 	local now = currentTime or workspace:GetServerTimeNow()
 	local runtime = getRuntime(weaponInstance)
+	local slot = weaponInstance.Slot
+
+	syncSlotAmmoState(weaponInstance, state, config)
 
 	if state.Equipped == false then
 		return false, "NotEquipped"
@@ -243,12 +318,25 @@ function Attack.Execute(weaponInstance, currentTime)
 	local burstShotInterval = burstConfig.shotInterval or 0.07
 	local burstCooldown = burstConfig.burstCooldown or 0.24
 	local semiInterval = 60 / (config.fireRate or 700)
-	local mode = runtime.mode or DualPistolsState.GetMode(weaponInstance.Slot)
+	local mode = DualPistolsState.GetMode(slot)
 	runtime.mode = mode
 
-	-- Partial reload state (one gun loaded): semi only, right gun only.
-	if mode == "semi" then
-		local ok, reason = fireShot(weaponInstance, "right")
+	local isADS = DualPistolsState.IsADSActive(slot)
+	if isADS then
+		local adsSide = DualPistolsState.GetSelectedADSSide(slot)
+		local adsSideAmmo = getSideAmmo(slot, adsSide)
+		if adsSideAmmo <= 0 then
+			local otherAmmo = getSideAmmo(slot, getOtherSide(adsSide))
+			if otherAmmo > 0 then
+				return false, "SideEmpty"
+			end
+			return false, "NoAmmo"
+		end
+
+		local ok, reason = fireShot(weaponInstance, adsSide, {
+			ignoreSpread = true,
+			adsShot = true,
+		})
 		if not ok then
 			return false, reason
 		end
@@ -259,13 +347,41 @@ function Attack.Execute(weaponInstance, currentTime)
 		return true
 	end
 
-	-- Dual loaded mode: 3-shot burst pattern (Fire1 -> Fire2 -> Fire1).
+	if mode == "semi" then
+		local side = selectSemiHipfireSide(weaponInstance)
+		if not side then
+			return false, "NoAmmo"
+		end
+
+		local ok, reason = fireShot(weaponInstance, side, {
+			ignoreSpread = false,
+			adsShot = false,
+		})
+		if not ok then
+			return false, reason
+		end
+
+		runtime.nextTriggerTime = now + semiInterval
+		runtime.token += 1
+		runtime.bursting = false
+		return true
+	end
+
 	runtime.token += 1
 	local token = runtime.token
 	runtime.bursting = true
 	runtime.nextTriggerTime = now + burstCooldown
 
-	local firstOk, firstReason = fireShot(weaponInstance, "right")
+	local firstSide = selectBurstSide(weaponInstance, 1)
+	if not firstSide then
+		runtime.bursting = false
+		return false, "NoAmmo"
+	end
+
+	local firstOk, firstReason = fireShot(weaponInstance, firstSide, {
+		ignoreSpread = false,
+		adsShot = false,
+	})
 	if not firstOk then
 		runtime.bursting = false
 		return false, firstReason

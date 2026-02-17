@@ -1,5 +1,6 @@
 local DualPistols = {}
 local DualPistolsVisuals = require(script:WaitForChild("Visuals"))
+local DualPistolsState = require(script:WaitForChild("State"))
 
 DualPistols.Cancels = {
 	FireCancelsSpecial = false,
@@ -9,17 +10,22 @@ DualPistols.Cancels = {
 }
 
 function DualPistols.Initialize(weaponInstance)
-	if not weaponInstance or not weaponInstance.State then
+	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return
 	end
 
 	weaponInstance.State.LastFireTime = weaponInstance.State.LastFireTime or 0
 	weaponInstance.State.Equipped = weaponInstance.State.Equipped ~= false
+	DualPistolsState.SyncToTotal(
+		weaponInstance.Slot,
+		weaponInstance.State.CurrentAmmo or 0,
+		weaponInstance.Config.clipSize or 16
+	)
 	DualPistolsVisuals.UpdateAmmoVisibility(weaponInstance, weaponInstance.State.CurrentAmmo or 0)
 end
 
 function DualPistols.OnEquip(weaponInstance)
-	if not weaponInstance then
+	if not weaponInstance or not weaponInstance.Config then
 		return
 	end
 
@@ -28,6 +34,11 @@ function DualPistols.OnEquip(weaponInstance)
 	end
 
 	if weaponInstance.State then
+		DualPistolsState.SyncToTotal(
+			weaponInstance.Slot,
+			weaponInstance.State.CurrentAmmo or 0,
+			weaponInstance.Config.clipSize or 16
+		)
 		DualPistolsVisuals.UpdateAmmoVisibility(weaponInstance, weaponInstance.State.CurrentAmmo or 0)
 	end
 end
@@ -36,6 +47,11 @@ function DualPistols.OnUnequip(weaponInstance)
 	local Attack = require(script:WaitForChild("Attack"))
 	if Attack and Attack.Cancel then
 		Attack.Cancel(weaponInstance)
+	end
+
+	local Special = require(script:WaitForChild("Special"))
+	if Special and Special.IsActive and Special.IsActive() and Special.Cancel then
+		Special.Cancel()
 	end
 end
 
@@ -71,8 +87,12 @@ function DualPistols.CanReload(weaponInstance)
 	return (state.ReserveAmmo or 0) > 0
 end
 
-function DualPistols.CanSpecial(_weaponInstance)
-	return false
+function DualPistols.CanSpecial(weaponInstance)
+	if not weaponInstance or not weaponInstance.State then
+		return false
+	end
+
+	return not weaponInstance.State.IsReloading
 end
 
 return DualPistols

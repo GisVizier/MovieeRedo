@@ -67,15 +67,30 @@ local function clearActiveReload(stopTrack)
 	activeReload = nil
 end
 
-local function applyModeFromAddCount(ctx)
+local function getSideCapacity(clipSize)
+	local resolved = math.floor(tonumber(clipSize) or 16)
+	return math.max(math.floor(resolved / 2), 1)
+end
+
+local function syncGunAmmo(ctx)
+	if not ctx or not ctx.weaponInstance or not ctx.state then
+		return
+	end
+	local clipSize = (ctx.weaponInstance.Config and ctx.weaponInstance.Config.clipSize) or 16
+	DualPistolsState.SyncToTotal(ctx.weaponInstance.Slot, ctx.state.CurrentAmmo or 0, clipSize)
+end
+
+local function applyModeFromGunAmmo(ctx)
 	if not ctx or not ctx.weaponInstance then
 		return
 	end
 
-	if ctx.addCount == 1 then
-		DualPistolsState.SetMode(ctx.weaponInstance.Slot, "semi")
-	elseif ctx.addCount >= 2 then
+	local rightAmmo = DualPistolsState.GetGunAmmo(ctx.weaponInstance.Slot, "right")
+	local leftAmmo = DualPistolsState.GetGunAmmo(ctx.weaponInstance.Slot, "left")
+	if rightAmmo > 0 and leftAmmo > 0 then
 		DualPistolsState.SetMode(ctx.weaponInstance.Slot, "burst")
+	else
+		DualPistolsState.SetMode(ctx.weaponInstance.Slot, "semi")
 	end
 end
 
@@ -97,6 +112,8 @@ function Reload.Execute(weaponInstance)
 	if (state.ReserveAmmo or 0) <= 0 then
 		return false, "NoReserve"
 	end
+
+	DualPistolsState.SyncToTotal(weaponInstance.Slot, state.CurrentAmmo or 0, clipSize)
 
 	clearActiveReload(true)
 
@@ -147,9 +164,14 @@ function Reload.Execute(weaponInstance)
 			end
 
 			local localClip = ctx.weaponInstance.Config and (ctx.weaponInstance.Config.clipSize or 0) or 0
+			local sideCapacity = getSideCapacity(localClip)
+			local targetSide = (ctx.addCount == 0) and "right" or "left"
+			local sideAmmo = DualPistolsState.GetGunAmmo(ctx.weaponInstance.Slot, targetSide)
+			local neededSideAmmo = math.max(sideCapacity - sideAmmo, 0)
 			local neededAmmo = localClip - (ctx.state.CurrentAmmo or 0)
-			local ammoToReload = math.min(8, neededAmmo, ctx.state.ReserveAmmo or 0)
+			local ammoToReload = math.min(neededSideAmmo, neededAmmo, ctx.state.ReserveAmmo or 0)
 			if ammoToReload > 0 then
+				DualPistolsState.AddGunAmmo(ctx.weaponInstance.Slot, targetSide, ammoToReload, localClip)
 				ctx.state.CurrentAmmo = (ctx.state.CurrentAmmo or 0) + ammoToReload
 				ctx.state.ReserveAmmo = (ctx.state.ReserveAmmo or 0) - ammoToReload
 				commitState(ctx.weaponInstance, ctx.state)
@@ -157,11 +179,15 @@ function Reload.Execute(weaponInstance)
 			end
 			ctx.addCount += 1
 		elseif markerParam == "eject" then
+			local localClip = ctx.weaponInstance.Config and (ctx.weaponInstance.Config.clipSize or 0) or 16
+			DualPistolsState.SetGunAmmo(ctx.weaponInstance.Slot, "right", 0, localClip)
+			DualPistolsState.SetGunAmmo(ctx.weaponInstance.Slot, "left", 0, localClip)
 			ctx.state.CurrentAmmo = 0
 			commitState(ctx.weaponInstance, ctx.state)
 			DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 		elseif markerParam == "_finish" then
-			applyModeFromAddCount(ctx)
+			syncGunAmmo(ctx)
+			applyModeFromGunAmmo(ctx)
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
 			commitState(ctx.weaponInstance, ctx.state)
@@ -182,7 +208,8 @@ function Reload.Execute(weaponInstance)
 		end
 
 		if getReloading(ctx.weaponInstance, ctx.state) then
-			applyModeFromAddCount(ctx)
+			syncGunAmmo(ctx)
+			applyModeFromGunAmmo(ctx)
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
 			commitState(ctx.weaponInstance, ctx.state)
@@ -228,7 +255,8 @@ function Reload.Interrupt(weaponInstance)
 	DualPistolsVisuals.UpdateAmmoVisibility(targetWeapon, state.CurrentAmmo or 0)
 
 	-- Interrupted reload still commits weapon mode from marker progress.
-	applyModeFromAddCount(ctx)
+	syncGunAmmo(ctx)
+	applyModeFromGunAmmo(ctx)
 	clearActiveReload(true)
 	return true
 end
