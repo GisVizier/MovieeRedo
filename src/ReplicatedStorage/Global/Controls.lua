@@ -13,16 +13,16 @@ Controls.Input = {
 	Run = Enum.KeyCode.LeftShift,
 	Slide = Enum.KeyCode.V,
 	Crouch = Enum.KeyCode.C,
-	
+
 	-- Combat
 	Fire = Enum.UserInputType.MouseButton1,
-	Special = Enum.UserInputType.MouseButton2,  -- ADS
+	Special = Enum.UserInputType.MouseButton2, -- ADS
 	Reload = Enum.KeyCode.R,
 	QuickMelee = Enum.KeyCode.F,
 	Inspect = Enum.KeyCode.F,
 	Ability = Enum.KeyCode.E,
 	Ultimate = Enum.KeyCode.Q,
-	
+
 	-- Camera & UI
 	ToggleCameraMode = Enum.KeyCode.T,
 
@@ -30,7 +30,7 @@ Controls.Input = {
 	ControllerJump = Enum.KeyCode.ButtonA,
 	ControllerCrouch = Enum.KeyCode.ButtonB,
 	ControllerFire = Enum.KeyCode.ButtonR2,
-	ControllerSpecial = Enum.KeyCode.ButtonL2,  -- ADS
+	ControllerSpecial = Enum.KeyCode.ButtonL2, -- ADS
 	ControllerReload = Enum.KeyCode.ButtonX,
 	ControllerQuickMelee = Enum.KeyCode.ButtonY,
 	ControllerAbility = Enum.KeyCode.ButtonL1,
@@ -38,6 +38,95 @@ Controls.Input = {
 
 	-- Mobile settings
 	ShowMobileControls = true,
+}
+
+-- =============================================================================
+-- MOBILE DEFAULT POSITIONS
+-- =============================================================================
+-- Single source of truth for every mobile UI element's layout.
+-- MobileControls.lua reads from this table instead of hardcoding positions.
+--
+-- Action buttons use:  Size, RightOffset, BottomOffset, Label
+-- Sticks use:          Position (UDim2), Size (px), ThumbSize (px)
+-- WeaponSlots uses:    Position (UDim2), ButtonWidth, ButtonHeight, Gap
+-- AmmoDisplay uses:    Position (UDim2), Size (UDim2)
+-- =============================================================================
+Controls.DefaultPositions = {
+	-- Movement stick (bottom-left)
+	MovementStick = {
+		Position = UDim2.new(0, 14, 1, -176),
+		Size = 130,
+		ThumbSize = 52,
+	},
+
+	-- Camera stick (right side, left of action cluster)
+	CameraStick = {
+		Position = UDim2.new(1, -326, 1, -166),
+		Size = 120,
+		ThumbSize = 46,
+	},
+
+	-- Action cluster buttons (anchored from bottom-right)
+	--  Layout (right-anchored, from bottom up):
+	--    Row 3:         [E]  [Q]
+	--    Row 2:   [R] [ADS]  [FIRE]
+	--    Row 1:        [C/S]  [JUMP]
+	Jump = {
+		Size = 86,
+		RightOffset = 14,
+		BottomOffset = 46,
+		Label = "JUMP",
+	},
+	CrouchSlide = {
+		Size = 48,
+		RightOffset = 110,
+		BottomOffset = 65,
+		Label = "C",
+	},
+	Fire = {
+		Size = 66,
+		RightOffset = 24,
+		BottomOffset = 142,
+		Label = "FIRE",
+	},
+	ADS = {
+		Size = 48,
+		RightOffset = 100,
+		BottomOffset = 151,
+		Label = "ADS",
+	},
+	Reload = {
+		Size = 48,
+		RightOffset = 158,
+		BottomOffset = 151,
+		Label = "R",
+	},
+	Ability = {
+		Size = 48,
+		RightOffset = 33,
+		BottomOffset = 218,
+		Label = "E",
+	},
+	Ultimate = {
+		Size = 48,
+		RightOffset = 91,
+		BottomOffset = 218,
+		Label = "Q",
+	},
+
+	-- Weapon slot bar (top-right)
+	WeaponSlots = {
+		Position = UDim2.new(1, -14, 0, 8),
+		ButtonWidth = 72,
+		ButtonHeight = 56,
+		Gap = 6,
+	},
+
+	-- Ammo display (bottom-right corner)
+	AmmoDisplay = {
+		Position = UDim2.new(1, 0, 1, -28),
+		Size = UDim2.fromOffset(56, 32),
+	},
 }
 
 -- =============================================================================
@@ -253,7 +342,7 @@ Controls.CustomizableControllerKeybinds = {
 		DefaultSecondary = nil,
 		Category = "Movement",
 	},
-	
+
 	-- Combat
 	{
 		Key = "Fire",
