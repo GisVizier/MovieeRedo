@@ -701,7 +701,12 @@ local function spawnDummy(spawnIndex, spawnReason)
 			local savedPseudoPlayer = dummyInfo.pseudoPlayer
 
 			stopEmote(dummy)
-			cleanupCombat(savedPseudoPlayer)
+			-- IMPORTANT: Defer cleanup so CombatService's OnDeath listener can run first (ragdoll/kill effects)
+			-- Signal fires listeners backwards, and cleanupCombat destroys the resource which would
+			-- prevent CombatService's listener from executing
+			task.defer(function()
+				cleanupCombat(savedPseudoPlayer)
+			end)
 			_activeDummies[dummy] = nil
 			scheduleCorpseQuarantine(dummy)
 

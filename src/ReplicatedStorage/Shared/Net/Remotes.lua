@@ -27,6 +27,8 @@ local Remotes = {
 
 	-- Match / loadout gating
 	{ name = "SubmitLoadout", description = "Client submits selected loadout and ready" },
+	{ name = "LoadoutReady", description = "Client signals all 4 loadout slots filled" },
+	{ name = "LoadoutLocked", description = "Server signals loadout is locked, timer jumping to 5s" },
 
 	-- VFX replication (generic)
 	{ name = "VFXRep", description = "VFX replication", unreliable = true },
@@ -89,6 +91,7 @@ local Remotes = {
 	{ name = "RoundStart", description = "New round beginning" },
 	{ name = "RoundKill", description = "Kill occurred during round" },
 	{ name = "ScoreUpdate", description = "Match score changed" },
+	{ name = "RoundOutcome", description = "Round ended with outcome (win/lose/draw) for player" },
 	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
 	{ name = "LoadoutTimerHalved", description = "Server notifies clients that loadout timer was halved after all players confirmed" },
 	{ name = "MatchEnd", description = "Match complete, winner declared" },

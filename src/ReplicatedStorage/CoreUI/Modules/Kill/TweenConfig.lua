@@ -3,8 +3,8 @@ local TweenConfig = {}
 TweenConfig.Elements = {
 	Main = {
 		show = {
-			duration = 0.6,
-			easing = { Style = Enum.EasingStyle.Quint, Direction = Enum.EasingDirection.Out },
+			duration = 0.67,
+			easing = { Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.Out },
 		},
 		hide = {
 			duration = 0.45,

@@ -85,6 +85,7 @@ function UIController:Init(registry, net)
 	self._currentMapId = nil
 
 	self._net:ConnectClient("MatchStart", function(matchData)
+		print("[UICONTROLLER] Received MatchStart from server:", matchData)
 		self:_onStartMatch(matchData)
 	end)
 
@@ -99,6 +100,11 @@ function UIController:Init(registry, net)
 
 	self._net:ConnectClient("ScoreUpdate", function(data)
 		self:_onScoreUpdate(data)
+	end)
+
+	-- Round outcome: show win/lose/draw animation
+	self._net:ConnectClient("RoundOutcome", function(data)
+		self:_onRoundOutcome(data)
 	end)
 
 	-- Round kill: mark dead player in HUD counter
@@ -138,6 +144,11 @@ function UIController:Init(registry, net)
 	-- Timer halving: when all players confirm loadout early, server halves the countdown.
 	self._net:ConnectClient("LoadoutTimerHalved", function(data)
 		self:_onLoadoutTimerHalved(data)
+	end)
+
+	-- All players ready - lock loadout and jump to 5 seconds
+	self._net:ConnectClient("LoadoutLocked", function(data)
+		self:_onLoadoutLocked(data)
 	end)
 
 	-- M key to open/close loadout during between-round phase
@@ -192,6 +203,11 @@ function UIController:Init(registry, net)
 	self._net:ConnectClient("PlayerKilled", function(data)
 		if self._coreUi then
 			self._coreUi:emit("PlayerKilled", data)
+			
+			-- Show Kill UI if local player was killed
+			if data and data.victimUserId == player.UserId then
+				self:_showKillScreen(data)
+			end
 		end
 	end)
 
@@ -280,6 +296,20 @@ function UIController:_bootstrapUi()
 		self:_onLoadoutComplete(data)
 	end)
 
+	-- Player has filled all 4 slots - notify server they're ready
+	ui:on("LoadoutReady", function(data)
+		self:_onLoadoutReady(data)
+	end)
+
+	-- Player changed weapons after already having 4 slots filled - re-submit loadout
+	ui:on("LoadoutChanged", function(data)
+		self:_onLoadoutChanged(data)
+	end)
+
+	-- NOTE: LoadoutWeaponChanged forwarding removed - Loadout's _export:emit already
+	-- fires to CoreUI's global event system which HUD listens to directly.
+	-- Forwarding here caused an infinite loop.
+
 	-- Map module vote relay → server
 	ui:on("MapVote", function(mapId)
 		self._net:FireServer("SubmitMapVote", { mapId = mapId })
@@ -292,7 +322,15 @@ function UIController:_bootstrapUi()
 	-- Emote wheel input wiring
 	self:_setupEmoteWheelInput(ui)
 
-	-- Kill feed test: H key triggers test death; server sends PlayerKilled, so we don't emit here (avoids duplicate entries)
+	-- Kill screen hidden - restore HUD health/loadout bars
+	ui:on("KillScreenHidden", function()
+		local hudModule = self._coreUi:getModule("HUD")
+		if hudModule and hudModule._showHealthAndLoadoutBars then
+			pcall(function()
+				hudModule:_showHealthAndLoadoutBars()
+			end)
+		end
+	end)
 
 	-- No UI shown on init - gameplay is enabled by default
 end
@@ -317,6 +355,50 @@ function UIController:_onLoadoutComplete(data)
 
 	-- Loadout UI stays visible with "READY" text until the server fires RoundStart.
 	-- _onRoundStart will hide Loadout, show HUD, and switch to FirstPerson camera.
+end
+
+function UIController:_onLoadoutReady(data)
+	-- Player has filled all 4 slots - notify server they're ready AND submit loadout
+	-- This ensures SelectedLoadout is set even if timer expires before LoadoutComplete
+	if typeof(data) ~= "table" then
+		return
+	end
+
+	local loadout = data.loadout
+	if typeof(loadout) ~= "table" then
+		return
+	end
+
+	local payload = {
+		mapId = data.mapId or "ApexArena",
+		gamemodeId = data.gamemodeId,
+		loadout = loadout,
+	}
+
+	-- Fire both LoadoutReady (marks player as ready) and SubmitLoadout (sets SelectedLoadout)
+	self._net:FireServer("LoadoutReady", payload)
+	self._net:FireServer("SubmitLoadout", payload)
+end
+
+function UIController:_onLoadoutChanged(data)
+	-- Player changed weapons after already having 4 slots filled - re-submit loadout
+	if typeof(data) ~= "table" then
+		return
+	end
+
+	local loadout = data.loadout
+	if typeof(loadout) ~= "table" then
+		return
+	end
+
+	local payload = {
+		mapId = data.mapId or "ApexArena",
+		gamemodeId = data.gamemodeId,
+		loadout = loadout,
+	}
+
+	-- Just submit the updated loadout (player is already marked as ready)
+	self._net:FireServer("SubmitLoadout", payload)
 end
 
 function UIController:_setupEmoteWheelInput(ui)
@@ -409,6 +491,7 @@ function UIController:_onStartMatch(matchData)
 	end
 
 	-- Core module: match start (team data)
+	print("[UICONTROLLER] _onStartMatch - emitting MatchStart to CoreUI with data:", matchData)
 	pcall(function()
 		self._coreUi:emit("MatchStart", matchData)
 	end)
@@ -425,29 +508,35 @@ function UIController:_onShowRoundLoadout(data)
 
 	-- Set up loadout module with round data including server duration
 	local loadoutModule = self._coreUi:getModule("Loadout")
-	if loadoutModule and loadoutModule.setRoundData then
+	if loadoutModule then
 		local player = Players.LocalPlayer
+		if loadoutModule.setRoundData then
+			pcall(function()
+				loadoutModule:setRoundData({
+					players = { player.UserId },
+					mapId = self._currentMapId or "ApexArena",
+					gamemodeId = "Duel",
+					timeStarted = os.clock(),
+					duration = data and data.duration or nil,
+					roundNumber = data and data.roundNumber or nil,
+				})
+			end)
+		end
+
+		-- Orbit camera during loadout
+		local cameraController = self._registry and self._registry:TryGet("Camera")
+		if cameraController and type(cameraController.SetCameraMode) == "function" then
+			cameraController:SetCameraMode("Orbit")
+		end
+
+		-- Show loadout UI in ROUND 1 mode (ready checks enabled, can jump to 5s)
 		pcall(function()
-			loadoutModule:setRoundData({
-				players = { player.UserId },
-				mapId = self._currentMapId or "ApexArena",
-				gamemodeId = "Duel",
-				timeStarted = os.clock(),
-				duration = data and data.duration or nil,
-				roundNumber = data and data.roundNumber or nil,
-			})
+			loadoutModule:show({ isBetweenRound = false })
 		end)
 	end
 
-	-- Orbit camera during loadout
-	local cameraController = self._registry and self._registry:TryGet("Camera")
-	if cameraController and type(cameraController.SetCameraMode) == "function" then
-		cameraController:SetCameraMode("Orbit")
-	end
-
-	safeCall(function()
-		self._coreUi:show("Loadout", true)
-	end)
+	-- Notify HUD to hide health/loadout bars
+	pcall(function() self._coreUi:emit("LoadoutOpened") end)
 end
 
 --------------------------------------------------------------------------------
@@ -538,17 +627,85 @@ function UIController:_onBetweenRoundFreeze(data)
 
 	self._betweenRounds = true
 
-	-- Track between-round timing for M key loadout
+	-- Track between-round timing
 	local duration = (data and type(data.duration) == "number") and data.duration or 10
 	self._betweenRoundDuration = duration
 	self._betweenRoundEndTime = os.clock() + duration
 
-	-- Hide any death/loadout UI, show HUD
-	safeCall(function() self._coreUi:hide("Loadout") end)
+	-- CLEAR HUD loadout slots (weapons, icons, etc.) BEFORE showing loadout UI
+	local hudModule = self._coreUi:getModule("HUD")
+	if hudModule and hudModule.ClearLoadoutSlots then
+		pcall(function()
+			hudModule:ClearLoadoutSlots()
+		end)
+	end
+
+	-- CLEAR Viewmodel weapons
+	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+	if viewmodelController and viewmodelController.ClearLoadout then
+		pcall(function()
+			viewmodelController:ClearLoadout()
+		end)
+	end
+
+	-- Notify HUD FIRST that loadout is opening (sets flag to skip animating player/health/items)
+	pcall(function() self._coreUi:emit("LoadoutOpened") end)
+
+	-- Now show HUD (score counter will show, but player/health/items will stay hidden due to flag)
 	safeCall(function() self._coreUi:show("HUD", true) end)
 
-	-- Tell HUD to show "M to change" prompt
+	-- Emit score update
 	pcall(function() self._coreUi:emit("BetweenRoundFreeze", data) end)
+
+	-- Open loadout UI directly with previous loadout pre-selected
+	local loadoutModule = self._coreUi:getModule("Loadout")
+	if loadoutModule then
+		-- Get the player's previous loadout from SelectedLoadout attribute
+		-- Note: Server clears SelectedLoadout on BetweenRoundFreeze, so this will be nil
+		-- We need to use the cached loadout from PlayerDataTable instead
+		local player = Players.LocalPlayer
+		local previousLoadout = nil
+		
+		-- Try PlayerDataTable first (cached from previous round)
+		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+		local equipped = PlayerDataTable.getEquippedLoadout()
+		if equipped and equipped.Kit then
+			previousLoadout = equipped
+		end
+
+		-- Set round data with the between-round duration
+		pcall(function()
+			loadoutModule:setRoundData({
+				players = { player and player.UserId or 0 },
+				mapId = self._currentMapId or "ApexArena",
+				gamemodeId = "Duel",
+				timeStarted = os.clock(),
+				duration = duration,
+			})
+		end)
+
+		-- Show loadout UI in BETWEEN-ROUND mode (no ready checks, full timer)
+		pcall(function()
+			loadoutModule:show({ isBetweenRound = true })
+		end)
+
+		-- Pre-populate with previous loadout after UI is shown
+		if previousLoadout and loadoutModule.prepopulateLoadout then
+			task.defer(function()
+				pcall(function()
+					loadoutModule:prepopulateLoadout(previousLoadout)
+				end)
+			end)
+		end
+	end
+
+	-- Switch to Orbit camera for loadout picking
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("Orbit")
+	end
+	-- Note: Server clears SelectedLoadout attribute on BetweenRoundFreeze,
+	-- which triggers ViewmodelController to clear weapons automatically
 end
 
 function UIController:_onLoadoutTimerHalved(data)
@@ -563,11 +720,46 @@ function UIController:_onLoadoutTimerHalved(data)
 	end
 end
 
+function UIController:_onLoadoutLocked(data)
+	if not self._coreUi then return end
+
+	local loadoutModule = self._coreUi:getModule("Loadout")
+	if loadoutModule then
+		-- IMMEDIATELY submit loadout to server when locked
+		-- This ensures SelectedLoadout is set BEFORE the server's timer expires and fires RoundStart
+		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+		local loadoutData = PlayerDataTable.getEquippedLoadout()
+		if loadoutData then
+			local payload = {
+				mapId = self._currentMapId or "ApexArena",
+				gamemodeId = "Duel",
+				loadout = loadoutData,
+			}
+			self._net:FireServer("SubmitLoadout", payload)
+		end
+
+		-- Lock the loadout UI (no more weapon changes)
+		if loadoutModule.lockLoadout then
+			pcall(function()
+				loadoutModule:lockLoadout()
+			end)
+		end
+
+		-- Jump timer to 5 seconds
+		if loadoutModule.halveTimer and data and type(data.remaining) == "number" then
+			pcall(function()
+				loadoutModule:halveTimer(data.remaining)
+			end)
+		end
+	end
+end
+
 function UIController:_onRoundStart(data)
 	if not self._coreUi then
 		return
 	end
 
+	local wasBetweenRound = self._betweenRounds
 	self._betweenRounds = false
 
 	local player = Players.LocalPlayer
@@ -576,10 +768,48 @@ function UIController:_onRoundStart(data)
 		player:SetAttribute("PlayerState", "InMatch")
 	end
 
-	-- Hide loadout if visible (M key may have opened it)
+	-- In between-round mode, submit the current loadout NOW (timer just expired)
+	-- The server will set SelectedLoadout attribute so weapons can be created
+	if wasBetweenRound then
+		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+		local loadoutData = PlayerDataTable.getEquippedLoadout()
+		if loadoutData then
+			local payload = {
+				mapId = self._currentMapId or "ApexArena",
+				gamemodeId = "Duel",
+				loadout = loadoutData,
+			}
+			self._net:FireServer("SubmitLoadout", payload)
+			-- Small delay to let server set the attribute
+			task.wait(0.05)
+		end
+	end
+
+	-- Hide loadout if visible - call directly on module since we showed it directly
+	local loadoutModule = self._coreUi:getModule("Loadout")
+	if loadoutModule and loadoutModule.hide then
+		pcall(function()
+			loadoutModule:hide()
+		end)
+	end
+	-- Also try CoreUI hide in case it was opened via CoreUI
 	safeCall(function()
 		self._coreUi:hide("Loadout")
 	end)
+	-- Notify HUD to show health/loadout bars
+	pcall(function() self._coreUi:emit("LoadoutClosed") end)
+
+	-- Get the loadout to apply
+	local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+	local loadoutData = PlayerDataTable.getEquippedLoadout()
+
+	-- REBUILD HUD with fresh loadout (resets ult if kit changed)
+	local hudModule = self._coreUi:getModule("HUD")
+	if hudModule and hudModule.RebuildLoadoutSlots then
+		pcall(function()
+			hudModule:RebuildLoadoutSlots(loadoutData)
+		end)
+	end
 
 	-- Show HUD
 	safeCall(function()
@@ -590,6 +820,33 @@ function UIController:_onRoundStart(data)
 	local cameraController = self._registry and self._registry:TryGet("Camera")
 	if cameraController and type(cameraController.SetCameraMode) == "function" then
 		cameraController:SetCameraMode("FirstPerson")
+	end
+
+	-- Create loadout from SelectedLoadout attribute (weapons were cleared during between-round)
+	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+	if viewmodelController and viewmodelController.RefreshLoadoutFromAttributes then
+		pcall(function()
+			viewmodelController:RefreshLoadoutFromAttributes()
+		end)
+	end
+
+	-- Refresh weapon controller to re-equip
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController and weaponController.OnRespawnRefresh then
+		task.defer(function()
+			pcall(function()
+				weaponController:OnRespawnRefresh()
+			end)
+		end)
+	end
+
+	-- Show round start animation on HUD with round number
+	local hudModule = self._coreUi:getModule("HUD")
+	if hudModule and hudModule.RoundStart then
+		local roundNumber = data and data.roundNumber or 1
+		pcall(function()
+			hudModule:RoundStart(roundNumber)
+		end)
 	end
 
 	-- Core module: round number
@@ -609,6 +866,26 @@ function UIController:_onScoreUpdate(data)
 	end)
 end
 
+function UIController:_onRoundOutcome(data)
+	if not self._coreUi then
+		return
+	end
+
+	-- Get the HUD module and call RoundEnd with the outcome
+	local hudModule = self._coreUi:getModule("HUD")
+	if hudModule and hudModule.RoundEnd then
+		local outcome = data and data.outcome or "draw"
+		pcall(function()
+			hudModule:RoundEnd(outcome)
+		end)
+	end
+	
+	-- Also emit to CoreUI in case other modules want to listen
+	pcall(function()
+		self._coreUi:emit("RoundOutcome", data)
+	end)
+end
+
 function UIController:_onMatchEnd(data)
 	if not self._coreUi then
 		return
@@ -625,6 +902,64 @@ function UIController:_onMatchEnd(data)
 	if weaponController and type(weaponController.HideCrosshair) == "function" then
 		weaponController:HideCrosshair()
 	end
+end
+
+function UIController:_showKillScreen(data)
+	if not self._coreUi then return end
+	
+	local player = Players.LocalPlayer
+	local killModule = self._coreUi:getModule("Kill")
+	if not killModule then return end
+	
+	-- Build killer data for the Kill UI
+	local killerUserId = data.killerUserId
+	local isSelfKill = not killerUserId or killerUserId == player.UserId
+	
+	-- Get wins/streak - for self-kills use local data, for real kills use 0 (unknown)
+	local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+	local wins = 0
+	local streak = 0
+	if isSelfKill then
+		wins = PlayerDataTable.getData("WINS") or 0
+		streak = PlayerDataTable.getData("STREAK") or 0
+	end
+	
+	local killerInfo = {
+		userId = isSelfKill and player.UserId or killerUserId,
+		displayName = isSelfKill and player.DisplayName or (data.killerData and data.killerData.displayName or "Unknown"),
+		userName = isSelfKill and player.Name or (data.killerData and data.killerData.userName or "unknown"),
+		kitId = isSelfKill and nil or (data.killerData and data.killerData.kitId),
+		weaponId = isSelfKill and nil or data.weaponId, -- Don't show weapon for self-kills
+		wins = wins,
+		streak = streak,
+		health = isSelfKill and 0 or (data.killerData and data.killerData.health or 100),
+		teamColor = Color3.fromRGB(255, 100, 100), -- Red team color for enemy
+	}
+	
+	-- If self-kill, use blue team color
+	if isSelfKill then
+		killerInfo.teamColor = Color3.fromRGB(100, 150, 255)
+	end
+	
+	-- Set killer data and show the Kill UI
+	if killModule.setKillerData then
+		pcall(function()
+			killModule:setKillerData(killerInfo)
+		end)
+	end
+	
+	-- Hide HUD health/loadout bars but keep counter visible
+	local hudModule = self._coreUi:getModule("HUD")
+	if hudModule and hudModule._hideHealthAndLoadoutBars then
+		pcall(function()
+			hudModule:_hideHealthAndLoadoutBars()
+		end)
+	end
+	
+	-- Show Kill UI
+	safeCall(function()
+		self._coreUi:show("Kill", true)
+	end)
 end
 
 function UIController:_onReturnToLobby(data)
@@ -701,6 +1036,8 @@ function UIController:_onShowTrainingLoadout(data)
 	safeCall(function()
 		self._coreUi:show("Loadout", true)
 	end)
+	-- Notify HUD to hide health/loadout bars
+	pcall(function() self._coreUi:emit("LoadoutOpened") end)
 end
 
 -- Training mode entry confirmed: show HUD and force first person
@@ -720,6 +1057,8 @@ function UIController:_onTrainingLoadoutConfirmed(data)
 	safeCall(function()
 		self._coreUi:hide("Loadout")
 	end)
+	-- Notify HUD to show health/loadout bars
+	pcall(function() self._coreUi:emit("LoadoutClosed") end)
 
 	-- Show HUD for training with correct data
 	safeCall(function()

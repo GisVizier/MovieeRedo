@@ -78,6 +78,19 @@ local HEALTH_SHAKE_Y_RANGE = 6
 local HEALTH_SHAKE_TWEEN = TweenInfo.new(0.025, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local healthShakeRandom = Random.new()
 
+local ROUND_SHAKE_STEPS = 5
+local ROUND_SHAKE_X_RANGE = 4
+local ROUND_SHAKE_Y_RANGE = 3
+local ROUND_SHAKE_TWEEN_INFO = TweenInfo.new(0.04, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local roundShakeRandom = Random.new()
+
+local WIN_COLOR = Color3.fromRGB(86, 198, 55)
+local LOSE_COLOR = Color3.fromRGB(198, 55, 55)
+local DRAW_COLOR = Color3.fromRGB(150, 150, 150)
+local ROUND_START_BAR_COLOR = Color3.fromRGB(0, 0, 0)
+local TIMER_FLASH_COLOR = Color3.fromRGB(255, 60, 60)
+local TIMER_NORMAL_COLOR = Color3.fromRGB(255, 255, 255)
+
 local currentTweens = {}
 local CONTROLLER_INPUT_TYPES = {
 	[Enum.UserInputType.Gamepad1] = true,
@@ -271,12 +284,18 @@ function module.start(export, ui: UI)
 	self._weaponData = {}
 	self._selectedSlot = nil
 	self._cooldownThreads = {}
+	self._lastKitId = nil  -- Track kit for ult reset between rounds
 	self._healthShakeToken = 0
+	self._roundShakeToken = 0
 	self._counterPlayerByUserId = {}
 	self._counterPlayerStateByUserId = {}
 	self._counterFrame = nil
 	self._counterOriginalPosition = nil
 	self._counterHiddenPosition = nil
+	self._counterTimerLabel = nil
+	self._counterTimerDefaultText = nil
+	self._counterTimerThread = nil
+	self._counterTimerGeneration = 0
 
 	local playerSpace = ui.PlayerSpace
 
@@ -293,6 +312,7 @@ function module.start(export, ui: UI)
 	self:_cacheWeaponUI()
 	self:_cacheMatchUI()
 	self:_cacheKillfeedUI()
+	self:_cacheRoundUI()
 	self:_setupMatchListeners()
 
 	return self
@@ -343,17 +363,48 @@ function module:_playHealthDamageShake()
 end
 
 function module:_cacheMatchUI()
+	print("[HUD] _cacheMatchUI called")
 	local counter = self._ui:FindFirstChild("Counter", true)
 	if not counter then
+		print("[HUD] _cacheMatchUI - Counter not found, returning")
 		return
 	end
+	print("[HUD] _cacheMatchUI - Counter found:", counter)
 
 	self._counterFrame = counter
 	self._counterOriginalPosition = counter.Position
 	self._counterHiddenPosition = self:_getCounterHiddenPosition()
 
 	local timer = counter:FindFirstChild("Timer")
-	self._roundNumberLabel = timer and (timer:FindFirstChild("RoundNumber") or timer:FindFirstChild("Text"))
+	local timerValueLabel = nil
+	if timer then
+		local directTimer = timer:FindFirstChild("Timer")
+		if directTimer and directTimer:IsA("TextLabel") then
+			timerValueLabel = directTimer
+		else
+			for _, descendant in ipairs(timer:GetDescendants()) do
+				if descendant:IsA("TextLabel") and descendant.Name == "Timer" then
+					timerValueLabel = descendant
+					break
+				end
+			end
+		end
+
+		if not timerValueLabel then
+			local legacyRound = timer:FindFirstChild("RoundNumber")
+			if legacyRound and legacyRound:IsA("TextLabel") then
+				timerValueLabel = legacyRound
+			else
+				local legacyText = timer:FindFirstChild("Text")
+				if legacyText and legacyText:IsA("TextLabel") then
+					timerValueLabel = legacyText
+				end
+			end
+		end
+	end
+
+	self._counterTimerLabel = timerValueLabel
+	self._counterTimerDefaultText = timerValueLabel and timerValueLabel.Text or nil
 
 	local redScore = counter:FindFirstChild("RedScore")
 	self._redScoreLabel = redScore and redScore:FindFirstChild("Text")
@@ -385,9 +436,11 @@ function module:_cacheMatchUI()
 
 	self._yourTeamFrame = counter:FindFirstChild("YourTeam")
 	self._enemyTeamFrame = counter:FindFirstChild("EnemyTeam")
+	print("[HUD] _cacheMatchUI - YourTeam frame:", self._yourTeamFrame, "EnemyTeam frame:", self._enemyTeamFrame)
 
 	self._yourTeamTemplate = self:_getTeamPlayerTemplate(self._yourTeamFrame)
 	self._enemyTeamTemplate = self:_getTeamPlayerTemplate(self._enemyTeamFrame)
+	print("[HUD] _cacheMatchUI - YourTeam template:", self._yourTeamTemplate, "EnemyTeam template:", self._enemyTeamTemplate)
 
 	self._yourTeamSlots = {}
 	self._enemyTeamSlots = {}
@@ -396,6 +449,7 @@ function module:_cacheMatchUI()
 
 	self._matchTeam1 = {}
 	self._matchTeam2 = {}
+	print("[HUD] _cacheMatchUI complete")
 end
 
 function module:_getCounterHiddenPosition()
@@ -698,17 +752,22 @@ function module:_teamHasUserId(teamEntries, userId)
 end
 
 function module:SetCounterPlayers(matchData)
+	print("[HUD] SetCounterPlayers called")
 	if type(matchData) ~= "table" then
+		print("[HUD] SetCounterPlayers - matchData is not a table, returning")
 		return
 	end
 
 	local team1 = matchData.team1
 	local team2 = matchData.team2
 	local playersList = nil
+	
+	print("[HUD] SetCounterPlayers - raw team1:", team1, "team2:", team2)
 
 	if team1 == nil and type(matchData.teams) == "table" then
 		team1 = matchData.teams.team1
 		team2 = matchData.teams.team2
+		print("[HUD] SetCounterPlayers - got teams from matchData.teams")
 	end
 
 	if type(matchData.players) == "table" then
@@ -758,6 +817,8 @@ function module:SetCounterPlayers(matchData)
 
 	self._matchTeam1 = team1
 	self._matchTeam2 = team2
+	
+	print("[HUD] SetCounterPlayers - final team1 count:", #team1, "team2 count:", #team2)
 
 	self:_populateMatchTeams()
 end
@@ -767,13 +828,34 @@ function module:_setupMatchListeners()
 		self:_onMatchStart(matchData)
 	end)
 
+	-- Hide health/loadout bars when Loadout UI is shown
+	self._export:on("LoadoutOpened", function()
+		self:_hideHealthAndLoadoutBars()
+	end)
+
+	-- Show health/loadout bars when Loadout UI is hidden  
+	self._export:on("LoadoutClosed", function()
+		self:_showHealthAndLoadoutBars()
+	end)
+
+	-- Refresh HUD icons when player changes weapon in loadout selection
+	self._export:on("LoadoutWeaponChanged", function(data)
+		self:_refreshWeaponData()
+	end)
+
 	self._export:on("RoundStart", function(data)
 		self:_onRoundStart(data)
 		self:_hideMToChangePrompt()
 	end)
 
 	self._export:on("BetweenRoundFreeze", function(data)
-		self:_showMToChangePrompt(data)
+		-- Don't show "M to change" prompt anymore.
+		-- Loadout UI is now opened directly by UIController.
+		-- Just update the score if provided.
+		if data and data.scores then
+			self:SetCounterScore(data.scores.Team1, data.scores.Team2)
+		end
+		self:_syncCounterTimerFromData(data)
 	end)
 
 	self._export:on("ScoreUpdate", function(data)
@@ -790,6 +872,7 @@ function module:_setupMatchListeners()
 		self:_clearMatchTeams()
 		self:_clearKillfeedEntries()
 		self:_hideMToChangePrompt()
+		self:_stopCounterTimer(true)
 	end)
 
 	self._export:on("PlayerKilled", function(data)
@@ -798,18 +881,26 @@ function module:_setupMatchListeners()
 end
 
 function module:_onMatchStart(matchData)
+	print("[HUD] _onMatchStart called, matchData:", matchData)
 	self:SetCounterPlayers(matchData)
 end
 
 function module:_populateMatchTeams()
+	print("[HUD] _populateMatchTeams called")
 	local localPlayer = Players.LocalPlayer
 	local localUserId = localPlayer and localPlayer.UserId or nil
 
 	local team1 = self._matchTeam1 or {}
 	local team2 = self._matchTeam2 or {}
+	
+	print("[HUD] _populateMatchTeams - team1 count:", #team1, "team2 count:", #team2)
+	print("[HUD] _populateMatchTeams - _yourTeamFrame:", self._yourTeamFrame, "_enemyTeamFrame:", self._enemyTeamFrame)
+	print("[HUD] _populateMatchTeams - _yourTeamTemplate:", self._yourTeamTemplate, "_enemyTeamTemplate:", self._enemyTeamTemplate)
 
 	local localIsTeam1 = localUserId and self:_teamHasUserId(team1, localUserId) or false
 	local localIsTeam2 = localUserId and self:_teamHasUserId(team2, localUserId) or false
+	
+	print("[HUD] _populateMatchTeams - localUserId:", localUserId, "localIsTeam1:", localIsTeam1, "localIsTeam2:", localIsTeam2)
 
 	local yourTeamEntries = team1
 	local enemyTeamEntries = team2
@@ -825,15 +916,19 @@ function module:_populateMatchTeams()
 
 	self._yourTeamSlots = self._yourTeamSlots or {}
 	self._enemyTeamSlots = self._enemyTeamSlots or {}
-
+	
+	print("[HUD] _populateMatchTeams - calling _populateTeamSlots for yourTeam with", #yourTeamEntries, "entries")
 	self:_populateTeamSlots(self._yourTeamFrame, self._yourTeamTemplate, self._yourTeamSlots, yourTeamEntries)
+	print("[HUD] _populateMatchTeams - calling _populateTeamSlots for enemyTeam with", #enemyTeamEntries, "entries")
 	self:_populateTeamSlots(self._enemyTeamFrame, self._enemyTeamTemplate, self._enemyTeamSlots, enemyTeamEntries)
 end
 
 function module:_populateTeamSlots(teamFrame, template, slotCache, teamEntries)
 	if not teamFrame or not template or type(slotCache) ~= "table" or type(teamEntries) ~= "table" then
+		print("[HUD] _populateTeamSlots - EARLY RETURN: teamFrame:", teamFrame ~= nil, "template:", template ~= nil, "slotCache type:", type(slotCache), "teamEntries type:", type(teamEntries))
 		return
 	end
+	print("[HUD] _populateTeamSlots - processing", #teamEntries, "entries")
 
 	for i = #slotCache + 1, #teamEntries do
 		local clone = template:Clone()
@@ -892,17 +987,153 @@ function module:_setTeamPlayerThumbnail(holder, userId)
 	end)
 end
 
+function module:_formatCounterTimer(seconds)
+	local clamped = math.max(0, math.ceil(seconds))
+	local mins = math.floor(clamped / 60)
+	local secs = clamped % 60
+	return string.format("%d:%02d", mins, secs)
+end
+
+function module:_setCounterTimerText(text)
+	if self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+		self._counterTimerLabel.Text = tostring(text)
+	end
+end
+
+function module:_stopCounterTimer(resetText)
+	self._counterTimerGeneration += 1
+
+	if self._counterTimerThread then
+		pcall(task.cancel, self._counterTimerThread)
+		self._counterTimerThread = nil
+	end
+
+	if resetText then
+		local fallbackText = self._counterTimerDefaultText or "0:00"
+		self:_setCounterTimerText(fallbackText)
+	end
+	
+	-- Cancel any ongoing flash tween and reset timer color to normal
+	cancelTweens("timer_flash")
+	if self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+		self._counterTimerLabel.TextColor3 = TIMER_NORMAL_COLOR
+	end
+end
+
+function module:_startCounterTimer(durationSeconds)
+	if type(durationSeconds) ~= "number" or durationSeconds <= 0 then
+		return
+	end
+
+	self:_stopCounterTimer(false)
+	self._counterTimerGeneration += 1
+	local generation = self._counterTimerGeneration
+	local endTime = os.clock() + durationSeconds
+
+	self:_setCounterTimerText(self:_formatCounterTimer(durationSeconds))
+	
+	-- Reset timer color to normal and cancel any existing flash
+	cancelTweens("timer_flash")
+	if self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+		self._counterTimerLabel.TextColor3 = TIMER_NORMAL_COLOR
+	end
+	
+	-- Track flash state
+	local isFlashing = false
+
+	self._counterTimerThread = task.spawn(function()
+		while self._ui and self._ui.Parent and generation == self._counterTimerGeneration do
+			local remaining = endTime - os.clock()
+			if remaining <= 0 then
+				self:_setCounterTimerText("0:00")
+				-- Reset to normal color when timer ends
+				cancelTweens("timer_flash")
+				if self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+					self._counterTimerLabel.TextColor3 = TIMER_NORMAL_COLOR
+				end
+				break
+			end
+
+			self:_setCounterTimerText(self:_formatCounterTimer(remaining))
+			
+			-- Start smooth flashing when ≤30 seconds remaining
+			if remaining <= 30 and not isFlashing and self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+				isFlashing = true
+				-- Flash loop in separate thread
+				task.spawn(function()
+					local flashIn = TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+					local flashOut = TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+					
+					while generation == self._counterTimerGeneration and self._counterTimerLabel and self._counterTimerLabel.Parent do
+						-- Fade to red
+						cancelTweens("timer_flash")
+						local toRed = TweenService:Create(self._counterTimerLabel, flashIn, { TextColor3 = TIMER_FLASH_COLOR })
+						currentTweens["timer_flash"] = { toRed }
+						toRed:Play()
+						toRed.Completed:Wait()
+						
+						if generation ~= self._counterTimerGeneration then break end
+						
+						-- Fade back to normal
+						cancelTweens("timer_flash")
+						local toNormal = TweenService:Create(self._counterTimerLabel, flashOut, { TextColor3 = TIMER_NORMAL_COLOR })
+						currentTweens["timer_flash"] = { toNormal }
+						toNormal:Play()
+						toNormal.Completed:Wait()
+					end
+					
+					-- Ensure color is reset when flash loop ends
+					if self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+						self._counterTimerLabel.TextColor3 = TIMER_NORMAL_COLOR
+					end
+				end)
+			end
+			
+			task.wait(0.1)
+		end
+
+		-- When timer thread ends, ensure flash is cancelled and color is reset
+		cancelTweens("timer_flash")
+		if self._counterTimerLabel and self._counterTimerLabel:IsA("TextLabel") then
+			self._counterTimerLabel.TextColor3 = TIMER_NORMAL_COLOR
+		end
+
+		if generation == self._counterTimerGeneration then
+			self._counterTimerThread = nil
+		end
+	end)
+end
+
+function module:_syncCounterTimerFromData(data)
+	if type(data) ~= "table" then
+		return false
+	end
+
+	local duration = data.remaining or data.duration or data.timeLeft or data.timer or data.roundDuration
+	if type(duration) == "number" and duration > 0 then
+		self:_startCounterTimer(duration)
+		return true
+	end
+
+	local timerText = data.timerText
+	if type(timerText) == "string" and timerText ~= "" then
+		self:_stopCounterTimer(false)
+		self:_setCounterTimerText(timerText)
+		return true
+	end
+
+	return false
+end
+
 function module:_onRoundStart(data)
 	if type(data) ~= "table" then
 		return
 	end
 
-	-- Update round number
-	if self._roundNumberLabel then
-		local roundNumber = data.roundNumber or data.round
-		if roundNumber ~= nil then
-			self._roundNumberLabel.Text = tostring(roundNumber)
-		end
+	local appliedTimer = self:_syncCounterTimerFromData(data)
+	if not appliedTimer then
+		self:_stopCounterTimer(false)
+		self:_setCounterTimerText("0:00")
 	end
 
 	-- Refresh all counter player states (players are revived between rounds)
@@ -996,6 +1227,49 @@ function module:_hideMToChangePrompt()
 	end
 end
 
+function module:_hideHealthAndLoadoutBars()
+	-- Track that loadout UI is open so _animateShow doesn't override
+	self._loadoutUIOpen = true
+
+	-- Hide health bar, player holder, and loadout bar when Loadout UI is open
+	if self._playerSpace then
+		local barHolders = self._playerSpace:FindFirstChild("BarHolders")
+		if barHolders then
+			barHolders.Visible = false
+		end
+		local playerHolder = self._playerSpace:FindFirstChild("PlayerHolder")
+		if playerHolder and playerHolder:IsA("CanvasGroup") then
+			playerHolder.GroupTransparency = 1
+		end
+	end
+
+	if self._itemHolderSpace then
+		self._itemHolderSpace.Visible = false
+	end
+end
+
+function module:_showHealthAndLoadoutBars()
+	-- Track that loadout UI is closed
+	self._loadoutUIOpen = false
+
+	-- Show health bar, player holder, and loadout bar when Loadout UI is closed
+	if self._playerSpace then
+		local barHolders = self._playerSpace:FindFirstChild("BarHolders")
+		if barHolders then
+			barHolders.Visible = true
+		end
+		local playerHolder = self._playerSpace:FindFirstChild("PlayerHolder")
+		if playerHolder and playerHolder:IsA("CanvasGroup") then
+			playerHolder.GroupTransparency = 0
+		end
+	end
+
+	-- Don't show loadout bar on mobile (it's hidden by default there)
+	if self._itemHolderSpace and not UserInputService.TouchEnabled then
+		self._itemHolderSpace.Visible = true
+	end
+end
+
 function module:_onScoreUpdate(data)
 	if type(data) ~= "table" then
 		return
@@ -1037,17 +1311,28 @@ function module:_clearTeamSlots(slotCache)
 	end
 end
 
-function module:SetCounterScore(redScore, blueScore)
-	-- When the local player is on team2, swap so "your team" side shows your score
+function module:SetCounterScore(team1Score, team2Score)
+	-- UI layout: LEFT = Your team (blue), RIGHT = Enemy team (red)
+	-- Determine which score goes where based on local player's team
+	local yourTeamScore, enemyTeamScore
+
 	if self._scoreSwapped then
-		redScore, blueScore = blueScore, redScore
+		-- Local player is on Team2
+		yourTeamScore = team2Score
+		enemyTeamScore = team1Score
+	else
+		-- Local player is on Team1
+		yourTeamScore = team1Score
+		enemyTeamScore = team2Score
 	end
 
-	if self._redScoreLabel and redScore ~= nil then
-		self._redScoreLabel.Text = tostring(redScore)
+	-- LEFT side = your team score (blue label)
+	if self._blueScoreLabel and yourTeamScore ~= nil then
+		self._blueScoreLabel.Text = tostring(yourTeamScore)
 	end
-	if self._blueScoreLabel and blueScore ~= nil then
-		self._blueScoreLabel.Text = tostring(blueScore)
+	-- RIGHT side = enemy team score (red label)
+	if self._redScoreLabel and enemyTeamScore ~= nil then
+		self._redScoreLabel.Text = tostring(enemyTeamScore)
 	end
 end
 
@@ -1059,21 +1344,24 @@ function module:AddCounterScore(teamKey, amount)
 		normalized = string.lower(normalized)
 	end
 
-	-- When the local player is on team2, flip the team key so the score
-	-- increments on the correct side (YourTeam vs EnemyTeam).
-	if self._scoreSwapped then
-		if normalized == 1 or normalized == "team1" or normalized == "red" or normalized == "r" then
-			normalized = 2
-		elseif normalized == 2 or normalized == "team2" or normalized == "blue" or normalized == "b" then
-			normalized = 1
-		end
+	-- Determine if the scoring team is the local player's team or enemy team
+	local isTeam1 = normalized == 1 or normalized == "team1" or normalized == "red" or normalized == "r"
+	local isTeam2 = normalized == 2 or normalized == "team2" or normalized == "blue" or normalized == "b"
+
+	if not isTeam1 and not isTeam2 then
+		return
 	end
 
+	-- Determine which label to update based on whether scoring team is "your team" or "enemy"
 	local targetLabel = nil
-	if normalized == 1 or normalized == "team1" or normalized == "red" or normalized == "r" then
-		targetLabel = self._redScoreLabel
-	elseif normalized == 2 or normalized == "team2" or normalized == "blue" or normalized == "b" then
+	local isYourTeam = (isTeam1 and not self._scoreSwapped) or (isTeam2 and self._scoreSwapped)
+
+	if isYourTeam then
+		-- Your team scored → update LEFT (blue) label
 		targetLabel = self._blueScoreLabel
+	else
+		-- Enemy team scored → update RIGHT (red) label
+		targetLabel = self._redScoreLabel
 	end
 
 	if not targetLabel then
@@ -2823,8 +3111,30 @@ function module:_updateSlotData(slotType)
 	local data
 	if slotType == "Kit" then
 		data = self:getKitData()
+		-- Fallback to PlayerDataTable if no KitData attribute (e.g., during loadout selection)
+		if not data then
+			local equipped = PlayerDataTable.getEquippedLoadout()
+			local kitId = equipped and equipped.Kit
+			if kitId then
+				local kitConfig = KitConfig.getKit(kitId)
+				if kitConfig then
+					data = { Icon = kitConfig.Icon, Rarity = kitConfig.Rarity, Name = kitConfig.Name }
+				end
+			end
+		end
 	else
 		data = self:getWeaponData(slotType)
+		-- Fallback to PlayerDataTable if no *Data attribute (e.g., during loadout selection)
+		if not data then
+			local equipped = PlayerDataTable.getEquippedLoadout()
+			local weaponId = equipped and equipped[slotType]
+			if weaponId then
+				local weaponConfig = LoadoutConfig.getWeapon(weaponId)
+				if weaponConfig then
+					data = { GunId = weaponId, Gun = weaponId }
+				end
+			end
+		end
 	end
 
 	self._weaponData[slotType] = data
@@ -3033,6 +3343,13 @@ function module:_animateShow()
 	cancelTweens("show_items")
 	cancelTweens("show_counter")
 
+	-- If loadout UI is open, don't animate player/bars/items (they should stay hidden)
+	-- Only show the counter (score display)
+	if self._loadoutUIOpen then
+		self:ShowCounter()
+		return nil
+	end
+
 	-- Skip bottom bar animation on mobile (hidden; MobileControls shows compact ammo)
 	if not UserInputService.TouchEnabled and self._itemHolderSpace and self._itemHolderOriginalPosition then
 		local itemsTween = TweenService:Create(self._itemHolderSpace, TweenConfig.get("Main", "show"), {
@@ -3204,6 +3521,7 @@ end
 
 function module:_cleanup()
 	self._initialized = false
+	self:_stopCounterTimer(false)
 
 	self._connections:cleanupGroup("hud_health")
 	self._connections:cleanupGroup("hud_ult")
@@ -3253,6 +3571,531 @@ function module:ForceCooldown(slotType: string, duration: number)
 	self:_setupTemplateReloadState(templateData, true, duration)
 	self:_setupCooldownText(templateData, true, duration)
 	self:_setupCooldownBar(templateData, true, duration)
+end
+
+-- Clear all loadout slots (Kit, Primary, Secondary, Melee)
+-- Destroys UI templates, cancels tweens/cooldowns, and resets ALL state
+function module:ClearLoadoutSlots()
+	-- Cancel all cooldown threads
+	for slotType in self._cooldownThreads do
+		self:_cancelCooldownThread(slotType)
+	end
+	table.clear(self._cooldownThreads)
+
+	-- Cancel all slot-related tweens
+	for _, slotType in SLOT_ORDER do
+		cancelTweens("select_" .. slotType)
+		cancelTweens("reload_" .. slotType)
+		cancelTweens("cooldown_text_" .. slotType)
+		cancelTweens("cooldown_bar_" .. slotType)
+	end
+	cancelTweens("item_desc")
+
+	-- Destroy all weapon templates
+	self:_clearTemplates()
+
+	-- Clear weapon data cache
+	table.clear(self._weaponData)
+
+	-- Reset selected slot
+	self._selectedSlot = nil
+
+	-- Hide item description
+	self:_hideItemDesc()
+
+	-- Clear actions list
+	self:_clearActions()
+
+	-- Clear player weapon attributes if we have a viewed player
+	if self._viewedPlayer then
+		for _, slotType in { "Primary", "Secondary", "Melee" } do
+			self._viewedPlayer:SetAttribute(slotType .. "Data", nil)
+		end
+		self._viewedPlayer:SetAttribute("KitData", nil)
+		self._viewedPlayer:SetAttribute("EquippedSlot", nil)
+		self._viewedPlayer:SetAttribute("DisplaySlot", nil)
+	end
+	
+end
+
+-- Rebuild all loadout slots from current player data
+-- Optionally pass a loadout table to override current equipped loadout
+-- Resets ult bar to 0 if kit changed from last round
+function module:RebuildLoadoutSlots(loadoutOverride: {[string]: string}?)
+	if not self._viewedPlayer then
+		self._viewedPlayer = Players.LocalPlayer
+	end
+
+	-- FORCE clear templates and weapon data so they get recreated with new icons
+	-- This is necessary because show() may have already rebuilt templates with old data
+	self:_clearTemplates()
+	table.clear(self._weaponData)
+
+	local newKitId = nil
+
+	-- If loadout override provided, apply it first
+	if loadoutOverride then
+		newKitId = loadoutOverride.Kit
+		
+		if newKitId then
+			local kitData = KitConfig.buildKitData(newKitId, { abilityCooldownEndsAt = 0, ultimate = 0 })
+			self._viewedPlayer:SetAttribute("KitData", kitData and HttpService:JSONEncode(kitData) or nil)
+		end
+
+		for _, slotType in { "Primary", "Secondary", "Melee" } do
+			local weaponId = loadoutOverride[slotType]
+			local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
+
+			if weaponConfig then
+				local weaponData = {
+					Gun = weaponConfig.name,
+					GunId = weaponConfig.id,
+					GunType = weaponConfig.weaponType,
+					Ammo = weaponConfig.clipSize,
+					MaxAmmo = weaponConfig.maxAmmo,
+					ClipSize = weaponConfig.clipSize,
+					Reloading = false,
+					OnCooldown = false,
+					Cooldown = weaponConfig.cooldown or 0,
+					ReloadTime = weaponConfig.reloadTime or 0,
+					Rarity = weaponConfig.rarity,
+				}
+				self._viewedPlayer:SetAttribute(slotType .. "Data", HttpService:JSONEncode(weaponData))
+			else
+				self._viewedPlayer:SetAttribute(slotType .. "Data", nil)
+			end
+		end
+	else
+		-- Try syncing from server's SelectedLoadout first
+		if not self:_syncFromSelectedLoadout() then
+			-- Fall back to PlayerDataTable equipped loadout
+			self:_initPlayerData()
+		end
+		
+		-- Get the kit ID from the loaded data
+		local kitData = self:getKitData()
+		newKitId = kitData and kitData.KitId
+	end
+
+	-- Check if kit changed and reset ult bar
+	if newKitId and newKitId ~= self._lastKitId then
+		self._viewedPlayer:SetAttribute("Ultimate", 0)
+		self:_setUltBar(0, true)
+	end
+	self._lastKitId = newKitId
+
+	-- Set default equipped slot
+	if not self._viewedPlayer:GetAttribute("EquippedSlot") then
+		self._viewedPlayer:SetAttribute("EquippedSlot", "Primary")
+	end
+
+	-- Rebuild templates and refresh UI
+	self:_buildLoadoutTemplates()
+	self:_refreshWeaponData()
+
+	-- Update bumper visibility for controller support
+	self:_updateBumperVisibility()
+	
+end
+
+-- Reset ult bar to 0 (call when kit changes between rounds)
+function module:ResetUltBar()
+	if self._viewedPlayer then
+		self._viewedPlayer:SetAttribute("Ultimate", 0)
+	end
+	self:_setUltBar(0, true)
+end
+
+-- Cache the Desc round-result UI elements from the HUD
+function module:_cacheRoundUI()
+	local desc = self._ui:FindFirstChild("Desc", true)
+	if not desc then return end
+
+	self._roundDesc = desc
+	self._roundDescOriginalPos = desc.Position
+
+	local holder = desc:FindFirstChild("Holder")
+	if not holder then return end
+	self._roundHolder = holder
+
+	local lw = holder:FindFirstChild("LW")
+	if not lw then return end
+	self._roundLW = lw
+	self._roundLWOriginalPos = lw.Position
+
+	-- Direct TextLabel child of LW is the "ROUND" label
+	self._roundTextLabel = lw:FindFirstChild("TextLabel")
+	if self._roundTextLabel then
+		self._roundTextLabelOriginalPos = self._roundTextLabel.Position
+	end
+
+	self._roundRigh = lw:FindFirstChild("Righ")
+	if self._roundRigh then
+		self._roundRighOriginalPos = self._roundRigh.Position
+	end
+
+	self._roundLeft = lw:FindFirstChild("Left")
+	if self._roundLeft then
+		self._roundLeftOriginalPos = self._roundLeft.Position
+	end
+
+	self._roundBar = lw:FindFirstChild("Frame")
+	self._roundTimer = holder:FindFirstChild("Timer")
+end
+
+-- Show the round-end result screen with animation.
+-- outcome: "win", "lose", or "draw"
+function module:RoundEnd(outcome)
+	if not self._roundDesc then return end
+
+	cancelTweens("round_end")
+	cancelTweens("round_shake")
+	cancelTweens("round_text_fade")
+	cancelTweens("round_start")
+	cancelTweens("round_hide")
+
+	-- Resolve color and text
+	local barColor, outcomeText
+	if outcome == "win" then
+		barColor = WIN_COLOR
+		outcomeText = "WON"
+	elseif outcome == "lose" then
+		barColor = LOSE_COLOR
+		outcomeText = "LOST"
+	else
+		barColor = DRAW_COLOR
+		outcomeText = "DRAW"
+	end
+
+	-- Update the outcome text inside Left and Righ canvas groups
+	if self._roundRigh then
+		local label = self._roundRigh:FindFirstChildWhichIsA("TextLabel")
+		if label then label.Text = outcomeText end
+	end
+	if self._roundLeft then
+		local label = self._roundLeft:FindFirstChildWhichIsA("TextLabel")
+		if label then label.Text = outcomeText end
+	end
+
+	-- Apply outcome color to the bar
+	if self._roundBar then
+		self._roundBar.BackgroundColor3 = barColor
+	end
+
+	self._roundDesc.Visible = true
+
+	local textLabel = self._roundTextLabel
+	local righ = self._roundRigh
+	local left = self._roundLeft
+
+	-- Set start positions for the entrance animation
+	if textLabel then
+		-- Start high above origin as specified
+		textLabel.Position = UDim2.new(0.507, 0, -0.329, 0)
+		textLabel.TextTransparency = 1
+	end
+	if righ then
+		-- Start below origin
+		local orig = self._roundRighOriginalPos
+		righ.Position = UDim2.new(orig.X.Scale, orig.X.Offset, orig.Y.Scale + 0.55, orig.Y.Offset)
+		righ.GroupTransparency = 1
+	end
+	if left then
+		-- Start above origin
+		local orig = self._roundLeftOriginalPos
+		left.Position = UDim2.new(orig.X.Scale, orig.X.Offset, orig.Y.Scale - 0.55, orig.Y.Offset)
+		left.GroupTransparency = 1
+	end
+
+	-- Phase 1: Smooth slide in + fade in
+	local slideInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeInfo  = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	local entranceTweens = {}
+
+	if textLabel then
+		local t1 = TweenService:Create(textLabel, slideInfo, { Position = self._roundTextLabelOriginalPos })
+		local t2 = TweenService:Create(textLabel, fadeInfo,  { TextTransparency = 0.35 })
+		t1:Play()
+		t2:Play()
+		table.insert(entranceTweens, t1)
+		table.insert(entranceTweens, t2)
+	end
+	if righ then
+		local t = TweenService:Create(righ, slideInfo, {
+			Position = self._roundRighOriginalPos,
+			GroupTransparency = 0,
+		})
+		t:Play()
+		table.insert(entranceTweens, t)
+	end
+	if left then
+		local t = TweenService:Create(left, slideInfo, {
+			Position = self._roundLeftOriginalPos,
+			GroupTransparency = 0,
+		})
+		t:Play()
+		table.insert(entranceTweens, t)
+	end
+
+	currentTweens["round_end"] = entranceTweens
+
+	-- Phase 2: Shake + Phase 3: Hold + Phase 4: Hide
+	task.spawn(function()
+		task.wait(0.35)
+
+		-- Gentle shake
+		local lw = self._roundLW
+		if lw and self._roundLWOriginalPos then
+			local lwOrigPos = self._roundLWOriginalPos
+
+			self._roundShakeToken += 1
+			local shakeToken = self._roundShakeToken
+
+			cancelTweens("round_shake")
+
+			for _ = 1, ROUND_SHAKE_STEPS do
+				if self._roundShakeToken ~= shakeToken then return end
+				if not self._roundDesc or not self._roundDesc.Parent then return end
+
+				local xOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_X_RANGE, ROUND_SHAKE_X_RANGE)
+				local yOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_Y_RANGE, ROUND_SHAKE_Y_RANGE)
+				if xOff == 0 and yOff == 0 then yOff = 1 end
+
+				local tween = TweenService:Create(lw, ROUND_SHAKE_TWEEN_INFO, {
+					Position = withOffset(lwOrigPos, xOff, yOff),
+				})
+				currentTweens["round_shake"] = { tween }
+				tween:Play()
+				tween.Completed:Wait()
+			end
+
+			if self._roundShakeToken == shakeToken and lw and lw.Parent then
+				lw.Position = lwOrigPos
+			end
+			currentTweens["round_shake"] = nil
+		end
+
+		-- Hold for ~3.5 seconds (total ~5 seconds with entrance + shake + fade)
+		task.wait(3.5)
+
+		if not self._roundDesc or not self._roundDesc.Parent then return end
+
+		-- Slower, smoother fade out including the color bar
+		local hideInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+		local hideTweens = {}
+
+		if textLabel then
+			local t = TweenService:Create(textLabel, hideInfo, { TextTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		if righ then
+			local t = TweenService:Create(righ, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		if left then
+			local t = TweenService:Create(left, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		-- Fade out the LW container
+		if lw then
+			local t = TweenService:Create(lw, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		-- Fade out the color bar frame itself
+		if self._roundBar then
+			local t = TweenService:Create(self._roundBar, hideInfo, { BackgroundTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+
+		currentTweens["round_hide"] = hideTweens
+
+		task.wait(0.85)
+		if self._roundDesc and self._roundDesc.Parent then
+			self._roundDesc.Visible = false
+			-- Reset transparencies for next time
+			if lw then
+				lw.GroupTransparency = 0
+			end
+			if self._roundBar then
+				self._roundBar.BackgroundTransparency = 0
+			end
+		end
+	end)
+end
+
+-- Show the round-start screen: fades down and in, bar is black.
+-- @param roundNumber number - The round number to display (e.g., 1, 2, 3)
+function module:RoundStart(roundNumber)
+	if not self._roundDesc then return end
+
+	cancelTweens("round_end")
+	cancelTweens("round_shake")
+	cancelTweens("round_text_fade")
+	cancelTweens("round_start")
+	cancelTweens("round_hide")
+
+	-- Bar turns black for round start
+	if self._roundBar then
+		self._roundBar.BackgroundColor3 = ROUND_START_BAR_COLOR
+	end
+
+	-- Set the round number in Left and Right labels
+	local roundText = tostring(roundNumber or 1)
+	if self._roundRigh then
+		local label = self._roundRigh:FindFirstChildWhichIsA("TextLabel")
+		if label then label.Text = roundText end
+	end
+	if self._roundLeft then
+		local label = self._roundLeft:FindFirstChildWhichIsA("TextLabel")
+		if label then label.Text = roundText end
+	end
+
+	self._roundDesc.Visible = true
+
+	local textLabel = self._roundTextLabel
+	local righ      = self._roundRigh
+	local left      = self._roundLeft
+	local lw        = self._roundLW
+
+	-- Start everything invisible and above origin (slide down into place)
+	if textLabel then
+		textLabel.Position = UDim2.new(0.507, 0, -0.329, 0)
+		textLabel.TextTransparency = 1
+	end
+	if righ and self._roundRighOriginalPos then
+		local orig = self._roundRighOriginalPos
+		righ.Position = UDim2.new(orig.X.Scale, orig.X.Offset, orig.Y.Scale - 0.5, orig.Y.Offset)
+		righ.GroupTransparency = 1
+	end
+	if left and self._roundLeftOriginalPos then
+		local orig = self._roundLeftOriginalPos
+		left.Position = UDim2.new(orig.X.Scale, orig.X.Offset, orig.Y.Scale - 0.5, orig.Y.Offset)
+		left.GroupTransparency = 1
+	end
+
+	-- Phase 1: Smooth slide down + fade in
+	local slideInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local startTweens = {}
+
+	if textLabel then
+		local t1 = TweenService:Create(textLabel, slideInfo, { Position = self._roundTextLabelOriginalPos })
+		local t2 = TweenService:Create(textLabel, fadeInfo, { TextTransparency = 0.35 })
+		t1:Play()
+		t2:Play()
+		table.insert(startTweens, t1)
+		table.insert(startTweens, t2)
+	end
+	if righ then
+		local t = TweenService:Create(righ, slideInfo, {
+			Position = self._roundRighOriginalPos,
+			GroupTransparency = 0,
+		})
+		t:Play()
+		table.insert(startTweens, t)
+	end
+	if left then
+		local t = TweenService:Create(left, slideInfo, {
+			Position = self._roundLeftOriginalPos,
+			GroupTransparency = 0,
+		})
+		t:Play()
+		table.insert(startTweens, t)
+	end
+
+	currentTweens["round_start"] = startTweens
+
+	-- Phase 2: Shake + Phase 3: Hide after hold
+	task.spawn(function()
+		task.wait(0.35)
+
+		-- Gentle shake
+		if lw and self._roundLWOriginalPos then
+			local lwOrigPos = self._roundLWOriginalPos
+			self._roundShakeToken += 1
+			local shakeToken = self._roundShakeToken
+
+			cancelTweens("round_shake")
+
+			for _ = 1, ROUND_SHAKE_STEPS do
+				if self._roundShakeToken ~= shakeToken then return end
+				if not self._roundDesc or not self._roundDesc.Parent then return end
+
+				local xOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_X_RANGE, ROUND_SHAKE_X_RANGE)
+				local yOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_Y_RANGE, ROUND_SHAKE_Y_RANGE)
+				if xOff == 0 and yOff == 0 then yOff = 1 end
+
+				local tween = TweenService:Create(lw, ROUND_SHAKE_TWEEN_INFO, {
+					Position = withOffset(lwOrigPos, xOff, yOff),
+				})
+				currentTweens["round_shake"] = { tween }
+				tween:Play()
+				tween.Completed:Wait()
+			end
+
+			if self._roundShakeToken == shakeToken and lw and lw.Parent then
+				lw.Position = lwOrigPos
+			end
+			currentTweens["round_shake"] = nil
+		end
+
+		-- Hold for ~2 seconds total (for round start, shorter than win/lose)
+		task.wait(1.5)
+
+		if not self._roundDesc or not self._roundDesc.Parent then return end
+
+		-- Slower, smoother fade out including the color bar
+		local hideInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+		local hideTweens = {}
+
+		if textLabel then
+			local t = TweenService:Create(textLabel, hideInfo, { TextTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		if righ then
+			local t = TweenService:Create(righ, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		if left then
+			local t = TweenService:Create(left, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		-- Fade out the LW container
+		if lw then
+			local t = TweenService:Create(lw, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		-- Fade out the color bar frame itself
+		if self._roundBar then
+			local t = TweenService:Create(self._roundBar, hideInfo, { BackgroundTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+
+		currentTweens["round_hide"] = hideTweens
+
+		task.wait(0.85)
+		if self._roundDesc and self._roundDesc.Parent then
+			self._roundDesc.Visible = false
+			-- Reset transparencies for next time
+			if lw then
+				lw.GroupTransparency = 0
+			end
+			if self._roundBar then
+				self._roundBar.BackgroundTransparency = 0
+			end
+		end
+	end)
 end
 
 return module

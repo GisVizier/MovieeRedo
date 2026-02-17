@@ -255,6 +255,71 @@ function KitService:_ensureKitInstance(player: Player, info)
 	return kit
 end
 
+--[[
+	Creates a fresh kit instance without checking for existing kit.
+	Used by OnPlayerRespawn to ensure clean slate between rounds.
+	
+	@param player Player - The player to create kit for
+	@param info table - Player's kit data
+	@return Kit instance or nil
+]]
+function KitService:_createFreshKitInstance(player: Player, info)
+	local kitId = info.equippedKitId
+	if not kitId then
+		return nil
+	end
+
+	local kitDef, err = self:_loadKit(kitId)
+	if not kitDef then
+		self:_fireState(player, info, { lastError = err or "InvalidKit" })
+		return nil
+	end
+
+	local ctx = {
+		player = player,
+		character = player.Character,
+		kitId = kitId,
+		kitConfig = KitConfig.getKit(kitId),
+		service = self,
+	}
+
+	local okNew, kit = pcall(function()
+		return kitDef.new(ctx)
+	end)
+
+	if not okNew or not kit then
+		self:_fireState(player, info, { lastError = "BadKitInstance" })
+		return nil
+	end
+
+	self._playerKits[player] = kit
+
+	pcall(function()
+		local character = player.Character
+		if kit.SetCharacter then
+			kit:SetCharacter(character)
+		end
+	end)
+
+	pcall(function()
+		if kit.OnEquipped then
+			kit:OnEquipped()
+		end
+	end)
+
+	local character = player.Character
+	local root = character and character.PrimaryPart or nil
+	local position = root and root.Position or nil
+
+	self:_fireEventAll("KitEquipped", {
+		playerId = player.UserId,
+		kitId = kitId,
+		position = position,
+	})
+
+	return kit
+end
+
 function KitService:_purchase(player: Player, info, kitId: string)
 	local kit = KitConfig.getKit(kitId)
 	if not kit then
@@ -643,11 +708,53 @@ function KitService:OnPlayerRespawn(player: Player)
 	local info = self._data[player]
 	if not info then return end
 
-	local kitId = info.equippedKitId
+	-- ALWAYS check SelectedLoadout as the source of truth for competitive matches
+	-- This ensures kit changes between rounds are properly applied
+	local selectedLoadout = player:GetAttribute("SelectedLoadout")
+	local kitId = nil
+	
+	if selectedLoadout and selectedLoadout ~= "" then
+		local ok, decoded = pcall(function()
+			return HttpService:JSONDecode(selectedLoadout)
+		end)
+		if ok and typeof(decoded) == "table" then
+			local loadout = decoded.loadout or decoded
+			kitId = loadout and loadout.Kit
+		end
+	end
+	
+	-- Fallback to existing equipped kit if no SelectedLoadout
+	if not kitId then
+		kitId = info.equippedKitId
+	end
+	
 	if not kitId then return end
+	
+	-- ALWAYS destroy the old kit instance on respawn to ensure cleanup
+	-- This handles spawned objects (walls, etc.) being removed between rounds
+	-- Even if it's the same kit, we want a fresh instance
+	local oldKit = self._playerKits[player]
+	if oldKit then
+		pcall(function()
+			if oldKit.OnUnequipped then
+				oldKit:OnUnequipped()
+			end
+			if oldKit.Destroy then
+				oldKit:Destroy()
+			end
+		end)
+		self._playerKits[player] = nil
+	end
+	
+	-- Update equipped kit ID and reset cooldown
+	local previousKitId = info.equippedKitId
+	info.equippedKitId = kitId
+	if kitId ~= previousKitId then
+		info.abilityCooldownEndsAt = 0 -- Reset cooldown only if kit changed
+	end
 
-	-- Re-create the kit instance from scratch
-	self:_ensureKitInstance(player, info)
+	-- Force create a fresh kit instance (bypass the "same kit" check in _ensureKitInstance)
+	self:_createFreshKitInstance(player, info)
 
 	-- Re-apply attributes (fresh state)
 	self:_applyAttributes(player, info)

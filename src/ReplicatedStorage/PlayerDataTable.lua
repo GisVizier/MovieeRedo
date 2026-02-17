@@ -30,6 +30,7 @@ function PlayerDataTable.init()
 	mockData = {
 		GEMS = 15000,
 		CROWNS = 25,
+		WINS = 42,
 		STREAK = 14,
 
 		EMOTES = {},

@@ -41,6 +41,116 @@ local function getFireAnimationName(side, isADS)
 	return (side == "left") and "Fire2" or "Fire1"
 end
 
+local function getAnimator(weaponInstance)
+	local vm = weaponInstance.GetViewmodelController and weaponInstance.GetViewmodelController()
+	return vm and vm._animator or nil
+end
+
+local function getADSHoldAnimation(side)
+	return (side == "left") and "SpecailLeft" or "SpecailRight"
+end
+
+local function restoreADSHoldAnimation(weaponInstance, side)
+	if not weaponInstance then
+		return
+	end
+
+	local animator = getAnimator(weaponInstance)
+	if animator and type(animator.Stop) == "function" then
+		animator:Stop("SpecailLeftFire", 0.05)
+		animator:Stop("SpecailRightFire", 0.05)
+	end
+
+	local holdAnim = getADSHoldAnimation(side)
+	if weaponInstance.PlayAnimation then
+		weaponInstance.PlayAnimation(holdAnim, 0.05, true)
+	elseif weaponInstance.PlayWeaponTrack then
+		weaponInstance.PlayWeaponTrack(holdAnim, 0.05)
+	end
+
+	if animator and type(animator.GetTrack) == "function" then
+		local holdTrack = animator:GetTrack(holdAnim)
+		if holdTrack then
+			holdTrack.Looped = false
+		end
+	end
+end
+
+local function playShotAnimation(weaponInstance, animName, isADS, side, shotStamp)
+	local function forceTrackOneShot()
+		local animator = getAnimator(weaponInstance)
+		if animator and type(animator.GetTrack) == "function" then
+			local track = animator:GetTrack(animName)
+			if track then
+				track.Looped = false
+				return track
+			end
+		end
+		return nil
+	end
+
+	local playedTrack = nil
+
+	-- ADS shots need explicit restart so each click visibly plays the side-specific track.
+	if isADS and weaponInstance.PlayAnimation then
+		weaponInstance.PlayAnimation(animName, 0.03, true)
+		playedTrack = forceTrackOneShot()
+	else
+		if weaponInstance.PlayWeaponTrack then
+			weaponInstance.PlayWeaponTrack(animName, 0.03)
+			playedTrack = forceTrackOneShot()
+		elseif weaponInstance.PlayAnimation then
+			weaponInstance.PlayAnimation(animName, 0.03, true)
+			playedTrack = forceTrackOneShot()
+		end
+	end
+
+	if isADS and side and playedTrack and playedTrack.Stopped then
+		local slot = weaponInstance.Slot
+		local restoreFired = false
+		local function restoreIfCurrentShot()
+			if restoreFired then
+				return
+			end
+			restoreFired = true
+
+			if not weaponInstance or not weaponInstance.State then
+				return
+			end
+			if not DualPistolsState.IsADSActive(slot) then
+				return
+			end
+			if DualPistolsState.GetSelectedADSSide(slot) ~= side then
+				return
+			end
+			if shotStamp and math.abs((weaponInstance.State.LastFireTime or 0) - shotStamp) > 0.0001 then
+				return
+			end
+
+			restoreADSHoldAnimation(weaponInstance, side)
+		end
+
+		playedTrack.Stopped:Once(restoreIfCurrentShot)
+		local hasEndedSignal, endedSignal = pcall(function()
+			return playedTrack.Ended
+		end)
+		if hasEndedSignal and endedSignal then
+			endedSignal:Once(restoreIfCurrentShot)
+		end
+
+		local fallbackDuration = 0.2
+		if type(playedTrack.Length) == "number" and playedTrack.Length > 0 then
+			local speed = 1
+			if type(playedTrack.Speed) == "number" and math.abs(playedTrack.Speed) > 0.0001 then
+				speed = math.abs(playedTrack.Speed)
+			end
+			fallbackDuration = math.max(playedTrack.Length / speed, 0.08) + 0.05
+		end
+
+		task.delay(fallbackDuration, restoreIfCurrentShot)
+	end
+end
+
 local function getSideAmmo(slot, side)
 	return DualPistolsState.GetGunAmmo(slot, side)
 end
@@ -182,11 +292,7 @@ local function fireShot(weaponInstance, side, shotOptions)
 	end
 
 	local animName = options.animName or getFireAnimationName(side, options.adsShot == true)
-	if weaponInstance.PlayWeaponTrack then
-		weaponInstance.PlayWeaponTrack(animName, 0.03)
-	elseif weaponInstance.PlayAnimation then
-		weaponInstance.PlayAnimation(animName, 0.03, true)
-	end
+	playShotAnimation(weaponInstance, animName, options.adsShot == true, side, now)
 
 	local rightMuzzle, leftMuzzle, gunModel = getDualMuzzleAttachments(weaponInstance)
 	local muzzleAttachment = (side == "left") and leftMuzzle or rightMuzzle
@@ -340,6 +446,7 @@ function Attack.Execute(weaponInstance, currentTime)
 		local adsSide = DualPistolsState.GetSelectedADSSide(slot)
 		local adsSideAmmo = getSideAmmo(slot, adsSide)
 		if adsSideAmmo <= 0 then
+			restoreADSHoldAnimation(weaponInstance, adsSide)
 			local otherAmmo = getSideAmmo(slot, getOtherSide(adsSide))
 			if otherAmmo > 0 then
 				return false, "SideEmpty"
@@ -352,6 +459,9 @@ function Attack.Execute(weaponInstance, currentTime)
 			adsShot = true,
 		})
 		if not ok then
+			if reason == "SideEmpty" or reason == "NoAmmo" then
+				restoreADSHoldAnimation(weaponInstance, adsSide)
+			end
 			return false, reason
 		end
 

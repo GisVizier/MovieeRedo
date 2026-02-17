@@ -10,12 +10,61 @@ local Special = {}
 Special._isADS = false
 Special._originalFOV = nil
 Special._activeSlot = nil
+Special._specialTracks = {
+	"SpecailLeft",
+	"SpecailRight",
+	"SpecailLeftFire",
+	"SpecailRightFire",
+}
 
 local function getADSAnimation(side)
 	if side == "left" then
 		return "SpecailLeft"
 	end
 	return "SpecailRight"
+end
+
+local function getOtherSide(side)
+	return (side == "left") and "right" or "left"
+end
+
+local function getGunNameForSide(side)
+	return (side == "left") and "LeftGun" or "RightGun"
+end
+
+local function playWeaponAnimation(weaponInstance, animName, fadeTime)
+	local track = nil
+	if weaponInstance.PlayWeaponTrack then
+		track = weaponInstance.PlayWeaponTrack(animName, fadeTime or 0.1)
+	end
+	if not track and weaponInstance.PlayAnimation then
+		weaponInstance.PlayAnimation(animName, fadeTime or 0.1, true)
+		local vm = weaponInstance.GetViewmodelController and weaponInstance.GetViewmodelController()
+		local animator = vm and vm._animator or nil
+		if animator and type(animator.GetTrack) == "function" then
+			track = animator:GetTrack(animName)
+		end
+	end
+	if track then
+		track.Looped = false
+	end
+	return track
+end
+
+local function stopSpecialTracks(weaponInstance, fadeTime)
+	if not weaponInstance then
+		return
+	end
+
+	local vm = weaponInstance.GetViewmodelController and weaponInstance.GetViewmodelController()
+	local animator = vm and vm._animator or nil
+	if not animator or type(animator.Stop) ~= "function" then
+		return
+	end
+
+	for _, trackName in ipairs(Special._specialTracks) do
+		animator:Stop(trackName, fadeTime or 0.05)
+	end
 end
 
 local function findGunAttachment(model, gunName, attachmentName)
@@ -95,9 +144,16 @@ function Special:_enterADS(weaponInstance, side)
 
 	local rig = weaponInstance.GetRig and weaponInstance.GetRig() or nil
 	local model = rig and rig.Model or nil
-	local gunName = (side == "left") and "LeftGun" or "RightGun"
-	local aimAttachment = findGunAttachment(model, gunName, "AimPosition")
-	local lookAtAttachment = findGunAttachment(model, gunName, "LookAt")
+	local primaryGunName = getGunNameForSide(side)
+	local fallbackGunName = getGunNameForSide(getOtherSide(side))
+	local aimAttachment = findGunAttachment(model, primaryGunName, "AimPosition")
+	local lookAtAttachment = findGunAttachment(model, primaryGunName, "LookAt")
+	if not aimAttachment then
+		aimAttachment = findGunAttachment(model, fallbackGunName, "AimPosition")
+	end
+	if not lookAtAttachment then
+		lookAtAttachment = findGunAttachment(model, fallbackGunName, "LookAt")
+	end
 	if viewmodelController.SetCustomADSTarget then
 		viewmodelController:SetCustomADSTarget(aimAttachment, lookAtAttachment)
 	end
@@ -119,13 +175,13 @@ function Special:_enterADS(weaponInstance, side)
 		weaponController:SetADSSpeedMultiplier(adsSpeedMult)
 	end
 
-	if weaponInstance.PlayWeaponTrack then
-		weaponInstance.PlayWeaponTrack(getADSAnimation(side), 0.1)
-	end
+	stopSpecialTracks(weaponInstance, 0.03)
+	playWeaponAnimation(weaponInstance, getADSAnimation(side), 0.1)
 end
 
 function Special:_exitADS(weaponInstance)
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	stopSpecialTracks(weaponInstance, 0.08)
 	if viewmodelController then
 		if viewmodelController.ClearCustomADSTarget then
 			viewmodelController:ClearCustomADSTarget()
@@ -143,8 +199,8 @@ function Special:_exitADS(weaponInstance)
 		weaponController:SetADSSpeedMultiplier(1.0)
 	end
 
-	if weaponInstance and weaponInstance.PlayWeaponTrack then
-		weaponInstance.PlayWeaponTrack("Idle", 0.08)
+	if weaponInstance then
+		playWeaponAnimation(weaponInstance, "Idle", 0.08)
 	end
 end
 

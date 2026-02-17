@@ -2,13 +2,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local TweenConfig = require(script.TweenConfig)
-local KitsConfig = require(ReplicatedStorage.Configs.KitsConfig)
+local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 local LoadoutConfig = require(ReplicatedStorage.Configs.LoadoutConfig)
 
 local module = {}
 module.__index = module
 
-local HIDE_OFFSET = UDim2.new(0, 0, -1, 0)
+local HIDE_OFFSET = UDim2.new(1.2, 0, 0, 0)
 local HEALTH_WHITE_LEAD = 0.05
 local AUTO_HIDE_DURATION = 5
 
@@ -82,18 +82,33 @@ function module:setKillerData(data)
 
 	e.playerImage.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(data.userId) .. "&w=420&h=420"
 
-	local kitData = KitsConfig.getKit(data.kitId)
-	if kitData and e.kitIcon then
-		e.kitIcon.Image = kitData.Icon
+	local kitData = data.kitId and KitConfig.getKit(data.kitId)
+	if e.kitIcon then
+		if kitData then
+			e.kitIcon.Image = kitData.Icon
+			e.kitIcon.Visible = true
+		else
+			e.kitIcon.Visible = false
+		end
 	end
 
-	local weaponData = LoadoutConfig.getWeapon(data.weaponId)
+	local weaponData = data.weaponId and LoadoutConfig.getWeapon(data.weaponId)
 	if weaponData then
 		if e.itemImage then
 			e.itemImage.Image = weaponData.imageId
+			e.itemImage.Visible = true
 		end
 		if e.weaponLabel then
 			e.weaponLabel.Text = "ELIMINATED YOU WITH " .. weaponData.name:upper()
+			e.weaponLabel.Visible = true
+		end
+	else
+		-- Self-kill or no weapon - hide weapon elements
+		if e.itemImage then
+			e.itemImage.Visible = false
+		end
+		if e.weaponLabel then
+			e.weaponLabel.Visible = false
 		end
 	end
 
@@ -158,9 +173,10 @@ function module:show()
 	self._export:emit("KillScreenShown", self._killerData)
 
 	if autoHideThread then
-		task.cancel(autoHideThread)
+		pcall(task.cancel, autoHideThread)
 	end
 	autoHideThread = task.delay(AUTO_HIDE_DURATION, function()
+		autoHideThread = nil -- Clear before calling hide to prevent double-cancel
 		self._export:hide()
 	end)
 
@@ -169,7 +185,7 @@ end
 
 function module:hide()
 	if autoHideThread then
-		task.cancel(autoHideThread)
+		pcall(task.cancel, autoHideThread)
 		autoHideThread = nil
 	end
 

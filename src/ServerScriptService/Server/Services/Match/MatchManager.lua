@@ -217,10 +217,36 @@ function MatchManager:_setupNetworkEvents()
 	-- Loadout submission
 	self._net:ConnectServer("SubmitLoadout", function(player, payload)
 		local match = self:GetMatchForPlayer(player)
-		if not match then return end
-		if match.state ~= "loadout_selection" then return end
+		if not match then 
+			return 
+		end
+		
+		-- Allow submission during loadout_selection OR early playing state (for between-round submissions)
+		-- Between-round: client submits when RoundStart is received, but state may already be "playing"
+		if match.state ~= "loadout_selection" and match.state ~= "playing" then 
+			return 
+		end
 
-		if match._pendingLoadouts then
+		-- Store SelectedLoadout attribute so ViewmodelController and HUD update automatically
+		if typeof(payload) == "table" then
+			pcall(function()
+				player:SetAttribute("SelectedLoadout", HttpService:JSONEncode(payload))
+			end)
+		end
+
+		-- If submitted during playing state (between-round submission after RoundStart),
+		-- refresh the kit so the new loadout is actually applied
+		if match.state == "playing" then
+			local kitService = self._registry:TryGet("KitService")
+			if kitService and kitService.OnPlayerRespawn then
+				task.defer(function()
+					kitService:OnPlayerRespawn(player)
+				end)
+			end
+		end
+
+		-- Only track pending loadouts during loadout_selection state
+		if match.state == "loadout_selection" and match._pendingLoadouts then
 			match._pendingLoadouts[player] = nil
 
 			local pending = 0
@@ -228,6 +254,44 @@ function MatchManager:_setupNetworkEvents()
 			if pending == 0 then
 				self:_onAllLoadoutsSubmitted(match)
 			end
+		end
+	end)
+
+	-- Player filled all 4 slots - track ready state
+	self._net:ConnectServer("LoadoutReady", function(player, payload)
+		local match = self:GetMatchForPlayer(player)
+		if not match then 
+			return 
+		end
+		if match.state ~= "loadout_selection" then 
+			return 
+		end
+		if match._loadoutLocked then 
+			return 
+		end
+
+		-- Initialize ready tracking
+		if not match._readyPlayers then
+			match._readyPlayers = {}
+		end
+
+		-- Mark player as ready
+		match._readyPlayers[player] = true
+
+		-- Check if all players are ready
+		local allPlayers = self:_getMatchPlayers(match)
+		local allReady = true
+		local readyCount = 0
+		local totalCount = #allPlayers
+		for _, p in allPlayers do
+			if match._readyPlayers[p] then
+				readyCount = readyCount + 1
+			else
+				allReady = false
+			end
+		end
+		if allReady then
+			self:_onAllPlayersReadyLoadout(match)
 		end
 	end)
 end
@@ -503,6 +567,7 @@ function MatchManager:_startLoadoutPhase(match)
 
 	match._loadoutStartTime = tick()
 	match._loadoutDuration = duration
+	match._isBetweenRoundLoadout = false -- This is initial loadout, not between-round
 	match.currentRound = match.currentRound + 1
 
 	-- Fire loadout UI to each player
@@ -525,6 +590,11 @@ end
 
 function MatchManager:_onAllLoadoutsSubmitted(match)
 	if match.state ~= "loadout_selection" then return end
+	
+	-- If loadout is already locked by _onAllPlayersReadyLoadout, don't interfere with its 5s timer
+	if match._loadoutLocked then
+		return
+	end
 
 	-- Early confirm: halve remaining timer instead of starting immediately
 	if match.modeConfig.earlyConfirmHalvesTimer and match._loadoutStartTime and match._loadoutDuration then
@@ -558,6 +628,70 @@ function MatchManager:_onAllLoadoutsSubmitted(match)
 	self:_onLoadoutTimerExpired(match)
 end
 
+function MatchManager:_onAllPlayersReadyLoadout(match)
+	if match.state ~= "loadout_selection" then 
+		return 
+	end
+	if match._loadoutLocked then 
+		return 
+	end
+
+	-- Mark loadout as locked
+	match._loadoutLocked = true
+
+	-- Use explicit flag to differentiate initial loadout from between-round loadout
+	-- (currentRound > 0 doesn't work because round is incremented in _startLoadoutPhase before this)
+	local isBetweenRound = match._isBetweenRoundLoadout == true
+
+	-- Cancel existing timer
+	if match._loadoutTimerThread then
+		pcall(task.cancel, match._loadoutTimerThread)
+		match._loadoutTimerThread = nil
+	end
+
+	-- Calculate remaining time
+	local elapsed = match._loadoutStartTime and (tick() - match._loadoutStartTime) or 0
+	local originalDuration = match._loadoutDuration or 15
+	local remainingTime = originalDuration - elapsed
+
+	-- If ≤5 seconds remaining, start instantly instead of adding another 5 seconds
+	if remainingTime <= 5 then
+		-- Notify clients to lock UI with 0 remaining (instant start)
+		self:_fireMatchClients(match, "LoadoutLocked", {
+			matchId = match.id,
+			remaining = 0,
+		})
+		
+		-- Start immediately
+		if isBetweenRound then
+			self:_onBetweenRoundLoadoutExpired(match)
+		else
+			self:_onLoadoutTimerExpired(match)
+		end
+		return
+	end
+
+	-- Jump to 5 seconds
+	local lockDuration = 5
+
+	-- Notify all clients to lock their loadout UI
+	self:_fireMatchClients(match, "LoadoutLocked", {
+		matchId = match.id,
+		remaining = lockDuration,
+	})
+
+	-- Start a new timer for 5 seconds
+	match._loadoutTimerThread = task.delay(lockDuration, function()
+		if match.state == "loadout_selection" then
+			if isBetweenRound then
+				self:_onBetweenRoundLoadoutExpired(match)
+			else
+				self:_onLoadoutTimerExpired(match)
+			end
+		end
+	end)
+end
+
 function MatchManager:_onLoadoutTimerExpired(match)
 	if match.state ~= "loadout_selection" then return end
 
@@ -584,6 +718,7 @@ function MatchManager:_startMatchRound(match)
 	-- Revive all players for the new round
 	self:_reviveAllPlayers(match)
 
+	print("[MATCHMANAGER] Firing MatchStart - team1:", match.team1, "team2:", match.team2)
 	self._net:FireAllClients("MatchStart", {
 		matchId = match.id,
 		mode = match.mode,
@@ -595,9 +730,19 @@ function MatchManager:_startMatchRound(match)
 end
 
 function MatchManager:_fireRoundStart(match)
+	-- Set PlayerState to InMatch for all players in this match
+	-- This ensures overhead is hidden during the match
+	for _, player in self:_getMatchPlayers(match) do
+		player:SetAttribute("PlayerState", "InMatch")
+	end
+
+	-- Get round duration from mode config (default 120 seconds / 2 minutes)
+	local roundDuration = match.modeConfig.roundDuration or 120
+
 	self._net:FireAllClients("RoundStart", {
 		matchId = match.id,
 		roundNumber = match.currentRound,
+		duration = roundDuration,
 		scores = match.modeConfig.hasScoring and {
 			Team1 = match.scores.Team1,
 			Team2 = match.scores.Team2,
@@ -661,28 +806,46 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 	-- Elimination check: is victim's entire team wiped?
 	if match.modeConfig.elimination then
 		local victimTeam = self:GetPlayerTeam(match, victimPlayer)
-		local teamWiped = self:_isTeamWiped(match, victimTeam)
+		local otherTeam = (victimTeam == "Team1") and "Team2" or "Team1"
+		
+		local victimTeamWiped = self:_isTeamWiped(match, victimTeam)
+		local otherTeamWiped = self:_isTeamWiped(match, otherTeam)
 
-		if teamWiped then
-			local winnerTeam = (victimTeam == "Team1") and "Team2" or "Team1"
-			match.scores[winnerTeam] = match.scores[winnerTeam] + 1
-
-			self._net:FireAllClients("ScoreUpdate", {
-				matchId = match.id,
-				team1Score = match.scores.Team1,
-				team2Score = match.scores.Team2,
-			})
-
-			-- Wait postKillDelay before transitioning (let ragdoll/death play out)
-			task.delay(postKillDelay, function()
-				if not self._matches[match.id] then return end
-				if match.state ~= "playing" then return end -- Guard against double-fire
-				if self:_checkWinCondition(match) then
-					self:EndMatch(match.id, winnerTeam)
-				else
+		if victimTeamWiped then
+			-- Check for trade kill (both teams wiped) - no point awarded
+			if otherTeamWiped then
+				-- Trade kill - both teams dead, fire draw outcome to all
+				self:_fireRoundOutcome(match, nil) -- nil = draw
+				
+				task.delay(postKillDelay, function()
+					if not self._matches[match.id] then return end
+					if match.state ~= "playing" then return end
 					self:_resetRound(match)
-				end
-			end)
+				end)
+			else
+				-- Only victim's team is wiped - other team wins the round
+				local winnerTeam = otherTeam
+				match.scores[winnerTeam] = match.scores[winnerTeam] + 1
+
+				self._net:FireAllClients("ScoreUpdate", {
+					matchId = match.id,
+					team1Score = match.scores.Team1,
+					team2Score = match.scores.Team2,
+				})
+				
+				-- Fire round outcome to each player (win/lose based on their team)
+				self:_fireRoundOutcome(match, winnerTeam)
+
+				task.delay(postKillDelay, function()
+					if not self._matches[match.id] then return end
+					if match.state ~= "playing" then return end
+					if self:_checkWinCondition(match) then
+						self:EndMatch(match.id, winnerTeam)
+					else
+						self:_resetRound(match)
+					end
+				end)
+			end
 		end
 		-- Not wiped → continue, dead player stays dead
 	else
@@ -731,12 +894,43 @@ function MatchManager:_checkWinCondition(match)
 	return match.scores.Team1 >= scoreToWin or match.scores.Team2 >= scoreToWin
 end
 
+--[[
+	Fires the RoundOutcome event to each player with their personal outcome.
+	@param match The match object
+	@param winnerTeam "Team1" or "Team2" or nil (nil = draw/trade kill)
+]]
+function MatchManager:_fireRoundOutcome(match, winnerTeam)
+	for _, player in self:_getMatchPlayers(match) do
+		local playerTeam = self:GetPlayerTeam(match, player)
+		local outcome
+		
+		if winnerTeam == nil then
+			-- Trade kill / draw
+			outcome = "draw"
+		elseif playerTeam == winnerTeam then
+			outcome = "win"
+		else
+			outcome = "lose"
+		end
+		
+		self._net:FireClient("RoundOutcome", player, {
+			matchId = match.id,
+			outcome = outcome,
+			winnerTeam = winnerTeam,
+			roundNumber = match.currentRound,
+			scores = {
+				Team1 = match.scores.Team1,
+				Team2 = match.scores.Team2,
+			},
+		})
+	end
+end
+
 --------------------------------------------------------------------------------
 -- ROUND RESET
 --------------------------------------------------------------------------------
 
 function MatchManager:_resetRound(match)
-	match.state = "resetting"
 	match._deadThisRound = {}
 
 	local resetDelay = match.modeConfig.roundResetDelay or 10
@@ -759,7 +953,26 @@ function MatchManager:_resetRound(match)
 	self:_reviveAllPlayers(match)
 	self:_teleportMatchPlayersDirect(match)
 
-	-- Tell clients about the between-round phase
+	-- Clear SelectedLoadout to remove weapons/viewmodels during between-round phase
+	for _, player in self:_getMatchPlayers(match) do
+		pcall(function()
+			player:SetAttribute("SelectedLoadout", nil)
+		end)
+	end
+
+	-- CRITICAL: Enter loadout_selection state so SubmitLoadout/LoadoutReady handlers work
+	match.state = "loadout_selection"
+	match._readyPlayers = {}
+	match._loadoutLocked = false
+	match._isBetweenRoundLoadout = true -- This IS a between-round loadout phase
+	match._loadoutStartTime = tick()
+	match._loadoutDuration = resetDelay
+	match._pendingLoadouts = {}
+	for _, player in self:_getMatchPlayers(match) do
+		match._pendingLoadouts[player] = true
+	end
+
+	-- Tell clients about the between-round phase (loadout selection)
 	self:_fireMatchClients(match, "BetweenRoundFreeze", {
 		matchId = match.id,
 		duration = resetDelay,
@@ -768,18 +981,40 @@ function MatchManager:_resetRound(match)
 		frozen = shouldFreeze,
 	})
 
-	-- After delay: start new round
-	task.delay(resetDelay, function()
+	-- Cancel any existing timer
+	if match._loadoutTimerThread then
+		pcall(task.cancel, match._loadoutTimerThread)
+		match._loadoutTimerThread = nil
+	end
+
+	-- Start loadout selection timer - when it expires, start the round
+	match._loadoutTimerThread = task.delay(resetDelay, function()
 		if not self._matches[match.id] then return end
-		match.currentRound = match.currentRound + 1
-		match._deadThisRound = {}
-		match.state = "playing"
-		self:_unfreezeMatchPlayers(match)
-		-- Revive again in case anyone died during the between-round phase
-		self:_reviveAllPlayers(match)
-		self:_teleportMatchPlayersDirect(match)
-		self:_fireRoundStart(match)
+		if match.state ~= "loadout_selection" then return end
+		self:_onBetweenRoundLoadoutExpired(match)
 	end)
+end
+
+function MatchManager:_onBetweenRoundLoadoutExpired(match)
+	if match.state ~= "loadout_selection" then 
+		return 
+	end
+
+	if match._loadoutTimerThread then
+		pcall(task.cancel, match._loadoutTimerThread)
+		match._loadoutTimerThread = nil
+	end
+
+	match.currentRound = match.currentRound + 1
+	match._deadThisRound = {}
+	match.state = "playing"
+	match._pendingLoadouts = nil
+	
+	self:_unfreezeMatchPlayers(match)
+	-- Revive again in case anyone died during the between-round phase
+	self:_reviveAllPlayers(match)
+	self:_teleportMatchPlayersDirect(match)
+	self:_fireRoundStart(match)
 end
 
 function MatchManager:_teleportMatchPlayersDirect(match)
@@ -900,6 +1135,8 @@ function MatchManager:_returnPlayersToLobby(match)
 	for i, userId in ipairs(userIds) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
+			-- Set PlayerState back to Lobby (overhead will reappear)
+			player:SetAttribute("PlayerState", "Lobby")
 			local spawnIndex = ((i - 1) % #lobbySpawns) + 1
 			local spawn = lobbySpawns[spawnIndex]
 			self:_teleportPlayerToSpawn(player, spawn)

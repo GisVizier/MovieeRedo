@@ -1142,6 +1142,12 @@ function module:_updateItemSelectionVisuals(weaponId, isSelected)
 end
 
 function module:_selectItem(weaponId)
+	-- Don't allow changes if loadout is locked (all players ready)
+	if self._loadoutLocked then
+		log("selectItem", "locked")
+		return
+	end
+
 	local weaponData = nil
 	if self._selectedSlot == "Kit" then
 		local kitData = KitsConfig.getKit(weaponId)
@@ -1177,6 +1183,24 @@ function module:_selectItem(weaponId)
 
 	self:_updateSlotWithWeapon(slotType, weaponId, weaponData)
 	self:_checkLoadoutComplete()
+
+	-- Emit event so HUD can refresh icons from PlayerDataTable
+	self._export:emit("LoadoutWeaponChanged", {
+		slotType = slotType,
+		weaponId = weaponId,
+	})
+
+	-- If player already had all 4 slots filled and is changing weapons, re-submit loadout
+	-- This ensures the server always has the latest loadout data
+	-- NOTE: Skip in between-round mode - loadout is only submitted when timer expires
+	if self._notifiedReady and not self._isBetweenRound and previousWeaponId and previousWeaponId ~= weaponId then
+		local loadoutData = PlayerDataTable.getEquippedLoadout()
+		self._export:emit("LoadoutChanged", {
+			loadout = loadoutData,
+			mapId = RoundData.mapId,
+			gamemodeId = RoundData.gamemodeId,
+		})
+	end
 
 	self:_advanceSlotSelection(slotType)
 end
@@ -1326,16 +1350,35 @@ end
 
 function module:_checkLoadoutComplete()
 	local filledCount = 0
-	for _, weaponId in self._currentLoadout do
+	for slotType, weaponId in pairs(self._currentLoadout) do
 		if weaponId then
 			filledCount = filledCount + 1
 		end
 	end
 
 	log("loadoutCount", filledCount)
-	if filledCount >= 4 then
-		log("loadoutComplete")
-		self:finishLoadout()
+	
+	-- In between-round mode: no ready checks, player can freely change loadout
+	-- The loadout is only submitted when the timer expires and round starts
+	if self._isBetweenRound then
+		return
+	end
+	
+	-- Round 1 mode: When all 4 slots are filled, notify server that player is ready.
+	-- Player can still change loadout until server locks it (all players ready).
+	if filledCount >= 4 and not self._notifiedReady then
+		self._notifiedReady = true
+		local loadoutData = PlayerDataTable.getEquippedLoadout()
+		
+		-- Emit event so UIController can notify server
+		self._export:emit("LoadoutReady", {
+			loadout = loadoutData,
+			mapId = RoundData.mapId,
+			gamemodeId = RoundData.gamemodeId,
+		})
+		
+		-- NOTE: Never show "READY" text - always show the countdown timer
+		-- The timer continues to count down even after player is ready
 	end
 end
 
@@ -1804,6 +1847,7 @@ end
 function module:_showLoadoutReview()
 	-- Show "READY" on the timer text but keep the timer bar counting down.
 	-- The loadout UI stays visible until the server fires RoundStart.
+	-- Keep item scroller and buttons active so player can still change loadout.
 	if self._timer then
 		local timerText = self._timer:FindFirstChild("TimerText")
 		if timerText then
@@ -1814,24 +1858,8 @@ function module:_showLoadoutReview()
 	-- Mark that we should show "READY" instead of time (timer loop checks this)
 	self._showReady = true
 
-	if self._itemScroller then
-		local canvas = getCanvasGroup(self._itemScroller)
-		if canvas then
-			local tween = TweenService:Create(canvas, TweenConfig.get("ItemScroller", "hide"), {
-				GroupTransparency = 1,
-			})
-			tween:Play()
-			tween.Completed:Once(function()
-				if self._loadoutFinished and self._itemScroller then
-					self._itemScroller.Visible = false
-				end
-			end)
-		else
-			self._itemScroller.Visible = false
-		end
-	end
-
-	self:_setButtonsActive(false)
+	-- NOTE: Removed item scroller hiding and button disabling.
+	-- Player can still change their loadout until the round actually starts.
 end
 
 function module:finishLoadout()
@@ -1913,7 +1941,7 @@ function module:_clearItemTemplates()
 	table.clear(self._itemTemplates)
 end
 
-function module:show()
+function module:show(options)
 	-- Cancel any pending hide-delay from a previous hide() so it doesn't
 	-- turn off visibility on the loadout we are about to open.
 	if self._pendingHideTask then
@@ -1943,6 +1971,8 @@ function module:show()
 	-- Reset loadout state for fresh entry (allows re-entry to training)
 	self._loadoutFinished = false
 	self._showReady = false
+	self._notifiedReady = false
+	self._loadoutLocked = false
 	self._initialized = false
 	self._selectedSlot = "Kit"
 	self._currentLoadout = {
@@ -1952,11 +1982,86 @@ function module:show()
 		Melee = nil,
 	}
 	
+	-- Between-round mode: no ready checks, full timer, no locking
+	-- Round 1 mode: ready checks enabled, timer can jump to 5s when all ready
+	self._isBetweenRound = (type(options) == "table" and options.isBetweenRound == true) or false
+	
 	self:_animateShow()
 	self:_init()
 	self:_setUINavActive(isGamepadInputType(UserInputService:GetLastInputType()))
 	self:startTimer()
 	return true
+end
+
+--[[
+	Pre-populate the loadout UI with a previous loadout.
+	Called during between-round phase to restore the player's last selections.
+	@param loadoutData table - { Kit = "...", Primary = "...", Secondary = "...", Melee = "..." }
+]]
+function module:prepopulateLoadout(loadoutData)
+	if type(loadoutData) ~= "table" then
+		return
+	end
+
+	log("prepopulateLoadout", loadoutData)
+
+	-- Wait for init to complete if needed
+	if not self._initialized then
+		task.wait(0.1)
+	end
+
+	-- For each slot, update both the data and the visual
+	for _, slotType in ipairs(SLOT_TYPES) do
+		local weaponId = loadoutData[slotType]
+		if weaponId then
+			-- Get weapon data from config
+			local weaponData = nil
+			if slotType == "Kit" then
+				local kitData = KitsConfig.getKit(weaponId)
+				if kitData then
+					weaponData = {
+						name = kitData.Name,
+						imageId = kitData.Icon,
+						rarity = kitData.Rarity,
+						isKit = true,
+					}
+				end
+			else
+				weaponData = LoadoutConfig.getWeapon(weaponId)
+			end
+
+			if weaponData then
+				-- Update internal state
+				self._currentLoadout[slotType] = weaponId
+				PlayerDataTable.setEquippedWeapon(slotType, weaponId)
+
+				-- Update slot visuals
+				self:_updateSlotWithWeapon(slotType, weaponId, weaponData)
+			else
+			end
+		end
+	end
+
+	-- Check if all 4 slots are now filled and notify server
+	self:_checkLoadoutComplete()
+end
+
+--[[
+	Lock the loadout UI so player can no longer change weapons.
+	Called when all players in match have their loadouts ready.
+]]
+function module:lockLoadout()
+	log("lockLoadout")
+	self._loadoutLocked = true
+	self:_setButtonsActive(false)
+	
+	-- Show "LOCKED" on the timer text
+	if self._timer then
+		local timerText = self._timer:FindFirstChild("TimerText")
+		if timerText then
+			timerText.Text = "LOCKED"
+		end
+	end
 end
 
 function module:hide()
@@ -1996,6 +2101,9 @@ function module:_cleanup()
 	self._timerRunning = false
 	self._loadoutFinished = false
 	self._showReady = false
+	self._notifiedReady = false
+	self._loadoutLocked = false
+	self._isBetweenRound = false
 
 	-- Bump timer generation so any running timer loop exits on next wake.
 	self._timerGeneration = (self._timerGeneration or 0) + 1

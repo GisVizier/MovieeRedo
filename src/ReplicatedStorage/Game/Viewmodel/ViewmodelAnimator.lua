@@ -481,7 +481,51 @@ function ViewmodelAnimator:Stop(name: string, fadeTime: number?)
 end
 
 function ViewmodelAnimator:GetTrack(name: string)
-	return self._tracks[name]
+	local track = self._tracks[name]
+	if track then
+		return track
+	end
+
+	if not self._rig or not self._rig.Animator then
+		return nil
+	end
+
+	local animInstance = nil
+	local anims = resolveViewmodelAnimations(self._weaponId, self._skinId)
+	local animRef = anims and anims[name] or nil
+
+	if type(animRef) == "string" and not string.find(animRef, "rbxassetid://") then
+		animInstance = getAnimationInstance(self._weaponId, animRef, self._skinId)
+	end
+
+	if not animInstance and isValidAnimId(animRef) then
+		local animation = Instance.new("Animation")
+		animation.AnimationId = animRef
+		animInstance = animation
+	end
+
+	-- Final fallback: try loading by the requested track name directly.
+	if not animInstance and type(name) == "string" and name ~= "" then
+		animInstance = getAnimationInstance(self._weaponId, name, self._skinId)
+	end
+
+	if not animInstance then
+		return nil
+	end
+
+	local ok, loadedTrack = pcall(function()
+		return self._rig.Animator:LoadAnimation(animInstance)
+	end)
+	if not ok or not loadedTrack then
+		return nil
+	end
+
+	loadedTrack.Priority = Enum.AnimationPriority.Action
+	loadedTrack.Looped = (name == "Idle" or name == "Walk" or name == "Run" or name == "ADS" or name == "ZiplineHold")
+
+	self._tracks[name] = loadedTrack
+	self._trackSettings[name] = self._trackSettings[name] or {}
+	return loadedTrack
 end
 
 function ViewmodelAnimator:GetTrackSettings(name: string)

@@ -610,13 +610,40 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 	-- Clear assist tracking
 	self._assistTracking[victim] = {}
 
-	-- Broadcast kill event
-	if self._net then
+	-- Broadcast kill event with killer details for Kill UI (only for real player victims)
+	if self._net and victimIsRealPlayer then
+		local killerData = nil
+		if killer and killer:IsA("Player") then
+			-- Get killer's kit from SelectedLoadout attribute
+			local killerKitId = nil
+			local selectedLoadout = killer:GetAttribute("SelectedLoadout")
+			if selectedLoadout then
+				local ok, decoded = pcall(function()
+					return game:GetService("HttpService"):JSONDecode(selectedLoadout)
+				end)
+				if ok and decoded then
+					local loadout = decoded.loadout or decoded
+					killerKitId = loadout and loadout.Kit
+				end
+			end
+			
+			-- Get killer's current health
+			local killerHealth = killer:GetAttribute("Health") or 100
+			
+			killerData = {
+				displayName = killer.DisplayName,
+				userName = killer.Name,
+				kitId = killerKitId,
+				health = killerHealth,
+			}
+		end
+		
 		self._net:FireAllClients("PlayerKilled", {
 			victimUserId = victim.UserId,
 			killerUserId = killer and killer.UserId or nil,
 			weaponId = weaponId,
 			killEffect = effectId,
+			killerData = killerData,
 		})
 	end
 
