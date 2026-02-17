@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
+local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local DEBUG_QUICK_MELEE_INPUT = true
 
 InputManager.Movement = Vector2.new(0, 0)
@@ -145,8 +146,13 @@ function InputManager:Init()
 	self:SetupGamepad()
 
 	UserInputService.LastInputTypeChanged:Connect(function(lastInputType)
+		local previousMode = self.InputMode
 		self.LastInputType = lastInputType
 		self:DetectInputMode()
+		local newMode = self.InputMode
+		if previousMode ~= newMode then
+			self:HandlePlatformModeChanged(previousMode, newMode, lastInputType)
+		end
 	end)
 
 	UserInputService.GamepadConnected:Connect(function(gamepad)
@@ -159,6 +165,34 @@ function InputManager:Init()
 			self.ActiveGamepadType = Enum.UserInputType.Gamepad1
 		end
 	end)
+end
+
+function InputManager:HandlePlatformModeChanged(previousMode, newMode, lastInputType)
+	if not previousMode or previousMode == "Unknown" then
+		return
+	end
+
+	self:StopAllInputs()
+
+	if FOVController and FOVController.ResetToConfigBase then
+		FOVController:ResetToConfigBase()
+	elseif FOVController and FOVController.Reset then
+		local baseFOV = Config.Camera and Config.Camera.FOV and Config.Camera.FOV.Base or 80
+		if FOVController.SetBaseFOV then
+			FOVController:SetBaseFOV(baseFOV)
+		end
+		FOVController:Reset()
+	end
+
+	if newMode == "Controller" then
+		self:ResampleGamepadMovement()
+	end
+
+	LogService:Info("INPUT", "Input mode changed; reset held input and FOV", {
+		FromMode = previousMode,
+		ToMode = newMode,
+		LastInputType = tostring(lastInputType),
+	})
 end
 
 function InputManager:SetupMenuDetection()

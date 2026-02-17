@@ -39,7 +39,7 @@ Replication.Optimization = {
 	DormantResendInterval = 1.0,
 	-- TESTING: Disable all character state replication to other clients.
 	-- Set to true to completely disable movement replication for recv testing.
-	DisableCharacterStateReplication = true,
+	DisableCharacterStateReplication = false,
 }
 
 Replication.ViewmodelActions = {

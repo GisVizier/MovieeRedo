@@ -104,8 +104,9 @@ local entries = {
 
 -- Temporary recv isolation toggles. Set to true to skip loading a service.
 local DISABLED_SERVICES = {
-	DummyService = true,
-	PracticeDummyService = true,
+	-- DummyService = true,
+	-- PracticeDummyService = true,
+	-- Queue = true,
 }
 
 local enabledEntries = {}

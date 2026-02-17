@@ -28,6 +28,7 @@ FOVController.OverrideTweenDuration = 0
 FOVController.OverrideTweenElapsed = 0
 FOVController.OverrideTweenEasing = nil
 FOVController.OverrideTweenDirection = nil
+FOVController.OverrideClearPending = false
 
 -- Effect priorities (higher = takes precedence)
 local EFFECT_PRIORITIES = {
@@ -58,6 +59,17 @@ function FOVController:Init()
 	self:StartUpdateLoop()
 	
 	LogService:Info("FOV", "FOVController initialized", { BaseFOV = self.BaseFOV })
+end
+
+function FOVController:_clearOverrideState()
+	self.OverrideFOV = nil
+	self.OverrideTweenStart = nil
+	self.OverrideTweenEnd = nil
+	self.OverrideTweenDuration = 0
+	self.OverrideTweenElapsed = 0
+	self.OverrideTweenEasing = nil
+	self.OverrideTweenDirection = nil
+	self.OverrideClearPending = false
 end
 
 function FOVController:IsEnabled()
@@ -98,8 +110,18 @@ function FOVController:UpdateSmoothedFOV(deltaTime)
 		self.SmoothedFOV = self.OverrideTweenStart + (self.OverrideTweenEnd - self.OverrideTweenStart) * easedAlpha
 		
 		if alpha >= 1 then
+			local finalFOV = self.OverrideTweenEnd
 			self.OverrideTweenDuration = 0
-			self.SmoothedFOV = self.OverrideTweenEnd
+			self.OverrideTweenElapsed = 0
+			self.OverrideTweenStart = nil
+			self.OverrideTweenEnd = nil
+			self.SmoothedFOV = finalFOV
+			if self.OverrideClearPending then
+				self.OverrideFOV = nil
+				self.OverrideClearPending = false
+			else
+				self.OverrideFOV = finalFOV
+			end
 		end
 		
 		camera.FieldOfView = self.SmoothedFOV
@@ -262,16 +284,15 @@ end
 -- PUBLIC API
 -- =============================================================================
 function FOVController:SetBaseFOV(fov)
+	if type(fov) ~= "number" then
+		return
+	end
 	self.BaseFOV = fov
 end
 
 function FOVController:Reset()
 	self.ActiveEffects = {}
-	
-	if self.UpdateConnection then
-		self.UpdateConnection:Disconnect()
-		self.UpdateConnection = nil
-	end
+	self:_clearOverrideState()
 	
 	local camera = workspace.CurrentCamera
 	if camera then
@@ -280,6 +301,17 @@ function FOVController:Reset()
 	self.CurrentFOV = self.BaseFOV
 	self.TargetFOV = self.BaseFOV
 	self.SmoothedFOV = self.BaseFOV
+
+	if self.IsInitialized and not self.UpdateConnection then
+		self:StartUpdateLoop()
+	end
+end
+
+function FOVController:ResetToConfigBase()
+	local fovConfig = Config.Camera and Config.Camera.FOV
+	local configuredBase = (fovConfig and fovConfig.Base) or self.BaseFOV or 80
+	self:SetBaseFOV(configuredBase)
+	self:Reset()
 end
 
 function FOVController:GetCurrentFOV()
@@ -310,7 +342,13 @@ function FOVController:SetFOV(fov: number, tweenDuration: number?, easingStyle: 
 	if duration <= 0 then
 		-- Instant set
 		self.OverrideFOV = fov
+		self.OverrideClearPending = false
+		self.OverrideTweenStart = nil
+		self.OverrideTweenEnd = nil
 		self.OverrideTweenDuration = 0
+		self.OverrideTweenElapsed = 0
+		self.OverrideTweenEasing = nil
+		self.OverrideTweenDirection = nil
 		self.SmoothedFOV = fov
 		
 		local camera = workspace.CurrentCamera
@@ -325,6 +363,7 @@ function FOVController:SetFOV(fov: number, tweenDuration: number?, easingStyle: 
 		self.OverrideTweenElapsed = 0
 		self.OverrideTweenEasing = easingStyle or Enum.EasingStyle.Quad
 		self.OverrideTweenDirection = easingDirection or Enum.EasingDirection.Out
+		self.OverrideClearPending = false
 		self.OverrideFOV = fov
 	end
 	
@@ -349,6 +388,7 @@ function FOVController:TweenFOV(targetFov: number, duration: number, easingStyle
 	self.OverrideTweenElapsed = 0
 	self.OverrideTweenEasing = easingStyle or Enum.EasingStyle.Quad
 	self.OverrideTweenDirection = easingDirection or Enum.EasingDirection.Out
+	self.OverrideClearPending = false
 	self.OverrideFOV = targetFov
 end
 
@@ -362,8 +402,14 @@ function FOVController:ClearFOVOverride(tweenDuration: number?)
 	
 	if duration <= 0 then
 		-- Instant clear
-		self.OverrideFOV = nil
-		self.OverrideTweenDuration = 0
+		self:_clearOverrideState()
+		self.TargetFOV = self:CalculateTargetFOV()
+		self.SmoothedFOV = self.TargetFOV
+		self.CurrentFOV = self.TargetFOV
+		local camera = workspace.CurrentCamera
+		if camera then
+			camera.FieldOfView = self.TargetFOV
+		end
 	else
 		-- Tween back to effects-based FOV
 		local targetFOV = self:CalculateTargetFOV()
@@ -373,13 +419,10 @@ function FOVController:ClearFOVOverride(tweenDuration: number?)
 		self.OverrideTweenElapsed = 0
 		self.OverrideTweenEasing = Enum.EasingStyle.Quad
 		self.OverrideTweenDirection = Enum.EasingDirection.Out
-		
-		-- Clear override after tween completes
-		task.delay(duration + 0.01, function()
-			if self.OverrideFOV == targetFOV or self.OverrideTweenDuration == 0 then
-				self.OverrideFOV = nil
-			end
-		end)
+		self.OverrideClearPending = true
+		if self.OverrideFOV == nil then
+			self.OverrideFOV = self.SmoothedFOV
+		end
 	end
 end
 

@@ -511,19 +511,15 @@ function KitService:BroadcastVFX(player: Player, targetSpec: string, moduleName:
 	local func = functionName or "Execute"
 	local targets = {}
 	
-	if targetSpec == "Others" then
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= player then
-				table.insert(targets, p)
-			end
-		end
-	elseif targetSpec == "All" then
-		targets = Players:GetPlayers()
-	elseif targetSpec == "Me" then
+	if targetSpec == "Me" then
 		targets = { player }
+	elseif targetSpec == "Others" then
+		targets = self:_getMatchScopedTargets(player, false)
+	elseif targetSpec == "All" then
+		targets = self:_getMatchScopedTargets(player, true)
 	else
-		-- Unknown targetSpec, default to all
-		targets = Players:GetPlayers()
+		-- Unknown targetSpec, default to same-match fanout including sender.
+		targets = self:_getMatchScopedTargets(player, true)
 	end
 	
 	-- Fire to each target client

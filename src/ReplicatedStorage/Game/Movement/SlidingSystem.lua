@@ -20,6 +20,7 @@ local SlidingState = require(Locations.Game:WaitForChild("Movement"):WaitForChil
 local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("RigRotationUtils"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
+local SLIDE_UPDATE_VFX_SEND_INTERVAL = 1 / 12
 
 
 SlidingSystem.IsSliding = false
@@ -76,6 +77,7 @@ SlidingSystem.LastLandingBoostSoundTime = 0
 SlidingSystem.LandingBoostSoundCooldown = 0.1
 
 SlidingSystem.LastKnownDeltaTime = 1 / 60
+SlidingSystem.LastSlideVFXSendTime = 0
 
 function SlidingSystem:Init()
 	SlidingBuffer:Init(self)
@@ -213,6 +215,7 @@ function SlidingSystem:SetupCharacter(character, primaryPart, _vectorForce, alig
 	self.PrimaryPart = primaryPart
 	self.AlignOrientation = alignOrientation
 	self.RaycastParams = raycastParams
+	self.LastSlideVFXSendTime = 0
 
 	-- Pre-create the slide sound so it plays instantly
 	self:PreCreateSlideSound()
@@ -560,6 +563,7 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 	end
 
 	self:RemoveSlideTrail()
+	self.LastSlideVFXSendTime = 0
 
 	VFXRep:Fire("All", { Module = "Slide" }, { state = "End" })
 	FOVController:RemoveEffect("Slide")
@@ -637,9 +641,13 @@ function SlidingSystem:UpdateSlide(deltaTime)
 	local slideConfig = Config.Gameplay.Sliding
 
 	if self.PrimaryPart then
-		VFXRep:Fire("All", { Module = "Slide", Function = "Update" }, {
-			direction = self.SlideDirection and self.SlideDirection * 10 or self.PrimaryPart.CFrame.LookVector * 10,
-		})
+		local now = tick()
+		if (now - (self.LastSlideVFXSendTime or 0)) >= SLIDE_UPDATE_VFX_SEND_INTERVAL then
+			self.LastSlideVFXSendTime = now
+			VFXRep:Fire("All", { Module = "Slide", Function = "Update" }, {
+				direction = self.SlideDirection and self.SlideDirection * 10 or self.PrimaryPart.CFrame.LookVector * 10,
+			})
+		end
 	end
 
 	local cappedDeltaTime = deltaTime
@@ -871,6 +879,7 @@ function SlidingSystem:Cleanup()
 	self.AlignOrientation = nil
 	self.RaycastParams = nil
 	self.CharacterController = nil
+	self.LastSlideVFXSendTime = 0
 end
 
 return SlidingSystem

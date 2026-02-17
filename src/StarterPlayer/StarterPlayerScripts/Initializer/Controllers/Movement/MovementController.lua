@@ -27,6 +27,7 @@ local math_rad = math.rad
 local math_deg = math.deg
 local vector2_new = Vector2.new
 local vector3_new = Vector3.new
+local SPEED_VFX_SEND_INTERVAL = 1 / 12
 
 CharacterController.Character = nil
 CharacterController.PrimaryPart = nil
@@ -64,6 +65,8 @@ CharacterController.LastJumpSoundTime = 0
 CharacterController.FallSound = nil
 CharacterController.LastGroundDebugTime = 0
 CharacterController.LastMovementDebugTime = 0
+CharacterController.LastSpeedVFXSendTime = 0
+CharacterController.LastSpeedVFXSlidingState = false
 
 CharacterController.VectorForce = nil
 CharacterController.AlignOrientation = nil
@@ -172,18 +175,14 @@ function CharacterController:ResetRespawnLocalState()
 
 	MovementStateManager:Reset()
 
-	local baseFOV = Config.Camera and Config.Camera.FOV and Config.Camera.FOV.Base or 80
-	if FOVController.SetBaseFOV then
-		FOVController:SetBaseFOV(baseFOV)
-	end
-	if FOVController.Reset then
+	if FOVController.ResetToConfigBase then
+		FOVController:ResetToConfigBase()
+	elseif FOVController.Reset then
+		local baseFOV = Config.Camera and Config.Camera.FOV and Config.Camera.FOV.Base or 80
+		if FOVController.SetBaseFOV then
+			FOVController:SetBaseFOV(baseFOV)
+		end
 		FOVController:Reset()
-	end
-	if FOVController.ClearFOVOverride then
-		FOVController:ClearFOVOverride(0)
-	end
-	if FOVController.StartUpdateLoop then
-		FOVController:StartUpdateLoop()
 	end
 end
 
@@ -438,6 +437,8 @@ function CharacterController:OnLocalCharacterReady(character)
 	self.RespawnRequested = false
 	MovementStateManager:Reset()
 	self:ResetJumpFatigue()
+	self.LastSpeedVFXSendTime = 0
+	self.LastSpeedVFXSlidingState = false
 
 	if self.CameraController then
 		local cameraAngles = self.CameraController:GetCameraAngles()
@@ -483,6 +484,8 @@ function CharacterController:OnLocalCharacterRemoving()
 	self.JumpExecutedThisInput = false
 	self.LastGroundedTime = 0
 	self:ResetJumpFatigue()
+	self.LastSpeedVFXSendTime = 0
+	self.LastSpeedVFXSlidingState = false
 
 	self.InputsConnected = false
 
@@ -844,17 +847,27 @@ function CharacterController:UpdateMovement(deltaTime)
 	if self.PrimaryPart then
 		local fallSpeed = math.abs(fullVelocity.Y)
 		local speedForFx = math.max(horizontalSpeed, fallSpeed)
+		local isSliding = MovementStateManager:IsSliding()
+		local now = tick()
+		local shouldSend = (now - (self.LastSpeedVFXSendTime or 0)) >= SPEED_VFX_SEND_INTERVAL
+		if self.LastSpeedVFXSlidingState ~= isSliding then
+			shouldSend = true
+		end
 
-		if not MovementStateManager:IsSliding() then
-			VFXRep:Fire("Others", { Module = "Speed" }, {
-				direction = fullVelocity,
-				speed = speedForFx,
-			})
-		else
-			VFXRep:Fire("Others", { Module = "Speed" }, {
-				direction = Vector3.zero,
-				speed = 0,
-			})
+		if shouldSend then
+			self.LastSpeedVFXSendTime = now
+			self.LastSpeedVFXSlidingState = isSliding
+			if not isSliding then
+				VFXRep:Fire("Others", { Module = "Speed" }, {
+					direction = fullVelocity,
+					speed = speedForFx,
+				})
+			else
+				VFXRep:Fire("Others", { Module = "Speed" }, {
+					direction = Vector3.zero,
+					speed = 0,
+				})
+			end
 		end
 	end
 end

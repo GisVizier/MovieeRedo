@@ -5,6 +5,15 @@ local VFXRep = {}
 
 VFXRep.Modules = {}
 VFXRep._initialized = false
+VFXRep._registry = nil
+VFXRep._matchManager = nil
+VFXRep._lastRelayByUserId = {}
+
+-- Temporary recv isolation toggle: disable server-side VFX relay.
+local DISABLE_SERVER_VFX_RELAY = false
+local SERVER_THROTTLE_INTERVAL_BY_MODULE = {
+	Speed = 1 / 12,
+}
 
 local function loadModules()
 	for _, child in ipairs(script:GetChildren()) do
@@ -39,32 +48,97 @@ local function waitForLocalPlayerLoaded()
 	Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
 end
 
-local function getTargets(sender: Player, targetSpec)
+local function appendUniqueTarget(list, seen, player)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") or not player.Parent then
+		return
+	end
+	if seen[player] then
+		return
+	end
+	seen[player] = true
+	table.insert(list, player)
+end
+
+local function resolveMatchManager(self)
+	local manager = self._matchManager
+	if manager and manager.GetPlayersInMatch then
+		return manager
+	end
+
+	local registry = self._registry
+	if registry and registry.TryGet then
+		local resolved = registry:TryGet("MatchManager")
+		if resolved and resolved.GetPlayersInMatch then
+			self._matchManager = resolved
+			return resolved
+		end
+	end
+
+	return nil
+end
+
+local function getScopedPlayers(self, sender: Player)
+	local matchManager = resolveMatchManager(self)
+	if matchManager then
+		local ok, scoped = pcall(function()
+			return matchManager:GetPlayersInMatch(sender)
+		end)
+		if ok and type(scoped) == "table" then
+			return scoped
+		end
+	end
+
+	return Players:GetPlayers()
+end
+
+local function getTargets(self, sender: Player, targetSpec)
+	local scopedPlayers = getScopedPlayers(self, sender)
+	local scopedSet = {}
+	for _, scopedPlayer in ipairs(scopedPlayers) do
+		if typeof(scopedPlayer) == "Instance" and scopedPlayer:IsA("Player") and scopedPlayer.Parent then
+			scopedSet[scopedPlayer] = true
+		end
+	end
+
 	if targetSpec == "Me" then
 		return { sender }
 	end
 	if targetSpec == "Others" then
 		local list = {}
-		for _, p in ipairs(Players:GetPlayers()) do
+		local seen = {}
+		for _, p in ipairs(scopedPlayers) do
 			if p ~= sender then
-				table.insert(list, p)
+				appendUniqueTarget(list, seen, p)
 			end
 		end
 		return list
 	end
 	if targetSpec == "All" or targetSpec == nil then
-		return Players:GetPlayers()
+		local list = {}
+		local seen = {}
+		for _, p in ipairs(scopedPlayers) do
+			appendUniqueTarget(list, seen, p)
+		end
+		return list
 	end
 	if typeof(targetSpec) == "table" then
 		if targetSpec.Players then
-			return targetSpec.Players
+			local list = {}
+			local seen = {}
+			for _, p in ipairs(targetSpec.Players) do
+				if p == sender or scopedSet[p] == true then
+					appendUniqueTarget(list, seen, p)
+				end
+			end
+			return list
 		end
 		if targetSpec.UserIds then
 			local list = {}
+			local seen = {}
 			for _, id in ipairs(targetSpec.UserIds) do
 				local p = Players:GetPlayerByUserId(id)
-				if p then
-					table.insert(list, p)
+				if p and (p == sender or scopedSet[p] == true) then
+					appendUniqueTarget(list, seen, p)
 				end
 			end
 			return list
@@ -82,15 +156,20 @@ local function resolveModuleInfo(moduleInfo)
 	return moduleName, functionName
 end
 
-function VFXRep:Init(net, isServer)
+function VFXRep:Init(net, isServer, registry)
 	-- Prevent double-initialization (VFXRep is now initialized early in Initializer.client.lua)
 	if self._initialized then
 		return
 	end
 	self._initialized = true
 	self._net = net
+	self._registry = registry
 
 	if isServer then
+		if DISABLE_SERVER_VFX_RELAY then
+			return
+		end
+
 		loadModules()
 		self._net:ConnectServer("VFXRep", function(player, targetSpec, moduleInfo, data)
 			local moduleName, functionName = resolveModuleInfo(moduleInfo)
@@ -107,12 +186,26 @@ function VFXRep:Init(net, isServer)
 				return
 			end
 
-			local targets = getTargets(player, targetSpec)
+			local moduleThrottle = SERVER_THROTTLE_INTERVAL_BY_MODULE[moduleName]
+			if moduleThrottle then
+				local now = os.clock()
+				local userId = player.UserId
+				local byKey = self._lastRelayByUserId[userId]
+				if not byKey then
+					byKey = {}
+					self._lastRelayByUserId[userId] = byKey
+				end
+				local throttleKey = string.format("%s|%s|%s", moduleName, tostring(functionName), tostring(targetSpec))
+				local lastSent = byKey[throttleKey] or 0
+				if (now - lastSent) < moduleThrottle then
+					return
+				end
+				byKey[throttleKey] = now
+			end
+
+			local targets = getTargets(self, player, targetSpec)
 			if not targets then
 				return
-			end
-			if moduleName == "Speed" and targetSpec == "Others" then
-				table.insert(targets, player)
 			end
 
 			-- Send to all targets - clients now initialize VFXRep early so OnClientEvent is always connected

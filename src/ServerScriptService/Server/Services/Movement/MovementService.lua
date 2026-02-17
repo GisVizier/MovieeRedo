@@ -6,7 +6,7 @@ local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("
 local MovementService = {}
 
 function MovementService:Init(_registry, net)
-	VFXRep:Init(net, true)
+	VFXRep:Init(net, true, _registry)
 end
 
 function MovementService:Start()

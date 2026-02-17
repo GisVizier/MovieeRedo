@@ -414,13 +414,13 @@ end
 
 --[[
 	Returns all Player objects in the same game context as the given player.
-	Works for competitive matches AND training mode (scoped by CurrentArea).
-	Returns empty table if player is in lobby.
+	Works for competitive matches, training mode (scoped by CurrentArea),
+	and lobby context.
 
 	Match context rules:
-	- Competitive match → team1 + team2 players
-	- Training → only players in the same CurrentArea
-	- Lobby → nobody (empty table)
+	- Competitive match: team1 + team2 players
+	- Training: only players in the same CurrentArea
+	- Lobby: players who are not in any competitive match and not in training
 
 	Usage:
 		local players = MatchManager:GetPlayersInMatch(player)
@@ -448,15 +448,24 @@ function MatchManager:GetPlayersInMatch(player)
 		return players
 	end
 
-	-- 2) Check training mode — scoped by CurrentArea
-	local roundService = self._registry:TryGet("RoundService")
+	-- 2) Check training mode - scoped by CurrentArea
+	local roundService = self._registry:TryGet("Round") or self._registry:TryGet("RoundService")
 	if roundService and roundService:IsPlayerInTraining(player) then
 		-- Use area-scoped method to isolate training areas
 		return roundService:GetPlayersInSameArea(player)
 	end
 
-	-- 3) Player is in lobby — no match context
-	return {}
+	-- 3) Lobby context: include only players not in a match and not in training.
+	local players = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		local inCompetitiveMatch = self._playerToMatch[p] ~= nil
+		local inTraining = roundService and roundService:IsPlayerInTraining(p) or false
+		if not inCompetitiveMatch and not inTraining then
+			table.insert(players, p)
+		end
+	end
+
+	return players
 end
 
 function MatchManager:GetPlayerTeam(match, player)
