@@ -333,6 +333,9 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			end
 			self.RemotePlayers[userId] = remoteData
 
+			-- Add initial state to buffer so ReplicatePlayers processes updates (fixes stuck animation for late joiners)
+			self:AddSnapshotToBuffer(remoteData, state, currentTime)
+
 			local pendingActions = self.PendingViewmodelActions[userId]
 			if pendingActions then
 				vmLog("Flushing pending actions", "player=", player.Name, "count=", #pendingActions)
