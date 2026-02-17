@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
+local DEBUG_QUICK_MELEE_INPUT = true
 
 InputManager.Movement = Vector2.new(0, 0)
 InputManager.LookDelta = Vector2.new(0, 0)
@@ -68,15 +69,19 @@ local function CheckKeybindMatch(input, keybind)
 	return input.KeyCode == keybind
 end
 
+local function IsGamepadInputType(inputType)
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+end
+
 function InputManager:IsKeybind(input, keybindKey)
 	-- Determine which keybind array to use based on the actual input device,
 	-- not self.InputMode, because InputBegan can fire before LastInputTypeChanged
 	-- updates the mode.
 	local inputType = input.UserInputType
-	local isGamepadInput = inputType == Enum.UserInputType.Gamepad1
-		or inputType == Enum.UserInputType.Gamepad2
-		or inputType == Enum.UserInputType.Gamepad3
-		or inputType == Enum.UserInputType.Gamepad4
+	local isGamepadInput = IsGamepadInputType(inputType)
 
 	local keybindsArray = isGamepadInput and Config.Controls.CustomizableControllerKeybinds
 		or Config.Controls.CustomizableKeybinds
@@ -239,8 +244,126 @@ function InputManager:DetectInputMode()
 	end
 end
 
+function InputManager:_handleCoreInputBegan(input, gameProcessed)
+	if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
+		return
+	end
+
+	if self:IsKeybind(input, "Fire") then
+		self:FireCallbacks("Fire", true)
+	elseif self:IsKeybind(input, "Special") then
+		self:FireCallbacks("Special", true)
+	elseif self:IsKeybind(input, "Reload") then
+		self:FireCallbacks("Reload", true)
+	elseif self:IsKeybind(input, "QuickMelee") then
+		self:FireCallbacks("QuickMelee", true)
+	elseif self:IsKeybind(input, "Inspect") then
+		self:FireCallbacks("Inspect", true)
+	elseif self:IsKeybind(input, "MoveForward") then
+		self.KeyStates.W = true
+		self.VerticalPriority = "W"
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "MoveBackward") then
+		self.KeyStates.S = true
+		self.VerticalPriority = "S"
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "MoveLeft") then
+		self.KeyStates.A = true
+		self.HorizontalPriority = "A"
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "MoveRight") then
+		self.KeyStates.D = true
+		self.HorizontalPriority = "D"
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "Jump") then
+		if not self.IsMenuOpen then
+			self.IsJumping = true
+			self:FireCallbacks("Jump", true)
+		end
+	elseif self:IsKeybind(input, "Sprint") then
+		self.IsSprinting = true
+		self:FireCallbacks("Sprint", true)
+	elseif self:IsKeybind(input, "Slide") then
+		self:FireCallbacks("Slide", true)
+	elseif self:IsKeybind(input, "Crouch") then
+		self.IsCrouching = true
+		self:FireCallbacks("Crouch", true)
+	elseif self:IsKeybind(input, "Ability") then
+		self:FireCallbacks("Ability", input.UserInputState)
+	elseif self:IsKeybind(input, "Ultimate") then
+		self:FireCallbacks("Ultimate", input.UserInputState)
+	elseif self:IsKeybind(input, "ToggleCameraMode") then
+		self:FireCallbacks("ToggleCameraMode", true)
+	elseif self:IsKeybind(input, "Settings") then
+		self:FireCallbacks("Settings", true)
+	end
+end
+
+function InputManager:_handleCoreInputEnded(input, gameProcessed)
+	if gameProcessed or self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
+		return
+	end
+
+	if self:IsKeybind(input, "Fire") then
+		self:FireCallbacks("Fire", false)
+	elseif self:IsKeybind(input, "Special") then
+		self:FireCallbacks("Special", false)
+	elseif self:IsKeybind(input, "Reload") then
+		self:FireCallbacks("Reload", false)
+	elseif self:IsKeybind(input, "QuickMelee") then
+		self:FireCallbacks("QuickMelee", false)
+	elseif self:IsKeybind(input, "Inspect") then
+		self:FireCallbacks("Inspect", false)
+	elseif self:IsKeybind(input, "MoveForward") then
+		self.KeyStates.W = false
+		if self.VerticalPriority == "W" then
+			self.VerticalPriority = self.KeyStates.S and "S" or nil
+		end
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "MoveBackward") then
+		self.KeyStates.S = false
+		if self.VerticalPriority == "S" then
+			self.VerticalPriority = self.KeyStates.W and "W" or nil
+		end
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "MoveLeft") then
+		self.KeyStates.A = false
+		if self.HorizontalPriority == "A" then
+			self.HorizontalPriority = self.KeyStates.D and "D" or nil
+		end
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "MoveRight") then
+		self.KeyStates.D = false
+		if self.HorizontalPriority == "D" then
+			self.HorizontalPriority = self.KeyStates.A and "A" or nil
+		end
+		self:UpdateMovement()
+	elseif self:IsKeybind(input, "Jump") then
+		if not self.IsMenuOpen then
+			self.IsJumping = false
+			self:FireCallbacks("Jump", false)
+		end
+	elseif self:IsKeybind(input, "Sprint") then
+		self.IsSprinting = false
+		self:FireCallbacks("Sprint", false)
+	elseif self:IsKeybind(input, "Slide") then
+		self:FireCallbacks("Slide", false)
+	elseif self:IsKeybind(input, "Crouch") then
+		self.IsCrouching = false
+		self:FireCallbacks("Crouch", false)
+	elseif self:IsKeybind(input, "Ability") then
+		self:FireCallbacks("Ability", input.UserInputState)
+	elseif self:IsKeybind(input, "Ultimate") then
+		self:FireCallbacks("Ultimate", input.UserInputState)
+	end
+end
+
 function InputManager:SetupKeyboardMouse()
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if IsGamepadInputType(input.UserInputType) then
+			return
+		end
+
 		-- Emote wheel works regardless of gameplay state (but not during chat)
 		if not gameProcessed and not self.IsChatFocused then
 			if input.KeyCode == Enum.KeyCode.B then
@@ -249,131 +372,21 @@ function InputManager:SetupKeyboardMouse()
 			end
 		end
 
-		if
-			gameProcessed
-			or self.IsMenuOpen
-			or self.IsChatFocused
-			or self.IsSettingsOpen
-		then
-			return
-		end
-
-		if self:IsKeybind(input, "Fire") then
-			self:FireCallbacks("Fire", true)
-		elseif self:IsKeybind(input, "Special") then
-			self:FireCallbacks("Special", true)
-		elseif self:IsKeybind(input, "Reload") then
-			self:FireCallbacks("Reload", true)
-		elseif self:IsKeybind(input, "QuickMelee") then
-			self:FireCallbacks("QuickMelee", true)
-		elseif self:IsKeybind(input, "Inspect") then
-			self:FireCallbacks("Inspect", true)
-		elseif self:IsKeybind(input, "MoveForward") then
-			self.KeyStates.W = true
-			self.VerticalPriority = "W"
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "MoveBackward") then
-			self.KeyStates.S = true
-			self.VerticalPriority = "S"
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "MoveLeft") then
-			self.KeyStates.A = true
-			self.HorizontalPriority = "A"
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "MoveRight") then
-			self.KeyStates.D = true
-			self.HorizontalPriority = "D"
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "Jump") then
-			if not self.IsMenuOpen then
-				self.IsJumping = true
-				self:FireCallbacks("Jump", true)
-			end
-		elseif self:IsKeybind(input, "Sprint") then
-			self.IsSprinting = true
-			self:FireCallbacks("Sprint", true)
-		elseif self:IsKeybind(input, "Slide") then
-			self:FireCallbacks("Slide", true)
-		elseif self:IsKeybind(input, "Crouch") then
-			self.IsCrouching = true
-			self:FireCallbacks("Crouch", true)
-		elseif self:IsKeybind(input, "Ability") then
-			self:FireCallbacks("Ability", input.UserInputState)
-		elseif self:IsKeybind(input, "Ultimate") then
-			self:FireCallbacks("Ultimate", input.UserInputState)
-		elseif self:IsKeybind(input, "ToggleCameraMode") then
-			self:FireCallbacks("ToggleCameraMode", true)
-		end
+		self:_handleCoreInputBegan(input, gameProcessed)
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, gameProcessed)
+		if IsGamepadInputType(input.UserInputType) then
+			return
+		end
+
 		-- Emote wheel release
 		if input.KeyCode == Enum.KeyCode.B then
 			self:FireCallbacks("Emotes", false)
 			return
 		end
 
-		if
-			gameProcessed
-			or self.IsMenuOpen
-			or self.IsChatFocused
-			or self.IsSettingsOpen
-		then
-			return
-		end
-
-		if self:IsKeybind(input, "Fire") then
-			self:FireCallbacks("Fire", false)
-		elseif self:IsKeybind(input, "Special") then
-			self:FireCallbacks("Special", false)
-		elseif self:IsKeybind(input, "Reload") then
-			self:FireCallbacks("Reload", false)
-		elseif self:IsKeybind(input, "QuickMelee") then
-			self:FireCallbacks("QuickMelee", false)
-		elseif self:IsKeybind(input, "Inspect") then
-			self:FireCallbacks("Inspect", false)
-		elseif self:IsKeybind(input, "MoveForward") then
-			self.KeyStates.W = false
-			if self.VerticalPriority == "W" then
-				self.VerticalPriority = self.KeyStates.S and "S" or nil
-			end
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "MoveBackward") then
-			self.KeyStates.S = false
-			if self.VerticalPriority == "S" then
-				self.VerticalPriority = self.KeyStates.W and "W" or nil
-			end
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "MoveLeft") then
-			self.KeyStates.A = false
-			if self.HorizontalPriority == "A" then
-				self.HorizontalPriority = self.KeyStates.D and "D" or nil
-			end
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "MoveRight") then
-			self.KeyStates.D = false
-			if self.HorizontalPriority == "D" then
-				self.HorizontalPriority = self.KeyStates.A and "A" or nil
-			end
-			self:UpdateMovement()
-		elseif self:IsKeybind(input, "Jump") then
-			if not self.IsMenuOpen then
-				self.IsJumping = false
-				self:FireCallbacks("Jump", false)
-			end
-		elseif self:IsKeybind(input, "Sprint") then
-			self.IsSprinting = false
-			self:FireCallbacks("Sprint", false)
-		elseif self:IsKeybind(input, "Slide") then
-			self:FireCallbacks("Slide", false)
-		elseif self:IsKeybind(input, "Crouch") then
-			self.IsCrouching = false
-			self:FireCallbacks("Crouch", false)
-		elseif self:IsKeybind(input, "Ability") then
-			self:FireCallbacks("Ability", input.UserInputState)
-		elseif self:IsKeybind(input, "Ultimate") then
-			self:FireCallbacks("Ultimate", input.UserInputState)
-		end
+		self:_handleCoreInputEnded(input, gameProcessed)
 	end)
 
 	UserInputService.InputChanged:Connect(function(input, gameProcessed)
@@ -444,11 +457,10 @@ function InputManager:SetupGamepad()
 		return
 	end
 
-	if not UserInputService.GamepadEnabled then
-		return
-	end
-
 	self.GamepadSetupComplete = true
+	LogService:Info("INPUT", "Gamepad listeners initialized", {
+		GamepadEnabledAtInit = UserInputService.GamepadEnabled,
+	})
 
 	UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if
@@ -489,11 +501,7 @@ function InputManager:SetupGamepad()
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if input.UserInputType ~= Enum.UserInputType.Gamepad1
-			and input.UserInputType ~= Enum.UserInputType.Gamepad2
-			and input.UserInputType ~= Enum.UserInputType.Gamepad3
-			and input.UserInputType ~= Enum.UserInputType.Gamepad4
-		then
+		if not IsGamepadInputType(input.UserInputType) then
 			return
 		end
 
@@ -506,50 +514,22 @@ function InputManager:SetupGamepad()
 			return
 		end
 
-		if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
-			return
+		if DEBUG_QUICK_MELEE_INPUT and input.KeyCode == Enum.KeyCode.ButtonY then
+			LogService:Info("INPUT_QM", "ButtonY InputBegan", {
+				gameProcessed = gameProcessed,
+				isMenuOpen = self.IsMenuOpen,
+				isChatFocused = self.IsChatFocused,
+				isSettingsOpen = self.IsSettingsOpen,
+				matchesQuickMelee = self:IsKeybind(input, "QuickMelee"),
+				matchesUltimate = self:IsKeybind(input, "Ultimate"),
+			})
 		end
 
-		if self:IsKeybind(input, "Jump") then
-			if not self.IsMenuOpen then
-				self.IsJumping = true
-				self:FireCallbacks("Jump", true)
-			end
-		elseif self:IsKeybind(input, "Sprint") then
-			self.IsSprinting = true
-			self:FireCallbacks("Sprint", true)
-		elseif self:IsKeybind(input, "Slide") then
-			self:FireCallbacks("Slide", true)
-		elseif self:IsKeybind(input, "Crouch") then
-			self.IsCrouching = true
-			self:FireCallbacks("Crouch", true)
-		elseif self:IsKeybind(input, "Fire") then
-			self:FireCallbacks("Fire", true)
-		elseif self:IsKeybind(input, "Special") then
-			self:FireCallbacks("Special", true)
-		elseif self:IsKeybind(input, "Reload") then
-			self:FireCallbacks("Reload", true)
-		elseif self:IsKeybind(input, "QuickMelee") then
-			self:FireCallbacks("QuickMelee", true)
-		elseif self:IsKeybind(input, "Inspect") then
-			self:FireCallbacks("Inspect", true)
-		elseif self:IsKeybind(input, "Ability") then
-			self:FireCallbacks("Ability", true)
-		elseif self:IsKeybind(input, "Ultimate") then
-			self:FireCallbacks("Ultimate", true)
-		elseif self:IsKeybind(input, "ToggleCameraMode") then
-			self:FireCallbacks("ToggleCameraMode", true)
-		elseif self:IsKeybind(input, "Settings") then
-			self:FireCallbacks("Settings", true)
-		end
+		self:_handleCoreInputBegan(input, gameProcessed)
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, gameProcessed)
-		if input.UserInputType ~= Enum.UserInputType.Gamepad1
-			and input.UserInputType ~= Enum.UserInputType.Gamepad2
-			and input.UserInputType ~= Enum.UserInputType.Gamepad3
-			and input.UserInputType ~= Enum.UserInputType.Gamepad4
-		then
+		if not IsGamepadInputType(input.UserInputType) then
 			return
 		end
 
@@ -562,38 +542,18 @@ function InputManager:SetupGamepad()
 			return
 		end
 
-		if self.IsMenuOpen or self.IsChatFocused or self.IsSettingsOpen then
-			return
+		if DEBUG_QUICK_MELEE_INPUT and input.KeyCode == Enum.KeyCode.ButtonY then
+			LogService:Info("INPUT_QM", "ButtonY InputEnded", {
+				gameProcessed = gameProcessed,
+				isMenuOpen = self.IsMenuOpen,
+				isChatFocused = self.IsChatFocused,
+				isSettingsOpen = self.IsSettingsOpen,
+				matchesQuickMelee = self:IsKeybind(input, "QuickMelee"),
+				matchesUltimate = self:IsKeybind(input, "Ultimate"),
+			})
 		end
 
-		if self:IsKeybind(input, "Jump") then
-			if not self.IsMenuOpen then
-				self.IsJumping = false
-				self:FireCallbacks("Jump", false)
-			end
-		elseif self:IsKeybind(input, "Sprint") then
-			self.IsSprinting = false
-			self:FireCallbacks("Sprint", false)
-		elseif self:IsKeybind(input, "Slide") then
-			self:FireCallbacks("Slide", false)
-		elseif self:IsKeybind(input, "Crouch") then
-			self.IsCrouching = false
-			self:FireCallbacks("Crouch", false)
-		elseif self:IsKeybind(input, "Fire") then
-			self:FireCallbacks("Fire", false)
-		elseif self:IsKeybind(input, "Special") then
-			self:FireCallbacks("Special", false)
-		elseif self:IsKeybind(input, "Reload") then
-			self:FireCallbacks("Reload", false)
-		elseif self:IsKeybind(input, "QuickMelee") then
-			self:FireCallbacks("QuickMelee", false)
-		elseif self:IsKeybind(input, "Inspect") then
-			self:FireCallbacks("Inspect", false)
-		elseif self:IsKeybind(input, "Ability") then
-			self:FireCallbacks("Ability", false)
-		elseif self:IsKeybind(input, "Ultimate") then
-			self:FireCallbacks("Ultimate", false)
-		end
+		self:_handleCoreInputEnded(input, gameProcessed)
 	end)
 end
 

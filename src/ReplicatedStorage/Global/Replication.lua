@@ -1,16 +1,16 @@
 local Replication = {}
 
 Replication.UpdateRates = {
-	ClientToServer = 60,
-	ServerToClients = 60,
+	ClientToServer = 30,
+	ServerToClients = 30,
 }
 
 Replication.Compression = {
 	UseDeltaCompression = true,
-	MinPositionDelta = 0.1,
-	MinRotationDelta = 0.01,
-	MinVelocityDelta = 0.5,
-	MinAimPitchDelta = 0.5,
+	MinPositionDelta = 0.12,
+	MinRotationDelta = 0.012,
+	MinVelocityDelta = 0.7,
+	MinAimPitchDelta = 0.75,
 }
 
 Replication.Interpolation = {
@@ -25,10 +25,25 @@ Replication.Interpolation = {
 Replication.Optimization = {
 	EnableBatching = true,
 	MaxBatchSize = 20,
+	-- Match-scoped fanout: only replicate to players in the same match context.
+	-- Competitive match -> team1 + team2 only
+	-- Training -> same CurrentArea only
+	-- Lobby -> no replication
+	-- Set to false to rollback to global fanout behavior.
+	EnableMatchScopedFanout = true,
+	-- Send character states only when source player state changed.
+	EnableDirtyStateBroadcast = true,
+	-- If only one ready client is in server, skip state fanout.
+	SkipBroadcastWhenSolo = true,
+	-- Safety resend interval for dormant players so remotes self-correct.
+	DormantResendInterval = 1.0,
+	-- TESTING: Disable all character state replication to other clients.
+	-- Set to true to completely disable movement replication for recv testing.
+	DisableCharacterStateReplication = true,
 }
 
 Replication.ViewmodelActions = {
-	MinInterval = 0.03,
+	MinInterval = 0.04,
 }
 
 return Replication

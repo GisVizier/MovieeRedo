@@ -24,6 +24,7 @@ ReplicationService.PlayerActiveViewmodelActions = {} -- [player] = { [key] = pay
 ReplicationService.ReadyPlayers = {} -- [player] = true when client ready to receive replication
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
+ReplicationService._matchManager = nil -- cached reference for match-scoped fanout
 
 local function isStatefulViewmodelAction(actionName: string): boolean
 	return actionName == "ADS"
@@ -39,6 +40,9 @@ end
 function ReplicationService:Init(registry, net)
 	self._registry = registry
 	self._net = net
+
+	-- Cache MatchManager for match-scoped fanout
+	self._matchManager = registry:TryGet("MatchManager")
 
 	-- Initialize anti-cheat
 	-- MovementValidator:Init() -- DISABLED - too aggressive for slide/jump mechanics
@@ -99,6 +103,8 @@ function ReplicationService:RegisterPlayer(player)
 		LastState = nil,
 		CachedCompressedState = nil,
 		LastUpdateTime = tick(),
+		DirtyForBroadcast = false,
+		LastBroadcastTime = 0,
 	}
 	self.PlayerStances[player] = Stance.Standing
 	self.PlayerActiveViewmodelActions[player] = {}
@@ -169,32 +175,34 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 			LastState = state,
 			CachedCompressedState = compressedState,
 			LastUpdateTime = tick(),
+			DirtyForBroadcast = true,
+			LastBroadcastTime = 0,
 		}
 		self.PlayerStates[player] = playerData
-		return
+	else
+		-- Check if this is the first state update (LastState is nil)
+		if not playerData.LastState then
+			playerData.LastState = state
+			playerData.CachedCompressedState = compressedState
+			playerData.LastUpdateTime = tick()
+			playerData.DirtyForBroadcast = true
+		else
+			-- Anti-cheat validation (DISABLED - too aggressive)
+			-- local deltaTime = state.Timestamp - playerData.LastState.Timestamp
+			-- local isValid = MovementValidator:Validate(player, state, deltaTime)
+			--
+			-- if not isValid then
+			-- 	-- Reject invalid state - don't update or broadcast
+			-- 	return
+			-- end
+
+			-- Valid state - proceed normally
+			playerData.LastState = state
+			playerData.CachedCompressedState = compressedState
+			playerData.LastUpdateTime = tick()
+			playerData.DirtyForBroadcast = true
+		end
 	end
-
-	-- Check if this is the first state update (LastState is nil)
-	if not playerData.LastState then
-		playerData.LastState = state
-		playerData.CachedCompressedState = compressedState
-		playerData.LastUpdateTime = tick()
-		return
-	end
-
-	-- Anti-cheat validation (DISABLED - too aggressive)
-	-- local deltaTime = state.Timestamp - playerData.LastState.Timestamp
-	-- local isValid = MovementValidator:Validate(player, state, deltaTime)
-	--
-	-- if not isValid then
-	-- 	-- Reject invalid state - don't update or broadcast
-	-- 	return
-	-- end
-
-	-- Valid state - proceed normally
-	playerData.LastState = state
-	playerData.CachedCompressedState = compressedState
-	playerData.LastUpdateTime = tick()
 
 	-- Store position for weapon hit lag compensation (with current stance)
 	local currentStance = self.PlayerStances[player] or Stance.Standing
@@ -266,11 +274,35 @@ function ReplicationService:SendViewmodelActionSnapshotToPlayer(targetPlayer)
 	end
 
 	local snapshot = {}
-	for sourcePlayer, stateMap in pairs(self.PlayerActiveViewmodelActions) do
-		if sourcePlayer ~= targetPlayer and sourcePlayer.Parent and type(stateMap) == "table" then
-			for _, payload in pairs(stateMap) do
-				if type(payload) == "table" and payload.IsActive == true then
-					table.insert(snapshot, payload)
+	local matchManager = self:_getMatchManager()
+	local useMatchScoped = ReplicationConfig.Optimization.EnableMatchScopedFanout and matchManager ~= nil
+
+	if useMatchScoped then
+		-- Match-scoped: only snapshot actions from players in the same match context
+		local matchPlayers = matchManager:GetPlayersInMatch(targetPlayer)
+		local matchPlayerSet = {}
+		for _, p in matchPlayers do
+			matchPlayerSet[p] = true
+		end
+
+		for sourcePlayer, stateMap in pairs(self.PlayerActiveViewmodelActions) do
+			-- Only include if in same match and not self
+			if matchPlayerSet[sourcePlayer] and sourcePlayer ~= targetPlayer and sourcePlayer.Parent and type(stateMap) == "table" then
+				for _, payload in pairs(stateMap) do
+					if type(payload) == "table" and payload.IsActive == true then
+						table.insert(snapshot, payload)
+					end
+				end
+			end
+		end
+	else
+		-- Fallback: global (original behavior)
+		for sourcePlayer, stateMap in pairs(self.PlayerActiveViewmodelActions) do
+			if sourcePlayer ~= targetPlayer and sourcePlayer.Parent and type(stateMap) == "table" then
+				for _, payload in pairs(stateMap) do
+					if type(payload) == "table" and payload.IsActive == true then
+						table.insert(snapshot, payload)
+					end
 				end
 			end
 		end
@@ -289,78 +321,266 @@ function ReplicationService:_fireToReadyClients(eventName, data)
 end
 
 function ReplicationService:_fireToReadyClientsExcept(excludedPlayer, eventName, data)
-	for player in pairs(self.ReadyPlayers) do
-		if player.Parent and player ~= excludedPlayer then
-			self._net:FireClient(eventName, player, data)
+	local useMatchScoped = ReplicationConfig.Optimization.EnableMatchScopedFanout
+	local matchManager = self:_getMatchManager()
+
+	if useMatchScoped and matchManager and excludedPlayer then
+		-- Match-scoped: only fire to players in the same match as the source
+		local matchPlayers = matchManager:GetPlayersInMatch(excludedPlayer)
+		for _, player in matchPlayers do
+			if player ~= excludedPlayer and self.ReadyPlayers[player] and player.Parent then
+				self._net:FireClient(eventName, player, data)
+			end
+		end
+	else
+		-- Fallback: global fanout (original behavior)
+		for player in pairs(self.ReadyPlayers) do
+			if player.Parent and player ~= excludedPlayer then
+				self._net:FireClient(eventName, player, data)
+			end
 		end
 	end
 end
 
-function ReplicationService:BroadcastStates()
-	local batch = {}
+--[[
+	Helper to get players in the same match context as the given player.
+	Returns only ready players for replication purposes.
+	If match-scoped fanout is disabled or MatchManager unavailable, returns all ready players.
+]]
+function ReplicationService:_getMatchScopedReadyPlayers(sourcePlayer)
+	local useMatchScoped = ReplicationConfig.Optimization.EnableMatchScopedFanout
+	local matchManager = self:_getMatchManager()
 
-	for player, playerData in pairs(self.PlayerStates) do
-		if player.Parent and playerData.CachedCompressedState then
-			table.insert(batch, {
-				UserId = player.UserId,
-				State = playerData.CachedCompressedState,
-			})
+	if not useMatchScoped or not matchManager then
+		-- Fallback: return all ready players
+		local all = {}
+		for player in pairs(self.ReadyPlayers) do
+			if player.Parent then
+				table.insert(all, player)
+			end
+		end
+		return all
+	end
+
+	-- Get players in same match context
+	local matchPlayers = matchManager:GetPlayersInMatch(sourcePlayer)
+	local result = {}
+
+	for _, player in matchPlayers do
+		if self.ReadyPlayers[player] and player.Parent then
+			table.insert(result, player)
 		end
 	end
 
-	if #batch == 0 then
+	return result
+end
+
+function ReplicationService:_getMatchManager()
+	if self._matchManager and self._matchManager.GetPlayersInMatch then
+		return self._matchManager
+	end
+
+	if self._registry and self._registry.TryGet then
+		local matchManager = self._registry:TryGet("MatchManager")
+		if matchManager and matchManager.GetPlayersInMatch then
+			self._matchManager = matchManager
+		end
+	end
+
+	return self._matchManager
+end
+
+function ReplicationService:_getReadyPlayerCount(): number
+	local count = 0
+	for player in pairs(self.ReadyPlayers) do
+		if player.Parent then
+			count += 1
+		end
+	end
+	return count
+end
+
+function ReplicationService:_shouldSendSourceState(playerData, now, optimization): boolean
+	if not playerData or not playerData.CachedCompressedState then
+		return false
+	end
+
+	if optimization.EnableDirtyStateBroadcast ~= true then
+		return true
+	end
+
+	if playerData.DirtyForBroadcast == true then
+		return true
+	end
+
+	local resendInterval = tonumber(optimization.DormantResendInterval) or 0
+	if resendInterval > 0 then
+		local lastBroadcastTime = tonumber(playerData.LastBroadcastTime) or 0
+		return (now - lastBroadcastTime) >= resendInterval
+	end
+
+	return false
+end
+
+function ReplicationService:BroadcastStates()
+	local optimization = ReplicationConfig.Optimization
+	
+	-- TESTING: Skip all character state replication when disabled
+	if optimization.DisableCharacterStateReplication == true then
+		return
+	end
+	
+	local matchManager = self:_getMatchManager()
+	local useMatchScoped = optimization.EnableMatchScopedFanout and matchManager ~= nil
+	local readyCount = self:_getReadyPlayerCount()
+	if optimization.SkipBroadcastWhenSolo == true and readyCount <= 1 then
 		return
 	end
 
-	local optimization = ReplicationConfig.Optimization
-	if optimization.EnableBatching then
-		local currentBatch = {}
-		local batchCount = 0
+	local now = tick()
+	local sentSources = {}
 
-		for _, entry in ipairs(batch) do
-			table.insert(currentBatch, entry)
-			batchCount += 1
+	local function sendBatchToReceiver(receiver, batch)
+		if #batch == 0 then
+			return
+		end
 
-			if batchCount >= optimization.MaxBatchSize then
-				self:_fireToReadyClients("CharacterStateReplicated", currentBatch)
-				currentBatch = {}
-				batchCount = 0
+		if optimization.EnableBatching then
+			local currentBatch = {}
+			local batchCount = 0
+
+			for _, entry in ipairs(batch) do
+				table.insert(currentBatch, entry)
+				batchCount += 1
+
+				if batchCount >= optimization.MaxBatchSize then
+					self._net:FireClient("CharacterStateReplicated", receiver, currentBatch)
+					currentBatch = {}
+					batchCount = 0
+				end
+			end
+
+			if batchCount > 0 then
+				self._net:FireClient("CharacterStateReplicated", receiver, currentBatch)
+			end
+		else
+			for _, entry in ipairs(batch) do
+				self._net:FireClient("CharacterStateReplicated", receiver, { entry })
+			end
+		end
+	end
+
+	for receiver in pairs(self.ReadyPlayers) do
+		if not receiver.Parent then
+			continue
+		end
+
+		local batch = {}
+		if useMatchScoped then
+			local matchPlayers = matchManager:GetPlayersInMatch(receiver)
+			for _, sourcePlayer in ipairs(matchPlayers) do
+				if sourcePlayer ~= receiver and sourcePlayer.Parent then
+					local playerData = self.PlayerStates[sourcePlayer]
+					if self:_shouldSendSourceState(playerData, now, optimization) then
+						table.insert(batch, {
+							UserId = sourcePlayer.UserId,
+							State = playerData.CachedCompressedState,
+						})
+						sentSources[sourcePlayer] = true
+					end
+				end
+			end
+		else
+			for sourcePlayer, playerData in pairs(self.PlayerStates) do
+				if sourcePlayer ~= receiver and sourcePlayer.Parent then
+					if self:_shouldSendSourceState(playerData, now, optimization) then
+						table.insert(batch, {
+							UserId = sourcePlayer.UserId,
+							State = playerData.CachedCompressedState,
+						})
+						sentSources[sourcePlayer] = true
+					end
+				end
 			end
 		end
 
-		if batchCount > 0 then
-			self:_fireToReadyClients("CharacterStateReplicated", currentBatch)
-		end
-	else
-		for _, entry in ipairs(batch) do
-			self:_fireToReadyClients("CharacterStateReplicated", { entry })
+		sendBatchToReceiver(receiver, batch)
+	end
+
+	if optimization.EnableDirtyStateBroadcast == true then
+		for sourcePlayer in pairs(sentSources) do
+			local playerData = self.PlayerStates[sourcePlayer]
+			if playerData then
+				playerData.DirtyForBroadcast = false
+				playerData.LastBroadcastTime = now
+			end
 		end
 	end
 end
 
 function ReplicationService:SendInitialStatesToPlayer(newPlayer)
+	-- TESTING: Skip all character state replication when disabled
+	if ReplicationConfig.Optimization.DisableCharacterStateReplication == true then
+		return
+	end
+	
 	local initialStates = {}
+	local matchManager = self:_getMatchManager()
+	local useMatchScoped = ReplicationConfig.Optimization.EnableMatchScopedFanout and matchManager ~= nil
 
-	for otherPlayer, playerData in pairs(self.PlayerStates) do
-		if otherPlayer ~= newPlayer and playerData.LastState then
-			local state = playerData.LastState
-			local compressedState = CompressionUtils:CompressState(
-				state.Position,
-				state.Rotation,
-				state.Velocity,
-				state.Timestamp,
-				state.IsGrounded or false,
-				state.AnimationId or 1,
-				state.RigTilt or 0,
-				0,
-				state.AimPitch or 0
-			)
+	if useMatchScoped then
+		-- Match-scoped: only send states from players in the same match context
+		local matchPlayers = matchManager:GetPlayersInMatch(newPlayer)
 
-			if compressedState then
-				table.insert(initialStates, {
-					UserId = otherPlayer.UserId,
-					State = compressedState,
-				})
+		for _, otherPlayer in matchPlayers do
+			if otherPlayer ~= newPlayer then
+				local playerData = self.PlayerStates[otherPlayer]
+				if playerData and playerData.LastState then
+					local state = playerData.LastState
+					local compressedState = CompressionUtils:CompressState(
+						state.Position,
+						state.Rotation,
+						state.Velocity,
+						state.Timestamp,
+						state.IsGrounded or false,
+						state.AnimationId or 1,
+						state.RigTilt or 0,
+						0,
+						state.AimPitch or 0
+					)
+
+					if compressedState then
+						table.insert(initialStates, {
+							UserId = otherPlayer.UserId,
+							State = compressedState,
+						})
+					end
+				end
+			end
+		end
+	else
+		-- Fallback: global (original behavior) - send all other players' states
+		for otherPlayer, playerData in pairs(self.PlayerStates) do
+			if otherPlayer ~= newPlayer and playerData.LastState then
+				local state = playerData.LastState
+				local compressedState = CompressionUtils:CompressState(
+					state.Position,
+					state.Rotation,
+					state.Velocity,
+					state.Timestamp,
+					state.IsGrounded or false,
+					state.AnimationId or 1,
+					state.RigTilt or 0,
+					0,
+					state.AimPitch or 0
+				)
+
+				if compressedState then
+					table.insert(initialStates, {
+						UserId = otherPlayer.UserId,
+						State = compressedState,
+					})
+				end
 			end
 		end
 	end

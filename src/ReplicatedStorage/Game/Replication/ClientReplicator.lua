@@ -516,12 +516,12 @@ function ClientReplicator:SendStateUpdate()
 		self._lastAnimChangeTime = timestamp
 	end
 
-	-- Keep sending for 1s after an animation change to ensure it reaches the server
-	local ANIM_RETRANSMIT_WINDOW = 1.0
+	-- Keep sending briefly after an animation change to improve delivery under packet loss.
+	local ANIM_RETRANSMIT_WINDOW = 0.6
 	local recentAnimChange = (timestamp - self._lastAnimChangeTime) < ANIM_RETRANSMIT_WINDOW
 
-	-- Heartbeat: Force update every 0.5s even if nothing changed (for hit detection position history)
-	local HEARTBEAT_INTERVAL = 0.5
+	-- Heartbeat: force periodic updates even when unchanged for server-side history safety.
+	local HEARTBEAT_INTERVAL = 0.75
 	local timeSinceLastForced = timestamp - self.LastForcedUpdateTime
 	local forceHeartbeat = timeSinceLastForced >= HEARTBEAT_INTERVAL
 

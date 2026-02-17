@@ -139,7 +139,7 @@ local function isHudVisible(): boolean
 	if not screenGui then
 		return false
 	end
-	local hud = screenGui:FindFirstChild("Hud")
+	local hud = screenGui:FindFirstChild("HUD") or screenGui:FindFirstChild("Hud")
 	if not hud or not hud:IsA("GuiObject") then
 		return false
 	end

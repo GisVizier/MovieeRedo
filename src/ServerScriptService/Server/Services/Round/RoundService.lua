@@ -99,6 +99,38 @@ function RoundService:GetTrainingPlayers()
 	return players
 end
 
+--[[
+	Returns training players in the same area as the given player.
+	Used for match-scoped replication to isolate training areas.
+	
+	Edge case: if player has CurrentArea = nil, returns only players
+	who also have CurrentArea = nil (solo scope / same nil bucket).
+	
+	@param player Player - the reference player
+	@return { Player, ... } - players in the same training area
+]]
+function RoundService:GetPlayersInSameArea(player)
+	if not self:IsPlayerInTraining(player) then
+		return {}
+	end
+
+	local areaId = player:GetAttribute("CurrentArea")
+	local result = {}
+
+	for _, userId in self._trainingPlayers do
+		local p = Players:GetPlayerByUserId(userId)
+		if p then
+			local pArea = p:GetAttribute("CurrentArea")
+			-- Match if both have same area (including both nil)
+			if pArea == areaId then
+				table.insert(result, p)
+			end
+		end
+	end
+
+	return result
+end
+
 function RoundService:_setupPlayerRemoving()
 	Players.PlayerRemoving:Connect(function(player)
 		self:RemovePlayer(player)

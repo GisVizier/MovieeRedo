@@ -102,7 +102,20 @@ local entries = {
 	},
 }
 
-Loader:Load(entries, registry, Net)
+-- Temporary recv isolation toggles. Set to true to skip loading a service.
+local DISABLED_SERVICES = {
+	DummyService = true,
+	PracticeDummyService = true,
+}
+
+local enabledEntries = {}
+for _, entry in ipairs(entries) do
+	if not DISABLED_SERVICES[entry.name] then
+		table.insert(enabledEntries, entry)
+	end
+end
+
+Loader:Load(enabledEntries, registry, Net)
 
 do
 	local collisionGroupService = registry:TryGet("CollisionGroupService")

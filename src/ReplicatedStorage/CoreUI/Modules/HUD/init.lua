@@ -751,40 +751,22 @@ function module:_cacheWeaponUI()
 				end
 			end
 		end
-	end
 
-	-- Cache LB/RB bumper info frame for controller cycling display.
-	-- Search the ItemHolder first (sibling of weapon slots), then broader areas.
-	-- Verify the frame has Lb/Rb children to avoid grabbing the wrong "Info".
-	local bumperInfo = nil
-	local searchOrder = {
-		self._itemListFrame,
-		actionsFrame,
-		self._itemHolderSpace,
-	}
-	for _, parent in searchOrder do
-		if parent then
-			local candidate = parent:FindFirstChild("Info")
-			if candidate and candidate:FindFirstChild("Lb") then
-				bumperInfo = candidate
-				break
+		-- Cache LB/RB bumper icons — they live inside this same Info frame
+		if infoFrame then
+			local lb = infoFrame:FindFirstChild("Lb")
+			local rb = infoFrame:FindFirstChild("Rb")
+			if lb or rb then
+				self._bumperInfoFrame = infoFrame
+				self._bumperLb = lb
+				self._bumperRb = rb
+				-- Keep Lb/Rb hidden by default; visibility toggled by _updateBumperVisibility
+				if lb then lb.Visible = false end
+				if rb then rb.Visible = false end
 			end
 		end
 	end
-	if not bumperInfo then
-		-- Deep search as last resort
-		local candidate = self._ui:FindFirstChild("Info", true)
-		if candidate and candidate:FindFirstChild("Lb") then
-			bumperInfo = candidate
-		end
-	end
 
-	if bumperInfo then
-		self._bumperInfoFrame = bumperInfo
-		self._bumperLb = bumperInfo:FindFirstChild("Lb")
-		self._bumperRb = bumperInfo:FindFirstChild("Rb")
-		bumperInfo.Visible = false
-	end
 end
 
 function module:setViewedPlayer(player, character)
@@ -1264,8 +1246,12 @@ end
 function module:_updateBumperVisibility()
 	local isController = self:_isControllerActive()
 
-	if self._bumperInfoFrame then
-		self._bumperInfoFrame.Visible = isController
+	-- Toggle Lb/Rb icons individually (the parent Info frame holds other always-visible content)
+	if self._bumperLb then
+		self._bumperLb.Visible = isController
+	end
+	if self._bumperRb then
+		self._bumperRb.Visible = isController
 	end
 
 	-- Toggle slot keybind labels: show on PC, hide on controller
@@ -2062,10 +2048,23 @@ function module:_setupWeaponConnections()
 			end
 		end
 	end, "hud_weapons")
+
+	-- Keep quick-action key labels in sync when input platform changes
+	-- (keyboard/mouse <-> controller).
+	self._connections:track(UserInputService, "LastInputTypeChanged", function()
+		local slot = self._selectedSlot
+		if not slot and self._viewedPlayer then
+			slot = self._viewedPlayer:GetAttribute("EquippedSlot") or "Primary"
+		end
+
+		if slot and slot ~= "Kit" then
+			self:_populateActions(slot)
+		end
+	end, "hud_weapons")
 end
 
 function module:_setupBumperConnections()
-	if not self._bumperInfoFrame then
+	if not self._bumperLb and not self._bumperRb then
 		return
 	end
 
@@ -2078,7 +2077,7 @@ function module:_setupBumperConnections()
 	end, "hud_bumpers")
 
 	self._connections:track(UserInputService, "InputBegan", function(input)
-		if not self._bumperInfoFrame or not self._bumperInfoFrame.Visible then
+		if not self:_isControllerActive() then
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.ButtonL1 then
