@@ -310,7 +310,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				LastPacketTime = currentTime,
 				SimulatedPosition = state.Position,
 				LastSequenceNumber = state.SequenceNumber,
-				LastAnimationId = state.AnimationId or 1,
+				LastAnimationId = 0, -- Sentinel: force initial animation play for late joiners
 				LastAimPitch = state.AimPitch or 0,
 				Head = character:FindFirstChild("Head"),
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
@@ -341,6 +341,11 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				end
 				self.PendingViewmodelActions[userId] = nil
 			end
+
+			-- Force-play initial animation so late joiners see the correct state immediately
+			local initialAnimId = state.AnimationId or 1
+			self:PlayRemoteAnimation(remoteData.Player, initialAnimId)
+			remoteData.LastAnimationId = initialAnimId
 
 			local primaryPart = remoteData.PrimaryPart
 			if primaryPart then

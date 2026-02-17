@@ -8,7 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local Controls = require(ReplicatedStorage:WaitForChild("Global"):WaitForChild("Controls"))
-local Positions = Controls.DefaultPositions
+local Positions = Controls.CustomizableKeybinds.DefaultPositions
 
 local LogService = nil
 local function getLogService()
@@ -21,7 +21,7 @@ end
 local LocalPlayer = Players.LocalPlayer
 
 -- =============================================================================
--- STYLE CONSTANTS (colors only — layout comes from Controls.DefaultPositions)
+-- STYLE CONSTANTS (colors only — layout comes from Controls.CustomizableKeybinds.DefaultPositions)
 -- =============================================================================
 local COLOR = Color3.new(0, 0, 0)
 local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220)
@@ -59,6 +59,7 @@ MobileControls.ActiveTouches = {
 	Ability = nil,
 	Ultimate = nil,
 	Special = nil,
+	Emote = nil,
 }
 
 -- =============================================================================
@@ -147,6 +148,10 @@ function MobileControls:ResetTouchState()
 	end
 	self.ClaimedTouches = {}
 
+	if self._input then
+		self._input:FireCallbacks("Emotes", false)
+	end
+
 	self:_updateCrouchSlideLabel()
 end
 
@@ -162,6 +167,7 @@ function MobileControls:CreateMobileUI()
 	self.ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 	self:CreateMovementStick()
+	self:CreateEmoteButton()
 	self:CreateCameraStick()
 	self:CreateActionCluster()
 	self:CreateWeaponSlots()
@@ -205,6 +211,35 @@ function MobileControls:CreateMovementStick()
 		IsDragging = false,
 	}
 	self:SetupStickInput()
+end
+
+-- =============================================================================
+-- EMOTE BUTTON (Left side, above movement stick)
+-- =============================================================================
+function MobileControls:CreateEmoteButton()
+	local cfg = Positions.Emote
+	local size = cfg.Size
+	local leftOff = cfg.LeftOffset
+	local bottomOff = cfg.BottomOffset
+	local label = cfg.Label or "B"
+
+	local btn = Instance.new("TextButton")
+	btn.Name = "Emote"
+	btn.Size = UDim2.fromOffset(size, size)
+	btn.Position = UDim2.new(0, leftOff, 1, -(bottomOff + size))
+	btn.BackgroundColor3 = COLOR
+	btn.BackgroundTransparency = ALPHA
+	btn.BorderSizePixel = 0
+	btn.TextColor3 = WHITE
+	btn.TextSize = math.clamp(math.floor(size * 0.28), 10, 18)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.Text = label
+	btn.Active = false
+	btn.Parent = self.ScreenGui
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0.5, 0)
+
+	self._buttons.Emote = btn
+	self:SetupEmoteButtonInput()
 end
 
 -- =============================================================================
@@ -547,6 +582,34 @@ function MobileControls:SetupWeaponSlotListener()
 
 	LocalPlayer:GetAttributeChangedSignal("EquippedSlot"):Connect(refreshHighlight)
 	task.defer(refreshHighlight)
+end
+
+-- =============================================================================
+-- EMOTE BUTTON INPUT
+-- =============================================================================
+function MobileControls:SetupEmoteButtonInput()
+	local btn = self._buttons.Emote
+	if not btn or not self._input then return end
+
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or self:_isBlocked() then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if self:IsTouchClaimed(input) then return end
+		if not self:_hitTest(input, btn) then return end
+
+		self.ActiveTouches.Emote = input
+		self.ClaimedTouches[input] = "emote"
+		self._input:FireCallbacks("Emotes", true)
+	end)
+
+	UserInputService.InputEnded:Connect(function(input, _)
+		if input.UserInputType ~= Enum.UserInputType.Touch then return end
+		if input ~= self.ActiveTouches.Emote then return end
+
+		self.ActiveTouches.Emote = nil
+		self.ClaimedTouches[input] = nil
+		self._input:FireCallbacks("Emotes", false)
+	end)
 end
 
 -- =============================================================================
