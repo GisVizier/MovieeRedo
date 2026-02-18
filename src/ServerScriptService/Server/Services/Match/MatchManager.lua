@@ -533,17 +533,22 @@ end
 --------------------------------------------------------------------------------
 
 function MatchManager:_loadMapAndTeleport(match, mapId)
+	print("[MATCHMANAGER] _loadMapAndTeleport called - matchId:", match.id, "mapId:", mapId)
+	
 	-- Release players from waiting room if they were there
 	self:_releaseFromWaitingRoom(match)
 	
 	local position = self:_allocatePosition()
 	if not position then
+		warn("[MATCHMANAGER] ERROR: Failed to allocate position")
 		self:_cleanupMatch(match.id)
 		return
 	end
+	print("[MATCHMANAGER] Allocated position:", position)
 
 	local mapLoader = self._registry:TryGet("MapLoader")
 	if not mapLoader then
+		warn("[MATCHMANAGER] ERROR: MapLoader not found")
 		self:_releasePosition(position)
 		self:_cleanupMatch(match.id)
 		return
@@ -551,16 +556,21 @@ function MatchManager:_loadMapAndTeleport(match, mapId)
 
 	local mapData = mapLoader:LoadMap(mapId, position)
 	if not mapData then
+		warn("[MATCHMANAGER] ERROR: mapLoader:LoadMap returned nil")
 		self:_releasePosition(position)
 		self:_cleanupMatch(match.id)
 		return
 	end
+	print("[MATCHMANAGER] Map loaded successfully - instance:", mapData.instance and mapData.instance.Name or "nil")
 
 	match.mapId = mapId
 	match.mapInstance = mapData.instance
 	match.mapPosition = position
 	match.spawns = mapData.spawns
 	match.state = "starting"
+	
+	print("[MATCHMANAGER] Match spawns set - Team1:", match.spawns.Team1 and match.spawns.Team1.Name or "NIL",
+		"Team2:", match.spawns.Team2 and match.spawns.Team2.Name or "NIL")
 
 	self:_teleportPlayers(match)
 end
@@ -570,26 +580,47 @@ end
 --------------------------------------------------------------------------------
 
 function MatchManager:_teleportPlayers(match)
+	print("[MATCHMANAGER] _teleportPlayers called for match:", match.id)
+	
 	local spawn1 = match.spawns and match.spawns.Team1
 	local spawn2 = match.spawns and match.spawns.Team2
+	
+	print("[MATCHMANAGER] Initial spawns - spawn1:", spawn1 and spawn1.Name or "NIL", "spawn2:", spawn2 and spawn2.Name or "NIL")
 	
 	-- Use single spawn for both teams if map only has one (e.g. TrainingGrounds)
 	if spawn1 and not spawn2 then spawn2 = spawn1 end
 	if spawn2 and not spawn1 then spawn1 = spawn2 end
+	
+	print("[MATCHMANAGER] After fallback - spawn1:", spawn1 and spawn1.Name or "NIL", "spawn2:", spawn2 and spawn2.Name or "NIL")
 
 	match._pendingTeleports = {}
 
 	if spawn1 then
+		print("[MATCHMANAGER] Teleporting Team1 (" .. #match.team1 .. " players) to:", spawn1:GetFullName())
 		for _, userId in match.team1 do
 			local player = Players:GetPlayerByUserId(userId)
-			if player then self:_requestPlayerTeleport(match, player, spawn1, "Team1") end
+			if player then 
+				self:_requestPlayerTeleport(match, player, spawn1, "Team1") 
+			else
+				warn("[MATCHMANAGER] Team1 player not found for userId:", userId)
+			end
 		end
+	else
+		warn("[MATCHMANAGER] WARNING: No spawn1 available for Team1!")
 	end
+	
 	if spawn2 then
+		print("[MATCHMANAGER] Teleporting Team2 (" .. #match.team2 .. " players) to:", spawn2:GetFullName())
 		for _, userId in match.team2 do
 			local player = Players:GetPlayerByUserId(userId)
-			if player then self:_requestPlayerTeleport(match, player, spawn2, "Team2") end
+			if player then 
+				self:_requestPlayerTeleport(match, player, spawn2, "Team2") 
+			else
+				warn("[MATCHMANAGER] Team2 player not found for userId:", userId)
+			end
 		end
+	else
+		warn("[MATCHMANAGER] WARNING: No spawn2 available for Team2!")
 	end
 
 	-- Timeout fallback
@@ -598,6 +629,7 @@ function MatchManager:_teleportPlayers(match)
 			local pending = 0
 			for _ in match._pendingTeleports do pending += 1 end
 			if pending > 0 then
+				print("[MATCHMANAGER] Teleport timeout - forcing completion for", pending, "pending players")
 				match._pendingTeleports = {}
 				self:_onAllPlayersTeleported(match)
 			end
@@ -606,6 +638,8 @@ function MatchManager:_teleportPlayers(match)
 end
 
 function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
+	print("[MATCHMANAGER] _requestPlayerTeleport - player:", player.Name, "team:", teamName, "spawn:", spawn.Name)
+	
 	local spawnPosition, spawnLookVector
 
 	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
@@ -621,9 +655,11 @@ function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 		)
 		spawnPosition = spawn.Position + randomOffset
 		spawnLookVector = spawn.CFrame.LookVector
+		print("[MATCHMANAGER] BasePart spawn - basePos:", spawn.Position, "size:", size, "finalPos:", spawnPosition)
 	else
 		spawnPosition = spawn.Position + Vector3.new(0, 3, 0)
 		spawnLookVector = Vector3.new(0, 0, -1)
+		print("[MATCHMANAGER] Non-BasePart spawn - basePos:", spawn.Position, "finalPos:", spawnPosition)
 	end
 
 	-- Clear frozen state from waiting room
@@ -632,6 +668,7 @@ function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 
 	match._pendingTeleports[player] = true
 
+	print("[MATCHMANAGER] Firing MatchTeleport to", player.Name, "- position:", spawnPosition, "lookVector:", spawnLookVector)
 	self._net:FireClient("MatchTeleport", player, {
 		matchId = match.id,
 		mode = match.mode,
