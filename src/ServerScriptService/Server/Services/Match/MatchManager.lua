@@ -347,11 +347,6 @@ function MatchManager:_teleportToWaitingRoom(match)
 	
 	-- Freeze players and teleport to random positions within the spawn bounds
 	for _, player in self:_getMatchPlayers(match) do
-		-- Set frozen state
-		player:SetAttribute("ExternalMoveMult", 0)
-		player:SetAttribute("MatchFrozen", true)
-		player:SetAttribute("PlayerState", "WaitingRoom")
-		
 		-- Calculate random position within spawn bounds
 		local size = spawnPart.Size
 		local randomOffset = Vector3.new(
@@ -362,29 +357,47 @@ function MatchManager:_teleportToWaitingRoom(match)
 		local targetPosition = spawnPart.Position + randomOffset
 		local targetLookVector = Vector3.new(0, 0, -1)
 		
-		-- Fire teleport to client
+		-- Set frozen state BEFORE teleport
+		player:SetAttribute("ExternalMoveMult", 0)
+		player:SetAttribute("MatchFrozen", true)
+		player:SetAttribute("PlayerState", "WaitingRoom")
+		
+		-- Fire teleport to client with waiting room flags
 		self._net:FireClient("MatchTeleport", player, {
 			matchId = match.id,
 			spawnPosition = targetPosition,
 			spawnLookVector = targetLookVector,
 			isWaitingRoom = true,
+			lockPosition = true,      -- Tell client to lock position
+			firstPerson = true,       -- Switch to first person
+			unlockMouse = true,       -- Unlock mouse for UI interaction
 		})
 		
-		-- Also server-side teleport the character
-		local character = player.Character
-		if character then
-			local root = character:FindFirstChild("HumanoidRootPart")
+		-- Server-side anchor and freeze character (client handles teleport via MovementController)
+		task.spawn(function()
+			-- Small delay to let client teleport execute first
+			task.wait(0.2)
+			
+			local character = player.Character
+			if not character then return end
+			
+			local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
 			if root then
-				root.CFrame = CFrame.new(targetPosition) * CFrame.Angles(0, math.atan2(-targetLookVector.X, -targetLookVector.Z), 0)
+				-- Anchor to prevent any movement during map selection
+				root.Anchored = true
 				root.AssemblyLinearVelocity = Vector3.zero
 				root.AssemblyAngularVelocity = Vector3.zero
+				print("[MATCHMANAGER] Player anchored in waiting room:", player.Name)
 			end
 			
-			-- Anchor the character's root to prevent movement
-			if root then
-				root.Anchored = true
+			-- Freeze the humanoid too
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.WalkSpeed = 0
+				humanoid.JumpPower = 0
+				humanoid.JumpHeight = 0
 			end
-		end
+		end)
 	end
 	
 	print("[MATCHMANAGER] Players teleported to WaitingRoom for match:", match.id)
@@ -399,11 +412,28 @@ function MatchManager:_releaseFromWaitingRoom(match)
 		if character then
 			local root = character:FindFirstChild("HumanoidRootPart")
 			if root then
+				-- Remove position lock constraint
+				local bodyPos = root:FindFirstChild("WaitingRoomLock")
+				if bodyPos then
+					bodyPos:Destroy()
+				end
+				
+				-- Unanchor
 				root.Anchored = false
+			end
+			
+			-- Restore humanoid properties (will be set properly when teleported to map)
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.WalkSpeed = 16  -- Default, will be updated by movement system
+				humanoid.JumpPower = 50
+				humanoid.JumpHeight = 7.2
 			end
 		end
 		
-		-- Movement will be unfrozen when they teleport to the actual map
+		-- Clear frozen attributes
+		player:SetAttribute("MatchFrozen", nil)
+		player:SetAttribute("ExternalMoveMult", 1)
 	end
 end
 
@@ -1317,11 +1347,78 @@ function MatchManager:_returnPlayersToLobby(match)
 	local lobbySpawns = CollectionService:GetTagged(MatchmakingConfig.Spawns.LobbyTag)
 	if #lobbySpawns == 0 then return end
 
+	-- Get kit service to destroy kits
+	local kitService = self._registry:TryGet("KitService")
+	-- Get weapon service to clear weapons
+	local weaponService = self._registry:TryGet("WeaponService")
+
 	for i, userId in ipairs(userIds) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
+			-- DESTROY KIT and clear kit data when returning to lobby
+			if kitService then
+				-- Destroy the kit instance
+				if kitService._destroyKit then
+					pcall(function()
+						kitService:_destroyKit(player, "ReturnToLobby")
+					end)
+				end
+				
+				-- Also clear the kit data state and send update to client
+				local info = kitService._data and kitService._data[player]
+				if info then
+					info.equippedKitId = nil
+					info.abilityCooldownEndsAt = 0
+					info.ultimate = 0
+					
+					-- Apply attributes (clears KitData attribute)
+					if kitService._applyAttributes then
+						pcall(function()
+							kitService:_applyAttributes(player, info)
+						end)
+					end
+					
+					-- Send state to client so it knows kit is cleared
+					if kitService._fireState then
+						pcall(function()
+							kitService:_fireState(player, info, { lastAction = "ReturnToLobby" })
+						end)
+					end
+				end
+			end
+			
+			-- Clear all match/loadout related attributes
+			player:SetAttribute("SelectedLoadout", nil)
+			player:SetAttribute("KitData", nil)
+			player:SetAttribute("PrimaryData", nil)
+			player:SetAttribute("SecondaryData", nil)
+			player:SetAttribute("MeleeData", nil)
+			player:SetAttribute("EquippedSlot", nil)
+			player:SetAttribute("LastEquippedSlot", nil)
+			player:SetAttribute("MatchFrozen", nil)
+			player:SetAttribute("InWaitingRoom", nil)
+			player:SetAttribute("ExternalMoveMult", 1)
+			
+			-- Clear movement/ability attributes that could linger
+			player:SetAttribute("ForceUncrouch", nil)
+			player:SetAttribute("BlockCrouchWhileAbility", nil)
+			player:SetAttribute("DisplaySlot", nil)
+			player:SetAttribute("blue_projectile_activeCFR", nil)
+			player:SetAttribute("red_charge", nil)
+			player:SetAttribute("red_projectile_activeCFR", nil)
+			player:SetAttribute("red_explosion_pivot", nil)
+			player:SetAttribute("cleanupblueFX", nil)
+			
+			-- Clear weapons
+			if weaponService and weaponService.ClearWeapons then
+				pcall(function()
+					weaponService:ClearWeapons(player)
+				end)
+			end
+			
 			-- Set PlayerState back to Lobby (overhead will reappear)
 			player:SetAttribute("PlayerState", "Lobby")
+			
 			local spawnIndex = ((i - 1) % #lobbySpawns) + 1
 			local spawn = lobbySpawns[spawnIndex]
 			self:_teleportPlayerToSpawn(player, spawn)

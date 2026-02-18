@@ -171,6 +171,8 @@ function module:hide()
 end
 
 function module:_cleanup()
+	-- Cancel any running dialogue sequences so their task.spawn loops exit
+	DialogueService.stopAll()
 	self._initialized = false
 	self._active = false
 	self._connections:cleanupGroup("dialogue")
@@ -180,6 +182,7 @@ function module:_cleanup()
 		self._template.GroupTransparency = 1
 		self._template.Position = self._originalPosition or self._template.Position
 	end
+	self._ui.Visible = false
 end
 
 return module

@@ -772,6 +772,101 @@ function QueueController:_onMatchTeleport(data)
 	-- Stop any active emotes before teleporting
 	self._net:FireServer("EmoteStop")
 
+	local player = Players.LocalPlayer
+	local UserInputService = game:GetService("UserInputService")
+
+	-- Handle waiting room special setup
+	if isWaitingRoom then
+		debugPrint("  Waiting room teleport - setting up for map selection")
+		
+		-- Mark that we're in waiting room mode
+		self._isInWaitingRoom = true
+		player:SetAttribute("InWaitingRoom", true)
+		
+		-- Use MovementController.Teleport for clean teleport
+		local movementController = self._registry:TryGet("Movement")
+		if movementController and type(movementController.Teleport) == "function" then
+			debugPrint("  Using MovementController:Teleport()")
+			movementController:Teleport(spawnPos, lookVector)
+			
+			-- After teleport completes, keep character anchored for waiting room
+			task.delay(0.15, function()
+				local character = player.Character
+				if character then
+					local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+					if root then
+						root.Anchored = true
+						root.AssemblyLinearVelocity = Vector3.zero
+						root.AssemblyAngularVelocity = Vector3.zero
+						debugPrint("  Character re-anchored for waiting room")
+					end
+				end
+			end)
+		else
+			-- Fallback: Direct teleport
+			local character = player.Character
+			if character then
+				local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+				if root then
+					root.Anchored = true
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.AssemblyAngularVelocity = Vector3.zero
+					local targetCFrame = lookVector and CFrame.lookAt(spawnPos, spawnPos + lookVector) or CFrame.new(spawnPos)
+					root.CFrame = targetCFrame
+					debugPrint("  Fallback teleport executed")
+				end
+			end
+		end
+		
+		-- Set camera to scriptable mode for map selection UI
+		task.delay(0.2, function()
+			local camera = workspace.CurrentCamera
+			if camera then
+				self._preWaitingRoomCameraType = camera.CameraType
+				camera.CameraType = Enum.CameraType.Scriptable
+				
+				-- Position camera at spawn looking forward
+				local cameraCFrame = CFrame.lookAt(spawnPos + Vector3.new(0, 5, 5), spawnPos + Vector3.new(0, 0, -10))
+				camera.CFrame = cameraCFrame
+				debugPrint("  Camera set to scriptable mode")
+			end
+			
+			-- Unlock mouse for UI interaction
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			UserInputService.MouseIconEnabled = true
+			debugPrint("  Mouse unlocked for UI")
+		end)
+		
+		return
+	end
+
+	-- Restore camera for normal gameplay (when leaving waiting room)
+	if self._isInWaitingRoom then
+		-- Unanchor character first
+		local character = player.Character
+		if character then
+			local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+			if root then
+				root.Anchored = false
+				debugPrint("  Character unanchored from waiting room")
+			end
+		end
+		
+		local camera = workspace.CurrentCamera
+		if camera then
+			camera.CameraType = Enum.CameraType.Custom
+			debugPrint("  Camera restored to Custom mode")
+		end
+		
+		-- Re-lock mouse for gameplay
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		UserInputService.MouseIconEnabled = false
+		debugPrint("  Mouse locked for gameplay")
+		
+		self._isInWaitingRoom = false
+		player:SetAttribute("InWaitingRoom", nil)
+	end
+
 	-- Use MovementController to teleport (handles custom character system)
 	local movementController = self._registry:TryGet("Movement")
 
@@ -781,7 +876,6 @@ function QueueController:_onMatchTeleport(data)
 		debugPrint("  Teleport result:", success)
 	else
 		-- Fallback: Try to move character directly (may not work with anchored HumanoidRootPart)
-		local player = Players.LocalPlayer
 		local character = player.Character
 		if character then
 			local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
@@ -799,8 +893,8 @@ function QueueController:_onMatchTeleport(data)
 	end
 
 	-- Confirm teleport to server (so it knows to start the match)
-	-- Skip for round reset, lobby return, or waiting room (map selection pending)
-	if matchId and matchId ~= "reset" and not data.roundReset and not isWaitingRoom then
+	-- Skip for round reset or lobby return
+	if matchId and matchId ~= "reset" and not data.roundReset then
 		task.delay(0.1, function()
 			self._net:FireServer("MatchTeleportReady", {
 				matchId = matchId,

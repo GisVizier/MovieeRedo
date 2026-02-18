@@ -564,6 +564,24 @@ function KitController:_onKitState(state)
 		self._activeKitId = nil
 		return
 	end
+	
+	-- On return to lobby, fully destroy the client kit
+	if state.lastAction == "ReturnToLobby" then
+		self:_interruptClientKit("ReturnToLobby")
+		if self._clientKit and self._clientKit.Destroy then
+			pcall(function()
+				self._clientKit:Destroy()
+			end)
+		end
+		self._clientKit = nil
+		self._clientKitId = nil
+		self._activeKitId = nil
+		self._abilityActive = false
+		self._holsteredSlot = nil
+		self._weaponSwitchLocked = false
+		self:_emit("KitUnequipped")
+		return
+	end
 
 	local kitId = state.equippedKitId
 	if kitId ~= self._activeKitId then
@@ -575,6 +593,14 @@ function KitController:_onKitState(state)
 			self:_loadClientKit(kitId)
 			self:_emit("KitEquipped", kitId)
 		else
+			-- Kit was unequipped - destroy client kit
+			if self._clientKit and self._clientKit.Destroy then
+				pcall(function()
+					self._clientKit:Destroy()
+				end)
+			end
+			self._clientKit = nil
+			self._clientKitId = nil
 			self:_emit("KitUnequipped")
 		end
 	end

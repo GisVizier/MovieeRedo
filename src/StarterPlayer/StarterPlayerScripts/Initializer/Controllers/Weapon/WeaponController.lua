@@ -88,6 +88,9 @@ local function normalizeSoundId(soundRef)
 	if string.match(trimmed, "^rbxassetid://%d+$") then
 		return trimmed
 	end
+	if string.match(trimmed, "^rbxasset://") then
+		return trimmed
+	end
 
 	local numeric = tonumber(trimmed)
 	if numeric and numeric > 0 then
@@ -680,6 +683,10 @@ function WeaponController:_equipWeapon(weaponId, slot)
 
 		-- Fallback equip cue: guarantees equip audio even if a weapon action omits it.
 		if self._weaponInstance and self._weaponInstance.PlayActionSound then
+			LogService:Info("WEAPON_SOUND", "Equip fallback sound requested", {
+				weaponId = weaponId,
+				slot = slot,
+			})
 			self._weaponInstance.PlayActionSound("Equip", nil, {
 				trackName = "Equip",
 				stopOnTrackEnd = true,
@@ -911,7 +918,6 @@ function WeaponController:_resolveWeaponActionSoundId(weaponId, slot, actionName
 	return normalizeSoundId(soundRef), skinId
 end
 
-function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch)
 function WeaponController:_resolveActionTrackName(actionName, options)
 	if type(options) == "table" and type(options.trackName) == "string" and options.trackName ~= "" then
 		return options.trackName
@@ -923,6 +929,19 @@ function WeaponController:_resolveActionTrackName(actionName, options)
 		return "Hip"
 	end
 	return actionName
+end
+
+function WeaponController:_defaultStopOnTrackEndForAction(actionName)
+	if type(actionName) ~= "string" or actionName == "" then
+		return true
+	end
+
+	local lowered = string.lower(actionName)
+	if lowered == "fire" or lowered == "special" or string.find(lowered, "fire", 1, true) then
+		return false
+	end
+
+	return true
 end
 
 function WeaponController:_getAnimatorTrack(trackName)
@@ -1044,6 +1063,14 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	local skinId = nil
 	soundId, skinId = self:_resolveWeaponActionSoundId(weaponId, slot, actionName)
 	if not soundId then
+		if actionName == "Equip" then
+			LogService:Warn("WEAPON_SOUND", "Equip sound not resolved", {
+				weaponId = weaponId,
+				slot = slot,
+				action = actionName,
+				skinId = skinId,
+			})
+		end
 		return
 	end
 
@@ -1051,13 +1078,39 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	local now = os.clock()
 	local last = self._lastActionSoundAt and self._lastActionSoundAt[dedupeKey] or 0
 	if (now - last) < 0.045 then
+		if actionName == "Equip" then
+			LogService:Info("WEAPON_SOUND", "Equip sound skipped by dedupe", {
+				weaponId = weaponId,
+				slot = slot,
+				soundId = soundId,
+			})
+		end
 		return
 	end
 	self._lastActionSoundAt[dedupeKey] = now
 
-	local token = HttpService:GenerateGUID(false)
+	local stopOnTrackEnd = self:_defaultStopOnTrackEndForAction(actionName)
+	if type(options) == "table" and options.stopOnTrackEnd ~= nil then
+		stopOnTrackEnd = options.stopOnTrackEnd == true
+	end
+
+	local token = nil
+	if stopOnTrackEnd then
+		token = HttpService:GenerateGUID(false)
+	end
+
 	local localSound = self:_playLocalWeaponSound(soundId, pitch)
-	if localSound then
+	if actionName == "Equip" then
+		LogService:Info("WEAPON_SOUND", "Equip sound play attempt", {
+			weaponId = weaponId,
+			slot = slot,
+			soundId = soundId,
+			stopOnTrackEnd = stopOnTrackEnd,
+			hasLocalSound = localSound ~= nil,
+			token = token,
+		})
+	end
+	if localSound and token then
 		self._activeActionSounds[token] = {
 			sound = localSound,
 			trackConn = nil,
@@ -1067,8 +1120,10 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	local payload = {
 		category = "Weapon",
 		soundId = soundId,
-		token = token,
 	}
+	if token then
+		payload.token = token
+	end
 
 	if type(weaponId) == "string" and weaponId ~= "" then
 		payload.weaponId = weaponId
@@ -1085,12 +1140,16 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 
 	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, payload)
 
-	local stopOnTrackEnd = true
-	if type(options) == "table" and options.stopOnTrackEnd ~= nil then
-		stopOnTrackEnd = options.stopOnTrackEnd == true
-	end
-	if stopOnTrackEnd and localSound then
+	if stopOnTrackEnd and localSound and token then
 		local trackName = self:_resolveActionTrackName(actionName, options)
+		if actionName == "Equip" then
+			LogService:Info("WEAPON_SOUND", "Equip sound bound to track", {
+				weaponId = weaponId,
+				slot = slot,
+				trackName = trackName,
+				token = token,
+			})
+		end
 		self:_bindWeaponSoundToTrack(token, trackName)
 	end
 end

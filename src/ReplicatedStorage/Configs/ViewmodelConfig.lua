@@ -168,12 +168,14 @@ ViewmodelConfig.Weapons = {
 			Inspect = "Inspect",
 		},
 		Sounds = {
-			Equip = "rbxassetid://105676081627742",
-			Inspect = "rbxassetid://83079135649283",
-			Fire = "rbxassetid://97613244290752",
-			Reload1 = "rbxassetid://136295131631464",
-			Reload2 = "rbxassetid://102765790878168",
-			Special = "rbxassetid://125241317241678",
+			-- Temporary fallback while private assets are inaccessible in this experience.
+			Equip = "rbxasset://sounds/electronicpingshort.wav",
+			-- Equip = "rbxassetid://105676081627742",
+			-- Inspect = "rbxassetid://83079135649283",
+			-- Fire = "rbxassetid://97613244290752",
+			-- Reload1 = "rbxassetid://136295131631464",
+			-- Reload2 = "rbxassetid://102765790878168",
+			-- Special = "rbxassetid://125241317241678",
 		},
 	},
 
@@ -204,11 +206,13 @@ ViewmodelConfig.Weapons = {
 			Inspect2 = "Inspect2",
 		},
 		Sounds = {
-			Equip = "rbxassetid://138534048244630",
-			Inspect = "rbxassetid://126105109221911",
-			Inspect2 = "rbxassetid://134105504947632",
-			Reload = "rbxassetid://84543989926006",
-			Fire = "rbxassetid://83734415633853",
+			-- Temporary fallback while private assets are inaccessible in this experience.
+			Equip = "rbxasset://sounds/electronicpingshort.wav",
+			-- Equip = "rbxassetid://138534048244630",
+			-- Inspect = "rbxassetid://126105109221911",
+			-- Inspect2 = "rbxassetid://134105504947632",
+			-- Reload = "rbxassetid://84543989926006",
+			-- Fire = "rbxassetid://83734415633853",
 		},
 	},
 
@@ -237,12 +241,14 @@ ViewmodelConfig.Weapons = {
 			Inspect = "Inspect",
 		},
 		Sounds = {
-			Equip = "rbxassetid://120459334890171",
-			AimIn = "rbxassetid://92425294852292",
-			AimOut = "rbxassetid://104612592617107",
-			Reload = "rbxassetid://112402862376895",
-			Inspect = "rbxassetid://101418042135086",
-			Fire = "rbxassetid://139606755957140",
+			-- Temporary fallback while private assets are inaccessible in this experience.
+			Equip = "rbxasset://sounds/electronicpingshort.wav",
+			-- Equip = "rbxassetid://120459334890171",
+			-- AimIn = "rbxassetid://92425294852292",
+			-- AimOut = "rbxassetid://104612592617107",
+			-- Reload = "rbxassetid://112402862376895",
+			-- Inspect = "rbxassetid://101418042135086",
+			-- Fire = "rbxassetid://139606755957140",
 		},
 	},
 

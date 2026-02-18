@@ -24,6 +24,8 @@ local Sound = {}
 
 -- Track looped sounds per player: [userId][soundName] = Sound instance
 Sound._loopedSounds = {}
+-- Track one-shot weapon action sounds by token: [userId][token] = Sound instance
+Sound._weaponActionSounds = {}
 
 local REPLICATED_MOVEMENT_VOLUME = 1.25
 local REPLICATED_MOVEMENT_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
@@ -65,6 +67,9 @@ local function normalizeSoundId(soundRef)
 	end
 
 	if string.match(trimmed, "^rbxassetid://%d+$") then
+		return trimmed
+	end
+	if string.match(trimmed, "^rbxasset://") then
 		return trimmed
 	end
 
@@ -200,11 +205,18 @@ function Sound:Validate(_player, data)
 	end
 
 	if data.category == "Weapon" then
+		if data.stop == true then
+			return typeof(data.token) == "string" and data.token ~= ""
+		end
+
 		local soundId = normalizeSoundId(data.soundId)
 		if not soundId or ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
 			return false
 		end
 		if data.pitch ~= nil and (typeof(data.pitch) ~= "number" or data.pitch < 0.5 or data.pitch > 2.5) then
+			return false
+		end
+		if data.token ~= nil and (typeof(data.token) ~= "string" or data.token == "") then
 			return false
 		end
 		return true
@@ -230,11 +242,16 @@ function Sound:Execute(originUserId, data)
 	end
 
 	if data.category == "Weapon" then
+		if data.stop == true then
+			self:_stopWeaponActionSound(originUserId, data.token)
+			return
+		end
+
 		local soundId = normalizeSoundId(data.soundId)
 		if not soundId or ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
 			return
 		end
-		self:_handleWeaponOneShot(soundId, primaryPart, data)
+		self:_handleWeaponOneShot(originUserId, soundId, primaryPart, data)
 		return
 	end
 
@@ -267,14 +284,52 @@ function Sound:_handleOneShotSound(soundName, primaryPart, data)
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 end
 
-function Sound:_handleWeaponOneShot(soundId, primaryPart, data)
+function Sound:_handleWeaponOneShot(userId, soundId, primaryPart, data)
 	local sound = createWeaponSoundInstance(soundId, primaryPart, data.pitch)
 	if not sound then
 		return
 	end
 
+	local token = data and data.token
+	if typeof(token) == "string" and token ~= "" then
+		self._weaponActionSounds[userId] = self._weaponActionSounds[userId] or {}
+		self._weaponActionSounds[userId][token] = sound
+	end
+
 	sound:Play()
+	sound.Ended:Connect(function()
+		if typeof(token) == "string" and token ~= "" then
+			local byToken = self._weaponActionSounds[userId]
+			if byToken and byToken[token] == sound then
+				byToken[token] = nil
+				if next(byToken) == nil then
+					self._weaponActionSounds[userId] = nil
+				end
+			end
+		end
+	end)
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+end
+
+function Sound:_stopWeaponActionSound(userId, token)
+	if typeof(userId) ~= "number" or typeof(token) ~= "string" or token == "" then
+		return
+	end
+
+	local byToken = self._weaponActionSounds[userId]
+	if not byToken then
+		return
+	end
+
+	local sound = byToken[token]
+	if sound then
+		sound:Stop()
+		sound:Destroy()
+		byToken[token] = nil
+		if next(byToken) == nil then
+			self._weaponActionSounds[userId] = nil
+		end
+	end
 end
 
 function Sound:_handleLoopedSound(userId, soundName, primaryPart, data)
@@ -330,6 +385,17 @@ Players.PlayerRemoving:Connect(function(player)
 			end
 		end
 		Sound._loopedSounds[userId] = nil
+	end
+
+	local actionSounds = Sound._weaponActionSounds[userId]
+	if actionSounds then
+		for _, sound in pairs(actionSounds) do
+			if sound then
+				sound:Stop()
+				sound:Destroy()
+			end
+		end
+		Sound._weaponActionSounds[userId] = nil
 	end
 end)
 

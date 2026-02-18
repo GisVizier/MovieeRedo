@@ -34,6 +34,9 @@ local function normalizeSoundId(soundRef)
 	if string.match(trimmed, "^rbxassetid://%d+$") then
 		return trimmed
 	end
+	if string.match(trimmed, "^rbxasset://") then
+		return trimmed
+	end
 
 	local numeric = tonumber(trimmed)
 	if numeric and numeric > 0 then

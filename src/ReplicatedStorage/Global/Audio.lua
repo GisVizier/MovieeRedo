@@ -10,7 +10,8 @@ Audio.SoundIds = {
 	WallJump = "rbxassetid://92914028303623",
 
 	FootstepPlastic = "rbxassetid://7326203155",
-	FootstepGrass = "rbxassetid://507863105",
+	-- Temporary fallback while 507863105 is inaccessible to this experience.
+	FootstepGrass = "rbxassetid://7326203155",
 	FootstepMetal = "rbxassetid://6876957898",
 	FootstepWood = "rbxassetid://507863457",
 	FootstepConcrete = "rbxassetid://5761648082",

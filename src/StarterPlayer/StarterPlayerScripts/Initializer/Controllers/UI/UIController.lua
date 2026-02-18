@@ -637,6 +637,16 @@ function UIController:_onMapVoteResult(data)
 	local winningMapId = data and data.winningMapId or "ApexArena"
 	self._currentMapId = winningMapId
 
+	-- Restore camera from waiting room mode
+	local camera = workspace.CurrentCamera
+	if camera and camera.CameraType == Enum.CameraType.Scriptable then
+		camera.CameraType = Enum.CameraType.Custom
+	end
+	
+	-- Re-lock mouse for gameplay (will be properly set by movement system)
+	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	UserInputService.MouseIconEnabled = false
+
 	-- Hide Map UI — server will fire MatchTeleport + ShowRoundLoadout next
 	safeCall(function()
 		self._coreUi:hide("Map")
