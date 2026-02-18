@@ -671,6 +671,20 @@ end
 function UIController:_onBetweenRoundFreeze(data)
 	if not self._coreUi then return end
 
+	-- Clean up storm visuals from previous round (clouds, mesh)
+	local stormModule = self._coreUi:getModule("Storm")
+	if stormModule then
+		safeCall(function()
+			if stormModule.destroyStormMesh then
+				stormModule:destroyStormMesh()
+			end
+			if stormModule._restoreStormClouds then
+				stormModule:_restoreStormClouds()
+			end
+		end)
+	end
+	safeCall(function() self._coreUi:hide("Storm") end)
+
 	self._betweenRounds = true
 
 	-- Track between-round timing
