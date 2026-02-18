@@ -167,6 +167,14 @@ ViewmodelConfig.Weapons = {
 			Reload2 = "Reload2",
 			Inspect = "Inspect",
 		},
+		Sounds = {
+			Equip = "rbxassetid://105676081627742",
+			Inspect = "rbxassetid://83079135649283",
+			Fire = "rbxassetid://97613244290752",
+			Reload1 = "rbxassetid://136295131631464",
+			Reload2 = "rbxassetid://102765790878168",
+			Special = "rbxassetid://125241317241678",
+		},
 	},
 
 	DualPistols = {
@@ -195,6 +203,13 @@ ViewmodelConfig.Weapons = {
 			Inspect = "Inspect",
 			Inspect2 = "Inspect2",
 		},
+		Sounds = {
+			Equip = "rbxassetid://138534048244630",
+			Inspect = "rbxassetid://126105109221911",
+			Inspect2 = "rbxassetid://134105504947632",
+			Reload = "rbxassetid://84543989926006",
+			Fire = "rbxassetid://83734415633853",
+		},
 	},
 
 	AssaultRifle = {
@@ -220,6 +235,14 @@ ViewmodelConfig.Weapons = {
 			--Action = "Action",
 			--End = "End",
 			Inspect = "Inspect",
+		},
+		Sounds = {
+			Equip = "rbxassetid://120459334890171",
+			AimIn = "rbxassetid://92425294852292",
+			AimOut = "rbxassetid://104612592617107",
+			Reload = "rbxassetid://112402862376895",
+			Inspect = "rbxassetid://101418042135086",
+			Fire = "rbxassetid://139606755957140",
 		},
 	},
 
@@ -305,7 +328,7 @@ ViewmodelConfig.Kits = {
 
 --[[
 	Skin overrides for viewmodels.
-	Skins can override ModelPath and Animations from the base weapon config.
+	Skins can override ModelPath, Animations, and Sounds from the base weapon config.
 	Only specify properties that change - rest inherited from base weapon.
 
 	Animation lookup order:
@@ -319,6 +342,7 @@ ViewmodelConfig.Kits = {
 	- Use custom animations with default model (just set Animations)
 	- Use both custom model and animations (set both)
 	- Only override specific animations (partial Animations table)
+	- Override specific sounds (partial Sounds table)
 ]]
 ViewmodelConfig.Skins = {
 	Shotgun = {

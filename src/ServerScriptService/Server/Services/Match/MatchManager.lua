@@ -23,23 +23,48 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 local MapConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MapConfig"))
 
+local function getEffectsFolders()
+	-- Returns all possible effects folders (for cleanup)
+	local folders = {}
+	
+	-- Check workspace.World.Map.Effects
+	local worldFolder = workspace:FindFirstChild("World")
+	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+	if mapFolder then
+		local effects = mapFolder:FindFirstChild("Effects")
+		if effects then
+			table.insert(folders, effects)
+		end
+	end
+	
+	-- Also check workspace.Effects (legacy/fallback)
+	local legacyEffects = workspace:FindFirstChild("Effects")
+	if legacyEffects then
+		table.insert(folders, legacyEffects)
+	end
+	
+	return folders
+end
+
 local function destroyMobWallsForUserIds(userIds)
 	local userIdSet = {}
 	for _, userId in userIds do
 		userIdSet[userId] = true
 	end
 
-	local effectsFolder = workspace:FindFirstChild("Effects")
+	local effectsFolders = getEffectsFolders()
 	local walls = CollectionService:GetTagged("MobWall")
 	for _, wall in walls do
 		local ownerId = wall:GetAttribute("OwnerUserId")
 		if ownerId and userIdSet[ownerId] then
-			if effectsFolder then
-				local visualId = wall:GetAttribute("VisualId")
-				if type(visualId) == "string" and visualId ~= "" then
+			-- Find and destroy visual in any effects folder
+			local visualId = wall:GetAttribute("VisualId")
+			if type(visualId) == "string" and visualId ~= "" then
+				for _, effectsFolder in effectsFolders do
 					local visual = effectsFolder:FindFirstChild(visualId)
 					if visual then
 						visual:Destroy()
+						break
 					end
 				end
 			end
@@ -47,7 +72,8 @@ local function destroyMobWallsForUserIds(userIds)
 		end
 	end
 
-	if effectsFolder then
+	-- Clean up orphan visuals
+	for _, effectsFolder in effectsFolders do
 		for _, userId in userIds do
 			local orphanVisual = effectsFolder:FindFirstChild("MobWallVisual_" .. tostring(userId))
 			if orphanVisual then
@@ -164,7 +190,7 @@ end
 function MatchManager:_setupNetworkEvents()
 	self._net:ConnectServer("PlayerDied", function(player)
 		local match = self:GetMatchForPlayer(player)
-		if match and match.state == "playing" then
+		if match and (match.state == "playing" or match.state == "storm") then
 			self:OnPlayerKilled(nil, player)
 		end
 	end)
@@ -748,6 +774,56 @@ function MatchManager:_fireRoundStart(match)
 			Team2 = match.scores.Team2,
 		} or nil,
 	})
+	
+	-- Start round timer for storm phase
+	self:_startRoundTimer(match)
+end
+
+--[[
+	Starts the round timer. When it expires, the storm phase begins.
+]]
+function MatchManager:_startRoundTimer(match)
+	-- Cancel any existing round timer
+	if match._roundTimerThread then
+		pcall(task.cancel, match._roundTimerThread)
+		match._roundTimerThread = nil
+	end
+	
+	local roundDuration = match.modeConfig.roundDuration or 120
+	
+	-- Only start timer if storm is enabled for this mode
+	if not match.modeConfig.stormEnabled then
+		return
+	end
+	
+	match._roundTimerThread = task.delay(roundDuration, function()
+		if not self._matches[match.id] then return end
+		if match.state ~= "playing" then return end
+		
+		self:_onRoundTimerExpired(match)
+	end)
+	
+	print("[MATCHMANAGER] Round timer started:", roundDuration, "seconds until storm")
+end
+
+--[[
+	Called when the round timer expires. Transitions to storm phase.
+]]
+function MatchManager:_onRoundTimerExpired(match)
+	if match.state ~= "playing" then return end
+	
+	print("[MATCHMANAGER] Round timer expired - entering storm phase for match", match.id)
+	
+	-- Transition to storm state
+	match.state = "storm"
+	
+	-- Start the storm via StormService
+	local stormService = self._registry:TryGet("StormService")
+	if stormService then
+		stormService:StartStorm(match)
+	else
+		warn("[MATCHMANAGER] StormService not found - cannot start storm")
+	end
 end
 
 function MatchManager:_reviveAllPlayers(match)
@@ -790,7 +866,8 @@ end
 
 function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 	local match = self:GetMatchForPlayer(victimPlayer)
-	if not match or match.state ~= "playing" then return end
+	-- Allow kills during both playing and storm phases
+	if not match or (match.state ~= "playing" and match.state ~= "storm") then return end
 
 	-- Mark victim as dead this round
 	match._deadThisRound[victimPlayer.UserId] = true
@@ -819,7 +896,7 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 				
 				task.delay(postKillDelay, function()
 					if not self._matches[match.id] then return end
-					if match.state ~= "playing" then return end
+					if match.state ~= "playing" and match.state ~= "storm" then return end
 					self:_resetRound(match)
 				end)
 			else
@@ -838,7 +915,7 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 
 				task.delay(postKillDelay, function()
 					if not self._matches[match.id] then return end
-					if match.state ~= "playing" then return end
+					if match.state ~= "playing" and match.state ~= "storm" then return end
 					if self:_checkWinCondition(match) then
 						self:EndMatch(match.id, winnerTeam)
 					else
@@ -867,7 +944,7 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 
 			task.delay(postKillDelay, function()
 				if not self._matches[match.id] then return end
-				if match.state ~= "playing" then return end -- Guard against double-fire
+				if match.state ~= "playing" and match.state ~= "storm" then return end -- Guard against double-fire
 				if self:_checkWinCondition(match) then
 					self:EndMatch(match.id, killerTeam)
 				else
@@ -932,6 +1009,19 @@ end
 
 function MatchManager:_resetRound(match)
 	match._deadThisRound = {}
+
+	-- Stop the round timer
+	if match._roundTimerThread then
+		pcall(task.cancel, match._roundTimerThread)
+		match._roundTimerThread = nil
+	end
+	
+	-- Stop any active storm
+	local stormService = self._registry:TryGet("StormService")
+	if stormService then
+		stormService:StopStorm(match.id)
+	end
+	match.storm = nil
 
 	local resetDelay = match.modeConfig.roundResetDelay or 10
 	local shouldFreeze = match.modeConfig.freezeDuringRoundReset ~= false
@@ -1070,6 +1160,19 @@ function MatchManager:EndMatch(matchId, winnerTeam)
 
 	match.state = "ended"
 
+	-- Stop the round timer
+	if match._roundTimerThread then
+		pcall(task.cancel, match._roundTimerThread)
+		match._roundTimerThread = nil
+	end
+	
+	-- Stop any active storm
+	local stormService = self._registry:TryGet("StormService")
+	if stormService then
+		stormService:StopStorm(matchId)
+	end
+	match.storm = nil
+
 	-- Unfreeze just in case
 	self:_unfreezeMatchPlayers(match)
 
@@ -1187,7 +1290,7 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 		playerId = userId,
 	})
 
-	if match.state == "playing" or match.state == "resetting" then
+	if match.state == "playing" or match.state == "resetting" or match.state == "storm" then
 		if #match.team1 == 0 and #match.team2 > 0 then
 			self:EndMatch(matchId, "Team2")
 		elseif #match.team2 == 0 and #match.team1 > 0 then

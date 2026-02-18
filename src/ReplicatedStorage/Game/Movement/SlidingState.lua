@@ -46,7 +46,10 @@ end
 
 function SlidingState:ResetCooldownsFromJumpCancel(characterController)
 	local currentTime = tick()
-	local resetTime = currentTime - 15
+	-- Partial reset - 0.5s implicit cooldown prevents instant re-slide spam
+	local slideCooldown = Config.Gameplay.Cooldowns.Slide or 1.0
+	local implicitCooldown = 0.5
+	local resetTime = currentTime - (slideCooldown - implicitCooldown)
 
 	self.SlidingSystem.LastSlideEndTime = resetTime
 
@@ -231,12 +234,14 @@ function SlidingState:ExecuteJumpCancel(slideDirection, characterController)
 							direction = (direction * (1 - slopeStrength) + slopeForwardDirection * slopeStrength).Unit
 						end
 
+						-- Steeper slopes = more vertical boost (slopeStrength scales with steepness)
 						local baseUphillVerticalBoost = config.UphillBoost.MinVerticalBoost
-							+ (config.UphillBoost.MaxVerticalBoost - config.UphillBoost.MinVerticalBoost) * (1 - slopeStrength)
+							+ (config.UphillBoost.MaxVerticalBoost - config.UphillBoost.MinVerticalBoost) * slopeStrength
 						verticalBoost = applyJumpFatigue(baseUphillVerticalBoost)
 
 						local velocityForScaling = isCurrentlySliding and self.SlidingSystem.SlideVelocity
 							or (isInCoyoteTime and self.SlidingSystem.SlideStopVelocity or self.SlidingSystem.SlideVelocity)
+						-- Steeper slopes = more horizontal power too
 						horizontalPower = math.max(
 							velocityForScaling * config.UphillBoost.HorizontalVelocityScale * (1 + slopeStrength),
 							config.UphillBoost.MinHorizontalVelocity

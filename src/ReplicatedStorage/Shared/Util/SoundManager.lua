@@ -7,6 +7,41 @@ local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
+
+local function normalizeSoundId(soundRef)
+	if type(soundRef) == "table" then
+		soundRef = soundRef.Id or soundRef.id or soundRef.SoundId or soundRef.soundId
+	end
+
+	if type(soundRef) == "number" then
+		if soundRef <= 0 then
+			return nil
+		end
+		return "rbxassetid://" .. tostring(math.floor(soundRef))
+	end
+
+	if type(soundRef) ~= "string" then
+		return nil
+	end
+
+	local trimmed = string.gsub(soundRef, "^%s+", "")
+	trimmed = string.gsub(trimmed, "%s+$", "")
+	if trimmed == "" then
+		return nil
+	end
+
+	if string.match(trimmed, "^rbxassetid://%d+$") then
+		return trimmed
+	end
+
+	local numeric = tonumber(trimmed)
+	if numeric and numeric > 0 then
+		return "rbxassetid://" .. tostring(math.floor(numeric))
+	end
+
+	return nil
+end
 
 function SoundManager:Init()
 	local groupsConfig = Config.Audio and Config.Audio.Groups
@@ -30,17 +65,56 @@ end
 
 function SoundManager:PreloadSounds()
 	local soundsConfig = Config.Audio and Config.Audio.Sounds
-	if not soundsConfig then
-		return
-	end
 
 	local preloadItems = {}
-	for _, categoryConfig in pairs(soundsConfig) do
-		for _, definition in pairs(categoryConfig) do
-			if definition.Id and typeof(definition.Id) == "string" and definition.Id ~= "" then
-				local preloadSound = Instance.new("Sound")
-				preloadSound.SoundId = definition.Id
-				table.insert(preloadItems, preloadSound)
+	local seenSoundIds = {}
+
+	local function addPreloadSoundId(soundId)
+		local normalized = normalizeSoundId(soundId)
+		if not normalized or seenSoundIds[normalized] then
+			return
+		end
+		seenSoundIds[normalized] = true
+		local preloadSound = Instance.new("Sound")
+		preloadSound.SoundId = normalized
+		table.insert(preloadItems, preloadSound)
+	end
+
+	local function addDefinitions(definitions)
+		if type(definitions) ~= "table" then
+			return
+		end
+		for _, definition in pairs(definitions) do
+			if type(definition) == "table" then
+				addPreloadSoundId(definition.Id or definition.id or definition.SoundId or definition.soundId)
+			else
+				addPreloadSoundId(definition)
+			end
+		end
+	end
+
+	if soundsConfig then
+		for _, categoryConfig in pairs(soundsConfig) do
+			addDefinitions(categoryConfig)
+		end
+	end
+
+	if ViewmodelConfig and type(ViewmodelConfig.Weapons) == "table" then
+		for _, weaponCfg in pairs(ViewmodelConfig.Weapons) do
+			if type(weaponCfg) == "table" then
+				addDefinitions(weaponCfg.Sounds)
+			end
+		end
+	end
+
+	if ViewmodelConfig and type(ViewmodelConfig.Skins) == "table" then
+		for _, weaponSkins in pairs(ViewmodelConfig.Skins) do
+			if type(weaponSkins) == "table" then
+				for _, skinCfg in pairs(weaponSkins) do
+					if type(skinCfg) == "table" then
+						addDefinitions(skinCfg.Sounds)
+					end
+				end
 			end
 		end
 	end

@@ -34,6 +34,9 @@ function Shotgun.OnEquip(weaponInstance)
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Equip", 0.1, true)
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Equip")
+	end
 end
 
 function Shotgun.OnUnequip(weaponInstance)

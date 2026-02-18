@@ -119,6 +119,13 @@ local Remotes = {
 
 	-- Overhead system
 	{ name = "SetPlatform", description = "Client sends platform type to server" },
+
+	-- Storm system
+	{ name = "StormStart", description = "Server notifies storm phase has begun" },
+	{ name = "StormUpdate", description = "Server broadcasts storm radius update", unreliable = true },
+	{ name = "StormEnter", description = "Player entered the storm zone" },
+	{ name = "StormLeave", description = "Player left the storm zone (safe)" },
+	{ name = "StormSound", description = "Server triggers storm sound effect" },
 }
 
 return Remotes

@@ -663,7 +663,7 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 
 		local isTraining = roundService and roundService:IsPlayerInTraining(victim)
 		local match = matchManager and matchManager:GetMatchForPlayer(victim)
-		local isCompetitive = match and (match.state == "playing" or match.state == "resetting")
+		local isCompetitive = match and (match.state == "playing" or match.state == "resetting" or match.state == "storm")
 
 		-- Pick ragdoll/respawn delay based on context
 		local respawnDelay

@@ -13,6 +13,8 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
+local Debris = game:GetService("Debris")
 
 local _recoilPitch = 0
 local _recoilYaw = 0
@@ -21,9 +23,11 @@ local _recoilConnection = nil
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
+local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local CrosshairController =
 	require(ReplicatedStorage:WaitForChild("CrosshairSystem"):WaitForChild("CrosshairController"))
 
@@ -46,12 +50,51 @@ local SHOW_TRACERS = true
 local DEBUG_QUICK_MELEE = true
 
 local LocalPlayer = Players.LocalPlayer
+local WEAPON_SOUND_MODULE_INFO = { Module = "Sound" }
+local LOCAL_WEAPON_VOLUME = 1.0
+local LOCAL_WEAPON_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
+local LOCAL_WEAPON_MIN_DISTANCE = 7.5
+local LOCAL_WEAPON_MAX_DISTANCE = 260
 
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
 		return
 	end
 	LogService:Info("WEAPON_QM", message, data)
+end
+
+local function normalizeSoundId(soundRef)
+	if type(soundRef) == "table" then
+		soundRef = soundRef.Id or soundRef.id or soundRef.SoundId or soundRef.soundId
+	end
+
+	if type(soundRef) == "number" then
+		if soundRef <= 0 then
+			return nil
+		end
+		return "rbxassetid://" .. tostring(math.floor(soundRef))
+	end
+
+	if type(soundRef) ~= "string" then
+		return nil
+	end
+
+	local trimmed = string.gsub(soundRef, "^%s+", "")
+	trimmed = string.gsub(trimmed, "%s+$", "")
+	if trimmed == "" then
+		return nil
+	end
+
+	if string.match(trimmed, "^rbxassetid://%d+$") then
+		return trimmed
+	end
+
+	local numeric = tonumber(trimmed)
+	if numeric and numeric > 0 then
+		return "rbxassetid://" .. tostring(math.floor(numeric))
+	end
+
+	return nil
 end
 
 -- Controller state
@@ -798,6 +841,128 @@ end
 -- WEAPON INSTANCE
 -- =============================================================================
 
+function WeaponController:_getSkinIdForSlot(slot)
+	if type(slot) ~= "string" or slot == "" then
+		return nil
+	end
+
+	local viewmodelController = self._viewmodelController
+	if not viewmodelController then
+		return nil
+	end
+
+	if type(viewmodelController.GetRigForSlot) == "function" then
+		local rig = viewmodelController:GetRigForSlot(slot)
+		if rig and type(rig._skinId) == "string" and rig._skinId ~= "" then
+			return rig._skinId
+		end
+	end
+
+	if type(viewmodelController.GetActiveSlot) == "function" and viewmodelController:GetActiveSlot() == slot then
+		local activeRig = viewmodelController:GetActiveRig()
+		if activeRig and type(activeRig._skinId) == "string" and activeRig._skinId ~= "" then
+			return activeRig._skinId
+		end
+	end
+
+	return nil
+end
+
+function WeaponController:_resolveWeaponActionSoundId(weaponId, slot, actionName)
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return nil, nil
+	end
+	if type(actionName) ~= "string" or actionName == "" then
+		return nil, nil
+	end
+
+	local weaponCfg = ViewmodelConfig.Weapons and ViewmodelConfig.Weapons[weaponId]
+	if type(weaponCfg) ~= "table" then
+		return nil, nil
+	end
+
+	local skinId = self:_getSkinIdForSlot(slot)
+	local soundRef = nil
+
+	if skinId and ViewmodelConfig.Skins then
+		local weaponSkins = ViewmodelConfig.Skins[weaponId]
+		local skinCfg = weaponSkins and weaponSkins[skinId]
+		if type(skinCfg) == "table" and type(skinCfg.Sounds) == "table" then
+			soundRef = skinCfg.Sounds[actionName]
+		end
+	end
+
+	if soundRef == nil and type(weaponCfg.Sounds) == "table" then
+		soundRef = weaponCfg.Sounds[actionName]
+	end
+
+	return normalizeSoundId(soundRef), skinId
+end
+
+function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch)
+	local soundId = nil
+	local skinId = nil
+	soundId, skinId = self:_resolveWeaponActionSoundId(weaponId, slot, actionName)
+	if not soundId then
+		return
+	end
+
+	local payload = {
+		category = "Weapon",
+		soundId = soundId,
+	}
+
+	if type(weaponId) == "string" and weaponId ~= "" then
+		payload.weaponId = weaponId
+	end
+	if type(actionName) == "string" and actionName ~= "" then
+		payload.action = actionName
+	end
+	if type(skinId) == "string" and skinId ~= "" then
+		payload.skinId = skinId
+	end
+	if type(pitch) == "number" then
+		payload.pitch = pitch
+	end
+
+	self:_playLocalWeaponSound(soundId, pitch)
+	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, payload)
+end
+
+function WeaponController:_playLocalWeaponSound(soundId, pitch)
+	if type(soundId) ~= "string" or soundId == "" then
+		return
+	end
+
+	local parent = SoundService
+	local character = LocalPlayer and LocalPlayer.Character
+	if character then
+		local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+		if root then
+			parent = root
+		end
+	end
+
+	local sound = Instance.new("Sound")
+	sound.SoundId = soundId
+	sound.Volume = LOCAL_WEAPON_VOLUME
+	if type(pitch) == "number" then
+		sound.PlaybackSpeed = pitch
+	end
+	sound.RollOffMode = LOCAL_WEAPON_ROLLOFF_MODE
+	sound.RollOffMinDistance = LOCAL_WEAPON_MIN_DISTANCE
+	sound.RollOffMaxDistance = LOCAL_WEAPON_MAX_DISTANCE
+
+	local sfxGroup = SoundService:FindFirstChild("SFX")
+	if sfxGroup and sfxGroup:IsA("SoundGroup") then
+		sound.SoundGroup = sfxGroup
+	end
+
+	sound.Parent = parent
+	sound:Play()
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+end
+
 function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 	local ammo = self._ammo and slot and self._ammo:GetAmmo(slot) or nil
 
@@ -852,6 +1017,9 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		end,
 		RenderTracer = function(hitData)
 			self:_renderBulletTracer(hitData)
+		end,
+		PlayActionSound = function(actionName, pitch)
+			self:_playWeaponActionSound(weaponId, slot, actionName, pitch)
 		end,
 
 		-- State management

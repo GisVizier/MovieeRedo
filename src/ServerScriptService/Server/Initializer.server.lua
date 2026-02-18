@@ -100,6 +100,10 @@ local entries = {
 		name = "MatchManager",
 		module = servicesFolder:WaitForChild("Match"):WaitForChild("MatchManager"),
 	},
+	{
+		name = "StormService",
+		module = servicesFolder:WaitForChild("Storm"):WaitForChild("StormService"),
+	},
 }
 
 -- Temporary recv isolation toggles. Set to true to skip loading a service.

@@ -35,6 +35,9 @@ function Inspect.Execute(weaponInstance)
 
 	-- Play inspect animation and get track back
 	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Inspect")
+	end
 
 	-- Reset offset when animation ends
 	local function onComplete()

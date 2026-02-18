@@ -49,6 +49,10 @@ function Inspect.Execute(weaponInstance)
 	local track = viewmodelController:PlayWeaponTrack(trackName, 0.1)
 	if not track and trackName ~= "Inspect" then
 		track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
+		trackName = "Inspect"
+	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound(trackName)
 	end
 	local function onComplete()
 		Inspect._isInspecting = false

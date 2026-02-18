@@ -143,14 +143,24 @@ local function createMapOnlyParams()
 		end
 	end
 	
-	-- Exclude effects folder
+	-- Exclude effects folders (both locations)
 	local effectsFolder = Workspace:FindFirstChild("Effects")
 	if effectsFolder then
 		table.insert(excludeList, effectsFolder)
 	end
+	local world = Workspace:FindFirstChild("World")
+	if world then
+		local mapFolder = world:FindFirstChild("Map")
+		if mapFolder then
+			local mapEffects = mapFolder:FindFirstChild("Effects")
+			if mapEffects then
+				table.insert(excludeList, mapEffects)
+			end
+		end
+	end
 	
 	-- Exclude dummies
-	local world = Workspace:FindFirstChild("World")
+	world = world or Workspace:FindFirstChild("World")
 	if world then
 		local dummySpawns = world:FindFirstChild("DummySpawns")
 		if dummySpawns then
@@ -221,13 +231,25 @@ end
 -- Wall Push Detection (for second use)
 --------------------------------------------------------------------------------
 
+local function getEffectsFolder()
+	-- Check workspace.World.Map.Effects first
+	local worldFolder = Workspace:FindFirstChild("World")
+	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+	if mapFolder then
+		local effects = mapFolder:FindFirstChild("Effects")
+		if effects then return effects end
+	end
+	-- Fallback to workspace.Effects
+	return Workspace:FindFirstChild("Effects")
+end
+
 local function getOwnActiveWall()
 	-- Check if player has an active wall attribute
 	local wallId = LocalPlayer:GetAttribute("MobActiveWallId")
 	if not wallId then return nil end
 	
-	-- Find the wall in workspace
-	local effectsFolder = Workspace:FindFirstChild("Effects")
+	-- Find the wall in effects folder
+	local effectsFolder = getEffectsFolder()
 	if not effectsFolder then return nil end
 	
 	local wall = effectsFolder:FindFirstChild("MobWall_" .. tostring(LocalPlayer.UserId))

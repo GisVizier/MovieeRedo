@@ -151,6 +151,27 @@ function UIController:Init(registry, net)
 		self:_onLoadoutLocked(data)
 	end)
 
+	-- Storm system events
+	self._net:ConnectClient("StormStart", function(data)
+		self:_onStormStart(data)
+	end)
+	
+	self._net:ConnectClient("StormEnter", function(data)
+		self:_onStormEnter(data)
+	end)
+	
+	self._net:ConnectClient("StormLeave", function(data)
+		self:_onStormLeave(data)
+	end)
+	
+	self._net:ConnectClient("StormSound", function(data)
+		self:_onStormSound(data)
+	end)
+	
+	self._net:ConnectClient("StormUpdate", function(data)
+		self:_onStormUpdate(data)
+	end)
+
 	-- M key to open/close loadout during between-round phase
 	self._betweenRounds = false
 	self._betweenRoundEndTime = 0
@@ -896,11 +917,94 @@ function UIController:_onMatchEnd(data)
 	-- Hide all match UI
 	safeCall(function() self._coreUi:hide("HUD") end)
 	safeCall(function() self._coreUi:hide("Loadout") end)
+	safeCall(function() self._coreUi:hide("Storm") end)
 
 	-- Hide crosshair
 	local weaponController = self._registry and self._registry:TryGet("Weapon")
 	if weaponController and type(weaponController.HideCrosshair) == "function" then
 		weaponController:HideCrosshair()
+	end
+end
+
+--------------------------------------------------------------------------------
+-- STORM SYSTEM HANDLERS
+--------------------------------------------------------------------------------
+
+function UIController:_onStormStart(data)
+	print("[UICONTROLLER] Storm phase started for match:", data.matchId)
+	
+	-- Emit to CoreUI for any listeners
+	if self._coreUi then
+		pcall(function()
+			self._coreUi:emit("StormStart", data)
+		end)
+		
+		-- Show "STORM INCOMING" announcement via HUD
+		local hudModule = self._coreUi:getModule("HUD")
+		if hudModule and hudModule.StormStarted then
+			pcall(function()
+				hudModule:StormStarted()
+			end)
+		end
+	end
+	
+	-- Store storm data for UI updates
+	self._stormData = {
+		center = data.center,
+		initialRadius = data.initialRadius,
+		targetRadius = data.targetRadius,
+		shrinkDuration = data.shrinkDuration,
+	}
+end
+
+function UIController:_onStormEnter(data)
+	print("[UICONTROLLER] Player entered storm zone")
+	
+	if not self._coreUi then return end
+	
+	-- Show the Storm UI overlay
+	safeCall(function()
+		self._coreUi:show("Storm")
+	end)
+end
+
+function UIController:_onStormLeave(data)
+	print("[UICONTROLLER] Player left storm zone (safe)")
+	
+	if not self._coreUi then return end
+	
+	-- Hide the Storm UI overlay
+	safeCall(function()
+		self._coreUi:hide("Storm")
+	end)
+end
+
+function UIController:_onStormSound(data)
+	if not self._coreUi then return end
+	
+	local stormModule = self._coreUi:getModule("Storm")
+	if stormModule then
+		if data.sound == "stormforming" and stormModule.playFormingSound then
+			pcall(function()
+				stormModule:playFormingSound()
+			end)
+		end
+	end
+end
+
+function UIController:_onStormUpdate(data)
+	if not self._coreUi then return end
+	
+	-- Update the Storm UI with new radius info
+	local stormModule = self._coreUi:getModule("Storm")
+	if stormModule and stormModule.updateRadius and self._stormData then
+		pcall(function()
+			stormModule:updateRadius(
+				data.currentRadius,
+				self._stormData.targetRadius,
+				self._stormData.initialRadius
+			)
+		end)
 	end
 end
 

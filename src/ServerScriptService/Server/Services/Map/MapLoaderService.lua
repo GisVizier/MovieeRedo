@@ -59,7 +59,10 @@ function MapLoaderService:LoadMap(mapId, position)
 		end
 	end
 	
-	clonedMap.Parent = workspace
+	-- Parent to workspace.World.Map
+	local worldFolder = workspace:FindFirstChild("World")
+	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+	clonedMap.Parent = mapFolder or workspace
 	
 	local spawns = self:GetSpawns(clonedMap)
 	

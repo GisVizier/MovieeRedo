@@ -18,6 +18,7 @@ local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 
 local Sound = {}
 
@@ -29,11 +30,93 @@ local REPLICATED_MOVEMENT_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
 local REPLICATED_MOVEMENT_MIN_DISTANCE = 5.65
 local REPLICATED_MOVEMENT_MAX_DISTANCE = 165
 local REPLICATED_FOOTSTEP_VOLUME_MULT = 0.35
+local REPLICATED_WEAPON_VOLUME = 1.0
+local REPLICATED_WEAPON_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
+local REPLICATED_WEAPON_MIN_DISTANCE = 7.5
+local REPLICATED_WEAPON_MAX_DISTANCE = 260
 
 local LOOPED_SOUNDS = {
 	Falling = true,
 	Slide = true,
 }
+
+local ALLOWED_WEAPON_SOUND_IDS = {}
+
+local function normalizeSoundId(soundRef)
+	if type(soundRef) == "table" then
+		soundRef = soundRef.Id or soundRef.id or soundRef.SoundId or soundRef.soundId
+	end
+
+	if type(soundRef) == "number" then
+		if soundRef <= 0 then
+			return nil
+		end
+		return "rbxassetid://" .. tostring(math.floor(soundRef))
+	end
+
+	if type(soundRef) ~= "string" then
+		return nil
+	end
+
+	local trimmed = string.gsub(soundRef, "^%s+", "")
+	trimmed = string.gsub(trimmed, "%s+$", "")
+	if trimmed == "" then
+		return nil
+	end
+
+	if string.match(trimmed, "^rbxassetid://%d+$") then
+		return trimmed
+	end
+
+	local numeric = tonumber(trimmed)
+	if numeric and numeric > 0 then
+		return "rbxassetid://" .. tostring(math.floor(numeric))
+	end
+
+	return nil
+end
+
+local function registerAllowedWeaponSound(soundRef)
+	local soundId = normalizeSoundId(soundRef)
+	if soundId then
+		ALLOWED_WEAPON_SOUND_IDS[soundId] = true
+	end
+end
+
+local function registerSoundMap(map)
+	if type(map) ~= "table" then
+		return
+	end
+	for _, soundRef in pairs(map) do
+		registerAllowedWeaponSound(soundRef)
+	end
+end
+
+local function buildAllowedWeaponSounds()
+	local weapons = ViewmodelConfig and ViewmodelConfig.Weapons
+	if type(weapons) == "table" then
+		for _, weaponCfg in pairs(weapons) do
+			if type(weaponCfg) == "table" then
+				registerSoundMap(weaponCfg.Sounds)
+			end
+		end
+	end
+
+	local skins = ViewmodelConfig and ViewmodelConfig.Skins
+	if type(skins) == "table" then
+		for _, weaponSkins in pairs(skins) do
+			if type(weaponSkins) == "table" then
+				for _, skinCfg in pairs(weaponSkins) do
+					if type(skinCfg) == "table" then
+						registerSoundMap(skinCfg.Sounds)
+					end
+				end
+			end
+		end
+	end
+end
+
+buildAllowedWeaponSounds()
 
 local function getSoundDefinition(soundName)
 	local audioConfig = Config.Audio
@@ -41,8 +124,8 @@ local function getSoundDefinition(soundName)
 		and audioConfig.Sounds.Movement[soundName]
 end
 
-local function getMovementSoundGroup()
-	local existing = SoundService:FindFirstChild("Movement")
+local function getSoundGroup(name)
+	local existing = SoundService:FindFirstChild(name)
 	if existing and existing:IsA("SoundGroup") then
 		return existing
 	end
@@ -87,7 +170,26 @@ local function createSoundInstance(definition, parent, pitch, looped)
 	sound.RollOffMinDistance = REPLICATED_MOVEMENT_MIN_DISTANCE
 	sound.RollOffMaxDistance = REPLICATED_MOVEMENT_MAX_DISTANCE
 	sound.Looped = looped or false
-	sound.SoundGroup = getMovementSoundGroup()
+	sound.SoundGroup = getSoundGroup("Movement")
+	sound.Parent = parent
+	return sound
+end
+
+local function createWeaponSoundInstance(soundId, parent, pitch)
+	if type(soundId) ~= "string" or soundId == "" then
+		return nil
+	end
+
+	local sound = Instance.new("Sound")
+	sound.SoundId = soundId
+	sound.Volume = REPLICATED_WEAPON_VOLUME
+	if type(pitch) == "number" then
+		sound.PlaybackSpeed = pitch
+	end
+	sound.RollOffMode = REPLICATED_WEAPON_ROLLOFF_MODE
+	sound.RollOffMinDistance = REPLICATED_WEAPON_MIN_DISTANCE
+	sound.RollOffMaxDistance = REPLICATED_WEAPON_MAX_DISTANCE
+	sound.SoundGroup = getSoundGroup("SFX")
 	sound.Parent = parent
 	return sound
 end
@@ -96,6 +198,18 @@ function Sound:Validate(_player, data)
 	if not data or typeof(data) ~= "table" then
 		return false
 	end
+
+	if data.category == "Weapon" then
+		local soundId = normalizeSoundId(data.soundId)
+		if not soundId or ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
+			return false
+		end
+		if data.pitch ~= nil and (typeof(data.pitch) ~= "number" or data.pitch < 0.5 or data.pitch > 2.5) then
+			return false
+		end
+		return true
+	end
+
 	if not data.sound or typeof(data.sound) ~= "string" then
 		return false
 	end
@@ -106,12 +220,25 @@ function Sound:Validate(_player, data)
 end
 
 function Sound:Execute(originUserId, data)
-	if not data or not data.sound then
+	if not data then
 		return
 	end
 
 	local _, primaryPart = getCharacterFromUserId(originUserId)
 	if not primaryPart then
+		return
+	end
+
+	if data.category == "Weapon" then
+		local soundId = normalizeSoundId(data.soundId)
+		if not soundId or ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
+			return
+		end
+		self:_handleWeaponOneShot(soundId, primaryPart, data)
+		return
+	end
+
+	if not data.sound then
 		return
 	end
 
@@ -132,6 +259,16 @@ function Sound:_handleOneShotSound(soundName, primaryPart, data)
 	end
 
 	local sound = createSoundInstance(definition, primaryPart, data.pitch, false)
+	if not sound then
+		return
+	end
+
+	sound:Play()
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+end
+
+function Sound:_handleWeaponOneShot(soundId, primaryPart, data)
+	local sound = createWeaponSoundInstance(soundId, primaryPart, data.pitch)
 	if not sound then
 		return
 	end

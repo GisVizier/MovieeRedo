@@ -56,9 +56,9 @@ local Character = {
 		DragMultiplier = 0.25,
 		AscentDrag = 0.01,
 		FallAcceleration = 28,
-		AscentGravityReduction = 0.55,
-		HangTimeThreshold = 9,
-		HangTimeDrag = 0.08,
+		AscentGravityReduction = 0.48, -- Slightly down from 0.55 (jump a bit higher)
+		HangTimeThreshold = 12,        -- Up from 9 (floaty hang time at apex)
+		HangTimeDrag = 0.11,           -- Up from 0.08 (more float at apex)
 		VerticalForceLerp = 12,
 	},
 	GravityDamping = {
@@ -69,8 +69,8 @@ local Character = {
 	},
 	FloatDecay = {
 		Enabled = true,
-		FloatDuration = 0.8,
-		DecayRate = 0.08,
+		FloatDuration = 1.0,           -- Up from 0.8 (slightly longer float)
+		DecayRate = 0.065,             -- Down from 0.08 (slightly slower decay)
 		MinDampingFactor = 0.25,
 		MomentumFactor = 0.008,
 		VelocityThreshold = 0.7,
@@ -95,6 +95,20 @@ local Character = {
 		SnapVelocity = -80,
 		JumpCooldown = 0.25,
 		MinAirborneHeight = 0.5,
+	},
+	-- Step Assist (step over small obstacles when walking)
+	StepAssist = {
+		Enabled = true,
+		StepHeight = 1.5,          -- Max height to step over (studs)
+		ForwardDistance = 2.5,     -- How far ahead to check for obstacles
+		Cooldown = 0.1,            -- Time between step-ups
+		BoostMultiplier = 0.65,    -- Multiplier for upward boost
+	},
+	-- Slope Walking Assist (extra push when walking uphill)
+	SlopeWalkAssist = {
+		Enabled = true,
+		ForceMultiplier = 1.15,    -- Extra force when walking uphill
+		MaxSlopeAngle = 50,        -- Don't assist past this angle
 	},
 	GroundRayOffset = 0.35,
 	GroundRayDistance = 1.0,

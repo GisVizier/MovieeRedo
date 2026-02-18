@@ -99,6 +99,9 @@ function Attack.Execute(weaponInstance, currentTime)
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Fire", 0.05, true)
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Fire")
+	end
 
 	local projectileConfig = config.projectile
 	local projectileService = getWeaponProjectile()

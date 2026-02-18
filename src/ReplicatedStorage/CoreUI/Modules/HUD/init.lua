@@ -88,6 +88,8 @@ local WIN_COLOR = Color3.fromRGB(86, 198, 55)
 local LOSE_COLOR = Color3.fromRGB(198, 55, 55)
 local DRAW_COLOR = Color3.fromRGB(150, 150, 150)
 local ROUND_START_BAR_COLOR = Color3.fromRGB(0, 0, 0)
+local STORM_BAR_COLOR = Color3.fromRGB(184, 43, 255)
+local STORM_TEXT_COLOR = Color3.fromRGB(229, 25, 29)
 local TIMER_FLASH_COLOR = Color3.fromRGB(255, 60, 60)
 local TIMER_NORMAL_COLOR = Color3.fromRGB(255, 255, 255)
 
@@ -3840,7 +3842,7 @@ function module:RoundEnd(outcome)
 
 	currentTweens["round_end"] = entranceTweens
 
-	-- Phase 2: Shake + Phase 3: Hold + Phase 4: Hide
+	-- Phase 2: Shake (separate task that can exit early)
 	task.spawn(function()
 		task.wait(0.35)
 
@@ -3855,8 +3857,8 @@ function module:RoundEnd(outcome)
 			cancelTweens("round_shake")
 
 			for _ = 1, ROUND_SHAKE_STEPS do
-				if self._roundShakeToken ~= shakeToken then return end
-				if not self._roundDesc or not self._roundDesc.Parent then return end
+				if self._roundShakeToken ~= shakeToken then break end
+				if not self._roundDesc or not self._roundDesc.Parent then break end
 
 				local xOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_X_RANGE, ROUND_SHAKE_X_RANGE)
 				local yOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_Y_RANGE, ROUND_SHAKE_Y_RANGE)
@@ -3875,11 +3877,13 @@ function module:RoundEnd(outcome)
 			end
 			currentTweens["round_shake"] = nil
 		end
+	end)
 
-		-- Hold for ~3.5 seconds (total ~5 seconds with entrance + shake + fade)
-		task.wait(3.5)
-
+	-- Phase 3: Hold + Phase 4: Hide (ALWAYS runs after delay)
+	task.delay(4.0, function()
 		if not self._roundDesc or not self._roundDesc.Parent then return end
+
+		cancelTweens("round_hide")
 
 		-- Slower, smoother fade out including the color bar
 		local hideInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
@@ -3900,13 +3904,7 @@ function module:RoundEnd(outcome)
 			t:Play()
 			table.insert(hideTweens, t)
 		end
-		-- Fade out the LW container
-		if lw then
-			local t = TweenService:Create(lw, hideInfo, { GroupTransparency = 1 })
-			t:Play()
-			table.insert(hideTweens, t)
-		end
-		-- Fade out the color bar frame itself
+		-- Fade out the color bar frame
 		if self._roundBar then
 			local t = TweenService:Create(self._roundBar, hideInfo, { BackgroundTransparency = 1 })
 			t:Play()
@@ -3919,11 +3917,14 @@ function module:RoundEnd(outcome)
 		if self._roundDesc and self._roundDesc.Parent then
 			self._roundDesc.Visible = false
 			-- Reset transparencies for next time
-			if lw then
-				lw.GroupTransparency = 0
-			end
 			if self._roundBar then
 				self._roundBar.BackgroundTransparency = 0
+			end
+			if righ then
+				righ.GroupTransparency = 0
+			end
+			if left then
+				left.GroupTransparency = 0
 			end
 		end
 	end)
@@ -4011,7 +4012,7 @@ function module:RoundStart(roundNumber)
 
 	currentTweens["round_start"] = startTweens
 
-	-- Phase 2: Shake + Phase 3: Hide after hold
+	-- Phase 2: Shake (separate task that can exit early)
 	task.spawn(function()
 		task.wait(0.35)
 
@@ -4024,8 +4025,8 @@ function module:RoundStart(roundNumber)
 			cancelTweens("round_shake")
 
 			for _ = 1, ROUND_SHAKE_STEPS do
-				if self._roundShakeToken ~= shakeToken then return end
-				if not self._roundDesc or not self._roundDesc.Parent then return end
+				if self._roundShakeToken ~= shakeToken then break end
+				if not self._roundDesc or not self._roundDesc.Parent then break end
 
 				local xOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_X_RANGE, ROUND_SHAKE_X_RANGE)
 				local yOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_Y_RANGE, ROUND_SHAKE_Y_RANGE)
@@ -4044,11 +4045,13 @@ function module:RoundStart(roundNumber)
 			end
 			currentTweens["round_shake"] = nil
 		end
+	end)
 
-		-- Hold for ~2 seconds total (for round start, shorter than win/lose)
-		task.wait(1.5)
-
+	-- Phase 3: Hide after hold (ALWAYS runs after delay)
+	task.delay(2.0, function()
 		if not self._roundDesc or not self._roundDesc.Parent then return end
+
+		cancelTweens("round_hide")
 
 		-- Slower, smoother fade out including the color bar
 		local hideInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
@@ -4069,13 +4072,7 @@ function module:RoundStart(roundNumber)
 			t:Play()
 			table.insert(hideTweens, t)
 		end
-		-- Fade out the LW container
-		if lw then
-			local t = TweenService:Create(lw, hideInfo, { GroupTransparency = 1 })
-			t:Play()
-			table.insert(hideTweens, t)
-		end
-		-- Fade out the color bar frame itself
+		-- Fade out the color bar frame
 		if self._roundBar then
 			local t = TweenService:Create(self._roundBar, hideInfo, { BackgroundTransparency = 1 })
 			t:Play()
@@ -4088,11 +4085,191 @@ function module:RoundStart(roundNumber)
 		if self._roundDesc and self._roundDesc.Parent then
 			self._roundDesc.Visible = false
 			-- Reset transparencies for next time
-			if lw then
-				lw.GroupTransparency = 0
-			end
 			if self._roundBar then
 				self._roundBar.BackgroundTransparency = 0
+			end
+			if righ then
+				righ.GroupTransparency = 0
+			end
+			if left then
+				left.GroupTransparency = 0
+			end
+		end
+	end)
+end
+
+-- Show "STORM INCOMING" announcement with purple bar and red text
+function module:StormStarted()
+	if not self._roundDesc then return end
+
+	cancelTweens("round_end")
+	cancelTweens("round_shake")
+	cancelTweens("round_text_fade")
+	cancelTweens("round_start")
+	cancelTweens("round_hide")
+
+	-- Purple bar for storm
+	if self._roundBar then
+		self._roundBar.BackgroundColor3 = STORM_BAR_COLOR
+		self._roundBar.BackgroundTransparency = 0
+	end
+
+	-- Set "INCOMING" text in Left and Right labels
+	if self._roundRigh then
+		local label = self._roundRigh:FindFirstChildWhichIsA("TextLabel")
+		if label then label.Text = "INCOMING" end
+	end
+	if self._roundLeft then
+		local label = self._roundLeft:FindFirstChildWhichIsA("TextLabel")
+		if label then label.Text = "INCOMING" end
+	end
+
+	-- Set "STORM" text with red color
+	if self._roundTextLabel then
+		self._roundTextLabel.Text = "STORM"
+		self._roundTextLabel.TextColor3 = STORM_TEXT_COLOR
+	end
+
+	self._roundDesc.Visible = true
+
+	local textLabel = self._roundTextLabel
+	local righ      = self._roundRigh
+	local left      = self._roundLeft
+	local lw        = self._roundLW
+
+	-- Start everything invisible and above origin (slide down into place)
+	if textLabel then
+		textLabel.Position = UDim2.new(0.507, 0, -0.329, 0)
+		textLabel.TextTransparency = 1
+	end
+	if righ and self._roundRighOriginalPos then
+		local orig = self._roundRighOriginalPos
+		righ.Position = UDim2.new(orig.X.Scale, orig.X.Offset, orig.Y.Scale - 0.5, orig.Y.Offset)
+		righ.GroupTransparency = 1
+	end
+	if left and self._roundLeftOriginalPos then
+		local orig = self._roundLeftOriginalPos
+		left.Position = UDim2.new(orig.X.Scale, orig.X.Offset, orig.Y.Scale - 0.5, orig.Y.Offset)
+		left.GroupTransparency = 1
+	end
+
+	-- Phase 1: Smooth slide down + fade in
+	local slideInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local startTweens = {}
+
+	if textLabel then
+		local t1 = TweenService:Create(textLabel, slideInfo, { Position = self._roundTextLabelOriginalPos })
+		local t2 = TweenService:Create(textLabel, fadeInfo, { TextTransparency = 0.35 })
+		t1:Play()
+		t2:Play()
+		table.insert(startTweens, t1)
+		table.insert(startTweens, t2)
+	end
+	if righ then
+		local t = TweenService:Create(righ, slideInfo, {
+			Position = self._roundRighOriginalPos,
+			GroupTransparency = 0,
+		})
+		t:Play()
+		table.insert(startTweens, t)
+	end
+	if left then
+		local t = TweenService:Create(left, slideInfo, {
+			Position = self._roundLeftOriginalPos,
+			GroupTransparency = 0,
+		})
+		t:Play()
+		table.insert(startTweens, t)
+	end
+
+	currentTweens["round_start"] = startTweens
+
+	-- Phase 2: Shake (separate task that can exit early)
+	task.spawn(function()
+		task.wait(0.35)
+
+		-- Gentle shake
+		if lw and self._roundLWOriginalPos then
+			local lwOrigPos = self._roundLWOriginalPos
+			self._roundShakeToken += 1
+			local shakeToken = self._roundShakeToken
+
+			cancelTweens("round_shake")
+
+			for _ = 1, ROUND_SHAKE_STEPS do
+				if self._roundShakeToken ~= shakeToken then break end
+				if not self._roundDesc or not self._roundDesc.Parent then break end
+
+				local xOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_X_RANGE, ROUND_SHAKE_X_RANGE)
+				local yOff = roundShakeRandom:NextInteger(-ROUND_SHAKE_Y_RANGE, ROUND_SHAKE_Y_RANGE)
+				if xOff == 0 and yOff == 0 then yOff = 1 end
+
+				local tween = TweenService:Create(lw, ROUND_SHAKE_TWEEN_INFO, {
+					Position = withOffset(lwOrigPos, xOff, yOff),
+				})
+				currentTweens["round_shake"] = { tween }
+				tween:Play()
+				tween.Completed:Wait()
+			end
+
+			if self._roundShakeToken == shakeToken and lw and lw.Parent then
+				lw.Position = lwOrigPos
+			end
+			currentTweens["round_shake"] = nil
+		end
+	end)
+
+	-- Phase 3: Hide after hold (ALWAYS runs after delay - longer for storm warning)
+	task.delay(3.5, function()
+		if not self._roundDesc or not self._roundDesc.Parent then return end
+
+		cancelTweens("round_hide")
+
+		-- Slower, smoother fade out including the color bar
+		local hideInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+		local hideTweens = {}
+
+		if textLabel then
+			local t = TweenService:Create(textLabel, hideInfo, { TextTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		if righ then
+			local t = TweenService:Create(righ, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		if left then
+			local t = TweenService:Create(left, hideInfo, { GroupTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+		-- Fade out the color bar frame
+		if self._roundBar then
+			local t = TweenService:Create(self._roundBar, hideInfo, { BackgroundTransparency = 1 })
+			t:Play()
+			table.insert(hideTweens, t)
+		end
+
+		currentTweens["round_hide"] = hideTweens
+
+		task.wait(0.85)
+		if self._roundDesc and self._roundDesc.Parent then
+			self._roundDesc.Visible = false
+			-- Reset transparencies for next time
+			if self._roundBar then
+				self._roundBar.BackgroundTransparency = 0
+			end
+			if righ then
+				righ.GroupTransparency = 0
+			end
+			if left then
+				left.GroupTransparency = 0
+			end
+			-- Reset text color back to default for other uses
+			if textLabel then
+				textLabel.TextColor3 = Color3.fromRGB(229, 229, 229)
 			end
 		end
 	end)

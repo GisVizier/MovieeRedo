@@ -115,6 +115,9 @@ function Reload.Execute(weaponInstance)
 		commitState(weaponInstance, state)
 		return false, "NoReloadTrack"
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Reload")
+	end
 
 	activeReload = {
 		weaponInstance = weaponInstance,

@@ -148,6 +148,21 @@ local function getPlayerPosition(self, player)
 end
 
 local function getEffectsFolder()
+	-- Parent to workspace.World.Map for organization
+	local worldFolder = workspace:FindFirstChild("World")
+	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+	
+	if mapFolder then
+		local folder = mapFolder:FindFirstChild("Effects")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "Effects"
+			folder.Parent = mapFolder
+		end
+		return folder
+	end
+	
+	-- Fallback to workspace.Effects
 	local folder = workspace:FindFirstChild("Effects")
 	if not folder then
 		folder = Instance.new("Folder")

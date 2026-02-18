@@ -1266,9 +1266,15 @@ function CharacterController:TryStepUp(deltaTime)
 		return
 	end
 
-	local stepHeight = 1.1
-	local forwardDistance = 2.0
-	local cooldown = 0.12
+	-- Use config values with fallbacks
+	local stepConfig = Config.Gameplay.Character.StepAssist
+	if stepConfig and not stepConfig.Enabled then
+		return
+	end
+	
+	local stepHeight = (stepConfig and stepConfig.StepHeight) or 1.5
+	local forwardDistance = (stepConfig and stepConfig.ForwardDistance) or 2.5
+	local cooldown = (stepConfig and stepConfig.Cooldown) or 0.1
 
 	local moveVector = self:CalculateMovement()
 	local horizontal = Vector3.new(moveVector.X, 0, moveVector.Z)
@@ -1305,7 +1311,8 @@ function CharacterController:TryStepUp(deltaTime)
 						self.StepUpRemaining = math.max(self.StepUpRemaining or 0, stepDelta)
 						self.LastStepUpTime = now
 						local gravity = workspace.Gravity
-						self.StepUpRequiredVelocity = math.sqrt(2 * gravity * stepDelta) * 0.6
+						local boostMult = (stepConfig and stepConfig.BoostMultiplier) or 0.65
+						self.StepUpRequiredVelocity = math.sqrt(2 * gravity * stepDelta) * boostMult
 						self.StepUpBoostTime = 0.07
 					end
 				end
@@ -1557,12 +1564,15 @@ function CharacterController:ApplyMovement()
 			MovementUtils:CheckGroundedWithSlope(self.Character, self.PrimaryPart, self.RaycastParams)
 
 		if grounded and groundNormal then
-			local maxWalkableAngle = Config.Gameplay.Character.MaxWalkableSlopeAngle
-			if slopeDegrees > 0.5 and slopeDegrees <= maxWalkableAngle then
+			local slopeConfig = Config.Gameplay.Character.SlopeWalkAssist
+			local maxAngle = (slopeConfig and slopeConfig.MaxSlopeAngle) or Config.Gameplay.Character.MaxWalkableSlopeAngle
+			local forceMultiplier = (slopeConfig and slopeConfig.Enabled and slopeConfig.ForceMultiplier) or 1.0
+			
+			if slopeDegrees > 0.5 and slopeDegrees <= maxAngle then
 				local gravityAccel = ConfigCache.WORLD_GRAVITY or workspace.Gravity
 				local gravity = Vector3.new(0, -gravityAccel, 0)
 				local gravityParallel = gravity - (gravity:Dot(groundNormal)) * groundNormal
-				slopeAssistForce = -gravityParallel * mass
+				slopeAssistForce = -gravityParallel * mass * forceMultiplier
 			end
 		end
 	end

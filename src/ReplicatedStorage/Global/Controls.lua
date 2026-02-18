@@ -19,12 +19,12 @@ Controls.Input = {
 	Special = Enum.UserInputType.MouseButton2, -- ADS
 	Reload = Enum.KeyCode.R,
 	QuickMelee = Enum.KeyCode.F,
-	Inspect = Enum.KeyCode.F,
+	Inspect = Enum.KeyCode.T,
 	Ability = Enum.KeyCode.E,
 	Ultimate = Enum.KeyCode.Q,
 
 	-- Camera & UI
-	ToggleCameraMode = Enum.KeyCode.T,
+	ToggleCameraMode = Enum.KeyCode.Y,
 
 	-- Controller defaults
 	ControllerJump = Enum.KeyCode.ButtonA,
@@ -254,7 +254,7 @@ Controls.CustomizableKeybinds = {
 	{
 		Key = "Inspect",
 		Label = "Inspect Weapon",
-		DefaultPrimary = Enum.KeyCode.F,
+		DefaultPrimary = Enum.KeyCode.T,
 		DefaultSecondary = nil,
 		Category = "Combat",
 	},
@@ -296,7 +296,7 @@ Controls.CustomizableKeybinds = {
 	{
 		Key = "ToggleCameraMode",
 		Label = "Toggle Camera",
-		DefaultPrimary = Enum.KeyCode.T,
+		DefaultPrimary = Enum.KeyCode.Y,
 		DefaultSecondary = nil,
 		Category = "Camera",
 	},

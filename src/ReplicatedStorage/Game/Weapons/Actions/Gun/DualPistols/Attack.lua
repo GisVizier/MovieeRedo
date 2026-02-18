@@ -293,6 +293,9 @@ local function fireShot(weaponInstance, side, shotOptions)
 
 	local animName = options.animName or getFireAnimationName(side, options.adsShot == true)
 	playShotAnimation(weaponInstance, animName, options.adsShot == true, side, now)
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Fire")
+	end
 
 	local rightMuzzle, leftMuzzle, gunModel = getDualMuzzleAttachments(weaponInstance)
 	local muzzleAttachment = (side == "left") and leftMuzzle or rightMuzzle

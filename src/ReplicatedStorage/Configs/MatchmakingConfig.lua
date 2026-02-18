@@ -102,7 +102,7 @@ MatchmakingConfig.Modes = {
 		loadoutSelectionTime = 15, -- Round 1: 15 seconds to pick loadout
 		postKillDelay = 5, -- Seconds to wait after a kill before round reset begins
 		roundResetDelay = 10, -- Between-round phase: 10 seconds to swap loadout
-		roundDuration = 120, -- 2 minutes per round (timer countdown)
+		roundDuration = 60, -- 1 minute per round before storm phase
 		showMapSelection = true,
 		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = false, -- Only reselect loadout on M key during between-round phase
@@ -112,6 +112,11 @@ MatchmakingConfig.Modes = {
 		freezeDuringRoundReset = true, -- Players can move/fight during between-round phase
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
+		-- Storm settings
+		stormEnabled = true, -- Enable storm phase when round timer expires
+		stormShrinkDuration = 45, -- Seconds for storm to fully close
+		stormFinalRadius = 15, -- Final safe zone radius in studs
+		stormDPS = 8, -- Damage per second while in storm
 	},
 
 	-- 2v2
@@ -128,6 +133,7 @@ MatchmakingConfig.Modes = {
 		loadoutSelectionTime = 15,
 		postKillDelay = 5,
 		roundResetDelay = 10,
+		roundDuration = 60,
 		showMapSelection = true,
 		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = false,
@@ -137,6 +143,10 @@ MatchmakingConfig.Modes = {
 		freezeDuringRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
+		stormEnabled = true,
+		stormShrinkDuration = 45,
+		stormFinalRadius = 15,
+		stormDPS = 8,
 	},
 
 	-- 3v3
@@ -153,6 +163,7 @@ MatchmakingConfig.Modes = {
 		loadoutSelectionTime = 15,
 		postKillDelay = 5,
 		roundResetDelay = 10,
+		roundDuration = 60,
 		showMapSelection = true,
 		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = false,
@@ -162,6 +173,10 @@ MatchmakingConfig.Modes = {
 		freezeDuringRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
+		stormEnabled = true,
+		stormShrinkDuration = 45,
+		stormFinalRadius = 15,
+		stormDPS = 8,
 	},
 
 	-- 4v4
@@ -178,6 +193,7 @@ MatchmakingConfig.Modes = {
 		loadoutSelectionTime = 15,
 		postKillDelay = 5,
 		roundResetDelay = 10,
+		roundDuration = 60,
 		showMapSelection = true,
 		showLoadoutOnMatchStart = true,
 		showLoadoutOnRoundReset = false,
@@ -187,6 +203,10 @@ MatchmakingConfig.Modes = {
 		freezeDuringRoundReset = true,
 		lobbyReturnDelay = 5,
 		returnToLobbyOnEnd = true,
+		stormEnabled = true,
+		stormShrinkDuration = 45,
+		stormFinalRadius = 15,
+		stormDPS = 8,
 	},
 }
 

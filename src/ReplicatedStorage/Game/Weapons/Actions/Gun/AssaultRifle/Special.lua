@@ -59,6 +59,9 @@ function Special:_enterADS(weaponInstance)
 	if weaponInstance.PlayWeaponTrack then
 		weaponInstance.PlayWeaponTrack("ADS", 0.15)
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("AimIn")
+	end
 end
 
 function Special:_exitADS(weaponInstance)
@@ -79,6 +82,9 @@ function Special:_exitADS(weaponInstance)
 
 	if weaponInstance and weaponInstance.PlayWeaponTrack then
 		weaponInstance.PlayWeaponTrack("Hip", 0.15)
+	end
+	if weaponInstance and weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("AimOut")
 	end
 end
 

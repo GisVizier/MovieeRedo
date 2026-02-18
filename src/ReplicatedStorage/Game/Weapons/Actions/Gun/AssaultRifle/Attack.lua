@@ -62,6 +62,9 @@ function Attack.Execute(weaponInstance, currentTime)
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Fire", 0.05, true)
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Fire")
+	end
 
 	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(false)
 	if hitData and weaponInstance.Net then

@@ -144,24 +144,35 @@ function Exit:onUseRequest(player, _payload)
 
 	-- Destroy Mob wall for player leaving training
 	do
-		local effectsFolder = workspace:FindFirstChild("Effects")
+		-- Get all effects folders (workspace.World.Map.Effects and workspace.Effects)
+		local effectsFolders = {}
+		local worldFolder = workspace:FindFirstChild("World")
+		local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+		if mapFolder then
+			local effects = mapFolder:FindFirstChild("Effects")
+			if effects then table.insert(effectsFolders, effects) end
+		end
+		local legacyEffects = workspace:FindFirstChild("Effects")
+		if legacyEffects then table.insert(effectsFolders, legacyEffects) end
+		
 		local walls = CollectionService:GetTagged("MobWall")
 		for _, wall in walls do
 			if wall:GetAttribute("OwnerUserId") == player.UserId then
-				if effectsFolder then
-					local visualId = wall:GetAttribute("VisualId")
-					if type(visualId) == "string" and visualId ~= "" then
+				local visualId = wall:GetAttribute("VisualId")
+				if type(visualId) == "string" and visualId ~= "" then
+					for _, effectsFolder in effectsFolders do
 						local visual = effectsFolder:FindFirstChild(visualId)
 						if visual then
 							visual:Destroy()
+							break
 						end
 					end
 				end
 				wall:Destroy()
 			end
 		end
-		-- Fallback cleanup for any orphaned visual model.
-		if effectsFolder then
+		-- Fallback cleanup for any orphaned visual model
+		for _, effectsFolder in effectsFolders do
 			local orphanVisual = effectsFolder:FindFirstChild("MobWallVisual_" .. tostring(player.UserId))
 			if orphanVisual then
 				orphanVisual:Destroy()

@@ -110,6 +110,9 @@ function Special:_executeRocketJumpBlast(weaponInstance)
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Fire", 0.05, true)
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Special")
+	end
 
 	local projectileService = getWeaponProjectile()
 	if not projectileService then

@@ -3,22 +3,22 @@ local Movement = {}
 Movement.Cooldowns = {
 	Crouch = 0.35,
 	Jump = 0.12,
-	Slide = 0.8,
-	WorldGravity = 196.2,
+	Slide = 1.0,           -- Up from 0.8 (longer base cooldown)
+	WorldGravity = 196.2,  -- Keep default (float is handled by Character.lua)
 }
 
 Movement.Sliding = {
 	AutoSlide = true,
-	InitialVelocity = 70,
+	InitialVelocity = 62,  -- Down from 70 (slightly shorter slides)
 	MinVelocity = 5,
-	MaxVelocity = 120,
-	FrictionRate = 0.9,
+	MaxVelocity = 110,     -- Down from 120
+	FrictionRate = 0.85,   -- Down from 0.9 (slightly more friction)
 	ImpulseSlide = {
 		Enabled = true,
-		ImpulsePower = 70,
+		ImpulsePower = 62,  -- Down from 70
 		SlideFriction = 0,
 		NormalFriction = 2,
-		DecayTime = 0.8,
+		DecayTime = 0.7,    -- Down from 0.8
 	},
 	SlideTimeout = {
 		Enabled = true,
@@ -67,8 +67,8 @@ Movement.Sliding = {
 		BackwardStartAngle = 120,
 		BackwardEndAngle = 240,
 	},
-	FloatDuration = 0.7,
-	FloatGravityMultiplier = 0.3,
+	FloatDuration = 0.7,           -- (Legacy - actual float handled by Character.FloatDecay)
+	FloatGravityMultiplier = 0.3,  -- (Legacy - actual float handled by Character.FloatDecay)
 	LandingBoost = {
 		Enabled = true,
 		MinAirTime = 0.3,
@@ -97,14 +97,14 @@ Movement.Sliding = {
 		GroundRayDistance = 0.5,
 		UphillBoost = {
 			Enabled = true,
-			SlopeThreshold = 0.25,
-			MinVerticalBoost = 50,
-			MaxVerticalBoost = 70,
+			SlopeThreshold = 0.35,      -- ~20 degrees min to trigger
+			MinVerticalBoost = 42,      -- Gentle slopes = moderate boost
+			MaxVerticalBoost = 68,      -- Steep slopes = high boost
 			MaxSlopeAngle = 50,
-			ScalingExponent = 1.2,
-			HorizontalVelocityScale = 0.35,
-			MinHorizontalVelocity = 8,
-			MinUphillAlignment = -0.4,
+			ScalingExponent = 1.3,      -- Steeper curve
+			HorizontalVelocityScale = 0.32,
+			MinHorizontalVelocity = 7,
+			MinUphillAlignment = -0.45,
 		},
 	},
 }

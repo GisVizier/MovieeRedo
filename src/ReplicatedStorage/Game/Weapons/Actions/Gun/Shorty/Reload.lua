@@ -148,6 +148,9 @@ function Reload.Execute(weaponInstance)
 	if not track and weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation(animName, 0.05, true)
 	end
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound(animName)
+	end
 
 	if not track then
 		return true

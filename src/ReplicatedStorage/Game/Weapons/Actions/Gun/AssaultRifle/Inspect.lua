@@ -33,6 +33,9 @@ function Inspect.Execute(weaponInstance)
 	--)
 
 	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
+	if weaponInstance.PlayActionSound then
+		weaponInstance.PlayActionSound("Inspect")
+	end
 
 	local function onComplete()
 		Inspect._isInspecting = false
