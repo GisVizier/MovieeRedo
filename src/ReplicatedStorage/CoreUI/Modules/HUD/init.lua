@@ -365,13 +365,10 @@ function module:_playHealthDamageShake()
 end
 
 function module:_cacheMatchUI()
-	print("[HUD] _cacheMatchUI called")
 	local counter = self._ui:FindFirstChild("Counter", true)
 	if not counter then
-		print("[HUD] _cacheMatchUI - Counter not found, returning")
 		return
 	end
-	print("[HUD] _cacheMatchUI - Counter found:", counter)
 
 	self._counterFrame = counter
 	self._counterOriginalPosition = counter.Position
@@ -438,11 +435,9 @@ function module:_cacheMatchUI()
 
 	self._yourTeamFrame = counter:FindFirstChild("YourTeam")
 	self._enemyTeamFrame = counter:FindFirstChild("EnemyTeam")
-	print("[HUD] _cacheMatchUI - YourTeam frame:", self._yourTeamFrame, "EnemyTeam frame:", self._enemyTeamFrame)
 
 	self._yourTeamTemplate = self:_getTeamPlayerTemplate(self._yourTeamFrame)
 	self._enemyTeamTemplate = self:_getTeamPlayerTemplate(self._enemyTeamFrame)
-	print("[HUD] _cacheMatchUI - YourTeam template:", self._yourTeamTemplate, "EnemyTeam template:", self._enemyTeamTemplate)
 
 	self._yourTeamSlots = {}
 	self._enemyTeamSlots = {}
@@ -451,7 +446,6 @@ function module:_cacheMatchUI()
 
 	self._matchTeam1 = {}
 	self._matchTeam2 = {}
-	print("[HUD] _cacheMatchUI complete")
 end
 
 function module:_getCounterHiddenPosition()
@@ -754,22 +748,17 @@ function module:_teamHasUserId(teamEntries, userId)
 end
 
 function module:SetCounterPlayers(matchData)
-	print("[HUD] SetCounterPlayers called")
 	if type(matchData) ~= "table" then
-		print("[HUD] SetCounterPlayers - matchData is not a table, returning")
 		return
 	end
 
 	local team1 = matchData.team1
 	local team2 = matchData.team2
 	local playersList = nil
-	
-	print("[HUD] SetCounterPlayers - raw team1:", team1, "team2:", team2)
 
 	if team1 == nil and type(matchData.teams) == "table" then
 		team1 = matchData.teams.team1
 		team2 = matchData.teams.team2
-		print("[HUD] SetCounterPlayers - got teams from matchData.teams")
 	end
 
 	if type(matchData.players) == "table" then
@@ -819,8 +808,6 @@ function module:SetCounterPlayers(matchData)
 
 	self._matchTeam1 = team1
 	self._matchTeam2 = team2
-	
-	print("[HUD] SetCounterPlayers - final team1 count:", #team1, "team2 count:", #team2)
 
 	self:_populateMatchTeams()
 end
@@ -883,26 +870,18 @@ function module:_setupMatchListeners()
 end
 
 function module:_onMatchStart(matchData)
-	print("[HUD] _onMatchStart called, matchData:", matchData)
 	self:SetCounterPlayers(matchData)
 end
 
 function module:_populateMatchTeams()
-	print("[HUD] _populateMatchTeams called")
 	local localPlayer = Players.LocalPlayer
 	local localUserId = localPlayer and localPlayer.UserId or nil
 
 	local team1 = self._matchTeam1 or {}
 	local team2 = self._matchTeam2 or {}
-	
-	print("[HUD] _populateMatchTeams - team1 count:", #team1, "team2 count:", #team2)
-	print("[HUD] _populateMatchTeams - _yourTeamFrame:", self._yourTeamFrame, "_enemyTeamFrame:", self._enemyTeamFrame)
-	print("[HUD] _populateMatchTeams - _yourTeamTemplate:", self._yourTeamTemplate, "_enemyTeamTemplate:", self._enemyTeamTemplate)
 
 	local localIsTeam1 = localUserId and self:_teamHasUserId(team1, localUserId) or false
 	local localIsTeam2 = localUserId and self:_teamHasUserId(team2, localUserId) or false
-	
-	print("[HUD] _populateMatchTeams - localUserId:", localUserId, "localIsTeam1:", localIsTeam1, "localIsTeam2:", localIsTeam2)
 
 	local yourTeamEntries = team1
 	local enemyTeamEntries = team2
@@ -918,19 +897,15 @@ function module:_populateMatchTeams()
 
 	self._yourTeamSlots = self._yourTeamSlots or {}
 	self._enemyTeamSlots = self._enemyTeamSlots or {}
-	
-	print("[HUD] _populateMatchTeams - calling _populateTeamSlots for yourTeam with", #yourTeamEntries, "entries")
+
 	self:_populateTeamSlots(self._yourTeamFrame, self._yourTeamTemplate, self._yourTeamSlots, yourTeamEntries)
-	print("[HUD] _populateMatchTeams - calling _populateTeamSlots for enemyTeam with", #enemyTeamEntries, "entries")
 	self:_populateTeamSlots(self._enemyTeamFrame, self._enemyTeamTemplate, self._enemyTeamSlots, enemyTeamEntries)
 end
 
 function module:_populateTeamSlots(teamFrame, template, slotCache, teamEntries)
 	if not teamFrame or not template or type(slotCache) ~= "table" or type(teamEntries) ~= "table" then
-		print("[HUD] _populateTeamSlots - EARLY RETURN: teamFrame:", teamFrame ~= nil, "template:", template ~= nil, "slotCache type:", type(slotCache), "teamEntries type:", type(teamEntries))
 		return
 	end
-	print("[HUD] _populateTeamSlots - processing", #teamEntries, "entries")
 
 	for i = #slotCache + 1, #teamEntries do
 		local clone = template:Clone()

@@ -8,6 +8,9 @@ local Registry = require(script.Parent:WaitForChild("Registry"):WaitForChild("Re
 
 Net:Init()
 
+-- Load Data/ProfileHandler so it connects PlayerAdded and replicates player data via Replica
+require(script.Parent.Parent:WaitForChild("Data"):WaitForChild("ProfileHandler"))
+
 -- Initialize VoxelDestruction early so its _ClientDestruction RemoteEvent is created
 -- before any client tries to WaitForChild for it. Without this, clients that load the
 -- module at startup get an infinite yield.

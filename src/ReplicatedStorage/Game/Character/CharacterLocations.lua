@@ -138,11 +138,27 @@ function CharacterLocations:ForEachColliderPart(character, callback)
 		return
 	end
 
+	-- Legacy: Collider/Default, Collider/Crouch (Models)
 	for _, colliderModel in pairs(collider:GetChildren()) do
 		if colliderModel:IsA("Model") then
 			for _, part in pairs(colliderModel:GetChildren()) do
 				if part:IsA("BasePart") then
 					callback(part, colliderModel.Name)
+				end
+			end
+		end
+	end
+
+	-- New structure: Collider/Hitbox/Standing, Collider/Hitbox/Crouching (Models or Folders)
+	local hitboxFolder = collider:FindFirstChild("Hitbox")
+	if hitboxFolder then
+		for _, stanceFolder in ipairs({ "Standing", "Crouching" }) do
+			local folder = hitboxFolder:FindFirstChild(stanceFolder)
+			if folder then
+				for _, part in pairs(folder:GetChildren()) do
+					if part:IsA("BasePart") then
+						callback(part, stanceFolder)
+					end
 				end
 			end
 		end

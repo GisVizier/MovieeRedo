@@ -93,7 +93,10 @@ local Remotes = {
 	{ name = "ScoreUpdate", description = "Match score changed" },
 	{ name = "RoundOutcome", description = "Round ended with outcome (win/lose/draw) for player" },
 	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
-	{ name = "LoadoutTimerHalved", description = "Server notifies clients that loadout timer was halved after all players confirmed" },
+	{
+		name = "LoadoutTimerHalved",
+		description = "Server notifies clients that loadout timer was halved after all players confirmed",
+	},
 	{ name = "MatchEnd", description = "Match complete, winner declared" },
 	{ name = "ReturnToLobby", description = "Teleport players back to lobby" },
 	{ name = "PlayerJoinedMatch", description = "Player joined match (training mode)" },
@@ -119,6 +122,9 @@ local Remotes = {
 
 	-- Overhead system
 	{ name = "SetPlatform", description = "Client sends platform type to server" },
+
+	-- Player data (Replica + client updates)
+	{ name = "PlayerDataUpdate", description = "Client sends data path/value to persist via server" },
 
 	-- Storm system
 	{ name = "StormStart", description = "Server notifies storm phase has begun" },

@@ -5,7 +5,13 @@ local Players = game:GetService("Players")
 local workspace = game:GetService("Workspace")
 
 -- Debug logging toggle
-local DEBUG_LOGGING = false
+local DEBUG_LOGGING = true
+
+local function dbg(...)
+	if DEBUG_LOGGING then
+		warn("[WeaponService]", ...)
+	end
+end
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
@@ -167,6 +173,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 
 	-- Block weapon fire while frozen (loadout / between rounds)
 	if player:GetAttribute("MatchFrozen") then
+		dbg(player.Name, "blocked: MatchFrozen =", player:GetAttribute("MatchFrozen"))
 		return
 	end
 
@@ -178,6 +185,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 		-- New buffer-based packet format
 		hitData = HitPacketUtils:ParsePacket(shotData.packet)
 		if not hitData then
+			dbg(player.Name, "BLOCKED: packet parse failed")
 			return
 		end
 		weaponId = hitData.weaponName
@@ -199,14 +207,20 @@ function WeaponService:OnWeaponFired(player, shotData)
 	hitData.serverReceiveTime = workspace:GetServerTimeNow()
 
 	if not weaponId then
+		dbg(player.Name, "BLOCKED: weaponId is nil (weaponName from packet =", hitData and hitData.weaponName, ")")
 		return
 	end
 
 	-- Validate weapon config exists
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
+		dbg(player.Name, "BLOCKED: no weaponConfig for weaponId=", weaponId)
 		return
 	end
+
+	dbg(player.Name, "fire: weapon=", weaponId, "targetUserId=", hitData.targetUserId,
+		"hitPlayer=", hitData.hitPlayer and hitData.hitPlayer.Name or "nil",
+		"hitPos=", hitData.hitPosition, "origin=", hitData.origin)
 
 	hitData.adsShot = (weaponId == "DualPistols") and (shotData.adsShot == true) or false
 
@@ -214,6 +228,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 	if weaponConfig.pelletsPerShot and weaponConfig.pelletsPerShot > 1 and shotData.pelletDirections then
 		local valid, reason = self:_validatePellets(shotData, weaponConfig)
 		if not valid then
+			dbg(player.Name, "BLOCKED: pellet validation failed:", reason)
 			return
 		end
 
@@ -251,12 +266,14 @@ function WeaponService:OnWeaponFired(player, shotData)
 	-- Validate the hit with anti-cheat (using new HitValidator)
 	local isValid, reason = HitValidator:ValidateHit(player, hitData, weaponConfig)
 	if not isValid then
+		dbg(player.Name, "BLOCKED by HitValidator:", reason, "| target=", hitData.hitPlayer and hitData.hitPlayer.Name or "nil")
 		HitValidator:RecordViolation(player, reason, 1)
 		return
 	end
 
 	-- Calculate damage
 	local damage = self:CalculateDamage(hitData, weaponConfig)
+	dbg(player.Name, "HitValidator PASSED | damage=", damage, "| target=", hitData.hitPlayer and hitData.hitPlayer.Name or "nil")
 
 	-- Apply damage if hit a player
 	local victimPlayer = hitData.hitPlayer
@@ -265,8 +282,11 @@ function WeaponService:OnWeaponFired(player, shotData)
 
 	if victimPlayer then
 		hitCharacter = victimPlayer.Character
-		-- Use recursive search for nested Humanoids (e.g., dummies with Rig subfolder)
-		if hitCharacter and hitCharacter:FindFirstChildWhichIsA("Humanoid", true) then
+		if not hitCharacter then
+			dbg(player.Name, "BLOCKED: victimPlayer", victimPlayer.Name, "has no character")
+		elseif not hitCharacter:FindFirstChildWhichIsA("Humanoid", true) then
+			dbg(player.Name, "BLOCKED: victimPlayer", victimPlayer.Name, "character has no Humanoid")
+		else
 			self:ApplyDamageToCharacter(hitCharacter, damage, player, hitData.isHeadshot, weaponId, hitData.origin, hitData.hitPosition)
 			hitCharacterName = hitCharacter.Name
 		end
@@ -489,12 +509,14 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	character = normalizeCharacterModel(character)
 
 	if not character or not character.Parent then
+		dbg("ApplyDamage: character nil or no parent")
 		return
 	end
 
 	-- Use recursive search to find Humanoid (may be nested in Rig subfolder for dummies)
 	local humanoid = character:FindFirstChildWhichIsA("Humanoid", true)
 	if not humanoid or humanoid.Health <= 0 then
+		dbg("ApplyDamage: no humanoid or already dead. char=", character.Name)
 		return
 	end
 
@@ -507,6 +529,9 @@ function WeaponService:ApplyDamageToCharacter(character, damage, shooter, isHead
 	if not victimPlayer and combatService then
 		victimPlayer = combatService:GetPlayerByCharacter(character)
 	end
+
+	dbg("ApplyDamage: char=", character.Name, "victimPlayer=", victimPlayer and victimPlayer.Name or "nil",
+		"combatService=", combatService ~= nil, "damage=", damage)
 
 	-- Route through CombatService for players and dummies
 	if victimPlayer and combatService then
@@ -552,9 +577,16 @@ function WeaponService:OnProjectileSpawned(player, data)
 		return
 	end
 
+	-- Block projectile spawn while frozen (loadout / between rounds) - same as hitscan
+	if player:GetAttribute("MatchFrozen") then
+		dbg(player.Name, "ProjectileSpawned BLOCKED: MatchFrozen")
+		return
+	end
+
 	-- Parse spawn packet
 	local spawnData = ProjectilePacketUtils:ParseSpawnPacket(data.packet)
 	if not spawnData then
+		dbg(player.Name, "ProjectileSpawned BLOCKED: packet parse failed")
 		return
 	end
 
@@ -562,12 +594,14 @@ function WeaponService:OnProjectileSpawned(player, data)
 	local weaponId = data.weaponId or spawnData.weaponName
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
+		dbg(player.Name, "ProjectileSpawned BLOCKED: no weaponConfig for weaponId=", weaponId)
 		return
 	end
 
 	-- Validate spawn
 	local isValid, reason = ProjectileAPI:ValidateSpawn(player, spawnData, weaponConfig)
 	if not isValid then
+		dbg(player.Name, "ProjectileSpawned BLOCKED by validation:", reason)
 		return
 	end
 
@@ -598,9 +632,16 @@ function WeaponService:OnProjectileHit(player, data)
 		return
 	end
 
+	-- Block projectile hit while frozen (loadout / between rounds) - same as hitscan
+	if player:GetAttribute("MatchFrozen") then
+		dbg(player.Name, "ProjectileHit BLOCKED: MatchFrozen")
+		return
+	end
+
 	-- Parse hit packet
 	local hitData = ProjectilePacketUtils:ParseHitPacket(data.packet)
 	if not hitData then
+		dbg(player.Name, "ProjectileHit BLOCKED: packet parse failed")
 		return
 	end
 
@@ -608,6 +649,7 @@ function WeaponService:OnProjectileHit(player, data)
 	local weaponId = data.weaponId or hitData.weaponName
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	if not weaponConfig then
+		dbg(player.Name, "ProjectileHit BLOCKED: no weaponConfig for weaponId=", weaponId)
 		return
 	end
 
@@ -618,6 +660,7 @@ function WeaponService:OnProjectileHit(player, data)
 	if not isRig then
 		local isValid, reason = ProjectileAPI:ValidateHit(player, hitData, weaponConfig)
 		if not isValid then
+			dbg(player.Name, "ProjectileHit BLOCKED by validation:", reason, "| weapon=", weaponId, "target=", victimPlayer and victimPlayer.Name or "nil")
 			return
 		end
 	end

@@ -49,24 +49,30 @@ function HitPacketUtils:GetHitPartType(hitPart, isHeadshot)
 	if isHeadshot then
 		return HitPartEnum.Head
 	end
-	
+
 	if not hitPart then
 		return HitPartEnum.None
 	end
-	
+
 	local name = hitPart.Name
-	
+
 	-- Head hitbox parts (including hitbox folder variants)
 	if name == "Head" or name == "CrouchHead" or name == "HitboxHead" then
 		return HitPartEnum.Head
 	-- Body hitbox parts
-	elseif name == "Body" or name == "CrouchBody" or name == "HitboxBody" or name == "Torso" or name == "HumanoidRootPart" then
+	elseif
+		name == "Body"
+		or name == "CrouchBody"
+		or name == "HitboxBody"
+		or name == "Torso"
+		or name == "HumanoidRootPart"
+	then
 		return HitPartEnum.Body
 	-- Limb parts (R6 character parts)
 	elseif name:match("Arm") or name:match("Leg") or name:match("Hand") or name:match("Foot") then
 		return HitPartEnum.Limb
 	end
-	
+
 	-- Default to body for any other hit
 	return HitPartEnum.Body
 end
@@ -110,19 +116,19 @@ function HitPacketUtils:DetectStance(hitPart, targetCharacter)
 			return StanceEnum.Crouched
 		end
 	end
-	
+
 	-- Check character attribute if available
 	if targetCharacter then
 		local isCrouching = targetCharacter:GetAttribute("IsCrouching")
 		local isSliding = targetCharacter:GetAttribute("IsSliding")
-		
+
 		if isSliding then
 			return StanceEnum.Sliding
 		elseif isCrouching then
 			return StanceEnum.Crouched
 		end
 	end
-	
+
 	return StanceEnum.Standing
 end
 
@@ -150,22 +156,22 @@ function HitPacketUtils:CreatePacket(hitData, weaponId)
 	if not hitData or not hitData.origin or not hitData.hitPosition then
 		return nil
 	end
-	
+
 	-- Get target user ID (0 if not a player)
 	local targetUserId = 0
 	if hitData.hitPlayer and hitData.hitPlayer:IsA("Player") then
 		targetUserId = hitData.hitPlayer.UserId
 	end
-	
+
 	-- Determine hit part type
 	local hitPartType = self:GetHitPartType(hitData.hitPart, hitData.isHeadshot)
-	
+
 	-- Get weapon ID
 	local weaponIdNum = type(weaponId) == "number" and weaponId or self:GetWeaponId(weaponId)
-	
+
 	-- Detect target stance
 	local targetStance = self:DetectStance(hitData.hitPart, hitData.hitCharacter)
-	
+
 	-- Build packet data
 	local packet = {
 		Timestamp = hitData.timestamp or workspace:GetServerTimeNow(),
@@ -176,13 +182,13 @@ function HitPacketUtils:CreatePacket(hitData, weaponId)
 		WeaponId = weaponIdNum,
 		TargetStance = targetStance,
 	}
-	
+
 	-- Serialize
 	local buf, err = Sera.Serialize(SeraSchemas.HitPacket, packet)
 	if not buf then
 		return nil
 	end
-	
+
 	return buffer.tostring(buf)
 end
 
@@ -201,16 +207,16 @@ function HitPacketUtils:CreateShotgunPacket(hitData, weaponId)
 	if not hitData or not hitData.origin or not hitData.hitPosition then
 		return nil
 	end
-	
+
 	local targetUserId = 0
 	if hitData.hitPlayer and hitData.hitPlayer:IsA("Player") then
 		targetUserId = hitData.hitPlayer.UserId
 	end
-	
+
 	local hitPartType = self:GetHitPartType(hitData.hitPart, hitData.isHeadshot)
 	local weaponIdNum = type(weaponId) == "number" and weaponId or self:GetWeaponId(weaponId)
 	local targetStance = self:DetectStance(hitData.hitPart, hitData.hitCharacter)
-	
+
 	local packet = {
 		Timestamp = hitData.timestamp or workspace:GetServerTimeNow(),
 		Origin = hitData.origin,
@@ -222,12 +228,12 @@ function HitPacketUtils:CreateShotgunPacket(hitData, weaponId)
 		PelletHits = hitData.pelletHits or 1,
 		HeadshotPellets = hitData.headshotPellets or 0,
 	}
-	
+
 	local buf, err = Sera.Serialize(SeraSchemas.ShotgunHitPacket, packet)
 	if not buf then
 		return nil
 	end
-	
+
 	return buffer.tostring(buf)
 end
 
@@ -259,17 +265,17 @@ function HitPacketUtils:ParsePacket(packetString)
 	if type(packetString) ~= "string" then
 		return nil
 	end
-	
+
 	local buf = buffer.fromstring(packetString)
-	
+
 	local success, data = pcall(function()
 		return Sera.Deserialize(SeraSchemas.HitPacket, buf)
 	end)
-	
+
 	if not success then
 		return nil
 	end
-	
+
 	-- Resolve player from userId
 	local hitPlayer = nil
 	if data.TargetUserId and data.TargetUserId ~= 0 then
@@ -284,7 +290,7 @@ function HitPacketUtils:ParsePacket(packetString)
 			end
 		end
 	end
-	
+
 	return {
 		timestamp = data.Timestamp,
 		origin = data.Origin,
@@ -311,17 +317,17 @@ function HitPacketUtils:ParseShotgunPacket(packetString)
 	if type(packetString) ~= "string" then
 		return nil
 	end
-	
+
 	local buf = buffer.fromstring(packetString)
-	
+
 	local success, data = pcall(function()
 		return Sera.Deserialize(SeraSchemas.ShotgunHitPacket, buf)
 	end)
-	
+
 	if not success then
 		return nil
 	end
-	
+
 	local hitPlayer = nil
 	if data.TargetUserId and data.TargetUserId ~= 0 then
 		hitPlayer = Players:GetPlayerByUserId(data.TargetUserId)
@@ -335,7 +341,7 @@ function HitPacketUtils:ParseShotgunPacket(packetString)
 			end
 		end
 	end
-	
+
 	return {
 		timestamp = data.Timestamp,
 		origin = data.Origin,
@@ -376,7 +382,7 @@ end
 ]]
 function HitPacketUtils:GetPacketSizes()
 	return {
-		HitPacket = 39,        -- 8 (timestamp) + 12 + 12 + 4 + 1 + 1 + 1
+		HitPacket = 39, -- 8 (timestamp) + 12 + 12 + 4 + 1 + 1 + 1
 		ShotgunHitPacket = 41, -- 39 + 2 (pellet counts)
 	}
 end
@@ -391,7 +397,7 @@ function HitPacketUtils:ValidatePacketStructure(packetString)
 	if type(packetString) ~= "string" then
 		return false
 	end
-	
+
 	local len = #packetString
 	return len == 39 or len == 41
 end

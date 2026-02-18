@@ -23,7 +23,13 @@ local KillEffects = require(ReplicatedStorage.Combat:WaitForChild("KillEffects")
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 
 local CombatService = {}
-local DEBUG_LOGGING = false
+local DEBUG_LOGGING = true
+
+local function dbg(...)
+	if DEBUG_LOGGING then
+		warn("[CombatService]", ...)
+	end
+end
 
 CombatService._registry = nil
 CombatService._net = nil
@@ -286,7 +292,12 @@ function CombatService:ApplyDamage(
 	options = options or {}
 
 	local resource = self._playerResources[targetPlayer]
-	if not resource or not resource:IsAlive() then
+	if not resource then
+		dbg("ApplyDamage BLOCKED: no resource for", targetPlayer and targetPlayer.Name or "nil")
+		return nil
+	end
+	if not resource:IsAlive() then
+		dbg("ApplyDamage BLOCKED: resource not alive for", targetPlayer.Name, "| isDead=", resource._isDead, "health=", resource._health)
 		return nil
 	end
 
@@ -296,8 +307,12 @@ function CombatService:ApplyDamage(
 
 	-- Apply damage through resource
 	local result = resource:TakeDamage(damage, options)
+	dbg("TakeDamage result: target=", targetPlayer.Name, "damage=", damage,
+		"healthDamage=", result.healthDamage, "blocked=", result.blocked, "killed=", result.killed,
+		"newHealth=", resource._health)
 
 	if result.blocked then
+		dbg("Damage BLOCKED by iframes/invulnerability for", targetPlayer.Name)
 		return result
 	end
 

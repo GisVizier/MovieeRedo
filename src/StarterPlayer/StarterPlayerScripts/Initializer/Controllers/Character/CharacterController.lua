@@ -64,6 +64,7 @@ function CharacterController:Init(registry, net)
 	-- Crouch state replication for remote player colliders
 	self._net:ConnectClient("CrouchStateChanged", function(player, isCrouching)
 		if player and player.Character and player ~= Players.LocalPlayer then
+			player.Character:SetAttribute("IsCrouching", isCrouching)
 			self:_setRemoteColliderCrouch(player.Character, isCrouching)
 		end
 	end)
@@ -597,41 +598,72 @@ function CharacterController:_setupRemoteCollider(character, characterTemplate)
 		weld.Parent = part
 	end
 
-	-- Get Hitbox folder (new structure: Collider/Hitbox/Standing and Crouching)
+	-- Try new structure first: Collider/Hitbox/Standing and Crouching
 	local hitboxFolder = collider:FindFirstChild("Hitbox")
 	local templateHitboxFolder = templateCollider:FindFirstChild("Hitbox")
+	local hasNewStructure = hitboxFolder and templateHitboxFolder
 
-	if not hitboxFolder or not templateHitboxFolder then
+	-- Fallback to legacy structure: Collider/Default and Collider/Crouch
+	local defaultFolder = collider:FindFirstChild("Default")
+	local crouchFolder = collider:FindFirstChild("Crouch")
+	local templateDefaultFolder = templateCollider:FindFirstChild("Default")
+	local templateCrouchFolder = templateCollider:FindFirstChild("Crouch")
+	local hasLegacyStructure = defaultFolder and templateDefaultFolder
+
+	if hasNewStructure then
+		-- Setup Standing hitbox parts - active by default
+		local standingFolder = hitboxFolder:FindFirstChild("Standing")
+		local templateStandingFolder = templateHitboxFolder:FindFirstChild("Standing")
+		if standingFolder and templateStandingFolder then
+			for _, part in standingFolder:GetChildren() do
+				local templatePart = templateStandingFolder:FindFirstChild(part.Name)
+				if templatePart then
+					setupColliderPart(part, templatePart, true)
+				end
+			end
+		end
+
+		-- Setup Crouching hitbox parts - inactive by default
+		local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
+		local templateCrouchingFolder = templateHitboxFolder:FindFirstChild("Crouching")
+		if crouchingFolder and templateCrouchingFolder then
+			for _, part in crouchingFolder:GetChildren() do
+				local templatePart = templateCrouchingFolder:FindFirstChild(part.Name)
+				if templatePart then
+					setupColliderPart(part, templatePart, false)
+				end
+			end
+		end
+	elseif hasLegacyStructure then
+		-- Legacy: Default = standing (active), Crouch = crouching (inactive)
+		for _, part in defaultFolder:GetChildren() do
+			if part:IsA("BasePart") then
+				local templatePart = templateDefaultFolder:FindFirstChild(part.Name)
+				if templatePart then
+					setupColliderPart(part, templatePart, true)
+				end
+			end
+		end
+		if crouchFolder and templateCrouchFolder then
+			for _, part in crouchFolder:GetChildren() do
+				if part:IsA("BasePart") then
+					local templatePart = templateCrouchFolder:FindFirstChild(part.Name)
+					if templatePart then
+						setupColliderPart(part, templatePart, false)
+					end
+				end
+			end
+		end
+	else
 		collider:Destroy()
 		return
 	end
 
-	-- Setup Standing hitbox parts - active by default
-	local standingFolder = hitboxFolder:FindFirstChild("Standing")
-	local templateStandingFolder = templateHitboxFolder:FindFirstChild("Standing")
-	if standingFolder and templateStandingFolder then
-		for _, part in standingFolder:GetChildren() do
-			local templatePart = templateStandingFolder:FindFirstChild(part.Name)
-			if templatePart then
-				setupColliderPart(part, templatePart, true)
-			end
-		end
-	end
-
-	-- Setup Crouching hitbox parts - inactive by default
-	local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
-	local templateCrouchingFolder = templateHitboxFolder:FindFirstChild("Crouching")
-	if crouchingFolder and templateCrouchingFolder then
-		for _, part in crouchingFolder:GetChildren() do
-			local templatePart = templateCrouchingFolder:FindFirstChild(part.Name)
-			if templatePart then
-				setupColliderPart(part, templatePart, false)
-			end
-		end
-	end
-
 	collider.Parent = character
 	self._remoteColliders[character] = collider
+
+	-- Set initial stance attribute (HitPacketUtils:DetectStance uses this for hit validation)
+	character:SetAttribute("IsCrouching", false)
 end
 
 -- Switch remote player's collider between standing/crouching
@@ -641,122 +673,51 @@ function CharacterController:_setRemoteColliderCrouch(character, isCrouching)
 		return
 	end
 
+	local function updateParts(folder, isActive, debugColor)
+		if not folder then return end
+		debugColor = debugColor or Color3.fromRGB(255, 0, 0)
+		for _, part in folder:GetChildren() do
+			if part:IsA("BasePart") then
+				part.CanQuery = isActive
+				if self._hitboxDebugEnabled then
+					if isActive then
+						part.Transparency = 0.5
+						part.Color = debugColor
+						part.Material = Enum.Material.ForceField
+					else
+						part.Transparency = 0.8
+						part.Color = Color3.fromRGB(100, 100, 100)
+					end
+				else
+					part.Transparency = 1
+				end
+			end
+		end
+	end
+
+	-- New structure: Hitbox/Standing and Hitbox/Crouching
 	local hitboxFolder = collider:FindFirstChild("Hitbox")
-	if not hitboxFolder then
+	if hitboxFolder then
+		updateParts(hitboxFolder:FindFirstChild("Standing"), not isCrouching, Color3.fromRGB(255, 0, 0))
+		updateParts(hitboxFolder:FindFirstChild("Crouching"), isCrouching, Color3.fromRGB(0, 150, 255))
 		return
 	end
 
-	local standingFolder = hitboxFolder:FindFirstChild("Standing")
-	local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
-
-	-- Update Standing parts
-	if standingFolder then
-		for _, part in standingFolder:GetChildren() do
-			if part:IsA("BasePart") then
-				local isActive = not isCrouching
-				part.CanQuery = isActive
-
-				-- Debug visualization
-				if self._hitboxDebugEnabled then
-					if isActive then
-						part.Transparency = 0.5
-						part.Color = Color3.fromRGB(255, 0, 0)
-						part.Material = Enum.Material.ForceField
-					else
-						part.Transparency = 0.8
-						part.Color = Color3.fromRGB(100, 100, 100)
-					end
-				else
-					part.Transparency = 1
-				end
-			end
-		end
-	end
-
-	-- Update Crouching parts
-	if crouchingFolder then
-		for _, part in crouchingFolder:GetChildren() do
-			if part:IsA("BasePart") then
-				local isActive = isCrouching
-				part.CanQuery = isActive
-
-				-- Debug visualization
-				if self._hitboxDebugEnabled then
-					if isActive then
-						part.Transparency = 0.5
-						part.Color = Color3.fromRGB(0, 150, 255) -- Blue for crouch
-						part.Material = Enum.Material.ForceField
-					else
-						part.Transparency = 0.8
-						part.Color = Color3.fromRGB(100, 100, 100)
-					end
-				else
-					part.Transparency = 1
-				end
-			end
-		end
-	end
+	-- Legacy structure: Default and Crouch
+	updateParts(collider:FindFirstChild("Default"), not isCrouching)
+	updateParts(collider:FindFirstChild("Crouch"), isCrouching)
 end
 
 -- Toggle hitbox debug visualization
 function CharacterController:ToggleHitboxDebug()
 	self._hitboxDebugEnabled = not self._hitboxDebugEnabled
 
-	-- Update all existing colliders
+	-- Update all existing colliders (use _setRemoteColliderCrouch for both structures)
 	for character, collider in pairs(self._remoteColliders) do
 		if character and character.Parent and collider and collider.Parent then
-			-- Check current crouch state
 			local isCrouching = character:GetAttribute("IsCrouching") or false
-
-			local hitboxFolder = collider:FindFirstChild("Hitbox")
-			if not hitboxFolder then
-				continue
-			end
-
-			local standingFolder = hitboxFolder:FindFirstChild("Standing")
-			local crouchingFolder = hitboxFolder:FindFirstChild("Crouching")
-
-			if standingFolder then
-				for _, part in standingFolder:GetChildren() do
-					if part:IsA("BasePart") then
-						local isActive = not isCrouching and part.CanQuery
-						if self._hitboxDebugEnabled then
-							if isActive then
-								part.Transparency = 0.5
-								part.Color = Color3.fromRGB(255, 0, 0)
-								part.Material = Enum.Material.ForceField
-							else
-								part.Transparency = 0.8
-								part.Color = Color3.fromRGB(100, 100, 100)
-							end
-						else
-							part.Transparency = 1
-						end
-					end
-				end
-			end
-
-			if crouchingFolder then
-				for _, part in crouchingFolder:GetChildren() do
-					if part:IsA("BasePart") then
-						local isActive = isCrouching and part.CanQuery
-						if self._hitboxDebugEnabled then
-							if isActive then
-								part.Transparency = 0.5
-								part.Color = Color3.fromRGB(0, 150, 255)
-								part.Material = Enum.Material.ForceField
-							else
-								part.Transparency = 0.8
-								part.Color = Color3.fromRGB(100, 100, 100)
-							end
-						else
-							part.Transparency = 1
-						end
-					end
-				end
-			end
+			self:_setRemoteColliderCrouch(character, isCrouching)
 		else
-			-- Clean up invalid entries
 			self._remoteColliders[character] = nil
 		end
 	end

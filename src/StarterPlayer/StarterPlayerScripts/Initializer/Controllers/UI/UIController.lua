@@ -550,6 +550,10 @@ function UIController:_onShowRoundLoadout(data)
 			cameraController:SetCameraMode("Orbit")
 		end
 
+		-- Explicitly unlock mouse for loadout selection (teleport may have locked it)
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+
 		-- Show loadout UI in ROUND 1 mode (ready checks enabled, can jump to 5s)
 		pcall(function()
 			loadoutModule:show({ isBetweenRound = false })
@@ -612,6 +616,10 @@ function UIController:_onShowMapSelection(data)
 		local skyPos = Vector3.new(math.cos(angle) * 60, 180, math.sin(angle) * 60)
 		camera.CFrame = CFrame.lookAt(skyPos, Vector3.new(0, 0, 0))
 	end
+
+	-- Explicitly unlock mouse for map selection UI (QueueController may not have run yet)
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
 
 	safeCall(function()
 		self._coreUi:show("Map", true)
@@ -735,6 +743,9 @@ function UIController:_onBetweenRoundFreeze(data)
 	if cameraController and type(cameraController.SetCameraMode) == "function" then
 		cameraController:SetCameraMode("Orbit")
 	end
+	-- Unlock mouse for between-round loadout selection
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
 	-- Note: Server clears SelectedLoadout attribute on BetweenRoundFreeze,
 	-- which triggers ViewmodelController to clear weapons automatically
 end
@@ -1125,6 +1136,7 @@ function UIController:_onReturnToLobby(data)
 			weaponController:HideCrosshair()
 		end
 	end
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
 
 	-- Core module: cleanup thumbnails

@@ -210,6 +210,8 @@ function ProjectileValidator:_validateFlightTime(hitData, projectileConfig)
 	
 	if claimedFlightTime < minTime * 0.8 or claimedFlightTime > maxTime * 1.5 then
 		if CONFIG.DebugLogging then
+			warn(string.format("[ProjectileValidator] FlightTimeMismatch: claimed=%.4f expected=%.4f min=%.4f max=%.4f",
+				claimedFlightTime, expectedFlightTime, minTime * 0.8, maxTime * 1.5))
 		end
 		return false, "FlightTimeMismatch"
 	end
@@ -255,8 +257,9 @@ function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectil
 	
 	local historicalPosition = HitDetectionAPI:GetPositionAtTime(target, lookupTime)
 	if not historicalPosition then
-		-- No position history, be lenient
 		if CONFIG.DebugLogging then
+			warn(string.format("[ProjectileValidator] No position history for target=%s, allowing hit",
+				target and target.Name or "?"))
 		end
 		return true
 	end
@@ -274,6 +277,9 @@ function ProjectileValidator:_validateTargetPosition(shooter, hitData, projectil
 	local tolerance = self:_calculateTolerance(shooter, target, hitData, projectileConfig)
 	
 	if CONFIG.DebugLogging then
+		warn(string.format("[ProjectileValidator] TargetPos: target=%s offset=%.2f tolerance=%.2f hit=%s hist=%s",
+			target and target.Name or "?", offset, tolerance,
+			tostring(hitData.hitPosition), tostring(adjustedPosition)))
 	end
 	
 	if offset > tolerance then
@@ -287,25 +293,19 @@ end
 	Validate trajectory wasn't obstructed
 ]]
 function ProjectileValidator:_validateTrajectory(shooter, hitData, projectileConfig)
-	-- Create raycast params that ignore shooter and target
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 
+	-- Exclude ALL player characters — trajectory checks only care about
+	-- static environment geometry, not other players' physical rigs.
 	local filterList = {}
-
-	-- Add shooter's character
-	if shooter.Character then
-		table.insert(filterList, shooter.Character)
+	for _, plr in Players:GetPlayers() do
+		if plr.Character then
+			table.insert(filterList, plr.Character)
+		end
 	end
 
-	-- Add target's character if hitting a player
-	if hitData.hitPlayer and hitData.hitPlayer.Character then
-		table.insert(filterList, hitData.hitPlayer.Character)
-	end
-
-	-- Exclude non-gameplay folders that the client also excludes
-	-- Without these, server trajectory raycasts hit VFX/debris the client correctly ignores
-	local folderNames = { "Effects", "VoxelCache", "__Destruction", "VoxelDebris", "Ragdolls" }
+	local folderNames = { "Effects", "VoxelCache", "__Destruction", "VoxelDebris", "Ragdolls", "Rigs" }
 	for _, name in ipairs(folderNames) do
 		local folder = workspace:FindFirstChild(name)
 		if folder then
@@ -315,10 +315,8 @@ function ProjectileValidator:_validateTrajectory(shooter, hitData, projectileCon
 
 	raycastParams.FilterDescendantsInstances = filterList
 	
-	-- Create physics simulator
 	local physics = ProjectilePhysics.new(projectileConfig)
 	
-	-- Check trajectory for obstructions
 	local isClear, obstruction = physics:CheckTrajectoryObstruction(
 		hitData.origin,
 		hitData.hitPosition,
@@ -328,6 +326,10 @@ function ProjectileValidator:_validateTrajectory(shooter, hitData, projectileCon
 	
 	if not isClear and obstruction then
 		if CONFIG.DebugLogging then
+			warn(string.format("[ProjectileValidator] TrajectoryObstructed: shooter=%s obstruction=%s class=%s",
+				shooter and shooter.Name or "?",
+				obstruction and obstruction:GetFullName() or "?",
+				obstruction and obstruction.ClassName or "?"))
 		end
 		return false, "TrajectoryObstructed"
 	end
@@ -461,6 +463,9 @@ function ProjectileValidator:_logValidation(shooter, hitData, reason, isValid)
 	end
 	
 	local symbol = isValid and "✓" or "✗"
+	warn(string.format("[ProjectileValidator] %s %s -> %s | weapon=%s reason=%s",
+		symbol, shooter and shooter.Name or "?", targetName,
+		hitData.weaponName or "?", reason))
 end
 
 -- =============================================================================

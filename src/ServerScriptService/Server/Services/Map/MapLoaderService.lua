@@ -130,9 +130,20 @@ function MapLoaderService:GetSpawns(mapInstance)
 		end
 	end
 	
-	if not spawns.Team1 then
-	end
-	if not spawns.Team2 then
+	-- Fallback: use any Part/Model with "Spawn" in name if standard spawns not found
+	if not spawns.Team1 or not spawns.Team2 then
+		local fallbackSpawns = {}
+		for _, child in mapInstance:GetDescendants() do
+			if (child:IsA("BasePart") or child:IsA("Model")) and string.find(child.Name:lower(), "spawn") then
+				table.insert(fallbackSpawns, child)
+			end
+		end
+		if not spawns.Team1 and fallbackSpawns[1] then
+			spawns.Team1 = fallbackSpawns[1]
+		end
+		if not spawns.Team2 and (fallbackSpawns[2] or fallbackSpawns[1]) then
+			spawns.Team2 = fallbackSpawns[2] or fallbackSpawns[1]
+		end
 	end
 	
 	return spawns

@@ -78,6 +78,14 @@ function HitDetectionAPI:SetPlayerStance(player, stance)
 	HitValidator:SetPlayerStance(player, stance)
 end
 
+--[[
+	Clear position history for a player (e.g. after teleport at round start).
+	Prevents stale positions from causing projectile hit validation to fail.
+]]
+function HitDetectionAPI:ClearPositionHistory(player)
+	PositionHistory:ClearPlayerHistory(player)
+end
+
 -- =============================================================================
 -- LATENCY QUERIES
 -- =============================================================================

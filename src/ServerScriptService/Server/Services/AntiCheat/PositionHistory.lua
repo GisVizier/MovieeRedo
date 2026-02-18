@@ -93,6 +93,18 @@ function PositionHistory:RemovePlayer(player)
 	self.Players[player] = nil
 end
 
+--[[
+	Clear position history for a player (e.g. after teleport at round start).
+	Prevents stale pre-teleport positions from causing projectile hit validation to fail.
+]]
+function PositionHistory:ClearPlayerHistory(player)
+	local data = self.Players[player]
+	if data then
+		data.WriteIndex = 0
+		data.Count = 0
+	end
+end
+
 -- =============================================================================
 -- STORAGE
 -- =============================================================================

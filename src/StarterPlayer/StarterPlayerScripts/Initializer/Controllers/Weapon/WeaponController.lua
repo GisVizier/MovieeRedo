@@ -1400,6 +1400,11 @@ end
 function WeaponController:_onFirePressed()
 	local currentTime = workspace:GetServerTimeNow()
 
+	-- Block firing when match-frozen (loadout / between rounds) - prevents race with server state
+	if LocalPlayer and LocalPlayer:GetAttribute("MatchFrozen") then
+		return
+	end
+
 	if not self:_isActiveWeaponEquipped() then
 		return
 	end

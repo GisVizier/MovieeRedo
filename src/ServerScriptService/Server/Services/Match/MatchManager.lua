@@ -65,7 +65,15 @@ end
 function MatchManager:_unfreezeMatchPlayers(match)
 	for _, player in self:_getMatchPlayers(match) do
 		player:SetAttribute("ExternalMoveMult", 1)
-		player:SetAttribute("MatchFrozen", false)
+		player:SetAttribute("MatchFrozen", nil)
+	end
+end
+
+function MatchManager:_clearPlayerPositionHistory(player)
+	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
+	local api = require(script.Parent.Parent.AntiCheat.HitDetectionAPI)
+	if api and api.ClearPositionHistory then
+		api:ClearPositionHistory(player)
 	end
 end
 
@@ -410,7 +418,7 @@ function MatchManager:_releaseFromWaitingRoom(match)
 	for _, player in self:_getMatchPlayers(match) do
 		local character = player.Character
 		if character then
-			local root = character:FindFirstChild("HumanoidRootPart")
+			local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 			if root then
 				-- Remove position lock constraint
 				local bodyPos = root:FindFirstChild("WaitingRoomLock")
@@ -564,6 +572,10 @@ end
 function MatchManager:_teleportPlayers(match)
 	local spawn1 = match.spawns and match.spawns.Team1
 	local spawn2 = match.spawns and match.spawns.Team2
+	
+	-- Use single spawn for both teams if map only has one (e.g. TrainingGrounds)
+	if spawn1 and not spawn2 then spawn2 = spawn1 end
+	if spawn2 and not spawn1 then spawn1 = spawn2 end
 
 	match._pendingTeleports = {}
 
@@ -595,6 +607,9 @@ end
 
 function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 	local spawnPosition, spawnLookVector
+
+	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
+	self:_clearPlayerPositionHistory(player)
 	
 	if spawn:IsA("BasePart") then
 		-- Get random position within spawn bounds
@@ -628,7 +643,7 @@ function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 	-- Unanchor and heal the character
 	local character = player.Character
 	if character then
-		local root = character:FindFirstChild("HumanoidRootPart")
+		local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 		if root then
 			root.Anchored = false
 			-- Apply the teleport server-side as well
@@ -1208,7 +1223,10 @@ end
 
 function MatchManager:_teleportPlayerDirect(match, player, spawn)
 	local spawnPosition, spawnLookVector
-	
+
+	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
+	self:_clearPlayerPositionHistory(player)
+
 	if spawn:IsA("BasePart") then
 		-- Get random position within spawn bounds
 		local size = spawn.Size
@@ -1236,7 +1254,7 @@ function MatchManager:_teleportPlayerDirect(match, player, spawn)
 	-- Heal humanoid and apply server-side teleport
 	local character = player.Character
 	if character then
-		local root = character:FindFirstChild("HumanoidRootPart")
+		local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 		if root then
 			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -1452,7 +1470,7 @@ function MatchManager:_teleportPlayerToSpawn(player, spawn)
 
 	local character = player.Character
 	if character then
-		local root = character:FindFirstChild("HumanoidRootPart")
+		local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
 		if root then
 			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
 			root.AssemblyLinearVelocity = Vector3.zero

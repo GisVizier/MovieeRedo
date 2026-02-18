@@ -84,7 +84,7 @@ local HITBOX_BOUNDS = {
 -- STATE
 -- =============================================================================
 
-HitValidator.LastFireTimes = {}    -- [player] = timestamp
+HitValidator.LastFireTimes = {}    -- [player] = { [weaponId] = timestamp }
 HitValidator.PlayerStats = {}      -- [player] = { TotalShots, Hits, Headshots, ... }
 HitValidator.FlaggedPlayers = {}   -- [player] = { reason, timestamp, value }
 HitValidator._net = nil
@@ -124,7 +124,7 @@ function HitValidator:_initPlayer(player)
 		SessionStart = workspace:GetServerTimeNow(),
 		LastHitTime = 0,
 	}
-	self.LastFireTimes[player] = 0
+	self.LastFireTimes[player] = {}
 end
 
 function HitValidator:_cleanupPlayer(player)
@@ -182,7 +182,11 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	if not valid then
 		return false, reason
 	end
-	self.LastFireTimes[shooter] = now
+	local weaponId = weaponConfig.name or weaponConfig.weaponName or "Unknown"
+	if not self.LastFireTimes[shooter] then
+		self.LastFireTimes[shooter] = {}
+	end
+	self.LastFireTimes[shooter][weaponId] = now
 	
 	-- 2. RANGE VALIDATION
 	valid, reason = self:_validateRange(hitData, weaponConfig)
@@ -212,6 +216,11 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	
 	-- 6. UPDATE STATISTICS
 	self:_updateStats(shooter, hitData.hitPlayer ~= nil, hitData.isHeadshot)
+
+	if CONFIG.DebugLogging then
+		warn(string.format("[HitValidator] VALID: shooter=%s target=%s damage pipeline continuing",
+			shooter and shooter.Name or "?", hitData.hitPlayer and hitData.hitPlayer.Name or "nil (env hit)"))
+	end
 	
 	return true, "Valid"
 end
@@ -240,12 +249,21 @@ end
 function HitValidator:_validateFireRate(shooter, now, weaponConfig)
 	local fireRate = weaponConfig.fireRate or 600
 	local fireInterval = 60 / fireRate
-	local lastFire = self.LastFireTimes[shooter] or 0
-	
+
+	local weaponId = weaponConfig.name or weaponConfig.weaponName or "Unknown"
+	if not self.LastFireTimes[shooter] then
+		self.LastFireTimes[shooter] = {}
+	end
+	local lastFire = self.LastFireTimes[shooter][weaponId] or 0
+
 	local timeSinceLastFire = now - lastFire
 	local minInterval = fireInterval * CONFIG.FireRateTolerance
 	
 	if timeSinceLastFire < minInterval then
+		if CONFIG.DebugLogging then
+			warn(string.format("[HitValidator] FireRateTooFast: %s weapon=%s timeSince=%.4f minInterval=%.4f", 
+				shooter and shooter.Name or "?", tostring(weaponId), timeSinceLastFire, minInterval))
+		end
 		return false, "FireRateTooFast"
 	end
 	
@@ -277,6 +295,7 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	
 	if not targetPosAtHit then
 		if CONFIG.DebugLogging then
+			warn("[HitValidator] PositionBacktrack: no history for", hitData.hitPlayer and hitData.hitPlayer.Name or "?", "- allowing hit")
 		end
 		-- No position history - allow hit (player just spawned)
 		return true
@@ -328,6 +347,8 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	-- Debug logging
 	if CONFIG.DebugLogging then
 		local targetName = hitData.hitPlayer and hitData.hitPlayer.Name or "Unknown"
+		warn(string.format("[HitValidator] PositionBacktrack: target=%s offset=%.2f tolerance=%.2f (base=%s pingFactor=%.2f staleFactor=%.2f)",
+			targetName, offset, tolerance, tostring(baseTolerance), pingFactor, staleFactor))
 	end
 	
 	if offset > tolerance then
@@ -372,6 +393,10 @@ function HitValidator:_validateStance(hitData, rollbackTime)
 	end
 	
 	if not stanceMatch then
+		if CONFIG.DebugLogging then
+			warn(string.format("[HitValidator] StanceMismatch: target=%s claimed=%d actual=%d",
+				hitData.hitPlayer and hitData.hitPlayer.Name or "?", claimedStance, actualStance))
+		end
 		return false, "StanceMismatch"
 	end
 	
@@ -379,39 +404,28 @@ function HitValidator:_validateStance(hitData, rollbackTime)
 end
 
 function HitValidator:_validateLineOfSight(shooter, hitData, rollbackTime)
-	local hitTime = hitData.timestamp
-	local clampedRollback = math.min(rollbackTime, CONFIG.MaxRollbackTime)
-	local now = workspace:GetServerTimeNow()
-	local lookbackTime = math.max(hitTime, now - clampedRollback)
+	-- Use hitData.origin (camera/eye position from the client packet) as the ray
+	-- start. PositionHistory stores root (waist-height) positions which are ~2.5
+	-- studs below the camera. At close/medium range the angular difference causes
+	-- false "LineOfSightBlocked" rejections that don't affect long-range weapons
+	-- like Sniper. Range + backtrack checks already validate the claim.
+	local shooterOrigin = hitData.origin
 	
-	-- Get historical positions
-	local shooterPosAtHit = PositionHistory:GetPositionAtTime(shooter, lookbackTime)
-	local targetPosAtHit = PositionHistory:GetPositionAtTime(hitData.hitPlayer, lookbackTime)
+	local rayDirection = (hitData.hitPosition - shooterOrigin).Unit
+	local rayLength = (hitData.hitPosition - shooterOrigin).Magnitude
 	
-	-- If no history, use current/claimed positions
-	if not shooterPosAtHit then
-		shooterPosAtHit = hitData.origin
-	end
-	if not targetPosAtHit then
-		targetPosAtHit = hitData.hitPosition
-	end
-	
-	-- Raycast from shooter to hit position
-	local rayDirection = (hitData.hitPosition - shooterPosAtHit).Unit
-	local rayLength = (hitData.hitPosition - shooterPosAtHit).Magnitude
-	
-	-- Build exclusion list (must match client-side weapon raycast exclusions)
+	-- Exclude ALL player characters — the LOS check only cares about static
+	-- environment geometry. Other players' physical rigs should never cause a
+	-- false obstruction.
 	local excludeList = {}
-	if shooter.Character then
-		table.insert(excludeList, shooter.Character)
-	end
-	if hitData.hitPlayer and hitData.hitPlayer.Character then
-		table.insert(excludeList, hitData.hitPlayer.Character)
+	for _, plr in Players:GetPlayers() do
+		if plr.Character then
+			table.insert(excludeList, plr.Character)
+		end
 	end
 
 	-- Exclude non-gameplay folders that the client also excludes
-	-- Without these, server LOS raycasts hit VFX/debris the client correctly ignores
-	local folderNames = { "Effects", "VoxelCache", "__Destruction", "VoxelDebris", "Ragdolls" }
+	local folderNames = { "Effects", "VoxelCache", "__Destruction", "VoxelDebris", "Ragdolls", "Rigs" }
 	for _, name in ipairs(folderNames) do
 		local folder = workspace:FindFirstChild(name)
 		if folder then
@@ -424,13 +438,18 @@ function HitValidator:_validateLineOfSight(shooter, hitData, rollbackTime)
 	rayParams.FilterDescendantsInstances = excludeList
 	rayParams.RespectCanCollide = true
 
-	local result = workspace:Raycast(shooterPosAtHit, rayDirection * rayLength, rayParams)
+	local result = workspace:Raycast(shooterOrigin, rayDirection * rayLength, rayParams)
 
 	if result then
-		-- Allow if the obstruction is very close to the target (within body radius)
-		-- The target's hitbox extends beyond the root position the ray aims at
 		local distToTarget = (result.Position - hitData.hitPosition).Magnitude
 		if distToTarget > CONFIG.BodyRadiusOffset + 2 then
+			if CONFIG.DebugLogging then
+				warn(string.format("[HitValidator] LOS blocked: shooter=%s obstruction='%s' class=%s distToTarget=%.2f tolerance=%.2f",
+					shooter and shooter.Name or "?",
+					result.Instance and result.Instance:GetFullName() or "?",
+					result.Instance and result.Instance.ClassName or "?",
+					distToTarget, CONFIG.BodyRadiusOffset + 2))
+			end
 			return false, "LineOfSightBlocked"
 		end
 	end

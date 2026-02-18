@@ -104,7 +104,10 @@ function ActionsIcon.getKeyDisplayName(keyCode: Enum.KeyCode?): string
 		return "NONE"
 	end
 
-	local name = keyCode.Name
+	local name = (typeof(keyCode) == "EnumItem" and keyCode.Name) or tostring(keyCode)
+	if not name or name == "" then
+		return "NONE"
+	end
 
 	local displayNames = {
 		LeftShift = "L-SHIFT",
