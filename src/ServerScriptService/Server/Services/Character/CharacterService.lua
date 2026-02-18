@@ -225,7 +225,8 @@ function CharacterService:SpawnCharacter(player, options)
 		replicationService:RegisterPlayer(player)
 	end
 
-	self:_fireMatchScoped(player, "CharacterSpawned", character)
+	-- CharacterSpawned MUST be global - clients need this to setup Collider for hit detection
+	self._net:FireAllClients("CharacterSpawned", character)
 
 	self.IsSpawningCharacter[player.UserId] = nil
 	return character
@@ -237,7 +238,8 @@ function CharacterService:RemoveCharacter(player)
 		return
 	end
 
-	self:_fireMatchScoped(player, "CharacterRemoving", character)
+	-- CharacterRemoving MUST be global - clients need this to cleanup Collider
+	self._net:FireAllClients("CharacterRemoving", character)
 
 	local replicationService = self._registry and self._registry:TryGet("ReplicationService")
 	if replicationService and replicationService.UnregisterPlayer then

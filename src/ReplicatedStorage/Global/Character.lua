@@ -55,7 +55,7 @@ local Character = {
 	
 	FallSpeed = {
 		Enabled = true,
-		MaxFallSpeed = 70.75,             -- Down from 105 (much slower terminal velocity)
+		MaxFallSpeed = 80.75,             -- Down from 105 (much slower terminal velocity)
 		DragMultiplier = 0.35,         -- Up from 0.32 (more air drag)
 		
 		AscentDrag = 0.008,  -- Slightly less ascent drag
@@ -63,15 +63,15 @@ local Character = {
 		FallAcceleration = 22.75,-- Down from 24 (much slower fall)
 		AscentGravityReduction = 0.425, -- Down from 0.42 (jump even higher)
 
-		HangTimeThreshold = 6.75,         -- Down from 8 (hang time kicks in earlier)
-		HangTimeDrag = 0.35,           -- Up from 0.18 (big float at apex)
+		HangTimeThreshold = 7.25,         -- Down from 8 (hang time kicks in earlier)
+		HangTimeDrag = 0.25,           -- Up from 0.18 (big float at apex)
 
 		VerticalForceLerp = 8.5,         -- Down from 10 (smoother)
 	},
 
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.375,          -- Down from 0.45 (much more damping = floatier)
+		DampingFactor = 0.425,          -- Down from 0.45 (much more damping = floatier)
 		MaxFallSpeed = 80,
 		ApplyOnlyWhenFalling = true,
 	},
@@ -80,7 +80,7 @@ local Character = {
 		Enabled = true,
 		FloatDuration = 1.15,           -- Up from 1.3 (longer float)
 		DecayRate = 0.035,             -- Down from 0.045 (slower decay)
-		MinDampingFactor = 0.15,       -- Down from 0.20 (more damping)
+		MinDampingFactor = 0.2,       -- Down from 0.20 (more damping)
 		MomentumFactor = 0.004,        -- Down from 0.006 (less momentum kill)
 		VelocityThreshold = 0.5,       -- Down from 0.6 (more forgiving)
 		ThresholdShrinkRate = 0.0015,  -- Down from 0.002 (slower shrink)

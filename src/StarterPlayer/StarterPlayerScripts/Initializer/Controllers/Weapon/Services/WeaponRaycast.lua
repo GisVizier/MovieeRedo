@@ -6,7 +6,8 @@ local WeaponRaycast = {}
 local TrainingRangeShot = nil
 
 -- Debug flag (set to true to see hit logs)
-local DEBUG_LOGGING = false
+-- TESTING: Enabled to debug match hit detection issues
+local DEBUG_LOGGING = true
 
 -- Debug raycast visualization (toggle with Y key) - only YOU see red lines showing shot path
 WeaponRaycast.DebugRaycastEnabled = false
@@ -300,6 +301,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	local character = localPlayer and localPlayer.Character
 	local filterList = { camera }
+	
 	if character then
 		table.insert(filterList, character)
 	end
@@ -307,6 +309,15 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	local effectsFolder = Workspace:FindFirstChild("Effects")
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)
+	end
+	-- Also exclude World.Map.Effects (match-loaded map effects like mob walls)
+	local worldFolder = Workspace:FindFirstChild("World")
+	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+	if mapFolder then
+		local mapEffects = mapFolder:FindFirstChild("Effects")
+		if mapEffects then
+			table.insert(filterList, mapEffects)
+		end
 	end
 	-- Exclude VoxelDestruction cached/debris parts so hitscan passes through rubble
 	local voxelCache = Workspace:FindFirstChild("VoxelCache")
@@ -319,6 +330,13 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		table.insert(filterList, destructionFolder)
 	end
 	raycastParams.FilterDescendantsInstances = filterList
+
+	-- DEBUG: Log filter list contents
+	warn("[RAYCAST] Filter list count:", #filterList)
+	for i, inst in ipairs(filterList) do
+		warn(string.format("[RAYCAST FILTER %d] %s", i, inst:GetFullName()))
+	end
+	-- END DEBUG
 
 	local result = Workspace:Raycast(origin, direction * range, raycastParams)
 
@@ -345,6 +363,22 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	end
 
 	if result then
+		-- DEBUG: Log what the raycast hit
+		local hitPath = result.Instance:GetFullName()
+		local hitClass = result.Instance.ClassName
+		local parentName = result.Instance.Parent and result.Instance.Parent.Name or "nil"
+		local grandparentName = result.Instance.Parent and result.Instance.Parent.Parent and result.Instance.Parent.Parent.Name or "nil"
+		warn(string.format("[RAYCAST HIT] Instance: %s | Class: %s | Parent: %s | Grandparent: %s", 
+			hitPath, hitClass, parentName, grandparentName))
+		
+		-- Check if this looks like a Collider hitbox
+		if parentName == "Standing" or parentName == "Crouching" then
+			warn("[RAYCAST HIT] Detected hitbox structure! Looking for Collider...")
+		elseif parentName == "Collider" or grandparentName == "Collider" then
+			warn("[RAYCAST HIT] Hit something in Collider folder")
+		end
+		-- END DEBUG
+		
 		if not TrainingRangeShot then
 			local ReplicatedStorage = game:GetService("ReplicatedStorage")
 			local Locations =
@@ -434,6 +468,18 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		-- Check for headshot (handles hitbox head parts)
 		local isHeadshot = isHeadshotPart(result.Instance)
 
+		-- DEBUG: Log final hit resolution
+		if hitPlayer then
+			warn(string.format("[RAYCAST RESULT] HIT PLAYER: %s | Character: %s | Headshot: %s",
+				hitPlayer.Name, hitCharacter and hitCharacter.Name or "nil", tostring(isHeadshot)))
+		elseif hitCharacter then
+			warn(string.format("[RAYCAST RESULT] HIT CHARACTER (no player): %s | Headshot: %s",
+				hitCharacter.Name, tostring(isHeadshot)))
+		else
+			warn("[RAYCAST RESULT] NO PLAYER/CHARACTER - environment hit")
+		end
+		-- END DEBUG
+
 		if WeaponRaycast.DebugRaycastEnabled then
 			ensureDebugRayUpdate()
 			addDebugRay(origin, result.Position, Workspace.CurrentCamera)
@@ -451,6 +497,10 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 				and (result.Position - origin).Magnitude / weaponConfig.projectileSpeed,
 		}
 	end
+
+	-- DEBUG: Log when ray missed everything
+	warn("[RAYCAST MISS] Ray hit nothing - went full range to:", tostring(targetPosition))
+	-- END DEBUG
 
 	if WeaponRaycast.DebugRaycastEnabled then
 		ensureDebugRayUpdate()

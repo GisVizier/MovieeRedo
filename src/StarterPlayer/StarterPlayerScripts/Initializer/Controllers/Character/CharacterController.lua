@@ -533,17 +533,20 @@ end
 function CharacterController:_setupRemoteCollider(character, characterTemplate)
 	-- Don't setup twice
 	if character:FindFirstChild("Collider") then
+		warn("[CharacterController] Collider already exists for:", character.Name)
 		return
 	end
 
 	local templateCollider = characterTemplate:FindFirstChild("Collider")
 	if not templateCollider then
+		warn("[CharacterController] ERROR: No Collider in template for:", character.Name)
 		return
 	end
 
 	-- Get template Root for offset calculations
 	local templateRoot = characterTemplate:FindFirstChild("Root")
 	if not templateRoot then
+		warn("[CharacterController] ERROR: No Root in template for:", character.Name)
 		return
 	end
 
@@ -555,6 +558,9 @@ function CharacterController:_setupRemoteCollider(character, characterTemplate)
 	local player = Players:GetPlayerFromCharacter(character) or Players:FindFirstChild(character.Name)
 	if player then
 		collider:SetAttribute("OwnerUserId", player.UserId)
+		warn(string.format("[CharacterController] Setting up Collider for remote player: %s (UserId: %d)", player.Name, player.UserId))
+	else
+		warn("[CharacterController] WARNING: Could not find player for character:", character.Name)
 	end
 
 	-- Get anchor part (Root for character, fallback to PrimaryPart)
@@ -664,6 +670,31 @@ function CharacterController:_setupRemoteCollider(character, characterTemplate)
 
 	-- Set initial stance attribute (HitPacketUtils:DetectStance uses this for hit validation)
 	character:SetAttribute("IsCrouching", false)
+	
+	-- DEBUG: Confirm collider setup
+	local standingParts = 0
+	local crouchingParts = 0
+	local hitboxFolder = collider:FindFirstChild("Hitbox")
+	if hitboxFolder then
+		local standing = hitboxFolder:FindFirstChild("Standing")
+		local crouching = hitboxFolder:FindFirstChild("Crouching")
+		if standing then
+			for _, part in standing:GetChildren() do
+				if part:IsA("BasePart") and part.CanQuery then
+					standingParts = standingParts + 1
+				end
+			end
+		end
+		if crouching then
+			for _, part in crouching:GetChildren() do
+				if part:IsA("BasePart") then
+					crouchingParts = crouchingParts + 1
+				end
+			end
+		end
+	end
+	warn(string.format("[CharacterController] Collider COMPLETE for %s - Standing parts (CanQuery=true): %d, Crouching parts: %d",
+		character.Name, standingParts, crouchingParts))
 end
 
 -- Switch remote player's collider between standing/crouching

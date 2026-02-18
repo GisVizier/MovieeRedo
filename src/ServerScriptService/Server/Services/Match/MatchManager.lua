@@ -145,15 +145,30 @@ function MatchManager:_setupNetworkEvents()
 	end)
 
 	self._net:ConnectServer("MatchTeleportReady", function(player, data)
+		print("[MATCHMANAGER] DEBUG: MatchTeleportReady received from:", player.Name, "data:", data)
 		local matchId = data and data.matchId
-		if not matchId then return end
+		if not matchId then 
+			print("[MATCHMANAGER] DEBUG: MatchTeleportReady - no matchId, ignoring")
+			return 
+		end
 		local match = self._matches[matchId]
-		if not match or not match._pendingTeleports then return end
+		if not match then
+			print("[MATCHMANAGER] DEBUG: MatchTeleportReady - match not found for id:", matchId)
+			return
+		end
+		if not match._pendingTeleports then
+			print("[MATCHMANAGER] DEBUG: MatchTeleportReady - no _pendingTeleports table")
+			return
+		end
+		
+		print("[MATCHMANAGER] DEBUG: MatchTeleportReady - match.state:", match.state)
 
 		match._pendingTeleports[player] = nil
 		local pending = 0
 		for _ in match._pendingTeleports do pending += 1 end
+		print("[MATCHMANAGER] DEBUG: MatchTeleportReady - pending teleports remaining:", pending)
 		if pending == 0 then
+			print("[MATCHMANAGER] DEBUG: All teleports complete, calling _onAllPlayersTeleported")
 			self:_onAllPlayersTeleported(match)
 		end
 	end)
@@ -322,8 +337,9 @@ function MatchManager:CreateMatch(options)
 
 	-- Start the match flow
 	if modeConfig.showMapSelection then
-		-- Teleport players to waiting room first, then start map selection
+		-- Teleport players to waiting room while they pick the map
 		self:_teleportToWaitingRoom(match)
+		-- Start map selection (players will be teleported after map is loaded)
 		self:_startMapSelection(match)
 	else
 		-- No map selection — load default map and go to loadout
@@ -334,114 +350,60 @@ function MatchManager:CreateMatch(options)
 end
 
 --------------------------------------------------------------------------------
--- WAITING ROOM
+-- WAITING ROOM PHASE
 --------------------------------------------------------------------------------
 
---[[
-	Teleports all match players to the WaitingRoom and freezes them until map is selected.
-]]
 function MatchManager:_teleportToWaitingRoom(match)
-	local waitingRoom = workspace:FindFirstChild("World") and workspace.World:FindFirstChild("WaitingRoom")
-	if not waitingRoom then
-		warn("[MATCHMANAGER] WaitingRoom not found in World folder")
+	-- Find waiting room spawn
+	local world = workspace:FindFirstChild("World")
+	local waitingRoomSpawn = world and world:FindFirstChild("WaitingRoomSpawn")
+	
+	if not waitingRoomSpawn then
+		-- Fallback: use lobby spawn
+		local lobby = workspace:FindFirstChild("Lobby")
+		waitingRoomSpawn = lobby and lobby:FindFirstChild("Spawn")
+	end
+	
+	if not waitingRoomSpawn then
+		warn("[MATCHMANAGER] No WaitingRoomSpawn found, skipping waiting room teleport")
 		return
 	end
 	
-	local spawnPart = waitingRoom:FindFirstChild("Spawn")
-	if not spawnPart or not spawnPart:IsA("BasePart") then
-		warn("[MATCHMANAGER] WaitingRoom/Spawn part not found")
-		return
-	end
+	local spawnPosition = waitingRoomSpawn.Position + Vector3.new(0, 3, 0)
+	local spawnLookVector = waitingRoomSpawn.CFrame.LookVector
 	
-	-- Freeze players and teleport to random positions within the spawn bounds
-	for _, player in self:_getMatchPlayers(match) do
-		-- Calculate random position within spawn bounds
-		local size = spawnPart.Size
-		local randomOffset = Vector3.new(
-			(math.random() - 0.5) * size.X,
-			3, -- Height above spawn
-			(math.random() - 0.5) * size.Z
-		)
-		local targetPosition = spawnPart.Position + randomOffset
-		local targetLookVector = Vector3.new(0, 0, -1)
-		
-		-- Set frozen state BEFORE teleport
-		player:SetAttribute("ExternalMoveMult", 0)
-		player:SetAttribute("MatchFrozen", true)
-		player:SetAttribute("PlayerState", "WaitingRoom")
-		
-		-- Fire teleport to client with waiting room flags
-		self._net:FireClient("MatchTeleport", player, {
-			matchId = match.id,
-			spawnPosition = targetPosition,
-			spawnLookVector = targetLookVector,
-			isWaitingRoom = true,
-			lockPosition = true,      -- Tell client to lock position
-			firstPerson = true,       -- Switch to first person
-			unlockMouse = true,       -- Unlock mouse for UI interaction
-		})
-		
-		-- Server-side anchor and freeze character (client handles teleport via MovementController)
-		task.spawn(function()
-			-- Small delay to let client teleport execute first
-			task.wait(0.2)
-			
-			local character = player.Character
-			if not character then return end
-			
-			local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
-			if root then
-				-- Anchor to prevent any movement during map selection
-				root.Anchored = true
-				root.AssemblyLinearVelocity = Vector3.zero
-				root.AssemblyAngularVelocity = Vector3.zero
-				print("[MATCHMANAGER] Player anchored in waiting room:", player.Name)
-			end
-			
-			-- Freeze the humanoid too
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid then
-				humanoid.WalkSpeed = 0
-				humanoid.JumpPower = 0
-				humanoid.JumpHeight = 0
-			end
-		end)
-	end
+	local allPlayerIds = {}
+	for _, uid in match.team1 do table.insert(allPlayerIds, uid) end
+	for _, uid in match.team2 do table.insert(allPlayerIds, uid) end
 	
-	print("[MATCHMANAGER] Players teleported to WaitingRoom for match:", match.id)
+	for _, userId in allPlayerIds do
+		local player = Players:GetPlayerByUserId(userId)
+		if player then
+			player:SetAttribute("InWaitingRoom", true)
+			player:SetAttribute("MatchFrozen", true)
+			
+			-- Fire teleport with waiting room flag
+			self._net:FireClient("MatchTeleport", player, {
+				matchId = match.id,
+				isWaitingRoom = true,
+				spawnPosition = spawnPosition,
+				spawnLookVector = spawnLookVector,
+			})
+		end
+	end
 end
 
---[[
-	Unanchors and unfreezes players after map selection.
-]]
 function MatchManager:_releaseFromWaitingRoom(match)
-	for _, player in self:_getMatchPlayers(match) do
-		local character = player.Character
-		if character then
-			local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
-			if root then
-				-- Remove position lock constraint
-				local bodyPos = root:FindFirstChild("WaitingRoomLock")
-				if bodyPos then
-					bodyPos:Destroy()
-				end
-				
-				-- Unanchor
-				root.Anchored = false
-			end
-			
-			-- Restore humanoid properties (will be set properly when teleported to map)
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid then
-				humanoid.WalkSpeed = 16  -- Default, will be updated by movement system
-				humanoid.JumpPower = 50
-				humanoid.JumpHeight = 7.2
-			end
+	local allPlayerIds = {}
+	for _, uid in match.team1 do table.insert(allPlayerIds, uid) end
+	for _, uid in match.team2 do table.insert(allPlayerIds, uid) end
+	
+	for _, userId in allPlayerIds do
+		local player = Players:GetPlayerByUserId(userId)
+		if player then
+			player:SetAttribute("InWaitingRoom", nil)
+			player:SetAttribute("MatchFrozen", nil)
 		end
-		
-		-- Clear frozen attributes
-		player:SetAttribute("MatchFrozen", nil)
-		player:SetAttribute("ExternalMoveMult", 1)
 	end
 end
 
@@ -532,11 +494,25 @@ end
 -- MAP LOAD + TELEPORT
 --------------------------------------------------------------------------------
 
+-- TESTING: Skip teleport entirely to debug hit detection
+-- Set to false now that we have Collider refresh fix
+local SKIP_TELEPORT_FOR_TESTING = false
+
 function MatchManager:_loadMapAndTeleport(match, mapId)
 	print("[MATCHMANAGER] _loadMapAndTeleport called - matchId:", match.id, "mapId:", mapId)
 	
 	-- Release players from waiting room if they were there
 	self:_releaseFromWaitingRoom(match)
+	
+	-- TESTING: Skip map load and teleport - fight in lobby
+	if SKIP_TELEPORT_FOR_TESTING then
+		print("[MATCHMANAGER] TESTING: Skipping map load and teleport - staying in lobby")
+		match.mapId = mapId
+		match.state = "starting"
+		-- Go straight to loadout phase without teleporting
+		self:_startLoadoutPhase(match)
+		return
+	end
 	
 	local position = self:_allocatePosition()
 	if not position then
@@ -562,12 +538,31 @@ function MatchManager:_loadMapAndTeleport(match, mapId)
 		return
 	end
 	print("[MATCHMANAGER] Map loaded successfully - instance:", mapData.instance and mapData.instance.Name or "nil")
+	
+	-- DEBUG: Log spawn details
+	if mapData.spawns then
+		if mapData.spawns.Team1 then
+			local pos1 = mapData.spawns.Team1:IsA("BasePart") and mapData.spawns.Team1.Position or mapData.spawns.Team1:GetPivot().Position
+			print("[MATCHMANAGER] DEBUG: Team1 spawn =", mapData.spawns.Team1:GetFullName(), "at position:", pos1)
+		else
+			warn("[MATCHMANAGER] DEBUG: Team1 spawn is NIL!")
+		end
+		if mapData.spawns.Team2 then
+			local pos2 = mapData.spawns.Team2:IsA("BasePart") and mapData.spawns.Team2.Position or mapData.spawns.Team2:GetPivot().Position
+			print("[MATCHMANAGER] DEBUG: Team2 spawn =", mapData.spawns.Team2:GetFullName(), "at position:", pos2)
+		else
+			warn("[MATCHMANAGER] DEBUG: Team2 spawn is NIL!")
+		end
+	else
+		warn("[MATCHMANAGER] DEBUG: mapData.spawns is NIL!")
+	end
 
 	match.mapId = mapId
 	match.mapInstance = mapData.instance
 	match.mapPosition = position
 	match.spawns = mapData.spawns
 	match.state = "starting"
+	print("[MATCHMANAGER] DEBUG: Match state changed to 'starting'")
 	
 	print("[MATCHMANAGER] Match spawns set - Team1:", match.spawns.Team1 and match.spawns.Team1.Name or "NIL",
 		"Team2:", match.spawns.Team2 and match.spawns.Team2.Name or "NIL")
@@ -643,7 +638,8 @@ function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 	local spawnPosition, spawnLookVector
 
 	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
-	self:_clearPlayerPositionHistory(player)
+	-- TESTING: Disabled to debug hit detection issues
+	-- self:_clearPlayerPositionHistory(player)
 	
 	if spawn:IsA("BasePart") then
 		-- Get random position within spawn bounds
@@ -677,18 +673,10 @@ function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 		spawnLookVector = spawnLookVector,
 	})
 
-	-- Unanchor and heal the character
+	-- Just heal the character - let CLIENT handle teleportation (like training grounds)
+	-- Server-side CFrame manipulation conflicts with client teleport and breaks Colliders
 	local character = player.Character
 	if character then
-		local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
-		if root then
-			root.Anchored = false
-			-- Apply the teleport server-side as well
-			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-		
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then humanoid.Health = humanoid.MaxHealth end
 	end
@@ -699,11 +687,17 @@ end
 --------------------------------------------------------------------------------
 
 function MatchManager:_onAllPlayersTeleported(match)
-	if match.state ~= "starting" and match.state ~= "resetting" then return end
+	print("[MATCHMANAGER] DEBUG: _onAllPlayersTeleported called - match.state:", match.state)
+	if match.state ~= "starting" and match.state ~= "resetting" then 
+		print("[MATCHMANAGER] DEBUG: _onAllPlayersTeleported EARLY RETURN - state is not 'starting' or 'resetting'")
+		return 
+	end
 
 	if match.modeConfig.showLoadoutOnMatchStart or (match.state == "resetting" and match.modeConfig.showLoadoutOnRoundReset) then
+		print("[MATCHMANAGER] DEBUG: _onAllPlayersTeleported -> calling _startLoadoutPhase")
 		self:_startLoadoutPhase(match)
 	else
+		print("[MATCHMANAGER] DEBUG: _onAllPlayersTeleported -> calling _startMatchRound")
 		self:_startMatchRound(match)
 	end
 end
@@ -720,7 +714,8 @@ function MatchManager:_startLoadoutPhase(match)
 	end
 
 	-- Freeze movement + abilities during loadout
-	if match.modeConfig.freezeDuringLoadout then
+	-- TESTING: Skip freeze when testing hit detection
+	if match.modeConfig.freezeDuringLoadout and not SKIP_TELEPORT_FOR_TESTING then
 		self:_freezeMatchPlayers(match)
 	end
 
@@ -1262,7 +1257,8 @@ function MatchManager:_teleportPlayerDirect(match, player, spawn)
 	local spawnPosition, spawnLookVector
 
 	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
-	self:_clearPlayerPositionHistory(player)
+	-- TESTING: Disabled to debug hit detection issues
+	-- self:_clearPlayerPositionHistory(player)
 
 	if spawn:IsA("BasePart") then
 		-- Get random position within spawn bounds
@@ -1288,16 +1284,10 @@ function MatchManager:_teleportPlayerDirect(match, player, spawn)
 		roundReset = true,
 	})
 
-	-- Heal humanoid and apply server-side teleport
+	-- Just heal - let CLIENT handle teleportation (like training grounds)
+	-- Server-side CFrame manipulation conflicts with client teleport and breaks Colliders
 	local character = player.Character
 	if character then
-		local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
-		if root then
-			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-		
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then humanoid.Health = humanoid.MaxHealth end
 	end
@@ -1308,10 +1298,14 @@ end
 --------------------------------------------------------------------------------
 
 function MatchManager:EndMatch(matchId, winnerTeam)
+	print("[MATCHMANAGER] DEBUG: EndMatch called - matchId:", matchId, "winnerTeam:", winnerTeam)
+	print("[MATCHMANAGER] DEBUG: EndMatch traceback:", debug.traceback())
+	
 	local match = self._matches[matchId]
 	if not match then return end
 
 	match.state = "ended"
+	print("[MATCHMANAGER] DEBUG: Match state changed to 'ended'")
 
 	-- Stop the round timer
 	if match._roundTimerThread then
@@ -1353,8 +1347,13 @@ function MatchManager:EndMatch(matchId, winnerTeam)
 end
 
 function MatchManager:_cleanupMatch(matchId)
+	print("[MATCHMANAGER] DEBUG: _cleanupMatch called - matchId:", matchId)
+	print("[MATCHMANAGER] DEBUG: _cleanupMatch traceback:", debug.traceback())
+	
 	local match = self._matches[matchId]
 	if not match then return end
+	
+	print("[MATCHMANAGER] DEBUG: _cleanupMatch - match.state was:", match.state)
 
 	-- Cancel all pending threads to prevent leaks
 	if match._mapVoteThread then
@@ -1505,15 +1504,10 @@ function MatchManager:_teleportPlayerToSpawn(player, spawn)
 		spawnLookVector = spawnLookVector,
 	})
 
+	-- Just heal - let CLIENT handle teleportation (like training grounds)
+	-- Server-side CFrame manipulation conflicts with client teleport and breaks Colliders
 	local character = player.Character
 	if character then
-		local root = character:FindFirstChild("Root") or character:FindFirstChild("HumanoidRootPart")
-		if root then
-			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-		
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then humanoid.Health = humanoid.MaxHealth end
 	end

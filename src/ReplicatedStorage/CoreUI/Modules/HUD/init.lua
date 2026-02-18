@@ -3744,6 +3744,12 @@ function module:RoundEnd(outcome)
 		outcomeText = "DRAW"
 	end
 
+	-- ALWAYS reset main label to "ROUND" (in case StormStarted set it to "STORM")
+	if self._roundTextLabel then
+		self._roundTextLabel.Text = "ROUND"
+		self._roundTextLabel.TextColor3 = Color3.fromRGB(229, 229, 229) -- Reset to default color
+	end
+
 	-- Update the outcome text inside Left and Righ canvas groups
 	if self._roundRigh then
 		local label = self._roundRigh:FindFirstChildWhichIsA("TextLabel")
@@ -3915,6 +3921,12 @@ function module:RoundStart(roundNumber)
 	cancelTweens("round_text_fade")
 	cancelTweens("round_start")
 	cancelTweens("round_hide")
+
+	-- ALWAYS reset main label to "ROUND" (in case StormStarted set it to "STORM")
+	if self._roundTextLabel then
+		self._roundTextLabel.Text = "ROUND"
+		self._roundTextLabel.TextColor3 = Color3.fromRGB(229, 229, 229) -- Reset to default color
+	end
 
 	-- Bar turns black for round start
 	if self._roundBar then

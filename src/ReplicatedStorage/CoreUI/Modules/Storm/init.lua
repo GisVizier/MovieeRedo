@@ -458,6 +458,7 @@ end
 
 --[[
 	Updates the local storm mesh size based on current radius.
+	Uses tweening for smooth shrinking animation.
 ]]
 function module:updateStormMesh(currentRadius)
 	if not self._stormMesh or not self._stormMesh.Parent then return end
@@ -467,18 +468,30 @@ function module:updateStormMesh(currentRadius)
 	local radiusRatio = currentRadius / data.initialRadius
 	local newScaleFactor = data.scaleFactor * radiusRatio
 	
-	-- Update mesh size
-	self._stormMesh.Size = Vector3.new(
+	-- Calculate target size
+	local targetSize = Vector3.new(
 		data.originalSizeX * newScaleFactor,
 		self._stormMesh.Size.Y,
 		data.originalSizeZ * newScaleFactor
 	)
+	
+	-- Cancel any existing shrink tween
+	cancelTweens("storm_shrink")
+	
+	-- Tween to new size smoothly (slightly longer than server update rate for seamless motion)
+	local shrinkInfo = TweenInfo.new(0.15, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+	local shrinkTween = TweenService:Create(self._stormMesh, shrinkInfo, { Size = targetSize })
+	currentTweens["storm_shrink"] = { shrinkTween }
+	shrinkTween:Play()
 end
 
 --[[
 	Destroys the local storm mesh.
 ]]
 function module:destroyStormMesh()
+	-- Cancel shrink tween before destroying
+	cancelTweens("storm_shrink")
+	
 	if self._stormModel and self._stormModel.Parent then
 		self._stormModel:Destroy()
 	end
@@ -523,6 +536,7 @@ function module:_cleanup()
 	cancelTweens("main")
 	cancelTweens("pulse")
 	cancelTweens("ambience_fade")
+	cancelTweens("storm_shrink")
 	
 	-- Stop all sounds and reset ambience volume
 	for name, sound in self._sounds do

@@ -189,6 +189,14 @@ function WeaponService:OnWeaponFired(player, shotData)
 			return
 		end
 		weaponId = hitData.weaponName
+		
+		-- DEBUG: Log parsed packet details
+		warn(string.format("[WeaponService PACKET] Shooter: %s | targetUserId: %s | hitPlayer resolved: %s | weapon: %s",
+			player.Name,
+			tostring(hitData.targetUserId),
+			hitData.hitPlayer and hitData.hitPlayer.Name or "NIL",
+			tostring(weaponId)))
+		-- END DEBUG
 	else
 		-- Legacy table format (backward compatibility)
 		hitData = {

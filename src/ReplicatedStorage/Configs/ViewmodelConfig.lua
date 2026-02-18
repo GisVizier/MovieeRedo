@@ -123,6 +123,9 @@ ViewmodelConfig.Weapons = {
 			End = "End",
 			Inspect = "Inspect",
 		},
+		Sounds = {
+			Equip = "rbxassetid://7326203155",
+		},
 	},
 
 	Revolver = {
@@ -169,7 +172,12 @@ ViewmodelConfig.Weapons = {
 		},
 		Sounds = {
 			-- Temporary fallback while private assets are inaccessible in this experience.
-			Equip = "rbxasset://sounds/electronicpingshort.wav",
+			Equip = "rbxassetid://7326203155",
+			Inspect = "rbxassetid://7326203155",
+			Fire = "rbxassetid://7326203155",
+			Reload1 = "rbxassetid://7326203155",
+			Reload2 = "rbxassetid://7326203155",
+			Special = "rbxassetid://7326203155",
 			-- Equip = "rbxassetid://105676081627742",
 			-- Inspect = "rbxassetid://83079135649283",
 			-- Fire = "rbxassetid://97613244290752",
@@ -207,7 +215,11 @@ ViewmodelConfig.Weapons = {
 		},
 		Sounds = {
 			-- Temporary fallback while private assets are inaccessible in this experience.
-			Equip = "rbxasset://sounds/electronicpingshort.wav",
+			Equip = "rbxassetid://7326203155",
+			Inspect = "rbxassetid://7326203155",
+			Inspect2 = "rbxassetid://7326203155",
+			Reload = "rbxassetid://7326203155",
+			Fire = "rbxassetid://7326203155",
 			-- Equip = "rbxassetid://138534048244630",
 			-- Inspect = "rbxassetid://126105109221911",
 			-- Inspect2 = "rbxassetid://134105504947632",
@@ -242,7 +254,12 @@ ViewmodelConfig.Weapons = {
 		},
 		Sounds = {
 			-- Temporary fallback while private assets are inaccessible in this experience.
-			Equip = "rbxasset://sounds/electronicpingshort.wav",
+			Equip = "rbxassetid://7326203155",
+			AimIn = "rbxassetid://7326203155",
+			AimOut = "rbxassetid://7326203155",
+			Reload = "rbxassetid://7326203155",
+			Inspect = "rbxassetid://7326203155",
+			Fire = "rbxassetid://7326203155",
 			-- Equip = "rbxassetid://120459334890171",
 			-- AimIn = "rbxassetid://92425294852292",
 			-- AimOut = "rbxassetid://104612592617107",

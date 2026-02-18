@@ -1,11 +1,11 @@
 local MapConfig = {
 	TrainingGrounds = {
 		name = "Training Grounds",
-		creator = "UiteszeTeam",
+		creator = "Moviee",
 		description = "Practice your skills with all weapons and kits unlocked.",
 		imageId = "rbxassetid://122392514179092", -- Can update with a training-specific image
 		playerReq = {
-			min = 1,
+			min = 99,
 			max = 99,
 		},
 		instance = nil,
@@ -13,7 +13,7 @@ local MapConfig = {
 
 	DirtyDepo = {
 		name = "Dirty Depo",
-		creator = "UiteszeTeam",
+		creator = "Moviee",
 		description = "Abandoned industrial warehouse with hazardous terrain and tight corners.",
 		imageId = "rbxassetid://93295918336345",
 		playerReq = {
@@ -25,11 +25,11 @@ local MapConfig = {
 
 	CrazyConstruct = {
 		name = "Crazy Construct",
-		creator = "UiteszeTeam",
+		creator = "Moviee",
 		description = "Chaotic construction site with vertical gameplay and unstable platforms.",
 		imageId = "rbxassetid://107212538193568",
 		playerReq = {
-			min = 4,
+			min = 2,
 			max = 8,
 		},
 		instance = nil,
@@ -37,7 +37,7 @@ local MapConfig = {
 
 	ApexArena = {
 		name = "Apex Arena",
-		creator = "UiteszeTeam",
+		creator = "Moviee",
 		description = "Premier combat arena built for competitive battles and intense showdowns.",
 		imageId = "rbxassetid://122392514179092",
 		playerReq = {

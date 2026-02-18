@@ -74,6 +74,9 @@ function Exit:_onTouched(hit, localPlayer)
 end
 
 function Exit:onUseRequest(player, _payload)
+	print("[EXIT GADGET] onUseRequest called for player:", player.Name)
+	print("[EXIT GADGET] traceback:", debug.traceback())
+	
 	local character = player.Character
 	if not character then
 		return { approved = false }
