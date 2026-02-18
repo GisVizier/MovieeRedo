@@ -918,6 +918,19 @@ function UIController:_onMatchEnd(data)
 	safeCall(function() self._coreUi:hide("HUD") end)
 	safeCall(function() self._coreUi:hide("Loadout") end)
 	safeCall(function() self._coreUi:hide("Storm") end)
+	
+	-- Explicitly destroy storm mesh and restore clouds
+	local stormModule = self._coreUi:getModule("Storm")
+	if stormModule then
+		safeCall(function()
+			if stormModule.destroyStormMesh then
+				stormModule:destroyStormMesh()
+			end
+			if stormModule._restoreStormClouds then
+				stormModule:_restoreStormClouds()
+			end
+		end)
+	end
 
 	-- Hide crosshair
 	local weaponController = self._registry and self._registry:TryGet("Weapon")
@@ -944,6 +957,14 @@ function UIController:_onStormStart(data)
 		if hudModule and hudModule.StormStarted then
 			pcall(function()
 				hudModule:StormStarted()
+			end)
+		end
+		
+		-- Create local storm mesh (client-side only)
+		local stormModule = self._coreUi:getModule("Storm")
+		if stormModule and stormModule.createStormMesh then
+			pcall(function()
+				stormModule:createStormMesh(data)
 			end)
 		end
 	end

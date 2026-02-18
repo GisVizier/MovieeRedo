@@ -86,7 +86,7 @@ Movement.Sliding = {
 	SlideBuffer = {},
 	JumpCancel = {
 		Enabled = true,
-		JumpHeight = 40.75,
+		JumpHeight = 45.75,
 		MinHorizontalPower = 18,
 		MaxHorizontalPower = 34,
 		VelocityScaling = 0.65,
@@ -95,16 +95,18 @@ Movement.Sliding = {
 		GroundedGraceTime = 0.1,
 		AnimationGraceTime = 0.15,
 		GroundRayDistance = 0.5,
+		
 		UphillBoost = {
 			Enabled = true,
-			SlopeThreshold = 0.35,      -- ~20 degrees min to trigger
-			MinVerticalBoost = 42,      -- Gentle slopes = moderate boost
-			MaxVerticalBoost = 68,      -- Steep slopes = high boost
-			MaxSlopeAngle = 50,
-			ScalingExponent = 1.3,      -- Steeper curve
-			HorizontalVelocityScale = 0.32,
-			MinHorizontalVelocity = 7,
-			MinUphillAlignment = -0.45,
+			SlopeThreshold = 0.15,      -- ~25 degrees min
+			MinVerticalBoost = 40,      -- Moderate slopes = decent boost
+			MaxVerticalBoost = 85,      -- Steep slopes = big boost
+			MaxSlopeAngle = 60,
+			ScalingExponent = 1.5,      -- Balanced curve
+
+			HorizontalVelocityScale = 0.85,
+			MinHorizontalVelocity = 15,
+			MinUphillAlignment = -0.25,
 		},
 	},
 }

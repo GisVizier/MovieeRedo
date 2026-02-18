@@ -147,6 +147,8 @@ WeaponController._debugRaycastKeyConn = nil
 WeaponController._quickMeleeToken = 0
 WeaponController._quickMeleeSession = nil
 WeaponController._replicatedMovementTrack = nil
+WeaponController._activeActionSounds = {}
+WeaponController._lastActionSoundAt = {}
 
 -- =============================================================================
 -- INITIALIZATION
@@ -675,6 +677,14 @@ function WeaponController:_equipWeapon(weaponId, slot)
 		elseif self._currentActions.Main.OnEquip then
 			self._currentActions.Main.OnEquip(self._weaponInstance)
 		end
+
+		-- Fallback equip cue: guarantees equip audio even if a weapon action omits it.
+		if self._weaponInstance and self._weaponInstance.PlayActionSound then
+			self._weaponInstance.PlayActionSound("Equip", nil, {
+				trackName = "Equip",
+				stopOnTrackEnd = true,
+			})
+		end
 	end
 
 	self:_applyCrosshairForWeapon(weaponId)
@@ -784,6 +794,8 @@ function WeaponController:OnRespawnRefresh()
 end
 
 function WeaponController:_unequipCurrentWeapon()
+	self:_stopAllTrackedWeaponActionSounds(true)
+
 	if self._replicatedMovementTrack then
 		self:_replicateViewmodelAction("PlayWeaponTrack", self._replicatedMovementTrack, false)
 		self._replicatedMovementTrack = nil
@@ -900,6 +912,134 @@ function WeaponController:_resolveWeaponActionSoundId(weaponId, slot, actionName
 end
 
 function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch)
+function WeaponController:_resolveActionTrackName(actionName, options)
+	if type(options) == "table" and type(options.trackName) == "string" and options.trackName ~= "" then
+		return options.trackName
+	end
+	if actionName == "AimIn" then
+		return "ADS"
+	end
+	if actionName == "AimOut" then
+		return "Hip"
+	end
+	return actionName
+end
+
+function WeaponController:_getAnimatorTrack(trackName)
+	if type(trackName) ~= "string" or trackName == "" then
+		return nil
+	end
+	local vm = self._viewmodelController
+	if not vm then
+		return nil
+	end
+	local animator = vm._animator
+	if not animator or type(animator.GetTrack) ~= "function" then
+		return nil
+	end
+	return animator:GetTrack(trackName)
+end
+
+function WeaponController:_emitWeaponSoundStop(token)
+	if type(token) ~= "string" or token == "" then
+		return
+	end
+	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, {
+		category = "Weapon",
+		stop = true,
+		token = token,
+	})
+end
+
+function WeaponController:_stopTrackedWeaponActionSound(token, replicateStop)
+	if type(token) ~= "string" or token == "" then
+		return
+	end
+
+	local entry = self._activeActionSounds and self._activeActionSounds[token]
+	if not entry then
+		return
+	end
+
+	if entry.trackConn then
+		entry.trackConn:Disconnect()
+		entry.trackConn = nil
+	end
+
+	local sound = entry.sound
+	if sound and sound.Parent then
+		pcall(function()
+			sound:Stop()
+		end)
+		pcall(function()
+			sound:Destroy()
+		end)
+	end
+
+	self._activeActionSounds[token] = nil
+
+	if replicateStop then
+		self:_emitWeaponSoundStop(token)
+	end
+end
+
+function WeaponController:_bindWeaponSoundToTrack(token, trackName)
+	if type(token) ~= "string" or token == "" then
+		return
+	end
+
+	local function bindNow()
+		local entry = self._activeActionSounds[token]
+		if not entry then
+			return true
+		end
+		local track = self:_getAnimatorTrack(trackName)
+		if not track or not track.Stopped then
+			return false
+		end
+
+		if entry.trackConn then
+			entry.trackConn:Disconnect()
+		end
+		entry.trackConn = track.Stopped:Connect(function()
+			self:_stopTrackedWeaponActionSound(token, true)
+		end)
+		return true
+	end
+
+	if bindNow() then
+		return
+	end
+
+	task.spawn(function()
+		for _ = 1, 8 do
+			task.wait(0.03)
+			if bindNow() then
+				return
+			end
+			if not (self._activeActionSounds and self._activeActionSounds[token]) then
+				return
+			end
+		end
+	end)
+end
+
+function WeaponController:_stopAllTrackedWeaponActionSounds(replicateStop)
+	local active = self._activeActionSounds
+	if type(active) ~= "table" then
+		return
+	end
+
+	local tokens = {}
+	for token, _ in pairs(active) do
+		table.insert(tokens, token)
+	end
+	for _, token in ipairs(tokens) do
+		self:_stopTrackedWeaponActionSound(token, replicateStop)
+	end
+end
+
+function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch, options)
 	local soundId = nil
 	local skinId = nil
 	soundId, skinId = self:_resolveWeaponActionSoundId(weaponId, slot, actionName)
@@ -907,9 +1047,27 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 		return
 	end
 
+	local dedupeKey = tostring(weaponId) .. "|" .. tostring(slot) .. "|" .. tostring(actionName)
+	local now = os.clock()
+	local last = self._lastActionSoundAt and self._lastActionSoundAt[dedupeKey] or 0
+	if (now - last) < 0.045 then
+		return
+	end
+	self._lastActionSoundAt[dedupeKey] = now
+
+	local token = HttpService:GenerateGUID(false)
+	local localSound = self:_playLocalWeaponSound(soundId, pitch)
+	if localSound then
+		self._activeActionSounds[token] = {
+			sound = localSound,
+			trackConn = nil,
+		}
+	end
+
 	local payload = {
 		category = "Weapon",
 		soundId = soundId,
+		token = token,
 	}
 
 	if type(weaponId) == "string" and weaponId ~= "" then
@@ -925,13 +1083,21 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 		payload.pitch = pitch
 	end
 
-	self:_playLocalWeaponSound(soundId, pitch)
 	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, payload)
+
+	local stopOnTrackEnd = true
+	if type(options) == "table" and options.stopOnTrackEnd ~= nil then
+		stopOnTrackEnd = options.stopOnTrackEnd == true
+	end
+	if stopOnTrackEnd and localSound then
+		local trackName = self:_resolveActionTrackName(actionName, options)
+		self:_bindWeaponSoundToTrack(token, trackName)
+	end
 end
 
 function WeaponController:_playLocalWeaponSound(soundId, pitch)
 	if type(soundId) ~= "string" or soundId == "" then
-		return
+		return nil
 	end
 
 	local parent = SoundService
@@ -961,6 +1127,7 @@ function WeaponController:_playLocalWeaponSound(soundId, pitch)
 	sound.Parent = parent
 	sound:Play()
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+	return sound
 end
 
 function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
@@ -1018,8 +1185,8 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		RenderTracer = function(hitData)
 			self:_renderBulletTracer(hitData)
 		end,
-		PlayActionSound = function(actionName, pitch)
-			self:_playWeaponActionSound(weaponId, slot, actionName, pitch)
+		PlayActionSound = function(actionName, pitch, options)
+			self:_playWeaponActionSound(weaponId, slot, actionName, pitch, options)
 		end,
 
 		-- State management

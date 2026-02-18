@@ -22,6 +22,11 @@ local STORM_CLOUD_START_DENSITY = 0.63
 local STORM_CLOUD_COLOR = Color3.fromRGB(160, 65, 255)
 local STORM_CLOUD_FINAL_COVER = 1
 
+-- Storm mesh settings
+local STORM_Y_OFFSET = -200 -- Offset mesh downward
+local STORM_MESH_TRANSPARENCY = 0.3
+local STORM_FADE_IN_TIME = 2
+
 local function cancelTweens(key)
 	if currentTweens[key] then
 		for _, tween in currentTweens[key] do
@@ -361,6 +366,128 @@ function module:_restoreStormClouds()
 end
 
 --[[
+	Creates the local storm mesh based on server data.
+	Called when StormStart event is received.
+]]
+function module:createStormMesh(data)
+	-- Clean up any existing storm mesh first
+	self:destroyStormMesh()
+	
+	if not data or not data.center or not data.initialRadius then
+		warn("[STORM UI] Invalid storm data for mesh creation")
+		return
+	end
+	
+	-- Get the storm model template
+	local assetsFolder = ReplicatedStorage:FindFirstChild("Assets")
+	local stormTemplate = assetsFolder and assetsFolder:FindFirstChild("Strom")
+	if not stormTemplate then
+		warn("[STORM UI] Storm template not found in ReplicatedStorage.Assets.Strom")
+		return
+	end
+	
+	-- Clone the storm model
+	local stormClone = stormTemplate:Clone()
+	local stormMesh = stormClone:FindFirstChild("Storm")
+	local rootPart = stormClone:FindFirstChild("Root")
+	
+	if not stormMesh or not stormMesh:IsA("BasePart") then
+		warn("[STORM UI] Storm MeshPart not found in template")
+		stormClone:Destroy()
+		return
+	end
+	
+	-- Store original size for scaling calculations
+	local originalSize = stormMesh.Size
+	local originalDiameter = math.max(originalSize.X, originalSize.Z)
+	local targetDiameter = data.initialRadius * 2
+	local scaleFactor = targetDiameter / originalDiameter
+	
+	-- Position root at center
+	if rootPart then
+		rootPart.Position = data.center
+		rootPart.Anchored = true
+		rootPart.CanCollide = false
+	end
+	
+	-- Scale mesh X and Z
+	stormMesh.Size = Vector3.new(
+		originalSize.X * scaleFactor,
+		originalSize.Y,
+		originalSize.Z * scaleFactor
+	)
+	
+	-- Position mesh with Y offset
+	local meshHeight = stormMesh.Size.Y
+	stormMesh.Position = Vector3.new(
+		data.center.X,
+		data.center.Y + STORM_Y_OFFSET + (meshHeight / 2),
+		data.center.Z
+	)
+	stormMesh.Anchored = true
+	stormMesh.CanCollide = false
+	stormMesh.CanQuery = false
+	stormMesh.CanTouch = false
+	
+	-- Start transparent, will fade in
+	stormMesh.Transparency = 1
+	
+	-- Parent to workspace (local only - this is client-side)
+	stormClone.Name = "LocalStorm"
+	stormClone.Parent = workspace
+	
+	-- Store references for updates
+	self._stormMesh = stormMesh
+	self._stormModel = stormClone
+	self._stormData = {
+		center = data.center,
+		initialRadius = data.initialRadius,
+		targetRadius = data.targetRadius,
+		originalSizeX = originalSize.X,
+		originalSizeZ = originalSize.Z,
+		scaleFactor = scaleFactor,
+	}
+	
+	-- Fade in the mesh
+	local fadeInfo = TweenInfo.new(STORM_FADE_IN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeTween = TweenService:Create(stormMesh, fadeInfo, { Transparency = STORM_MESH_TRANSPARENCY })
+	fadeTween:Play()
+	
+	print("[STORM UI] Local storm mesh created - radius:", data.initialRadius)
+end
+
+--[[
+	Updates the local storm mesh size based on current radius.
+]]
+function module:updateStormMesh(currentRadius)
+	if not self._stormMesh or not self._stormMesh.Parent then return end
+	if not self._stormData then return end
+	
+	local data = self._stormData
+	local radiusRatio = currentRadius / data.initialRadius
+	local newScaleFactor = data.scaleFactor * radiusRatio
+	
+	-- Update mesh size
+	self._stormMesh.Size = Vector3.new(
+		data.originalSizeX * newScaleFactor,
+		self._stormMesh.Size.Y,
+		data.originalSizeZ * newScaleFactor
+	)
+end
+
+--[[
+	Destroys the local storm mesh.
+]]
+function module:destroyStormMesh()
+	if self._stormModel and self._stormModel.Parent then
+		self._stormModel:Destroy()
+	end
+	self._stormMesh = nil
+	self._stormModel = nil
+	self._stormData = nil
+end
+
+--[[
 	Called when storm radius updates (can be used for UI indicator).
 ]]
 function module:updateRadius(currentRadius, targetRadius, initialRadius)
@@ -374,6 +501,9 @@ function module:updateRadius(currentRadius, targetRadius, initialRadius)
 		local newCover = STORM_CLOUD_START_COVER + (STORM_CLOUD_FINAL_COVER - STORM_CLOUD_START_COVER) * progress
 		self._clouds.Cover = math.min(1, newCover)
 	end
+	
+	-- Update local storm mesh size
+	self:updateStormMesh(currentRadius)
 	
 	-- Emit event for any listeners
 	self._export:emit("StormRadiusUpdate", {
@@ -409,6 +539,9 @@ function module:_cleanup()
 	
 	-- Restore clouds to original state
 	self:_restoreStormClouds()
+	
+	-- Destroy local storm mesh
+	self:destroyStormMesh()
 	
 	self._connections:cleanupAll()
 end

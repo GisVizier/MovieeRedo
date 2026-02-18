@@ -758,10 +758,12 @@ function QueueController:_onMatchTeleport(data)
 	debugPrint("  team:", data.team)
 	debugPrint("  spawnPosition:", data.spawnPosition)
 	debugPrint("  spawnLookVector:", data.spawnLookVector)
+	debugPrint("  isWaitingRoom:", data.isWaitingRoom)
 
 	local spawnPos = data.spawnPosition
 	local lookVector = data.spawnLookVector
 	local matchId = data.matchId
+	local isWaitingRoom = data.isWaitingRoom
 
 	if not spawnPos then
 		return
@@ -797,8 +799,8 @@ function QueueController:_onMatchTeleport(data)
 	end
 
 	-- Confirm teleport to server (so it knows to start the match)
-	-- Skip for round reset (server doesn't wait for this) or lobby return
-	if matchId and matchId ~= "reset" and not data.roundReset then
+	-- Skip for round reset, lobby return, or waiting room (map selection pending)
+	if matchId and matchId ~= "reset" and not data.roundReset and not isWaitingRoom then
 		task.delay(0.1, function()
 			self._net:FireServer("MatchTeleportReady", {
 				matchId = matchId,

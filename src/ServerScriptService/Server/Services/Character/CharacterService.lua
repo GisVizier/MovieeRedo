@@ -50,6 +50,28 @@ function CharacterService:Init(registry, net)
 	end)
 end
 
+--[[
+	Fires an event to all players in the same match context as the source player.
+	Falls back to FireAllClients if no match context is found.
+]]
+function CharacterService:_fireMatchScoped(sourcePlayer, eventName, ...)
+	if not self._net then return end
+	
+	local matchManager = self._registry:TryGet("MatchManager")
+	if matchManager and sourcePlayer then
+		local recipients = matchManager:GetPlayersInMatch(sourcePlayer)
+		if recipients and #recipients > 0 then
+			for _, player in recipients do
+				self._net:FireClient(eventName, player, ...)
+			end
+			return
+		end
+	end
+	
+	-- Fallback: fire to all clients (lobby/unknown context)
+	self._net:FireAllClients(eventName, ...)
+end
+
 function CharacterService:Start()
 	Players.PlayerAdded:Connect(function(player)
 		task.spawn(function()
@@ -203,7 +225,7 @@ function CharacterService:SpawnCharacter(player, options)
 		replicationService:RegisterPlayer(player)
 	end
 
-	self._net:FireAllClients("CharacterSpawned", character)
+	self:_fireMatchScoped(player, "CharacterSpawned", character)
 
 	self.IsSpawningCharacter[player.UserId] = nil
 	return character
@@ -215,7 +237,7 @@ function CharacterService:RemoveCharacter(player)
 		return
 	end
 
-	self._net:FireAllClients("CharacterRemoving", character)
+	self:_fireMatchScoped(player, "CharacterRemoving", character)
 
 	local replicationService = self._registry and self._registry:TryGet("ReplicationService")
 	if replicationService and replicationService.UnregisterPlayer then
@@ -237,7 +259,18 @@ function CharacterService:_getSpawnPosition()
 	local lobbySpawns = CollectionService:GetTagged("LobbySpawn")
 	if #lobbySpawns > 0 then
 		local spawn = lobbySpawns[math.random(1, #lobbySpawns)]
-		return spawn.Position + Vector3.new(0, 3, 0)
+		if spawn:IsA("BasePart") then
+			-- Random position within spawn bounds
+			local size = spawn.Size
+			local offset = Vector3.new(
+				(math.random() - 0.5) * size.X,
+				3, -- Height above spawn
+				(math.random() - 0.5) * size.Z
+			)
+			return spawn.Position + offset
+		else
+			return spawn.Position + Vector3.new(0, 3, 0)
+		end
 	end
 
 	-- Primary: Use World/Spawn part
@@ -314,9 +347,9 @@ function CharacterService:Ragdoll(player, duration, options)
 	-- Use the RagdollModule
 	RagdollModule.Ragdoll(player, knockbackForce, duration)
 
-	-- Notify clients so CharacterController can switch camera to third-person
+	-- Notify match players so CharacterController can switch camera to third-person
 	if self._net then
-		self._net:FireAllClients("RagdollStarted", player, {
+		self:_fireMatchScoped(player, "RagdollStarted", player, {
 			Velocity = knockbackForce,
 		})
 	end
@@ -444,9 +477,9 @@ function CharacterService:Unragdoll(player)
 
 	RagdollModule.GetBackUp(player)
 
-	-- Notify clients so CharacterController can restore camera mode
+	-- Notify match players so CharacterController can restore camera mode
 	if self._net then
-		self._net:FireAllClients("RagdollEnded", player)
+		self:_fireMatchScoped(player, "RagdollEnded", player)
 	end
 
 	return true

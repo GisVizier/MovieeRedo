@@ -1,7 +1,7 @@
 local Character = {
 	SprintSpeed = 24,
 	WalkSpeed = 17,
-	JumpPower = 35,
+	JumpPower = 45,
 	AutoSprint = false,
 	CoyoteTime = 0.12,
 
@@ -32,6 +32,7 @@ local Character = {
 		MaxCharges = 3,
 		CooldownBetweenJumps = 0.3,
 	},
+	
 	Jump = {
 		WallRaycast = {
 			Enabled = false,
@@ -45,36 +46,44 @@ local Character = {
 			DownforceOnCancel = 80,
 		},
 	},
+	
 	MovementForce = 500,
 	FrictionMultiplier = 0.8,
 	AirControlMultiplier = 2.8,
 	AirResistance = 8,
 	AirborneSlideDownforce = 420,
+	
 	FallSpeed = {
 		Enabled = true,
-		MaxFallSpeed = 120,
-		DragMultiplier = 0.25,
-		AscentDrag = 0.01,
-		FallAcceleration = 28,
-		AscentGravityReduction = 0.48, -- Slightly down from 0.55 (jump a bit higher)
-		HangTimeThreshold = 12,        -- Up from 9 (floaty hang time at apex)
-		HangTimeDrag = 0.11,           -- Up from 0.08 (more float at apex)
-		VerticalForceLerp = 12,
+		MaxFallSpeed = 70.75,             -- Down from 105 (much slower terminal velocity)
+		DragMultiplier = 0.4,         -- Up from 0.32 (more air drag)
+		
+		AscentDrag = 0.008,  -- Slightly less ascent drag
+
+		FallAcceleration = 21.75,-- Down from 24 (much slower fall)
+		AscentGravityReduction = 0.425, -- Down from 0.42 (jump even higher)
+
+		HangTimeThreshold = 6.75,         -- Down from 8 (hang time kicks in earlier)
+		HangTimeDrag = 0.35,           -- Up from 0.18 (big float at apex)
+
+		VerticalForceLerp = 8.5,         -- Down from 10 (smoother)
 	},
+
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.55,
-		MaxFallSpeed = 120,
+		DampingFactor = 0.3,          -- Down from 0.45 (much more damping = floatier)
+		MaxFallSpeed = 70,
 		ApplyOnlyWhenFalling = true,
 	},
+	
 	FloatDecay = {
 		Enabled = true,
-		FloatDuration = 1.0,           -- Up from 0.8 (slightly longer float)
-		DecayRate = 0.065,             -- Down from 0.08 (slightly slower decay)
-		MinDampingFactor = 0.25,
-		MomentumFactor = 0.008,
-		VelocityThreshold = 0.7,
-		ThresholdShrinkRate = 0.003,
+		FloatDuration = 1.15,           -- Up from 1.3 (longer float)
+		DecayRate = 0.035,             -- Down from 0.045 (slower decay)
+		MinDampingFactor = 0.15,       -- Down from 0.20 (more damping)
+		MomentumFactor = 0.004,        -- Down from 0.006 (less momentum kill)
+		VelocityThreshold = 0.5,       -- Down from 0.6 (more forgiving)
+		ThresholdShrinkRate = 0.0015,  -- Down from 0.002 (slower shrink)
 	},
 	LandingMomentum = {
 		Enabled = true,

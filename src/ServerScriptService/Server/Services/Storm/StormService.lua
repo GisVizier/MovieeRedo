@@ -78,19 +78,15 @@ function StormService:StartStorm(match)
 	-- Pick random safe zone center point
 	local safeZoneCenter = self:_pickRandomSafeZonePoint(hitbox, match.mapInstance)
 	
-	-- Clone and setup storm model
-	local stormModel = self:_spawnStormModel(match.mapInstance, safeZoneCenter, initialRadius)
-	if not stormModel then
-		warn("[STORMSERVICE] Failed to spawn storm model")
-		return
-	end
+	-- NOTE: Storm mesh is now CLIENT-SIDE ONLY to prevent cross-match visibility
+	-- Server only tracks position/radius for damage calculation
 	
 	-- Calculate shrink rate
 	local shrinkRate = (initialRadius - STORM_FINAL_RADIUS) / STORM_SHRINK_DURATION
 	
-	-- Store storm data
+	-- Store storm data (no model - client creates their own local mesh)
 	local stormData = {
-		model = stormModel,
+		model = nil, -- Client-side only now
 		center = safeZoneCenter,
 		initialRadius = initialRadius,
 		currentRadius = initialRadius,
@@ -386,30 +382,11 @@ end
 
 --[[
 	Updates the storm mesh's X and Z size to match current radius.
+	NOTE: Storm mesh is now client-side only - server doesn't need to update visuals
+	Clients receive StormUpdate events and update their own local storm mesh
 ]]
 function StormService:_updateStormModelScale(stormData)
-	local stormFolder = stormData.model
-	if not stormFolder or not stormFolder.Parent then return end
-	
-	-- Find the Storm MeshPart inside the model
-	local stormMesh = stormFolder:FindFirstChild("Storm")
-	if not stormMesh or not stormMesh:IsA("BasePart") then return end
-	
-	local initialRadius = stormData.initialRadius
-	local originalSizeX = stormMesh:GetAttribute("OriginalSizeX") or 908
-	local originalSizeZ = stormMesh:GetAttribute("OriginalSizeZ") or 908
-	local baseScaleFactor = stormMesh:GetAttribute("ScaleFactor") or 1
-	
-	-- Calculate new scale: proportional to current radius vs initial radius
-	local radiusRatio = stormData.currentRadius / initialRadius
-	local newScaleFactor = baseScaleFactor * radiusRatio
-	
-	-- Update the Storm mesh size (X and Z only, keep Y height)
-	stormMesh.Size = Vector3.new(
-		originalSizeX * newScaleFactor,
-		stormMesh.Size.Y, -- Keep height unchanged
-		originalSizeZ * newScaleFactor
-	)
+	-- No-op: storm mesh is client-side only now
 end
 
 --[[

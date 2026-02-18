@@ -23,65 +23,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 local MapConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MapConfig"))
 
-local function getEffectsFolders()
-	-- Returns all possible effects folders (for cleanup)
-	local folders = {}
-	
-	-- Check workspace.World.Map.Effects
-	local worldFolder = workspace:FindFirstChild("World")
-	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
-	if mapFolder then
-		local effects = mapFolder:FindFirstChild("Effects")
-		if effects then
-			table.insert(folders, effects)
-		end
-	end
-	
-	-- Also check workspace.Effects (legacy/fallback)
-	local legacyEffects = workspace:FindFirstChild("Effects")
-	if legacyEffects then
-		table.insert(folders, legacyEffects)
-	end
-	
-	return folders
-end
-
-local function destroyMobWallsForUserIds(userIds)
-	local userIdSet = {}
-	for _, userId in userIds do
-		userIdSet[userId] = true
-	end
-
-	local effectsFolders = getEffectsFolders()
-	local walls = CollectionService:GetTagged("MobWall")
-	for _, wall in walls do
-		local ownerId = wall:GetAttribute("OwnerUserId")
-		if ownerId and userIdSet[ownerId] then
-			-- Find and destroy visual in any effects folder
-			local visualId = wall:GetAttribute("VisualId")
-			if type(visualId) == "string" and visualId ~= "" then
-				for _, effectsFolder in effectsFolders do
-					local visual = effectsFolder:FindFirstChild(visualId)
-					if visual then
-						visual:Destroy()
-						break
-					end
-				end
-			end
-			wall:Destroy()
-		end
-	end
-
-	-- Clean up orphan visuals
-	for _, effectsFolder in effectsFolders do
-		for _, userId in userIds do
-			local orphanVisual = effectsFolder:FindFirstChild("MobWallVisual_" .. tostring(userId))
-			if orphanVisual then
-				orphanVisual:Destroy()
-			end
-		end
-	end
-end
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -373,6 +314,8 @@ function MatchManager:CreateMatch(options)
 
 	-- Start the match flow
 	if modeConfig.showMapSelection then
+		-- Teleport players to waiting room first, then start map selection
+		self:_teleportToWaitingRoom(match)
 		self:_startMapSelection(match)
 	else
 		-- No map selection — load default map and go to loadout
@@ -380,6 +323,88 @@ function MatchManager:CreateMatch(options)
 	end
 
 	return matchId
+end
+
+--------------------------------------------------------------------------------
+-- WAITING ROOM
+--------------------------------------------------------------------------------
+
+--[[
+	Teleports all match players to the WaitingRoom and freezes them until map is selected.
+]]
+function MatchManager:_teleportToWaitingRoom(match)
+	local waitingRoom = workspace:FindFirstChild("World") and workspace.World:FindFirstChild("WaitingRoom")
+	if not waitingRoom then
+		warn("[MATCHMANAGER] WaitingRoom not found in World folder")
+		return
+	end
+	
+	local spawnPart = waitingRoom:FindFirstChild("Spawn")
+	if not spawnPart or not spawnPart:IsA("BasePart") then
+		warn("[MATCHMANAGER] WaitingRoom/Spawn part not found")
+		return
+	end
+	
+	-- Freeze players and teleport to random positions within the spawn bounds
+	for _, player in self:_getMatchPlayers(match) do
+		-- Set frozen state
+		player:SetAttribute("ExternalMoveMult", 0)
+		player:SetAttribute("MatchFrozen", true)
+		player:SetAttribute("PlayerState", "WaitingRoom")
+		
+		-- Calculate random position within spawn bounds
+		local size = spawnPart.Size
+		local randomOffset = Vector3.new(
+			(math.random() - 0.5) * size.X,
+			3, -- Height above spawn
+			(math.random() - 0.5) * size.Z
+		)
+		local targetPosition = spawnPart.Position + randomOffset
+		local targetLookVector = Vector3.new(0, 0, -1)
+		
+		-- Fire teleport to client
+		self._net:FireClient("MatchTeleport", player, {
+			matchId = match.id,
+			spawnPosition = targetPosition,
+			spawnLookVector = targetLookVector,
+			isWaitingRoom = true,
+		})
+		
+		-- Also server-side teleport the character
+		local character = player.Character
+		if character then
+			local root = character:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.CFrame = CFrame.new(targetPosition) * CFrame.Angles(0, math.atan2(-targetLookVector.X, -targetLookVector.Z), 0)
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+			
+			-- Anchor the character's root to prevent movement
+			if root then
+				root.Anchored = true
+			end
+		end
+	end
+	
+	print("[MATCHMANAGER] Players teleported to WaitingRoom for match:", match.id)
+end
+
+--[[
+	Unanchors and unfreezes players after map selection.
+]]
+function MatchManager:_releaseFromWaitingRoom(match)
+	for _, player in self:_getMatchPlayers(match) do
+		local character = player.Character
+		if character then
+			local root = character:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.Anchored = false
+			end
+		end
+		
+		-- Movement will be unfrozen when they teleport to the actual map
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -470,6 +495,9 @@ end
 --------------------------------------------------------------------------------
 
 function MatchManager:_loadMapAndTeleport(match, mapId)
+	-- Release players from waiting room if they were there
+	self:_releaseFromWaitingRoom(match)
+	
 	local position = self:_allocatePosition()
 	if not position then
 		self:_cleanupMatch(match.id)
@@ -536,12 +564,26 @@ function MatchManager:_teleportPlayers(match)
 end
 
 function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
-	local spawnCFrame
+	local spawnPosition, spawnLookVector
+	
 	if spawn:IsA("BasePart") then
-		spawnCFrame = spawn.CFrame + Vector3.new(0, 3, 0)
+		-- Get random position within spawn bounds
+		local size = spawn.Size
+		local randomOffset = Vector3.new(
+			(math.random() - 0.5) * size.X,
+			3, -- Height above spawn
+			(math.random() - 0.5) * size.Z
+		)
+		spawnPosition = spawn.Position + randomOffset
+		spawnLookVector = spawn.CFrame.LookVector
 	else
-		spawnCFrame = CFrame.new(spawn.Position + Vector3.new(0, 3, 0))
+		spawnPosition = spawn.Position + Vector3.new(0, 3, 0)
+		spawnLookVector = Vector3.new(0, 0, -1)
 	end
+
+	-- Clear frozen state from waiting room
+	player:SetAttribute("MatchFrozen", nil)
+	player:SetAttribute("ExternalMoveMult", 1)
 
 	match._pendingTeleports[player] = true
 
@@ -549,13 +591,22 @@ function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
 		matchId = match.id,
 		mode = match.mode,
 		team = teamName,
-		spawnPosition = spawnCFrame.Position,
-		spawnLookVector = spawnCFrame.LookVector,
+		spawnPosition = spawnPosition,
+		spawnLookVector = spawnLookVector,
 	})
 
-	-- Heal
+	-- Unanchor and heal the character
 	local character = player.Character
 	if character then
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root then
+			root.Anchored = false
+			-- Apply the teleport server-side as well
+			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then humanoid.Health = humanoid.MaxHealth end
 	end
@@ -745,7 +796,7 @@ function MatchManager:_startMatchRound(match)
 	self:_reviveAllPlayers(match)
 
 	print("[MATCHMANAGER] Firing MatchStart - team1:", match.team1, "team2:", match.team2)
-	self._net:FireAllClients("MatchStart", {
+	self:_fireMatchClients(match, "MatchStart", {
 		matchId = match.id,
 		mode = match.mode,
 		team1 = match.team1,
@@ -765,7 +816,7 @@ function MatchManager:_fireRoundStart(match)
 	-- Get round duration from mode config (default 120 seconds / 2 minutes)
 	local roundDuration = match.modeConfig.roundDuration or 120
 
-	self._net:FireAllClients("RoundStart", {
+	self:_fireMatchClients(match, "RoundStart", {
 		matchId = match.id,
 		roundNumber = match.currentRound,
 		duration = roundDuration,
@@ -872,7 +923,7 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 	-- Mark victim as dead this round
 	match._deadThisRound[victimPlayer.UserId] = true
 
-	self._net:FireAllClients("RoundKill", {
+	self:_fireMatchClients(match, "RoundKill", {
 		matchId = match.id,
 		killerId = killerPlayer and killerPlayer.UserId or nil,
 		victimId = victimPlayer.UserId,
@@ -904,7 +955,7 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 				local winnerTeam = otherTeam
 				match.scores[winnerTeam] = match.scores[winnerTeam] + 1
 
-				self._net:FireAllClients("ScoreUpdate", {
+				self:_fireMatchClients(match, "ScoreUpdate", {
 					matchId = match.id,
 					team1Score = match.scores.Team1,
 					team2Score = match.scores.Team2,
@@ -936,7 +987,7 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 		if killerTeam then
 			match.scores[killerTeam] = match.scores[killerTeam] + 1
 
-			self._net:FireAllClients("ScoreUpdate", {
+			self:_fireMatchClients(match, "ScoreUpdate", {
 				matchId = match.id,
 				team1Score = match.scores.Team1,
 				team2Score = match.scores.Team2,
@@ -1126,25 +1177,42 @@ function MatchManager:_teleportMatchPlayersDirect(match)
 end
 
 function MatchManager:_teleportPlayerDirect(match, player, spawn)
-	local spawnCFrame
+	local spawnPosition, spawnLookVector
+	
 	if spawn:IsA("BasePart") then
-		spawnCFrame = spawn.CFrame + Vector3.new(0, 3, 0)
+		-- Get random position within spawn bounds
+		local size = spawn.Size
+		local randomOffset = Vector3.new(
+			(math.random() - 0.5) * size.X,
+			3, -- Height above spawn
+			(math.random() - 0.5) * size.Z
+		)
+		spawnPosition = spawn.Position + randomOffset
+		spawnLookVector = spawn.CFrame.LookVector
 	else
-		spawnCFrame = CFrame.new(spawn.Position + Vector3.new(0, 3, 0))
+		spawnPosition = spawn.Position + Vector3.new(0, 3, 0)
+		spawnLookVector = Vector3.new(0, 0, -1)
 	end
 
 	-- Fire client teleport (MovementController handles position)
 	-- roundReset = true so client does full character refresh (viewmodel, weapons, etc.)
 	self._net:FireClient("MatchTeleport", player, {
 		matchId = match.id,
-		spawnPosition = spawnCFrame.Position,
-		spawnLookVector = spawnCFrame.LookVector,
+		spawnPosition = spawnPosition,
+		spawnLookVector = spawnLookVector,
 		roundReset = true,
 	})
 
-	-- Heal humanoid
+	-- Heal humanoid and apply server-side teleport
 	local character = player.Character
 	if character then
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root then
+			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then humanoid.Health = humanoid.MaxHealth end
 	end
@@ -1183,7 +1251,7 @@ function MatchManager:EndMatch(matchId, winnerTeam)
 		winnerId = match.team2[1]
 	end
 
-	self._net:FireAllClients("MatchEnd", {
+	self:_fireMatchClients(match, "MatchEnd", {
 		matchId = matchId,
 		winnerTeam = winnerTeam,
 		winnerId = winnerId,
@@ -1203,8 +1271,25 @@ function MatchManager:_cleanupMatch(matchId)
 	local match = self._matches[matchId]
 	if not match then return end
 
+	-- Cancel all pending threads to prevent leaks
+	if match._mapVoteThread then
+		pcall(task.cancel, match._mapVoteThread)
+		match._mapVoteThread = nil
+	end
+	if match._loadoutTimerThread then
+		pcall(task.cancel, match._loadoutTimerThread)
+		match._loadoutTimerThread = nil
+	end
+	if match._roundTimerThread then
+		pcall(task.cancel, match._roundTimerThread)
+		match._roundTimerThread = nil
+	end
+
 	-- Clear freeze state before returning to lobby
 	self:_unfreezeMatchPlayers(match)
+
+	-- Fire ReturnToLobby BEFORE removing match (so we can scope it)
+	self:_fireMatchClients(match, "ReturnToLobby", { matchId = matchId })
 
 	self:_returnPlayersToLobby(match)
 
@@ -1222,15 +1307,12 @@ function MatchManager:_cleanupMatch(matchId)
 	end
 
 	self._matches[matchId] = nil
-
-	self._net:FireAllClients("ReturnToLobby", { matchId = matchId })
 end
 
 function MatchManager:_returnPlayersToLobby(match)
 	local userIds = {}
 	for _, uid in match.team1 do table.insert(userIds, uid) end
 	for _, uid in match.team2 do table.insert(userIds, uid) end
-	destroyMobWallsForUserIds(userIds)
 
 	local lobbySpawns = CollectionService:GetTagged(MatchmakingConfig.Spawns.LobbyTag)
 	if #lobbySpawns == 0 then return end
@@ -1248,21 +1330,38 @@ function MatchManager:_returnPlayersToLobby(match)
 end
 
 function MatchManager:_teleportPlayerToSpawn(player, spawn)
-	local spawnCFrame
+	local spawnPosition, spawnLookVector
+	
 	if spawn:IsA("BasePart") then
-		spawnCFrame = spawn.CFrame + Vector3.new(0, 3, 0)
+		-- Get random position within spawn bounds
+		local size = spawn.Size
+		local randomOffset = Vector3.new(
+			(math.random() - 0.5) * size.X,
+			3, -- Height above spawn
+			(math.random() - 0.5) * size.Z
+		)
+		spawnPosition = spawn.Position + randomOffset
+		spawnLookVector = spawn.CFrame.LookVector
 	else
-		spawnCFrame = CFrame.new(spawn.Position + Vector3.new(0, 3, 0))
+		spawnPosition = spawn.Position + Vector3.new(0, 3, 0)
+		spawnLookVector = Vector3.new(0, 0, -1)
 	end
 
 	self._net:FireClient("MatchTeleport", player, {
 		matchId = "reset",
-		spawnPosition = spawnCFrame.Position,
-		spawnLookVector = spawnCFrame.LookVector,
+		spawnPosition = spawnPosition,
+		spawnLookVector = spawnLookVector,
 	})
 
 	local character = player.Character
 	if character then
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root then
+			root.CFrame = CFrame.lookAt(spawnPosition, spawnPosition + spawnLookVector)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+		
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then humanoid.Health = humanoid.MaxHealth end
 	end
@@ -1276,19 +1375,20 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 	local match = self._matches[matchId]
 	if not match then return end
 
-	self._playerToMatch[player] = nil
-	destroyMobWallsForUserIds({ player.UserId })
-
 	local userId = player.UserId
+
+	-- Fire to remaining match players BEFORE removing the leaving player
+	self:_fireMatchClients(match, "PlayerLeftMatch", {
+		matchId = matchId,
+		playerId = userId,
+	})
+
+	self._playerToMatch[player] = nil
+
 	local idx1 = table.find(match.team1, userId)
 	if idx1 then table.remove(match.team1, idx1) end
 	local idx2 = table.find(match.team2, userId)
 	if idx2 then table.remove(match.team2, idx2) end
-
-	self._net:FireAllClients("PlayerLeftMatch", {
-		matchId = matchId,
-		playerId = userId,
-	})
 
 	if match.state == "playing" or match.state == "resetting" or match.state == "storm" then
 		if #match.team1 == 0 and #match.team2 > 0 then

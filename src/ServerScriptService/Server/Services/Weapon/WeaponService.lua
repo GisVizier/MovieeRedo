@@ -111,6 +111,51 @@ function WeaponService:Init(registry, net)
 	end)
 end
 
+--[[
+	Fires an event to all players in the same match context as the source player.
+	Falls back to FireAllClients if no match context is found.
+]]
+function WeaponService:_fireMatchScoped(sourcePlayer, eventName, data)
+	if not self._net then return end
+	
+	local matchManager = self._registry:TryGet("MatchManager")
+	if matchManager and sourcePlayer then
+		local recipients = matchManager:GetPlayersInMatch(sourcePlayer)
+		if recipients and #recipients > 0 then
+			for _, player in recipients do
+				self._net:FireClient(eventName, player, data)
+			end
+			return
+		end
+	end
+	
+	-- Fallback: fire to all clients (lobby/unknown context)
+	self._net:FireAllClients(eventName, data)
+end
+
+--[[
+	Fires an event to all players in the same match context, excluding one player.
+]]
+function WeaponService:_fireMatchScopedExcept(sourcePlayer, excludePlayer, eventName, data)
+	if not self._net then return end
+	
+	local matchManager = self._registry:TryGet("MatchManager")
+	if matchManager and sourcePlayer then
+		local recipients = matchManager:GetPlayersInMatch(sourcePlayer)
+		if recipients and #recipients > 0 then
+			for _, player in recipients do
+				if player ~= excludePlayer then
+					self._net:FireClient(eventName, player, data)
+				end
+			end
+			return
+		end
+	end
+	
+	-- Fallback: fire to all clients except excluded
+	self._net:FireAllClientsExcept(excludePlayer, eventName, data)
+end
+
 function WeaponService:Start()
 	-- No-op for now
 end
@@ -188,8 +233,8 @@ function WeaponService:OnWeaponFired(player, shotData)
 		local victimPlayer = pelletResult.hitCharacter and Players:GetPlayerFromCharacter(pelletResult.hitCharacter)
 			or nil
 
-		-- Broadcast validated hit to all clients for VFX
-		self._net:FireAllClients("HitConfirmed", {
+		-- Broadcast validated hit to match players for VFX
+		self:_fireMatchScoped(player, "HitConfirmed", {
 			shooter = player.UserId,
 			weaponId = weaponId,
 			origin = pelletOrigin,
@@ -266,8 +311,8 @@ function WeaponService:OnWeaponFired(player, shotData)
 		end
 	end
 
-	-- Broadcast validated hit to all clients for VFX
-	self._net:FireAllClients("HitConfirmed", {
+	-- Broadcast validated hit to match players for VFX
+	self:_fireMatchScoped(player, "HitConfirmed", {
 		shooter = player.UserId,
 		weaponId = weaponId,
 		origin = hitData.origin,
@@ -537,8 +582,8 @@ function WeaponService:OnProjectileSpawned(player, data)
 	}, weaponId)
 
 	if replicatePacket then
-		-- Broadcast to all clients except shooter
-		self._net:FireAllClientsExcept(player, "ProjectileReplicate", {
+		-- Broadcast to match players except shooter
+		self:_fireMatchScopedExcept(player, player, "ProjectileReplicate", {
 			packet = replicatePacket,
 		})
 	end
@@ -605,8 +650,8 @@ function WeaponService:OnProjectileHit(player, data)
 	-- Remove projectile from tracking
 	ProjectileAPI:RemoveProjectile(player, hitData.projectileId)
 
-	-- Broadcast validated hit to all clients for VFX
-	self._net:FireAllClients("ProjectileHitConfirmed", {
+	-- Broadcast validated hit to match players for VFX
+	self:_fireMatchScoped(player, "ProjectileHitConfirmed", {
 		shooter = player.UserId,
 		weaponId = weaponId,
 		projectileId = hitData.projectileId,

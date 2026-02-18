@@ -88,6 +88,28 @@ function CombatService:Init(registry, net)
 	end)
 end
 
+--[[
+	Fires an event to all players in the same match context as the source player.
+	Falls back to FireAllClients if no match context is found.
+]]
+function CombatService:_fireMatchScoped(sourcePlayer, eventName, data)
+	if not self._net then return end
+	
+	local matchManager = self._registry:TryGet("MatchManager")
+	if matchManager and sourcePlayer then
+		local recipients = matchManager:GetPlayersInMatch(sourcePlayer)
+		if recipients and #recipients > 0 then
+			for _, player in recipients do
+				self._net:FireClient(eventName, player, data)
+			end
+			return
+		end
+	end
+	
+	-- Fallback: fire to all clients (lobby/unknown context)
+	self._net:FireAllClients(eventName, data)
+end
+
 function CombatService:Start()
 	-- Clean up on player leave
 	Players.PlayerRemoving:Connect(function(player)
@@ -638,7 +660,7 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 			}
 		end
 		
-		self._net:FireAllClients("PlayerKilled", {
+		self:_fireMatchScoped(victim, "PlayerKilled", {
 			victimUserId = victim.UserId,
 			killerUserId = killer and killer.UserId or nil,
 			weaponId = weaponId,
@@ -926,7 +948,9 @@ function CombatService:_broadcastDamage(
 		end
 	end
 
-	self._net:FireAllClients("DamageDealt", {
+	-- Use target for match scoping (or source if target isn't a player)
+	local scopePlayer = isRealPlayer(target) and target or options.source
+	self:_fireMatchScoped(scopePlayer, "DamageDealt", {
 		targetUserId = target.UserId,
 		targetEntityKey = targetEntityKey,
 		targetCharacterName = character and character.Name or nil,
@@ -960,7 +984,7 @@ function CombatService:_broadcastHeal(target: Player, amount: number, options: {
 		return
 	end
 
-	self._net:FireAllClients("DamageDealt", {
+	self:_fireMatchScoped(target, "DamageDealt", {
 		targetUserId = target.UserId,
 		targetEntityKey = target.UserId and nil or tostring(target.Name or "entity"),
 		attackerUserId = options.source and options.source.UserId or nil,

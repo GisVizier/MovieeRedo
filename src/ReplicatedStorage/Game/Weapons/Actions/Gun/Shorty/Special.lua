@@ -160,6 +160,8 @@ function Special:_applyRocketJumpVelocity()
 	end
 	backward = backward.Unit
 
+	root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1)
+
 	local movementController = ServiceRegistry:GetController("Movement")
 		or ServiceRegistry:GetController("MovementController")
 	local currentVelocity = root.AssemblyLinearVelocity
@@ -181,7 +183,7 @@ function Special:_applyRocketJumpVelocity()
 	-- Downward aim curve: even angled-down gives solid lift; straight-down gives max height.
 	local downLiftCurve = downAimFactor ^ 0.7
 	local upBonus = isGrounded and (22 + 18 * downLiftCurve) or (28 + 24 * downLiftCurve)
-	local upCap = isGrounded and 58 or 76
+	local upCap = isGrounded and 58 or 150
 	launchVelocity = Vector3.new(launchVelocity.X, math.min(launchVelocity.Y + upBonus, upCap), launchVelocity.Z)
 
 	-- Clear existing movement so special launch always starts from a clean velocity state.

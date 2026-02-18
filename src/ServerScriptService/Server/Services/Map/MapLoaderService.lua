@@ -75,10 +75,7 @@ function MapLoaderService:LoadMap(mapId, position)
 	
 	self._loadedMaps[clonedMap] = mapData
 	
-	self._net:FireAllClients("MapLoaded", {
-		mapId = mapId,
-		mapName = clonedMap.Name,
-	})
+	-- Note: MapLoaded event removed - not used by clients and was broadcasting globally
 	
 	return mapData
 end
@@ -89,12 +86,7 @@ function MapLoaderService:UnloadMap(mapInstance)
 	end
 	
 	local mapData = self._loadedMaps[mapInstance]
-	if mapData then
-		self._net:FireAllClients("MapUnloaded", {
-			mapId = mapData.mapId,
-			mapName = mapInstance.Name,
-		})
-	end
+	-- Note: MapUnloaded event removed - not used by clients and was broadcasting globally
 	
 	self._loadedMaps[mapInstance] = nil
 	
