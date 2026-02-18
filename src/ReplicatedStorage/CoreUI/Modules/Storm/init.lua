@@ -19,7 +19,7 @@ local currentTweens = {}
 -- Cloud settings for storm atmosphere (client-side only)
 local STORM_CLOUD_START_COVER = 0.669
 local STORM_CLOUD_START_DENSITY = 0.63
-local STORM_CLOUD_COLOR = Color3.fromRGB(160, 65, 255)
+local STORM_CLOUD_COLOR = Color3.fromRGB(122, 15, 255)
 local STORM_CLOUD_FINAL_COVER = 1
 
 -- Storm mesh settings

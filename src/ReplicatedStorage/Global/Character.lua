@@ -56,11 +56,11 @@ local Character = {
 	FallSpeed = {
 		Enabled = true,
 		MaxFallSpeed = 70.75,             -- Down from 105 (much slower terminal velocity)
-		DragMultiplier = 0.4,         -- Up from 0.32 (more air drag)
+		DragMultiplier = 0.35,         -- Up from 0.32 (more air drag)
 		
 		AscentDrag = 0.008,  -- Slightly less ascent drag
 
-		FallAcceleration = 21.75,-- Down from 24 (much slower fall)
+		FallAcceleration = 22.75,-- Down from 24 (much slower fall)
 		AscentGravityReduction = 0.425, -- Down from 0.42 (jump even higher)
 
 		HangTimeThreshold = 6.75,         -- Down from 8 (hang time kicks in earlier)
@@ -71,8 +71,8 @@ local Character = {
 
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.3,          -- Down from 0.45 (much more damping = floatier)
-		MaxFallSpeed = 70,
+		DampingFactor = 0.375,          -- Down from 0.45 (much more damping = floatier)
+		MaxFallSpeed = 80,
 		ApplyOnlyWhenFalling = true,
 	},
 	
