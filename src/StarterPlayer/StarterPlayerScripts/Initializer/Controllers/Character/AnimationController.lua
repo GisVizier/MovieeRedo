@@ -1278,10 +1278,20 @@ function AnimationController:OnOtherCharacterSpawned(character)
 		self.OtherCharacterTracks[character] = {}
 		self.OtherCharacterWeaponTracks[character] = {}
 		self.OtherCharacterKitTracks[character] = {}
+		self.OtherCharacterCurrentAnimations[character] = {}
 
-		-- Re-reconcile any active rig animation state
+		-- Reset RemoteReplicator LastAnimationId so the next ReplicatePlayers tick
+		-- re-plays the current animation on the fresh Animator.
 		local ownerPlayer = Players:GetPlayerFromCharacter(character)
+		if not ownerPlayer then
+			ownerPlayer = Players:FindFirstChild(character.Name)
+		end
 		if ownerPlayer then
+			local RemoteReplicator = require(Locations.Game:WaitForChild("Replication"):WaitForChild("RemoteReplicator"))
+			local remoteData = RemoteReplicator.RemotePlayers and RemoteReplicator.RemotePlayers[ownerPlayer.UserId]
+			if remoteData then
+				remoteData.LastAnimationId = 0
+			end
 			self:_reconcileRemoteRigAnimationState(ownerPlayer)
 		end
 	end)
@@ -2342,26 +2352,26 @@ end
 
 function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animationName, category, variantIndex)
 	if not targetPlayer or not animationName then
-		return
+		return false
 	end
 
 	local localPlayer = game:GetService("Players").LocalPlayer
 	if targetPlayer == localPlayer then
-		return
+		return false
 	end
 
 	local character = targetPlayer.Character
 	if not character or not character.Parent then
-		return
+		return false
 	end
 
 	local animator = self.OtherCharacterAnimators[character]
-	if not animator then
-		return
+	if not animator or not animator.Parent then
+		return false
 	end
 
 	if not self:_loadAnimationInstances() then
-		return
+		return false
 	end
 
 	-- Determine if this remote player is in weapon (legs-only) animation mode
@@ -2408,14 +2418,14 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 	elseif not track then
 		local animation = animInstances[animationName] or self.AnimationInstances[animationName]
 		if not animation then
-			return
+			return false
 		end
 		track = self:_loadTrack(animator, animation, animationName)
 		tracks[animationName] = track
 	end
 
 	if not track then
-		return
+		return false
 	end
 
 	category = category or getAnimationCategory(animationName)
@@ -2470,6 +2480,8 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 		track:Play(settings.FadeInTime, settings.Weight, settings.Speed)
 		currentAnims[category] = track
 	end
+
+	return true
 end
 
 function AnimationController:StartAnimationSpeedUpdates()

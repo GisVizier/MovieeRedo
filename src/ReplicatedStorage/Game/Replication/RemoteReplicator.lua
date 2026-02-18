@@ -347,8 +347,9 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			-- Force-play initial animation so late joiners see the correct state immediately
 			local initialAnimId = state.AnimationId or 1
-			self:PlayRemoteAnimation(remoteData.Player, initialAnimId)
-			remoteData.LastAnimationId = initialAnimId
+			if self:PlayRemoteAnimation(remoteData.Player, initialAnimId) then
+				remoteData.LastAnimationId = initialAnimId
+			end
 
 			local primaryPart = remoteData.PrimaryPart
 			if primaryPart then
@@ -572,8 +573,9 @@ function RemoteReplicator:ReplicatePlayers(dt)
 		end
 
 		if remoteData.LastAnimationId ~= targetAnimationId then
-			self:PlayRemoteAnimation(remoteData.Player, targetAnimationId)
-			remoteData.LastAnimationId = targetAnimationId
+			if self:PlayRemoteAnimation(remoteData.Player, targetAnimationId) then
+				remoteData.LastAnimationId = targetAnimationId
+			end
 		end
 
 		self.Interpolations = self.Interpolations + 1
@@ -583,12 +585,12 @@ end
 function RemoteReplicator:PlayRemoteAnimation(player, animationId)
 	local animationName = AnimationIds:GetName(animationId)
 	if not animationName then
-		return
+		return false
 	end
 
 	self.AnimationController = self.AnimationController or ServiceRegistry:GetController("AnimationController")
 	if not self.AnimationController then
-		return
+		return false
 	end
 
 	local variantIndex = nil
@@ -597,7 +599,7 @@ function RemoteReplicator:PlayRemoteAnimation(player, animationId)
 		animationName = "JumpCancel"
 	end
 
-	self.AnimationController:PlayAnimationForOtherPlayer(player, animationName, nil, variantIndex)
+	return self.AnimationController:PlayAnimationForOtherPlayer(player, animationName, nil, variantIndex) == true
 end
 
 function RemoteReplicator:GetStateAtTime(buffer, renderTime)
