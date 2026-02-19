@@ -34,12 +34,17 @@ function RigRotationUtils:CalculateTargetTilt(character, primaryPart, slideDirec
 		return 0
 	end
 
-	local slopeDirection = Vector3.new(groundNormal.X, 0, groundNormal.Z).Unit
+	local slopeDirection = Vector3.new(groundNormal.X, 0, groundNormal.Z)
 	if slopeDirection.Magnitude < 0.01 then
 		return 0
 	end
+	slopeDirection = slopeDirection.Unit
 
-	local slideDirectionFlat = Vector3.new(slideDirection.X, 0, slideDirection.Z).Unit
+	local slideDirectionFlat = Vector3.new(slideDirection.X, 0, slideDirection.Z)
+	if slideDirectionFlat.Magnitude < 0.01 then
+		return 0
+	end
+	slideDirectionFlat = slideDirectionFlat.Unit
 	local directionDot = slideDirectionFlat:Dot(slopeDirection)
 
 	local alignmentFactor = math.abs(directionDot)

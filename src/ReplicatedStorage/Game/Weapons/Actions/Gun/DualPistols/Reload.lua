@@ -261,6 +261,11 @@ function Reload.Interrupt(weaponInstance)
 	syncGunAmmo(ctx)
 	applyModeFromGunAmmo(ctx)
 	clearActiveReload(true)
+
+	if targetWeapon.StopActionSound then
+		targetWeapon.StopActionSound("Reload")
+	end
+
 	return true
 end
 

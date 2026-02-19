@@ -3730,6 +3730,10 @@ function module:RoundEnd(outcome)
 	cancelTweens("round_text_fade")
 	cancelTweens("round_start")
 	cancelTweens("round_hide")
+	-- Also cancel storm tweens so storm notification doesn't persist
+	cancelTweens("storm_entrance")
+	cancelTweens("storm_shake")
+	cancelTweens("storm_hide")
 
 	-- Resolve color and text
 	local barColor, outcomeText
@@ -3921,6 +3925,10 @@ function module:RoundStart(roundNumber)
 	cancelTweens("round_text_fade")
 	cancelTweens("round_start")
 	cancelTweens("round_hide")
+	-- Also cancel storm tweens so storm notification doesn't persist
+	cancelTweens("storm_entrance")
+	cancelTweens("storm_shake")
+	cancelTweens("storm_hide")
 
 	-- ALWAYS reset main label to "ROUND" (in case StormStarted set it to "STORM")
 	if self._roundTextLabel then
@@ -4086,14 +4094,19 @@ function module:RoundStart(roundNumber)
 end
 
 -- Show "STORM INCOMING" announcement with purple bar and red text
+-- Uses separate "storm_" tween keys so it won't be cancelled by RoundEnd/RoundStart
 function module:StormStarted()
 	if not self._roundDesc then return end
 
+	-- Cancel any existing round/storm animations
 	cancelTweens("round_end")
 	cancelTweens("round_shake")
 	cancelTweens("round_text_fade")
 	cancelTweens("round_start")
 	cancelTweens("round_hide")
+	cancelTweens("storm_entrance")
+	cancelTweens("storm_shake")
+	cancelTweens("storm_hide")
 
 	-- Purple bar for storm
 	if self._roundBar then
@@ -4140,18 +4153,18 @@ function module:StormStarted()
 		left.GroupTransparency = 1
 	end
 
-	-- Phase 1: Smooth slide down + fade in
+	-- Phase 1: Smooth slide down + fade in (using storm-specific key)
 	local slideInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local startTweens = {}
+	local entranceTweens = {}
 
 	if textLabel then
 		local t1 = TweenService:Create(textLabel, slideInfo, { Position = self._roundTextLabelOriginalPos })
 		local t2 = TweenService:Create(textLabel, fadeInfo, { TextTransparency = 0.35 })
 		t1:Play()
 		t2:Play()
-		table.insert(startTweens, t1)
-		table.insert(startTweens, t2)
+		table.insert(entranceTweens, t1)
+		table.insert(entranceTweens, t2)
 	end
 	if righ then
 		local t = TweenService:Create(righ, slideInfo, {
@@ -4159,7 +4172,7 @@ function module:StormStarted()
 			GroupTransparency = 0,
 		})
 		t:Play()
-		table.insert(startTweens, t)
+		table.insert(entranceTweens, t)
 	end
 	if left then
 		local t = TweenService:Create(left, slideInfo, {
@@ -4167,12 +4180,13 @@ function module:StormStarted()
 			GroupTransparency = 0,
 		})
 		t:Play()
-		table.insert(startTweens, t)
+		table.insert(entranceTweens, t)
 	end
 
-	currentTweens["round_start"] = startTweens
+	-- Store in storm-specific key so RoundEnd won't cancel it
+	currentTweens["storm_entrance"] = entranceTweens
 
-	-- Phase 2: Shake (separate task that can exit early)
+	-- Phase 2: Shake (separate task, uses storm-specific key)
 	task.spawn(function()
 		task.wait(0.35)
 
@@ -4182,7 +4196,7 @@ function module:StormStarted()
 			self._roundShakeToken += 1
 			local shakeToken = self._roundShakeToken
 
-			cancelTweens("round_shake")
+			cancelTweens("storm_shake")
 
 			for _ = 1, ROUND_SHAKE_STEPS do
 				if self._roundShakeToken ~= shakeToken then break end
@@ -4195,7 +4209,7 @@ function module:StormStarted()
 				local tween = TweenService:Create(lw, ROUND_SHAKE_TWEEN_INFO, {
 					Position = withOffset(lwOrigPos, xOff, yOff),
 				})
-				currentTweens["round_shake"] = { tween }
+				currentTweens["storm_shake"] = { tween }
 				tween:Play()
 				tween.Completed:Wait()
 			end
@@ -4203,15 +4217,15 @@ function module:StormStarted()
 			if self._roundShakeToken == shakeToken and lw and lw.Parent then
 				lw.Position = lwOrigPos
 			end
-			currentTweens["round_shake"] = nil
+			currentTweens["storm_shake"] = nil
 		end
 	end)
 
-	-- Phase 3: Hide after hold (ALWAYS runs after delay - longer for storm warning)
+	-- Phase 3: Hide after hold (ALWAYS runs after delay - uses storm-specific key)
 	task.delay(3.5, function()
 		if not self._roundDesc or not self._roundDesc.Parent then return end
 
-		cancelTweens("round_hide")
+		cancelTweens("storm_hide")
 
 		-- Slower, smoother fade out including the color bar
 		local hideInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
@@ -4239,7 +4253,7 @@ function module:StormStarted()
 			table.insert(hideTweens, t)
 		end
 
-		currentTweens["round_hide"] = hideTweens
+		currentTweens["storm_hide"] = hideTweens
 
 		task.wait(0.85)
 		if self._roundDesc and self._roundDesc.Parent then

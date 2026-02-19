@@ -63,6 +63,21 @@ local function quickMeleeLog(message, data)
 	LogService:Info("WEAPON_QM", message, data)
 end
 
+local function emitWeaponSoundDebug(message, data)
+	local parts = {}
+	if type(data) == "table" then
+		for k, v in pairs(data) do
+			table.insert(parts, tostring(k) .. "=" .. tostring(v))
+		end
+		table.sort(parts)
+	end
+	local line = "[WEAPON_SOUND_DEBUG] " .. tostring(message)
+	if #parts > 0 then
+		line = line .. " | " .. table.concat(parts, ", ")
+	end
+	warn(line)
+end
+
 local function normalizeSoundId(soundRef)
 	if type(soundRef) == "table" then
 		soundRef = soundRef.Id or soundRef.id or soundRef.SoundId or soundRef.soundId
@@ -98,6 +113,22 @@ local function normalizeSoundId(soundRef)
 	end
 
 	return nil
+end
+
+local function getViewmodelSoundRoot()
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	local sounds = assets:FindFirstChild("Sounds")
+	if not sounds then
+		return nil
+	end
+	local viewModel = sounds:FindFirstChild("ViewModel")
+	if not viewModel then
+		return nil
+	end
+	return viewModel
 end
 
 -- Controller state
@@ -493,8 +524,20 @@ function WeaponController:_loadActionsForWeapon(weaponId)
 		error("[WeaponController] Actions folder not found for weapon: " .. weaponId .. " in " .. category)
 	end
 
+	local mainModule = nil
+	if weaponFolder:IsA("ModuleScript") then
+		-- Package module (folder with init.lua mapped to ModuleScript) - require root.
+		mainModule = weaponFolder
+	else
+		-- Plain folder layout - require explicit init child.
+		local initModule = weaponFolder:FindFirstChild("init")
+		if initModule and initModule:IsA("ModuleScript") then
+			mainModule = initModule
+		end
+	end
+
 	local actions = {
-		Main = weaponFolder:FindFirstChild("init") and require(weaponFolder) or nil,
+		Main = mainModule and require(mainModule) or nil,
 		Attack = weaponFolder:FindFirstChild("Attack") and require(weaponFolder.Attack) or nil,
 		Reload = weaponFolder:FindFirstChild("Reload") and require(weaponFolder.Reload) or nil,
 		Inspect = weaponFolder:FindFirstChild("Inspect") and require(weaponFolder.Inspect) or nil,
@@ -638,6 +681,11 @@ end
 -- =============================================================================
 
 function WeaponController:_equipWeapon(weaponId, slot)
+	emitWeaponSoundDebug("Equip weapon requested", {
+		weaponId = weaponId,
+		slot = slot,
+	})
+
 	-- Unequip old weapon first
 	self:_unequipCurrentWeapon()
 
@@ -647,8 +695,22 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	end)
 
 	if not success then
+		emitWeaponSoundDebug("Load actions failed", {
+			weaponId = weaponId,
+			slot = slot,
+			errorMessage = actions,
+		})
 		return
 	end
+	emitWeaponSoundDebug("Load actions success", {
+		weaponId = weaponId,
+		slot = slot,
+		hasMain = actions and actions.Main ~= nil,
+		hasAttack = actions and actions.Attack ~= nil,
+		hasReload = actions and actions.Reload ~= nil,
+		hasInspect = actions and actions.Inspect ~= nil,
+		hasSpecial = actions and actions.Special ~= nil,
+	})
 
 	self._currentActions = actions
 	self._isADS = false
@@ -678,18 +740,39 @@ function WeaponController:_equipWeapon(weaponId, slot)
 		if shouldSkipOnEquip then
 			quickSession.skipEquipAnimation = false
 		elseif self._currentActions.Main.OnEquip then
-			self._currentActions.Main.OnEquip(self._weaponInstance)
+			local ok, err = pcall(function()
+				self._currentActions.Main.OnEquip(self._weaponInstance)
+			end)
+			if not ok then
+				emitWeaponSoundDebug("Main.OnEquip failed (non-fatal)", {
+					weaponId = weaponId,
+					slot = slot,
+					errorMessage = err,
+				})
+			end
 		end
 
-		-- Fallback equip cue: guarantees equip audio even if a weapon action omits it.
-		if self._weaponInstance and self._weaponInstance.PlayActionSound then
-			LogService:Info("WEAPON_SOUND", "Equip fallback sound requested", {
+	end
+
+	-- Fallback equip cue: guarantees equip audio even if Main module is missing.
+	if self._weaponInstance and self._weaponInstance.PlayActionSound then
+		emitWeaponSoundDebug("Equip fallback PlayActionSound call", {
+			weaponId = weaponId,
+			slot = slot,
+			hasMain = self._currentActions and self._currentActions.Main ~= nil,
+		})
+		LogService:Info("WEAPON_SOUND", "Equip fallback sound requested", {
+			weaponId = weaponId,
+			slot = slot,
+		})
+		local ok, err = pcall(function()
+			self._weaponInstance.PlayActionSound("Equip")
+		end)
+		if not ok then
+			emitWeaponSoundDebug("Equip fallback PlayActionSound failed (non-fatal)", {
 				weaponId = weaponId,
 				slot = slot,
-			})
-			self._weaponInstance.PlayActionSound("Equip", nil, {
-				trackName = "Equip",
-				stopOnTrackEnd = true,
+				errorMessage = err,
 			})
 		end
 	end
@@ -915,74 +998,85 @@ function WeaponController:_resolveWeaponActionSoundId(weaponId, slot, actionName
 		soundRef = weaponCfg.Sounds[actionName]
 	end
 
-	return normalizeSoundId(soundRef), skinId
+	local normalizedId = normalizeSoundId(soundRef)
+	if normalizedId then
+		return {
+			SoundId = normalizedId,
+			Source = "id",
+		}, skinId
+	end
+
+	if type(soundRef) == "string" and soundRef ~= "" then
+		local soundRoot = getViewmodelSoundRoot()
+		if soundRoot then
+			local weaponFolder = soundRoot:FindFirstChild(weaponId)
+			if weaponFolder then
+				if skinId then
+					local skinFolder = weaponFolder:FindFirstChild(skinId)
+					if skinFolder then
+						local skinTemplate = skinFolder:FindFirstChild(soundRef)
+						if skinTemplate and skinTemplate:IsA("Sound") then
+							return {
+								Template = skinTemplate,
+								Source = "template",
+							}, skinId
+						end
+					end
+				end
+
+				local template = weaponFolder:FindFirstChild(soundRef)
+				if template and template:IsA("Sound") then
+					return {
+						Template = template,
+						Source = "template",
+					}, skinId
+				end
+			end
+		end
+	end
+
+	return nil, skinId
 end
 
-function WeaponController:_resolveActionTrackName(actionName, options)
-	if type(options) == "table" and type(options.trackName) == "string" and options.trackName ~= "" then
-		return options.trackName
+function WeaponController:_getWeaponActionSoundKey(weaponId, slot, actionName)
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return nil
 	end
-	if actionName == "AimIn" then
-		return "ADS"
-	end
-	if actionName == "AimOut" then
-		return "Hip"
-	end
-	return actionName
-end
-
-function WeaponController:_defaultStopOnTrackEndForAction(actionName)
 	if type(actionName) ~= "string" or actionName == "" then
-		return true
+		return nil
 	end
+	return tostring(weaponId) .. "|" .. tostring(slot) .. "|" .. tostring(actionName)
+end
 
-	local lowered = string.lower(actionName)
-	if lowered == "fire" or lowered == "special" or string.find(lowered, "fire", 1, true) then
+function WeaponController:_isLayeredWeaponActionSound(actionName)
+	if type(actionName) ~= "string" or actionName == "" then
 		return false
 	end
-
-	return true
+	local lowered = string.lower(actionName)
+	return string.find(lowered, "fire", 1, true) ~= nil
 end
 
-function WeaponController:_getAnimatorTrack(trackName)
-	if type(trackName) ~= "string" or trackName == "" then
-		return nil
-	end
-	local vm = self._viewmodelController
-	if not vm then
-		return nil
-	end
-	local animator = vm._animator
-	if not animator or type(animator.GetTrack) ~= "function" then
-		return nil
-	end
-	return animator:GetTrack(trackName)
-end
-
-function WeaponController:_emitWeaponSoundStop(token)
-	if type(token) ~= "string" or token == "" then
+function WeaponController:_stopWeaponActionSoundByAction(weaponId, slot, actionName)
+	local actionKey = self:_getWeaponActionSoundKey(weaponId, slot, actionName)
+	if not actionKey then
 		return
 	end
-	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, {
-		category = "Weapon",
-		stop = true,
-		token = token,
-	})
+	self:_stopTrackedWeaponActionSound(actionKey, true)
 end
 
-function WeaponController:_stopTrackedWeaponActionSound(token, replicateStop)
-	if type(token) ~= "string" or token == "" then
+function WeaponController:_stopTrackedWeaponActionSound(actionKey, replicateStop)
+	if type(actionKey) ~= "string" or actionKey == "" then
 		return
 	end
 
-	local entry = self._activeActionSounds and self._activeActionSounds[token]
+	local entry = self._activeActionSounds and self._activeActionSounds[actionKey]
 	if not entry then
 		return
 	end
 
-	if entry.trackConn then
-		entry.trackConn:Disconnect()
-		entry.trackConn = nil
+	if entry.endedConn then
+		entry.endedConn:Disconnect()
+		entry.endedConn = nil
 	end
 
 	local sound = entry.sound
@@ -995,52 +1089,15 @@ function WeaponController:_stopTrackedWeaponActionSound(token, replicateStop)
 		end)
 	end
 
-	self._activeActionSounds[token] = nil
+	self._activeActionSounds[actionKey] = nil
 
-	if replicateStop then
-		self:_emitWeaponSoundStop(token)
+	if replicateStop == true then
+		VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, {
+			category = "Weapon",
+			stop = true,
+			key = actionKey,
+		})
 	end
-end
-
-function WeaponController:_bindWeaponSoundToTrack(token, trackName)
-	if type(token) ~= "string" or token == "" then
-		return
-	end
-
-	local function bindNow()
-		local entry = self._activeActionSounds[token]
-		if not entry then
-			return true
-		end
-		local track = self:_getAnimatorTrack(trackName)
-		if not track or not track.Stopped then
-			return false
-		end
-
-		if entry.trackConn then
-			entry.trackConn:Disconnect()
-		end
-		entry.trackConn = track.Stopped:Connect(function()
-			self:_stopTrackedWeaponActionSound(token, true)
-		end)
-		return true
-	end
-
-	if bindNow() then
-		return
-	end
-
-	task.spawn(function()
-		for _ = 1, 8 do
-			task.wait(0.03)
-			if bindNow() then
-				return
-			end
-			if not (self._activeActionSounds and self._activeActionSounds[token]) then
-				return
-			end
-		end
-	end)
 end
 
 function WeaponController:_stopAllTrackedWeaponActionSounds(replicateStop)
@@ -1049,21 +1106,40 @@ function WeaponController:_stopAllTrackedWeaponActionSounds(replicateStop)
 		return
 	end
 
-	local tokens = {}
-	for token, _ in pairs(active) do
-		table.insert(tokens, token)
+	local actionKeys = {}
+	for actionKey, _ in pairs(active) do
+		table.insert(actionKeys, actionKey)
 	end
-	for _, token in ipairs(tokens) do
-		self:_stopTrackedWeaponActionSound(token, replicateStop)
+	for _, actionKey in ipairs(actionKeys) do
+		self:_stopTrackedWeaponActionSound(actionKey, replicateStop == true)
 	end
 end
 
-function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch, options)
-	local soundId = nil
+function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch, _options)
+	if actionName == "Equip" then
+		emitWeaponSoundDebug("Equip sound requested", {
+			weaponId = weaponId,
+			slot = slot,
+			action = actionName,
+		})
+		LogService:Info("WEAPON_SOUND", "Equip sound requested", {
+			weaponId = weaponId,
+			slot = slot,
+			action = actionName,
+		})
+	end
+
+	local soundDef = nil
 	local skinId = nil
-	soundId, skinId = self:_resolveWeaponActionSoundId(weaponId, slot, actionName)
-	if not soundId then
+	soundDef, skinId = self:_resolveWeaponActionSoundId(weaponId, slot, actionName)
+	if not soundDef then
 		if actionName == "Equip" then
+			emitWeaponSoundDebug("Equip sound not resolved", {
+				weaponId = weaponId,
+				slot = slot,
+				action = actionName,
+				skinId = skinId,
+			})
 			LogService:Warn("WEAPON_SOUND", "Equip sound not resolved", {
 				weaponId = weaponId,
 				slot = slot,
@@ -1074,109 +1150,161 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 		return
 	end
 
-	local dedupeKey = tostring(weaponId) .. "|" .. tostring(slot) .. "|" .. tostring(actionName)
+	local actionKey = self:_getWeaponActionSoundKey(weaponId, slot, actionName)
+	if not actionKey then
+		return
+	end
+
 	local now = os.clock()
-	local last = self._lastActionSoundAt and self._lastActionSoundAt[dedupeKey] or 0
-	if (now - last) < 0.045 then
+	local last = self._lastActionSoundAt and self._lastActionSoundAt[actionKey] or 0
+	local minInterval = (actionName == "Equip") and 0.045 or 0
+	if minInterval > 0 and (now - last) < minInterval then
 		if actionName == "Equip" then
+			local soundKey = soundDef.SoundId
+			if not soundKey and soundDef.Template then
+				soundKey = soundDef.Template.Name
+			end
+			emitWeaponSoundDebug("Equip sound skipped by dedupe", {
+				weaponId = weaponId,
+				slot = slot,
+				soundId = soundKey,
+			})
 			LogService:Info("WEAPON_SOUND", "Equip sound skipped by dedupe", {
 				weaponId = weaponId,
 				slot = slot,
-				soundId = soundId,
+				soundId = soundKey,
 			})
 		end
 		return
 	end
-	self._lastActionSoundAt[dedupeKey] = now
+	self._lastActionSoundAt[actionKey] = now
 
-	local stopOnTrackEnd = self:_defaultStopOnTrackEndForAction(actionName)
-	if type(options) == "table" and options.stopOnTrackEnd ~= nil then
-		stopOnTrackEnd = options.stopOnTrackEnd == true
+	local layered = self:_isLayeredWeaponActionSound(actionName)
+	if not layered then
+		self:_stopTrackedWeaponActionSound(actionKey, false)
 	end
 
-	local token = nil
-	if stopOnTrackEnd then
-		token = HttpService:GenerateGUID(false)
-	end
-
-	local localSound = self:_playLocalWeaponSound(soundId, pitch)
+	local localSound = self:_playLocalWeaponSound(soundDef, pitch, slot, actionName)
 	if actionName == "Equip" then
+		local soundKey = soundDef.SoundId
+		if not soundKey and soundDef.Template then
+			soundKey = soundDef.Template:GetFullName()
+		end
+		emitWeaponSoundDebug("Equip sound play attempt", {
+			weaponId = weaponId,
+			slot = slot,
+			soundId = soundKey,
+			hasLocalSound = localSound ~= nil,
+			source = soundDef.Source,
+			parentedToViewmodel = self._viewmodelController ~= nil,
+		})
 		LogService:Info("WEAPON_SOUND", "Equip sound play attempt", {
 			weaponId = weaponId,
 			slot = slot,
-			soundId = soundId,
-			stopOnTrackEnd = stopOnTrackEnd,
+			soundId = soundKey,
 			hasLocalSound = localSound ~= nil,
-			token = token,
+			parentedToViewmodel = self._viewmodelController ~= nil,
 		})
 	end
-	if localSound and token then
-		self._activeActionSounds[token] = {
-			sound = localSound,
-			trackConn = nil,
-		}
+
+	if localSound then
+		-- Fire sounds should layer; never cut a previous shot to replay.
+		if not layered then
+			local entry = {
+				sound = localSound,
+				endedConn = nil,
+			}
+			entry.endedConn = localSound.Ended:Connect(function()
+				local activeEntry = self._activeActionSounds and self._activeActionSounds[actionKey]
+				if activeEntry and activeEntry.sound == localSound then
+					if activeEntry.endedConn then
+						activeEntry.endedConn:Disconnect()
+						activeEntry.endedConn = nil
+					end
+					self._activeActionSounds[actionKey] = nil
+				end
+			end)
+			self._activeActionSounds[actionKey] = entry
+		end
 	end
 
 	local payload = {
 		category = "Weapon",
-		soundId = soundId,
+		weaponId = weaponId,
+		action = actionName,
 	}
-	if token then
-		payload.token = token
-	end
-
-	if type(weaponId) == "string" and weaponId ~= "" then
-		payload.weaponId = weaponId
-	end
-	if type(actionName) == "string" and actionName ~= "" then
-		payload.action = actionName
-	end
 	if type(skinId) == "string" and skinId ~= "" then
 		payload.skinId = skinId
 	end
 	if type(pitch) == "number" then
 		payload.pitch = pitch
 	end
-
-	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, payload)
-
-	if stopOnTrackEnd and localSound and token then
-		local trackName = self:_resolveActionTrackName(actionName, options)
-		if actionName == "Equip" then
-			LogService:Info("WEAPON_SOUND", "Equip sound bound to track", {
-				weaponId = weaponId,
-				slot = slot,
-				trackName = trackName,
-				token = token,
-			})
-		end
-		self:_bindWeaponSoundToTrack(token, trackName)
+	if not layered then
+		payload.key = actionKey
 	end
+	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, payload)
 end
 
-function WeaponController:_playLocalWeaponSound(soundId, pitch)
-	if type(soundId) ~= "string" or soundId == "" then
+function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionName)
+	if type(soundDef) ~= "table" then
 		return nil
 	end
 
 	local parent = SoundService
-	local character = LocalPlayer and LocalPlayer.Character
-	if character then
-		local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
-		if root then
-			parent = root
+	local viewmodelController = self._viewmodelController
+	if viewmodelController then
+		local rig = nil
+		if type(viewmodelController.GetRigForSlot) == "function" and type(slot) == "string" and slot ~= "" then
+			rig = viewmodelController:GetRigForSlot(slot)
+		end
+		if not rig and type(viewmodelController.GetActiveRig) == "function" then
+			rig = viewmodelController:GetActiveRig()
+		end
+
+		if rig then
+			if rig.Anchor and rig.Anchor:IsA("BasePart") then
+				parent = rig.Anchor
+			elseif rig.Model then
+				local model = rig.Model
+				local basePart = model.PrimaryPart
+					or model:FindFirstChild("HumanoidRootPart", true)
+					or model:FindFirstChildWhichIsA("BasePart", true)
+				if basePart and basePart:IsA("BasePart") then
+					parent = basePart
+				end
+			end
 		end
 	end
 
-	local sound = Instance.new("Sound")
-	sound.SoundId = soundId
-	sound.Volume = LOCAL_WEAPON_VOLUME
-	if type(pitch) == "number" then
-		sound.PlaybackSpeed = pitch
+	if parent == SoundService then
+		local character = LocalPlayer and LocalPlayer.Character
+		if character then
+			local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+			if root then
+				parent = root
+			end
+		end
 	end
-	sound.RollOffMode = LOCAL_WEAPON_ROLLOFF_MODE
-	sound.RollOffMinDistance = LOCAL_WEAPON_MIN_DISTANCE
-	sound.RollOffMaxDistance = LOCAL_WEAPON_MAX_DISTANCE
+
+	local sound = nil
+	if soundDef.Template and soundDef.Template:IsA("Sound") then
+		sound = soundDef.Template:Clone()
+		if type(pitch) == "number" then
+			sound.PlaybackSpeed = pitch
+		end
+	elseif type(soundDef.SoundId) == "string" and soundDef.SoundId ~= "" then
+		sound = Instance.new("Sound")
+		sound.SoundId = soundDef.SoundId
+		sound.Volume = LOCAL_WEAPON_VOLUME
+		if type(pitch) == "number" then
+			sound.PlaybackSpeed = pitch
+		end
+		sound.RollOffMode = LOCAL_WEAPON_ROLLOFF_MODE
+		sound.RollOffMinDistance = LOCAL_WEAPON_MIN_DISTANCE
+		sound.RollOffMaxDistance = LOCAL_WEAPON_MAX_DISTANCE
+	else
+		return nil
+	end
 
 	local sfxGroup = SoundService:FindFirstChild("SFX")
 	if sfxGroup and sfxGroup:IsA("SoundGroup") then
@@ -1185,6 +1313,25 @@ function WeaponController:_playLocalWeaponSound(soundId, pitch)
 
 	sound.Parent = parent
 	sound:Play()
+
+	if actionName == "Equip" then
+		local soundKey = soundDef.SoundId
+		if not soundKey and soundDef.Template then
+			soundKey = soundDef.Template:GetFullName()
+		end
+		emitWeaponSoundDebug("Equip sound instance played", {
+			soundId = soundKey,
+			parent = sound.Parent and sound.Parent:GetFullName() or "nil",
+			isPlaying = sound.IsPlaying,
+			source = soundDef.Source,
+		})
+		LogService:Info("WEAPON_SOUND", "Equip sound instance played", {
+			soundId = soundKey,
+			parent = sound.Parent and sound.Parent:GetFullName() or "nil",
+			isPlaying = sound.IsPlaying,
+		})
+	end
+
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 	return sound
 end
@@ -1246,6 +1393,9 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		end,
 		PlayActionSound = function(actionName, pitch, options)
 			self:_playWeaponActionSound(weaponId, slot, actionName, pitch, options)
+		end,
+		StopActionSound = function(actionName)
+			self:_stopWeaponActionSoundByAction(weaponId, slot, actionName)
 		end,
 
 		-- State management

@@ -281,18 +281,38 @@ function MovementUtils:CheckGroundedWithSlope(character, primaryPart, raycastPar
 		baseRayOrigin + Vector3.new(-offsetX, 0, 0),
 	}
 
-	-- Simple ground check with slope info (matching Moviee-Proj):
-	-- Return first valid result with slope info - no normal filtering.
+	-- Prefer the most stable "ground-like" hit to avoid seam jitter when transitioning
+	-- between ramps and flats.
 	local worldUp = Vector3.new(0, 1, 0)
+	local bestGroundResult = nil
+	local bestGroundScore = -math.huge
+	local bestFallbackResult = nil
+	local bestFallbackScore = -math.huge
 
 	for _, rayOrigin in ipairs(rayOrigins) do
 		local result = getCachedRaycast(rayOrigin, rayDirection, params)
 		if result then
-			local surfaceNormal = result.Normal
-			local slopeAngle = math.acos(math.clamp(surfaceNormal:Dot(worldUp), -1, 1))
-			local slopeDegrees = math.deg(slopeAngle)
-			return true, surfaceNormal, slopeDegrees
+			local normalY = result.Normal.Y
+			local score = result.Position.Y + (normalY * 0.25)
+
+			if score > bestFallbackScore then
+				bestFallbackScore = score
+				bestFallbackResult = result
+			end
+
+			if normalY > 0.1 and score > bestGroundScore then
+				bestGroundScore = score
+				bestGroundResult = result
+			end
 		end
+	end
+
+	local chosenResult = bestGroundResult or bestFallbackResult
+	if chosenResult then
+		local surfaceNormal = chosenResult.Normal
+		local slopeAngle = math.acos(math.clamp(surfaceNormal:Dot(worldUp), -1, 1))
+		local slopeDegrees = math.deg(slopeAngle)
+		return true, surfaceNormal, slopeDegrees
 	end
 
 	cleanupCache()

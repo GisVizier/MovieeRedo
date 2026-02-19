@@ -1973,6 +1973,42 @@ function CharacterController:IsSlideBlockedByAbility()
 	return localPlayer and localPlayer:GetAttribute("BlockSlideWhileAbility") == true
 end
 
+function CharacterController:GetSlideStartDirection()
+	local movementDirection = self:CalculateMovementDirection()
+	if movementDirection.Magnitude > 0.01 then
+		return movementDirection.Unit
+	end
+
+	local cameraForward = MovementUtils:CalculateWorldMovementDirection(vector2_new(0, 1), self.CachedCameraYAngle, false)
+	if cameraForward.Magnitude > 0.01 then
+		return cameraForward.Unit
+	end
+
+	if self.PrimaryPart then
+		local look = self.PrimaryPart.CFrame.LookVector
+		local flatLook = Vector3.new(look.X, 0, look.Z)
+		if flatLook.Magnitude > 0.01 then
+			return flatLook.Unit
+		end
+	end
+
+	return Vector3.new(0, 0, -1)
+end
+
+function CharacterController:TryStartSlide(movementInputForValidation, isCrouching)
+	local movementDirection = self:GetSlideStartDirection()
+	local validationInput = movementInputForValidation or self.MovementInput
+	local canSlide = SlidingSystem:CanStartSlide(validationInput, isCrouching, self.IsGrounded)
+
+	if not canSlide then
+		return false, movementDirection
+	end
+
+	local currentCameraAngle = math_deg(self.CachedCameraYAngle)
+	SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
+	return true, movementDirection
+end
+
 function CharacterController:HandleSlideInput(isSliding)
 	if not self.Character then
 		return
@@ -2000,19 +2036,8 @@ function CharacterController:HandleSlideInput(isSliding)
 			return
 		end
 
-		local movementDirection
-		if self.MovementInput.Magnitude < 0.01 then
-			movementDirection =
-				MovementUtils:CalculateWorldMovementDirection(vector2_new(0, 1), self.CachedCameraYAngle, true)
-		else
-			movementDirection = self:CalculateMovementDirection()
-		end
-
-		local canSlide, reason = SlidingSystem:CanStartSlide(vector2_new(0, 1), true, self.IsGrounded)
-
-		if canSlide then
-			local currentCameraAngle = math_deg(self.CachedCameraYAngle)
-			SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
+		local didStartSlide, movementDirection = self:TryStartSlide(self.MovementInput, true)
+		if didStartSlide then
 			return
 		end
 
@@ -2086,12 +2111,8 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 				self:HandleCrouch(isCrouching)
 				return
 			end
-			local movementDirection = self:CalculateMovementDirection()
-			local canSlide, reason = SlidingSystem:CanStartSlide(self.MovementInput, isCrouching, self.IsGrounded)
-
-			if canSlide then
-				local currentCameraAngle = math_deg(self.CachedCameraYAngle)
-				SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
+			local didStartSlide = self:TryStartSlide(self.MovementInput, isCrouching)
+			if didStartSlide then
 				return
 			end
 		end

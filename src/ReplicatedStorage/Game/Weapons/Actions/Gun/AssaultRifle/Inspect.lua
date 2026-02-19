@@ -10,6 +10,7 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 
 local Inspect = {}
 Inspect._isInspecting = false
+Inspect._activeWeaponInstance = nil
 
 function Inspect.Execute(weaponInstance)
 	if not weaponInstance or not weaponInstance.State then
@@ -27,6 +28,7 @@ function Inspect.Execute(weaponInstance)
 	end
 
 	Inspect._isInspecting = true
+	Inspect._activeWeaponInstance = weaponInstance
 
 	--local resetOffset = viewmodelController:SetOffset(
 	--	CFrame.new(0.15, -0.05, -0.2) * CFrame.Angles(math.rad(15), math.rad(-20), 0)
@@ -39,6 +41,7 @@ function Inspect.Execute(weaponInstance)
 
 	local function onComplete()
 		Inspect._isInspecting = false
+		Inspect._activeWeaponInstance = nil
 		--if resetOffset then
 		--	resetOffset()
 		--end
@@ -59,6 +62,8 @@ function Inspect.Cancel()
 	end
 
 	Inspect._isInspecting = false
+	local weaponInstance = Inspect._activeWeaponInstance
+	Inspect._activeWeaponInstance = nil
 
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	if not viewmodelController then
@@ -70,6 +75,10 @@ function Inspect.Cancel()
 	local animator = viewmodelController._animator
 	if animator and type(animator.Stop) == "function" then
 		animator:Stop("Inspect", 0.1)
+	end
+
+	if weaponInstance and weaponInstance.StopActionSound then
+		weaponInstance.StopActionSound("Inspect")
 	end
 end
 

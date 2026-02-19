@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
+local Inspect = require(script.Parent:WaitForChild("Inspect"))
 
 local Special = {}
 Special._isADS = false
@@ -34,6 +35,8 @@ function Special.Execute(weaponInstance, isPressed)
 end
 
 function Special:_enterADS(weaponInstance)
+	Inspect.Cancel()
+
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	if not viewmodelController then
 		return

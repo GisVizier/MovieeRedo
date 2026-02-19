@@ -1,7 +1,7 @@
 local Character = {
-	SprintSpeed = 24,
-	WalkSpeed = 17,
-	JumpPower = 45,
+	SprintSpeed = 28,
+	WalkSpeed = 19,
+	JumpPower = 48,
 	AutoSprint = false,
 	CoyoteTime = 0.12,
 
@@ -20,7 +20,7 @@ local Character = {
 
 	WallJump = {
 		Enabled = true,
-		VerticalBoost = 37.74,
+		VerticalBoost = 46.74,
 		HorizontalBoost = 25,
 		WallPushForce = 35,
 		AnglePushMultiplier = 1.5,
@@ -47,50 +47,52 @@ local Character = {
 		},
 	},
 	
-	MovementForce = 500,
-	FrictionMultiplier = 0.8,
-	AirControlMultiplier = 2.8,
-	AirResistance = 8,
-	AirborneSlideDownforce = 420,
+	MovementForce = 680,
+	FrictionMultiplier = 0.88,
+	AirControlMultiplier = 2.4,
+	AirResistance = 5,
+	AirborneSlideDownforce = 380,
 	
 	FallSpeed = {
 		Enabled = true,
-		MaxFallSpeed = 80.75,             -- Down from 105 (much slower terminal velocity)
-		DragMultiplier = 0.35,         -- Up from 0.32 (more air drag)
+		MaxFallSpeed = 85,                -- Higher terminal velocity (faster fall)
+		DragMultiplier = 0.4,             -- Drag when exceeding max
 		
-		AscentDrag = 0.008,  -- Slightly less ascent drag
+		AscentDrag = 0.004,               -- Floaty ascent
 
-		FallAcceleration = 22.75,-- Down from 24 (much slower fall)
-		AscentGravityReduction = 0.425, -- Down from 0.42 (jump even higher)
+		FallAcceleration = 18,            -- Gentler pull (good for wall jumps)
+		AscentGravityReduction = 0.35,    -- Floatier going up (helps wall jumps)
 
-		HangTimeThreshold = 7.25,         -- Down from 8 (hang time kicks in earlier)
-		HangTimeDrag = 0.25,           -- Up from 0.18 (big float at apex)
+		HangTimeThreshold = 10,           -- Wider apex float window
+		HangTimeDrag = 0.35,              -- More float at apex
 
-		VerticalForceLerp = 8.5,         -- Down from 10 (smoother)
+		VerticalForceLerp = 10,           -- Smoothing
 	},
 
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.425,          -- Down from 0.45 (much more damping = floatier)
-		MaxFallSpeed = 80,
+		DampingFactor = 0.38,             -- Slightly more upward force (gentler initial fall)
+		MaxFallSpeed = 85,
 		ApplyOnlyWhenFalling = true,
 	},
 	
 	FloatDecay = {
 		Enabled = true,
-		FloatDuration = 1.15,           -- Up from 1.3 (longer float)
-		DecayRate = 0.035,             -- Down from 0.045 (slower decay)
-		MinDampingFactor = 0.2,       -- Down from 0.20 (more damping)
-		MomentumFactor = 0.004,        -- Down from 0.006 (less momentum kill)
-		VelocityThreshold = 0.5,       -- Down from 0.6 (more forgiving)
-		ThresholdShrinkRate = 0.0015,  -- Down from 0.002 (slower shrink)
+		FloatDuration = 0.4,              -- Short float at apex only
+		DecayRate = 0.12,                 -- Fast decay so normal fall kicks in quick
+		MinDampingFactor = 0.18,          -- Low floor = can fall faster
+		MomentumFactor = 0.003,           -- Less momentum penalty
+		VelocityThreshold = 0.6,          -- Threshold
+		ThresholdShrinkRate = 0.003,      -- Faster shrink
 	},
+	
 	LandingMomentum = {
 		Enabled = true,
-		PreservationMultiplier = 0.92,
-		MinPreservationSpeed = 10,
-		DecayRate = 0.92,
+		PreservationMultiplier = 0.88,    -- Keep good momentum on landing
+		MinPreservationSpeed = 12,
+		DecayRate = 0.75,                 -- Faster decay = less slide
 	},
+
 	WallStop = {
 		Enabled = true,
 		RayDistance = 1.5,
@@ -111,11 +113,11 @@ local Character = {
 		StepHeight = 1.5,          -- Max height to step over (studs)
 		ForwardDistance = 2.5,     -- How far ahead to check for obstacles
 		Cooldown = 0.1,            -- Time between step-ups
-		BoostMultiplier = 0.65,    -- Multiplier for upward boost
+		BoostMultiplier = 0.45,    -- Multiplier for upward boost
 	},
 	-- Slope Walking Assist (extra push when walking uphill)
 	SlopeWalkAssist = {
-		Enabled = true,
+		Enabled = false,
 		ForceMultiplier = 1.15,    -- Extra force when walking uphill
 		MaxSlopeAngle = 50,        -- Don't assist past this angle
 	},
@@ -123,7 +125,7 @@ local Character = {
 	GroundRayDistance = 1.0,
 	MaxWalkableSlopeAngle = 90,
 	StandingFriction = {
-		IdleFriction = 0.65,
+		IdleFriction = 1.25,
 		MinSlopeAngle = 1,
 		SlopeFriction = 1.1,
 	},

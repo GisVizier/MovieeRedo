@@ -170,7 +170,8 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 	local currentVelocity = primaryPart.AssemblyLinearVelocity
 
 	-- Preserve gravity/jumping unless we detect ground and want stickiness.
-	local yVelocity = currentVelocity.Y
+	local adhesionYVelocity = nil
+	local targetVelocity = slideVelocityVector
 
 	-- Raycast straight down
 	local downRayDistance = Config.Gameplay.Sliding.GroundCheckDistance or 10
@@ -204,6 +205,14 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 			end
 		end
 
+		if bestHit and bestHit.Normal then
+			local tangentDirection = self.SlidingSystem.SlideDirection
+				- self.SlidingSystem.SlideDirection:Dot(bestHit.Normal) * bestHit.Normal
+			if tangentDirection.Magnitude > 0.05 then
+				targetVelocity = tangentDirection.Unit * slideSpeed
+			end
+		end
+
 		-- NOTE: Use vertical gap from the *bottom of the rig* (not root center, not 3D distance).
 		-- Using the root center causes constant "digging" because the center is always ~half a part-height above the ground.
 		-- Also add a small deadzone + damping (PD-style) so we don't "dig" into ground at any speed.
@@ -224,20 +233,27 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 			local kP = 120 + 80 * speedFactor
 			local kD = 10 + 6 * speedFactor
 
-			yVelocity = -(kP * gapError) - (kD * currentVelocity.Y)
+			adhesionYVelocity = -(kP * gapError) - (kD * currentVelocity.Y)
 
 			-- If already moving downward faster, keep that.
-			if currentVelocity.Y < yVelocity then
-				yVelocity = currentVelocity.Y
+			if currentVelocity.Y < adhesionYVelocity then
+				adhesionYVelocity = currentVelocity.Y
 			end
-		else
-			-- At/under target gap: let gravity handle it; never push upward.
-			yVelocity = math.min(currentVelocity.Y, 0)
 		end
 	end
 
+	local finalYVelocity
+	if groundDetected then
+		finalYVelocity = targetVelocity.Y
+		if adhesionYVelocity and adhesionYVelocity < finalYVelocity then
+			finalYVelocity = adhesionYVelocity
+		end
+	else
+		finalYVelocity = currentVelocity.Y
+	end
+
 	-- Clamp Y velocity (prevents extreme values)
-	yVelocity = math.clamp(yVelocity, -250, 30)
+	finalYVelocity = math.clamp(finalYVelocity, -250, 30)
 
 	-- Use LinearVelocity with per-axis force limits to match old BodyVelocity behavior.
 	local attachment = primaryPart:FindFirstChild("SlideAttachment")
@@ -261,7 +277,7 @@ function SlidingPhysics:ApplySlideVelocity(deltaTime)
 
 	-- Match prior per-axis MaxForce used by SlideBodyVelocity.
 	linearVel.MaxAxesForce = Vector3.new(40000, 30000, 40000)
-	linearVel.VectorVelocity = Vector3.new(slideVelocityVector.X, yVelocity, slideVelocityVector.Z)
+	linearVel.VectorVelocity = Vector3.new(targetVelocity.X, finalYVelocity, targetVelocity.Z)
 end
 
 function SlidingPhysics:UpdateSlideDirection()

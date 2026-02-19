@@ -123,6 +123,107 @@ end
 
 buildAllowedWeaponSounds()
 
+local function getViewmodelSoundRoot()
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	local sounds = assets:FindFirstChild("Sounds")
+	if not sounds then
+		return nil
+	end
+	local viewModel = sounds:FindFirstChild("ViewModel")
+	if not viewModel then
+		return nil
+	end
+	return viewModel
+end
+
+local function resolveWeaponActionSoundDefinitionRaw(weaponId, actionName, skinId)
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return nil
+	end
+	if type(actionName) ~= "string" or actionName == "" then
+		return nil
+	end
+
+	local weaponCfg = ViewmodelConfig and ViewmodelConfig.Weapons and ViewmodelConfig.Weapons[weaponId]
+	if type(weaponCfg) ~= "table" then
+		return nil
+	end
+
+	local soundRef = nil
+	if type(skinId) == "string" and skinId ~= "" and ViewmodelConfig and ViewmodelConfig.Skins then
+		local weaponSkins = ViewmodelConfig.Skins[weaponId]
+		local skinCfg = weaponSkins and weaponSkins[skinId]
+		if type(skinCfg) == "table" and type(skinCfg.Sounds) == "table" then
+			soundRef = skinCfg.Sounds[actionName]
+		end
+	end
+	if soundRef == nil and type(weaponCfg.Sounds) == "table" then
+		soundRef = weaponCfg.Sounds[actionName]
+	end
+	if soundRef == nil then
+		return nil
+	end
+
+	local soundId = normalizeSoundId(soundRef)
+	if soundId then
+		if ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
+			return nil
+		end
+		return {
+			SoundId = soundId,
+			Source = "id",
+		}
+	end
+
+	if type(soundRef) == "string" and soundRef ~= "" then
+		local soundRoot = getViewmodelSoundRoot()
+		if not soundRoot then
+			return nil
+		end
+		local weaponFolder = soundRoot:FindFirstChild(weaponId)
+		if not weaponFolder then
+			return nil
+		end
+
+		if type(skinId) == "string" and skinId ~= "" then
+			local skinFolder = weaponFolder:FindFirstChild(skinId)
+			if skinFolder then
+				local skinTemplate = skinFolder:FindFirstChild(soundRef)
+				if skinTemplate and skinTemplate:IsA("Sound") then
+					return {
+						Template = skinTemplate,
+						Source = "template",
+					}
+				end
+			end
+		end
+
+		local template = weaponFolder:FindFirstChild(soundRef)
+		if template and template:IsA("Sound") then
+			return {
+				Template = template,
+				Source = "template",
+			}
+		end
+	end
+
+	return nil
+end
+
+local function resolveWeaponActionSoundDefinition(weaponId, actionName, skinId)
+	local resolved = resolveWeaponActionSoundDefinitionRaw(weaponId, actionName, skinId)
+	if resolved then
+		return resolved
+	end
+	if type(skinId) == "string" and skinId ~= "" then
+		return resolveWeaponActionSoundDefinitionRaw(weaponId, actionName, nil)
+	end
+	return nil
+end
+
 local function getSoundDefinition(soundName)
 	local audioConfig = Config.Audio
 	return audioConfig and audioConfig.Sounds and audioConfig.Sounds.Movement
@@ -180,16 +281,27 @@ local function createSoundInstance(definition, parent, pitch, looped)
 	return sound
 end
 
-local function createWeaponSoundInstance(soundId, parent, pitch)
-	if type(soundId) ~= "string" or soundId == "" then
+local function createWeaponSoundInstance(soundDef, parent, pitch)
+	if type(soundDef) ~= "table" then
 		return nil
 	end
 
-	local sound = Instance.new("Sound")
-	sound.SoundId = soundId
-	sound.Volume = REPLICATED_WEAPON_VOLUME
+	local sound = nil
+	if soundDef.Template and soundDef.Template:IsA("Sound") then
+		sound = soundDef.Template:Clone()
+	elseif type(soundDef.SoundId) == "string" and soundDef.SoundId ~= "" then
+		sound = Instance.new("Sound")
+		sound.SoundId = soundDef.SoundId
+		sound.Volume = REPLICATED_WEAPON_VOLUME
+	else
+		return nil
+	end
+
 	if type(pitch) == "number" then
 		sound.PlaybackSpeed = pitch
+	end
+	if sound.Volume <= 0 then
+		sound.Volume = REPLICATED_WEAPON_VOLUME
 	end
 	sound.RollOffMode = REPLICATED_WEAPON_ROLLOFF_MODE
 	sound.RollOffMinDistance = REPLICATED_WEAPON_MIN_DISTANCE
@@ -206,20 +318,26 @@ function Sound:Validate(_player, data)
 
 	if data.category == "Weapon" then
 		if data.stop == true then
-			return typeof(data.token) == "string" and data.token ~= ""
+			local key = data.key or data.token
+			return typeof(key) == "string" and key ~= ""
 		end
 
-		local soundId = normalizeSoundId(data.soundId)
-		if not soundId or ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
+		if typeof(data.weaponId) ~= "string" or data.weaponId == "" then
+			return false
+		end
+		if typeof(data.action) ~= "string" or data.action == "" then
+			return false
+		end
+		if data.skinId ~= nil and (typeof(data.skinId) ~= "string" or data.skinId == "") then
 			return false
 		end
 		if data.pitch ~= nil and (typeof(data.pitch) ~= "number" or data.pitch < 0.5 or data.pitch > 2.5) then
 			return false
 		end
-		if data.token ~= nil and (typeof(data.token) ~= "string" or data.token == "") then
+		if data.key ~= nil and (typeof(data.key) ~= "string" or data.key == "") then
 			return false
 		end
-		return true
+		return resolveWeaponActionSoundDefinition(data.weaponId, data.action, data.skinId) ~= nil
 	end
 
 	if not data.sound or typeof(data.sound) ~= "string" then
@@ -243,15 +361,15 @@ function Sound:Execute(originUserId, data)
 
 	if data.category == "Weapon" then
 		if data.stop == true then
-			self:_stopWeaponActionSound(originUserId, data.token)
+			self:_stopWeaponActionSound(originUserId, data.key or data.token)
 			return
 		end
 
-		local soundId = normalizeSoundId(data.soundId)
-		if not soundId or ALLOWED_WEAPON_SOUND_IDS[soundId] ~= true then
+		local soundDef = resolveWeaponActionSoundDefinition(data.weaponId, data.action, data.skinId)
+		if not soundDef then
 			return
 		end
-		self:_handleWeaponOneShot(originUserId, soundId, primaryPart, data)
+		self:_handleWeaponOneShot(originUserId, soundDef, primaryPart, data)
 		return
 	end
 
@@ -284,24 +402,24 @@ function Sound:_handleOneShotSound(soundName, primaryPart, data)
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 end
 
-function Sound:_handleWeaponOneShot(userId, soundId, primaryPart, data)
-	local sound = createWeaponSoundInstance(soundId, primaryPart, data.pitch)
+function Sound:_handleWeaponOneShot(userId, soundDef, primaryPart, data)
+	local sound = createWeaponSoundInstance(soundDef, primaryPart, data.pitch)
 	if not sound then
 		return
 	end
 
-	local token = data and data.token
-	if typeof(token) == "string" and token ~= "" then
+	local key = data and (data.key or data.token)
+	if typeof(key) == "string" and key ~= "" then
 		self._weaponActionSounds[userId] = self._weaponActionSounds[userId] or {}
-		self._weaponActionSounds[userId][token] = sound
+		self._weaponActionSounds[userId][key] = sound
 	end
 
 	sound:Play()
 	sound.Ended:Connect(function()
-		if typeof(token) == "string" and token ~= "" then
+		if typeof(key) == "string" and key ~= "" then
 			local byToken = self._weaponActionSounds[userId]
-			if byToken and byToken[token] == sound then
-				byToken[token] = nil
+			if byToken and byToken[key] == sound then
+				byToken[key] = nil
 				if next(byToken) == nil then
 					self._weaponActionSounds[userId] = nil
 				end

@@ -450,14 +450,9 @@ function SlidingSystem:StartSlide(movementDirection, currentCameraAngle)
 	local impulseConfig = Config.Gameplay.Sliding.ImpulseSlide
 
 	-- Apply low-friction slide properties for ALL slides (prevents V-only "drag" on ramps).
-	-- Keep the impulse ("pop") gated by existing momentum.
 	if impulseConfig and impulseConfig.Enabled and self.PrimaryPart then
 		local glideProps = PhysicalProperties.new(0.01, impulseConfig.SlideFriction, 0, 100, 100)
 		self.PrimaryPart.CustomPhysicalProperties = glideProps
-	end
-
-	local hasExistingMomentum = currentHorizontalVelocity.Magnitude > 5
-	if impulseConfig and impulseConfig.Enabled and hasExistingMomentum then
 		local mass = self.PrimaryPart.AssemblyMass
 		local impulseMagnitude = mass * impulseConfig.ImpulsePower
 		local impulseVector = slideDirection * impulseMagnitude
@@ -629,7 +624,6 @@ function SlidingSystem:UpdateSlide(deltaTime)
 		self:StopSlide(false, nil, "InvalidState")
 		return
 	end
-
 
 	local isHittingWall = MovementUtils:CheckWallStop(self.PrimaryPart, self.RaycastParams, self.SlideDirection)
 	if isHittingWall then

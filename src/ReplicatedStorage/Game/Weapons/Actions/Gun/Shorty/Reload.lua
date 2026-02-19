@@ -251,6 +251,11 @@ function Reload.Interrupt(weaponInstance)
 	commitState(targetWeapon, state)
 
 	clearActiveReload(true)
+
+	if targetWeapon.StopActionSound then
+		targetWeapon.StopActionSound("Reload1")
+		targetWeapon.StopActionSound("Reload2")
+	end
 	return true
 end
 

@@ -12,7 +12,7 @@ Movement.Sliding = {
 	InitialVelocity = 62,  -- Down from 70 (slightly shorter slides)
 	MinVelocity = 5,
 	MaxVelocity = 110,     -- Down from 120
-	FrictionRate = 0.85,   -- Down from 0.9 (slightly more friction)
+	FrictionRate = 1.25,   -- Down from 0.9 (slightly more friction)
 	ImpulseSlide = {
 		Enabled = true,
 		ImpulsePower = 62,  -- Down from 70
@@ -67,8 +67,10 @@ Movement.Sliding = {
 		BackwardStartAngle = 120,
 		BackwardEndAngle = 240,
 	},
-	FloatDuration = 0.7,           -- (Legacy - actual float handled by Character.FloatDecay)
-	FloatGravityMultiplier = 0.3,  -- (Legacy - actual float handled by Character.FloatDecay)
+
+	FloatDuration = 0.17,           -- (Legacy - actual float handled by Character.FloatDecay)
+	FloatGravityMultiplier = 0.03,  -- (Legacy - actual float handled by Character.FloatDecay)
+
 	LandingBoost = {
 		Enabled = true,
 		MinAirTime = 0.3,
@@ -81,8 +83,9 @@ Movement.Sliding = {
 		FlatBoostMultiplier = 0.6,
 		SlopeThreshold = 5,
 	},
+
 	MinLandingVelocity = 15,
-	StartMomentumPreservation = 1.1,
+	StartMomentumPreservation = 1.15,
 	SlideBuffer = {},
 	JumpCancel = {
 		Enabled = true,
@@ -119,7 +122,7 @@ Movement.VFX = {
 	Land = {
 		Enabled = true,
 		Lifetime = 0.3,
-		MinFallVelocity = 60,
+		MinFallVelocity = 45,
 	},
 	Slide = {
 		Enabled = true,
@@ -133,7 +136,7 @@ Movement.VFX = {
 	SpeedFX = {
 		Enabled = true,
 		Threshold = 80,
-		FallThreshold = 70,
+		FallThreshold = 50,
 	},
 }
 
