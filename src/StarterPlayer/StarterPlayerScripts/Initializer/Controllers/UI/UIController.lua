@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ContentProvider = game:GetService("ContentProvider")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local DialogueConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DialogueConfig"))
@@ -14,6 +15,184 @@ UIController._registry = nil
 UIController._net = nil
 UIController._coreUi = nil
 UIController._kitController = nil
+
+local function updateDeathTemplateText(specClone: Instance, killerName: string?)
+	-- Your template uses "PlayersName"
+	local playersName = specClone:FindFirstChild("PlayersName", true)
+	if playersName and playersName:IsA("TextLabel") then
+		playersName.Text = killerName or playersName.Text
+		return
+	end
+
+	for _, d in ipairs(specClone:GetDescendants()) do
+		if d:IsA("TextLabel") then
+			if killerName and killerName ~= "" then
+				d.Text = killerName
+			end
+			return
+		end
+	end
+end
+
+local function playKilledSkull(screenGui: ScreenGui)
+	-- Gui > KilledPlayer > Killed > (Bg, KillSkull, UIScale)
+	local killedPlayer = screenGui:FindFirstChild("KilledPlayer", true)
+	if not killedPlayer then
+		return
+	end
+
+	local killed = killedPlayer:FindFirstChild("Killed", true)
+	if not killed or not killed:IsA("GuiObject") then
+		return
+	end
+
+	local skull = killed:FindFirstChild("KillSkull", true)
+	local bg = killed:FindFirstChild("Bg", true)
+	local uiScale = killed:FindFirstChildOfClass("UIScale") or killed:FindFirstChild("UIScale")
+
+	if skull and skull:IsA("ImageLabel") then
+		skull:SetAttribute("_origImageTransparency", skull:GetAttribute("_origImageTransparency") or skull.ImageTransparency)
+	end
+	if bg and bg:IsA("ImageLabel") then
+		bg:SetAttribute("_origImageTransparency", bg:GetAttribute("_origImageTransparency") or bg.ImageTransparency)
+	end
+	if uiScale and uiScale:IsA("UIScale") then
+		uiScale:SetAttribute("_origScale", uiScale:GetAttribute("_origScale") or uiScale.Scale)
+	end
+
+	-- Reset to hidden-ish start state
+	if uiScale and uiScale:IsA("UIScale") then
+		uiScale.Scale = 0.65
+	end
+	if skull and skull:IsA("ImageLabel") then
+		skull.ImageTransparency = 1
+	end
+	if bg and bg:IsA("ImageLabel") then
+		bg.ImageTransparency = 1
+	end
+	killed.Visible = true
+
+	-- Pop + fade in
+	local popInfo = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local fadeInInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeOutInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+	local tweens = {}
+	if uiScale and uiScale:IsA("UIScale") then
+		table.insert(tweens, TweenService:Create(uiScale, popInfo, { Scale = uiScale:GetAttribute("_origScale") or 1 }))
+	end
+	if skull and skull:IsA("ImageLabel") then
+		table.insert(tweens, TweenService:Create(skull, fadeInInfo, { ImageTransparency = skull:GetAttribute("_origImageTransparency") or 0.29 }))
+	end
+	if bg and bg:IsA("ImageLabel") then
+		table.insert(tweens, TweenService:Create(bg, fadeInInfo, { ImageTransparency = bg:GetAttribute("_origImageTransparency") or 0.79 }))
+	end
+	for _, t in ipairs(tweens) do
+		t:Play()
+	end
+
+	task.delay(1.05, function()
+		-- Fade out + shrink a bit, then restore originals
+		if not killed.Parent then
+			return
+		end
+
+		local outTweens = {}
+		if uiScale and uiScale:IsA("UIScale") then
+			table.insert(outTweens, TweenService:Create(uiScale, fadeOutInfo, { Scale = 0.85 }))
+		end
+		if skull and skull:IsA("ImageLabel") then
+			table.insert(outTweens, TweenService:Create(skull, fadeOutInfo, { ImageTransparency = 1 }))
+		end
+		if bg and bg:IsA("ImageLabel") then
+			table.insert(outTweens, TweenService:Create(bg, fadeOutInfo, { ImageTransparency = 1 }))
+		end
+
+		for _, t in ipairs(outTweens) do
+			t:Play()
+		end
+
+		-- When skull completes, restore base state
+		local doneTween = outTweens[1] or outTweens[2] or outTweens[3]
+		if doneTween then
+			doneTween.Completed:Once(function()
+				if uiScale and uiScale:IsA("UIScale") then
+					uiScale.Scale = uiScale:GetAttribute("_origScale") or uiScale.Scale
+				end
+				if skull and skull:IsA("ImageLabel") then
+					skull.ImageTransparency = skull:GetAttribute("_origImageTransparency") or skull.ImageTransparency
+				end
+				if bg and bg:IsA("ImageLabel") then
+					bg.ImageTransparency = bg:GetAttribute("_origImageTransparency") or bg.ImageTransparency
+				end
+			end)
+		end
+	end)
+end
+
+local function showPlayerDeathNotification(playerGui: PlayerGui, data)
+	local screenGui = playerGui:FindFirstChild("Gui")
+	if not screenGui then
+		return
+	end
+
+	-- Exact hierarchy from Studio:
+	-- Gui > KilledPlayer > PlayerDeath > Spec (template)
+	local killedPlayer = screenGui:FindFirstChild("KilledPlayer", true)
+	if not killedPlayer then
+		return
+	end
+
+	local playerDeath = killedPlayer:FindFirstChild("PlayerDeath", true)
+	if not playerDeath or not playerDeath:IsA("GuiObject") then
+		return
+	end
+
+	local specTemplate = playerDeath:FindFirstChild("Spec", true)
+	if not specTemplate or not specTemplate:IsA("GuiObject") then
+		return
+	end
+
+	local spec = specTemplate:Clone()
+	spec.Name = "Entry"
+	spec.Visible = true
+	spec.Parent = playerDeath
+
+	local killerDisplay =
+		(data and data.killerData and (data.killerData.displayName or data.killerData.userName))
+		or (data and data.killerName)
+		or "UNKNOWN"
+	updateDeathTemplateText(spec, killerDisplay)
+
+	-- Play skull animation alongside the entry (same UI system).
+	pcall(function()
+		playKilledSkull(screenGui)
+	end)
+
+	-- Animate like the existing setup expects: fade in/out via CanvasGroup transparency.
+	-- "Fade up" comes from the UIListLayout stacking entries upward over time.
+	if spec:IsA("CanvasGroup") then
+		spec.GroupTransparency = 1
+	end
+
+	local fadeInInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeOutInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	local fadeIn = TweenService:Create(spec, fadeInInfo, { GroupTransparency = 0 })
+	fadeIn:Play()
+
+	task.delay(1.25, function()
+		if not spec.Parent then
+			return
+		end
+		local fadeOut = TweenService:Create(spec, fadeOutInfo, { GroupTransparency = 1 })
+		fadeOut:Play()
+		fadeOut.Completed:Once(function()
+			if spec and spec.Parent then
+				spec:Destroy()
+			end
+		end)
+	end)
+end
 
 local function safeCall(fn, ...)
 	local args = table.pack(...)
@@ -227,6 +406,12 @@ function UIController:Init(registry, net)
 			
 			-- Show Kill UI if local player was killed
 			if data and data.victimUserId == player.UserId then
+				local pg = player:FindFirstChild("PlayerGui")
+				if pg then
+					pcall(function()
+						showPlayerDeathNotification(pg, data)
+					end)
+				end
 				self:_showKillScreen(data)
 			end
 		end
