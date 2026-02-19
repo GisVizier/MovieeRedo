@@ -104,6 +104,9 @@ function VoxelDebrisController:_createDebris(position: Vector3, radius: number, 
 		if originalInfo.Material then
 			debrisPart.Material = originalInfo.Material
 		end
+		if originalInfo.MaterialVariant ~= nil then
+			debrisPart.MaterialVariant = originalInfo.MaterialVariant
+		end
 		if originalInfo.Color then
 			debrisPart.Color = Color3.new(originalInfo.Color.R, originalInfo.Color.G, originalInfo.Color.B)
 		end

@@ -16,8 +16,10 @@
 ]]
 
 local WeaponProjectile = {}
+local PROJECTILE_COLLISION_NUDGE = 0.01
 
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local workspace = game:GetService("Workspace")
@@ -29,7 +31,30 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 local TrainingRangeShot = require(Locations.Game:WaitForChild("Gadgets"):WaitForChild("TrainingRangeShot"))
 local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("Tracers"))
 
+-- Pressure-based destruction system for bullets
+local PressureDestruction = nil
+pcall(function()
+	PressureDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("PressureDestruction"))
+end)
+
 local LocalPlayer = Players.LocalPlayer
+
+local function shouldPassThroughRemnant(part)
+	if not part then
+		return false
+	end
+
+	if part:HasTag("Debris") then
+		return true
+	end
+
+	local destroyedFlag = part:GetAttribute("__Breakable") == false or part:GetAttribute("__BreakableClient") == false
+	if not destroyedFlag then
+		return false
+	end
+
+	return part.Transparency >= 0.98 and (part.CanCollide == false or part.CanQuery == false)
+end
 
 -- =============================================================================
 -- CONFIGURATION
@@ -238,6 +263,15 @@ function WeaponProjectile:Fire(weaponInstance, options)
 
 	-- Fire timestamp
 	local fireTimestamp = workspace:GetServerTimeNow()
+	
+	-- Generate shotId for grouping pellets (used by PressureDestruction)
+	local shotId = HttpService:GenerateGUID(false)
+	
+	-- Determine if this is a shotgun (multiple pellets)
+	local isShotgun = #finalDirections > 1 or (projectileConfig.pelletsPerShot and projectileConfig.pelletsPerShot > 1)
+	
+	-- Get destruction pressure from weapon config (or default)
+	local destructionPressure = weaponConfig.destructionPressure or 20
 
 	-- Create projectiles for each direction (usually 1, multiple for shotgun)
 	local projectileIds = {}
@@ -291,6 +325,11 @@ function WeaponProjectile:Fire(weaponInstance, options)
 
 			-- Network
 			spawnPacket = packetString,
+			
+			-- Pressure Destruction (for wall destruction)
+			shotId = shotId,
+			isShotgun = isShotgun,
+			destructionPressure = destructionPressure,
 		}
 
 		-- Store projectile
@@ -576,7 +615,7 @@ function WeaponProjectile:_simulateProjectile(projectile, dt)
 
 		-- Nudge position past the hit point so the next frame's raycast
 		-- doesn't re-detect the same surface (pierce, destroyed wall, etc.)
-		projectile.position = hitResult.Position + projectile.velocity.Unit * 0.1
+		projectile.position = hitResult.Position + projectile.velocity.Unit * PROJECTILE_COLLISION_NUDGE
 		-- Velocity already updated by ricochet handler if applicable
 	else
 		-- No collision, update state
@@ -607,13 +646,8 @@ end
 function WeaponProjectile:_handleCollision(projectile, hitResult)
 	local hitInstance = hitResult.Instance
 
-	-- Pass through destroyed breakable walls (invisible remnants from VoxelDestruction)
-	-- Also pass through loose debris (flying rubble)
-	if
-		hitInstance:GetAttribute("__Breakable") == false
-		or hitInstance:GetAttribute("__BreakableClient") == false
-		or hitInstance:HasTag("Debris")
-	then
+	-- Pass through only truly non-blocking remnants and debris.
+	if shouldPassThroughRemnant(hitInstance) then
 		return true, nil
 	end
 
@@ -729,6 +763,22 @@ end
 function WeaponProjectile:_handleEnvironmentHit(projectile, hitResult)
 	if TrainingRangeShot then
 		TrainingRangeShot:TryHandleHit(hitResult.Instance, hitResult.Position)
+	end
+	
+	-- Register impact for pressure-based destruction
+	if PressureDestruction then
+		PressureDestruction:RegisterImpact(
+			hitResult.Position,
+			hitResult.Normal,
+			hitResult.Instance,
+			projectile.destructionPressure or 20,
+			projectile.isShotgun or false,
+			projectile.shotId,
+			{
+				origin = projectile.startPosition,
+				range = projectile.weaponConfig and projectile.weaponConfig.range,
+			}
+		)
 	end
 
 	-- Check for ricochet

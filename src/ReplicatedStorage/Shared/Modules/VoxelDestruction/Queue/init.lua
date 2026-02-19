@@ -79,6 +79,7 @@ function Queue:Run(waits: boolean?)
 
 				local success, error_message = pcall(item.func)
 				if not success then
+					warn("[VoxelDestruction.Queue] Task failed for token", tostring(self.Token), tostring(error_message))
 				end
 
 				if item.completeSignal then
@@ -111,6 +112,7 @@ function Queue:Clear(RunFunctions: boolean?)
 			coroutine.resume(coroutine.create(function()
 				local success, err = pcall(item.func)
 				if not success then
+					warn("[VoxelDestruction.Queue] Clear task failed for token", tostring(self.Token), tostring(err))
 				end
 				item.completeSignal:Fire()
 			end))

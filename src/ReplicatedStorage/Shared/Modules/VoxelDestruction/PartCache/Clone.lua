@@ -17,6 +17,7 @@ function module.mirror(match: Part, mirror)
 		match.CastShadow = mirror.CastShadow
 		match.Color = mirror.Color
 		match.Material = mirror.Material
+		match.MaterialVariant = mirror.MaterialVariant
 		match.Reflectance = mirror.Reflectance
 		match.Transparency = mirror.Transparency
 		match.Archivable = mirror.Archivable

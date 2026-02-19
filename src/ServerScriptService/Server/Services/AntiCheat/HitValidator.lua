@@ -55,6 +55,9 @@ local CONFIG = {
 	SuspiciousHitRate = 0.95,       -- 95%+ accuracy is suspicious
 	SuspiciousHeadshotRate = 0.80,  -- 80%+ headshot rate is suspicious
 	MinHeadshotsForAnalysis = 20,   -- Headshots before flagging ratio
+
+	LineOfSightSkipStep = 0.01,     -- Skip distance when re-raycasting through destroyed remnants
+	MaxLineOfSightSkips = 32,       -- Safety cap for remnant-skip iterations
 }
 
 -- Stance enum for comparison
@@ -79,6 +82,23 @@ local HITBOX_BOUNDS = {
 		Head = { Height = 0.8, Width = 1.0 },
 	},
 }
+
+local function isNonBlockingDestroyedRemnant(part)
+	if not part then
+		return false
+	end
+
+	if part:HasTag("Debris") then
+		return true
+	end
+
+	local destroyedFlag = part:GetAttribute("__Breakable") == false or part:GetAttribute("__BreakableClient") == false
+	if not destroyedFlag then
+		return false
+	end
+
+	return part.Transparency >= 0.98 and (part.CanCollide == false or part.CanQuery == false)
+end
 
 -- =============================================================================
 -- STATE
@@ -147,6 +167,13 @@ end
 ]]
 function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	local now = hitData.serverReceiveTime or workspace:GetServerTimeNow()
+
+	if shooter and hitData and hitData.hitPlayer == shooter then
+		if CONFIG.DebugLogging then
+			warn(string.format("[HitValidator] Rejected self target: shooter=%s", shooter.Name))
+		end
+		return false, "SelfTarget"
+	end
 
 	-- Client timestamp is advisory only. We only reject extreme values.
 	if type(hitData.timestamp) == "number" then
@@ -438,7 +465,28 @@ function HitValidator:_validateLineOfSight(shooter, hitData, rollbackTime)
 	rayParams.FilterDescendantsInstances = excludeList
 	rayParams.RespectCanCollide = true
 
-	local result = workspace:Raycast(shooterOrigin, rayDirection * rayLength, rayParams)
+	local currentOrigin = shooterOrigin
+	local remaining = rayLength
+	local attempts = 0
+	local result = nil
+
+	while attempts < CONFIG.MaxLineOfSightSkips and remaining > CONFIG.LineOfSightSkipStep do
+		result = workspace:Raycast(currentOrigin, rayDirection * remaining, rayParams)
+		if not result then
+			break
+		end
+
+		if not isNonBlockingDestroyedRemnant(result.Instance) then
+			break
+		end
+
+		local traveled = (result.Position - currentOrigin).Magnitude
+		local advance = traveled + CONFIG.LineOfSightSkipStep
+		remaining = remaining - advance
+		currentOrigin = result.Position + rayDirection * CONFIG.LineOfSightSkipStep
+		attempts += 1
+		result = nil
+	end
 
 	if result then
 		local distToTarget = (result.Position - hitData.hitPosition).Magnitude

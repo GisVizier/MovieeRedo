@@ -60,6 +60,7 @@ function Debris.makeDebris(
 
 		debrisPart.Anchored = false
 		debrisPart.Material = originalInfo.Material
+		debrisPart.MaterialVariant = originalInfo.MaterialVariant or ""
 		debrisPart.Color = originalInfo.Color
 		debrisPart.Transparency = originalInfo.Transparency
 		debrisPart.Reflectance = originalInfo.Reflectance

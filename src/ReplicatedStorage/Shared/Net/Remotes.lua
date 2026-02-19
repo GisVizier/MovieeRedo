@@ -127,6 +127,10 @@ local Remotes = {
 	-- Player data (Replica + client updates)
 	{ name = "PlayerDataUpdate", description = "Client sends data path/value to persist via server" },
 
+	-- Pressure destruction system (bullet hole creation)
+	{ name = "PressureImpact", description = "Client reports bullet impact for pressure destruction" },
+	{ name = "PressureShotgunCluster", description = "Client reports shotgun pellet cluster for destruction" },
+
 	-- Storm system
 	{ name = "StormStart", description = "Server notifies storm phase has begun" },
 	{ name = "StormUpdate", description = "Server broadcasts storm radius update", unreliable = true },

@@ -32,7 +32,7 @@ local function canMerge(part1: Instance, part2: Instance, excludeAxis: string)
 
 		local diff = math.abs(part1.Size[axis] - part2.Size[axis])
 
-		local compareProps = { "Color", "Material", "Transparency", "Shape" }
+		local compareProps = { "Color", "Material", "MaterialVariant", "Transparency", "Shape" }
 
 		local propsEqual = 0
 		for _, prop in pairs(compareProps) do

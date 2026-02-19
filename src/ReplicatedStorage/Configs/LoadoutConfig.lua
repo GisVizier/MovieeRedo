@@ -79,6 +79,9 @@ LoadoutConfig.Weapons = {
 		headshotMultiplier = 2.0,
 		range = 500,
 		fireRate = 50,
+		
+		-- Wall destruction pressure (higher = bigger holes)
+		destructionPressure = 100, -- Sniper makes big holes
 		projectileSpeed = nil,
 		bulletDrop = false,
 		spread = 0.04,
@@ -180,6 +183,9 @@ LoadoutConfig.Weapons = {
 		maxRange = 200,
 		minDamage = 2,
 		tracerColor = Color3.fromRGB(255, 150, 50),
+		
+		-- Wall destruction (per pellet, uses cluster mode)
+		destructionPressure = 30,
 
 		recoil = {
 			pitchUp = 5,
@@ -310,6 +316,9 @@ LoadoutConfig.Weapons = {
 		maxRange = 250,
 		minDamage = 5,
 		tracerColor = Color3.fromRGB(255, 230, 150),
+		
+		-- Wall destruction pressure
+		destructionPressure = 22,
 
 		recoil = {
 			pitchUp = 1.2,
@@ -415,6 +424,9 @@ LoadoutConfig.Weapons = {
 		maxRange = 150,
 		minDamage = 12,
 		tracerColor = Color3.fromRGB(255, 100, 50),
+		
+		-- Wall destruction pressure (high caliber)
+		destructionPressure = 40,
 
 		recoil = {
 			pitchUp = 4.0,
@@ -534,6 +546,9 @@ LoadoutConfig.Weapons = {
 		maxRange = 120,
 		minDamage = 4,
 		tracerColor = Color3.fromRGB(255, 170, 90),
+		
+		-- Wall destruction (SHREDS walls - per pellet, uses cluster mode)
+		destructionPressure = 50,
 
 		recoil = {
 			pitchUp = 7.25,
@@ -637,6 +652,9 @@ LoadoutConfig.Weapons = {
 		maxRange = 180,
 		minDamage = 7,
 		tracerColor = Color3.fromRGB(255, 230, 170),
+		
+		-- Wall destruction (fast fire = lots of small holes)
+		destructionPressure = 15,
 
 			recoil = {
 				pitchUp = 3.6,

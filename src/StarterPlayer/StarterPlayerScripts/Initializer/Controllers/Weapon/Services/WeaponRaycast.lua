@@ -1,9 +1,17 @@
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 
 local WeaponRaycast = {}
 local TrainingRangeShot = nil
+
+-- Pressure-based destruction system
+local PressureDestruction = nil
+pcall(function()
+	PressureDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("PressureDestruction"))
+end)
 
 -- Debug flag (set to true to see hit logs)
 -- TESTING: Enabled to debug match hit detection issues
@@ -13,6 +21,7 @@ local DEBUG_LOGGING = true
 WeaponRaycast.DebugRaycastEnabled = false
 local _debugRayLines = {}
 local DEBUG_RAY_DURATION = 5
+local WALL_SKIP_STEP = 0.01
 
 -- =============================================================================
 -- HELPER FUNCTIONS
@@ -150,6 +159,40 @@ local function isHeadshotPart(part)
 
 	local name = part.Name
 	return name == "Head" or name == "CrouchHead" or name == "HitboxHead"
+end
+
+local function getPlayerFromCharacterFallback(character)
+	if not character then
+		return nil
+	end
+	local ownerPlayer = Players:GetPlayerFromCharacter(character)
+	if ownerPlayer then
+		return ownerPlayer
+	end
+	for _, player in Players:GetPlayers() do
+		if player.Character == character then
+			return player
+		end
+	end
+	return nil
+end
+
+local function isNonBlockingDestroyedRemnant(part)
+	if not part then
+		return false
+	end
+
+	if part:HasTag("Debris") then
+		return true
+	end
+
+	local destroyedFlag = part:GetAttribute("__Breakable") == false or part:GetAttribute("__BreakableClient") == false
+	if not destroyedFlag then
+		return false
+	end
+
+	-- Only skip if the part is effectively gone as a blocker.
+	return part.Transparency >= 0.98 and (part.CanCollide == false or part.CanQuery == false)
 end
 
 --[[
@@ -345,18 +388,27 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	-- because filtering a destroyed wall would also exclude its visible children (BreakablePiece).
 	while result do
 		local hitInst = result.Instance
-		local isDestroyedWall = hitInst:GetAttribute("__Breakable") == false
-			or hitInst:GetAttribute("__BreakableClient") == false
-		local isDebris = hitInst:HasTag("Debris")
+		local isDestroyedRemnant = isNonBlockingDestroyedRemnant(hitInst)
+		local isSelfHit = false
+		local hitCharacterForSkip = getCharacterFromPart(hitInst)
 
-		if isDestroyedWall or isDebris then
+		if hitCharacterForSkip and localPlayer then
+			if character and hitCharacterForSkip == character then
+				isSelfHit = true
+			else
+				local ownerPlayer = getPlayerFromCharacterFallback(hitCharacterForSkip)
+				isSelfHit = ownerPlayer == localPlayer
+			end
+		end
+
+		if isDestroyedRemnant or isSelfHit then
 			local hitPos = result.Position
 			local remaining = range - (hitPos - origin).Magnitude
-			if remaining <= 0.1 then
+			if remaining <= WALL_SKIP_STEP then
 				result = nil
 				break
 			end
-			result = Workspace:Raycast(hitPos + direction * 0.1, direction * remaining, raycastParams)
+			result = Workspace:Raycast(hitPos + direction * WALL_SKIP_STEP, direction * remaining, raycastParams)
 		else
 			break
 		end
@@ -477,6 +529,25 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 				hitCharacter.Name, tostring(isHeadshot)))
 		else
 			warn("[RAYCAST RESULT] NO PLAYER/CHARACTER - environment hit")
+			
+			-- Register environment hit for pressure destruction
+			if PressureDestruction and result.Instance then
+				-- Get destruction pressure from weapon config
+				local destructionPressure = weaponConfig.destructionPressure or 20
+				
+				PressureDestruction:RegisterImpact(
+					result.Position,
+					result.Normal,
+					result.Instance,
+					destructionPressure,
+					false, -- not a shotgun (hitscan weapons are single shot)
+					nil,
+					{
+						origin = origin,
+						range = range,
+					}
+				)
+			end
 		end
 		-- END DEBUG
 

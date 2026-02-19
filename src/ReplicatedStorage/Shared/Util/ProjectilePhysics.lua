@@ -581,6 +581,23 @@ end
 	@param checkPoints number? - Number of points to check (default: 3)
 	@return boolean, RaycastResult? - Is clear, obstruction hit (if any)
 ]]
+local function isNonBlockingDestroyedRemnant(part)
+	if not part then
+		return false
+	end
+
+	if part:HasTag("Debris") then
+		return true
+	end
+
+	local destroyedFlag = part:GetAttribute("__Breakable") == false or part:GetAttribute("__BreakableClient") == false
+	if not destroyedFlag then
+		return false
+	end
+
+	return part.Transparency >= 0.98 and (part.CanCollide == false or part.CanQuery == false)
+end
+
 function ProjectilePhysics:CheckTrajectoryObstruction(origin, target, raycastParams, checkPoints)
 	checkPoints = checkPoints or 3
 	
@@ -595,8 +612,35 @@ function ProjectilePhysics:CheckTrajectoryObstruction(origin, target, raycastPar
 		local t = i / (checkPoints + 1)
 		local checkOrigin = origin + direction * ((i - 1) / checkPoints)
 		local checkDirection = direction * (1 / checkPoints)
-		
-		local result = workspace:Raycast(checkOrigin, checkDirection, raycastParams)
+
+		local segmentLength = checkDirection.Magnitude
+		local segmentDirection = segmentLength > 0 and checkDirection.Unit or nil
+		local result = nil
+
+		if segmentDirection then
+			local currentOrigin = checkOrigin
+			local remaining = segmentLength
+			local attempts = 0
+
+			while attempts < 16 and remaining > 0.01 do
+				local hit = workspace:Raycast(currentOrigin, segmentDirection * remaining, raycastParams)
+				if not hit then
+					break
+				end
+
+				if not isNonBlockingDestroyedRemnant(hit.Instance) then
+					result = hit
+					break
+				end
+
+				local traveled = (hit.Position - currentOrigin).Magnitude
+				local advance = traveled + 0.01
+				remaining = remaining - advance
+				currentOrigin = hit.Position + segmentDirection * 0.01
+				attempts += 1
+			end
+		end
+
 		if result then
 			-- Check if obstruction is before target
 			local hitDistance = (result.Position - origin).Magnitude

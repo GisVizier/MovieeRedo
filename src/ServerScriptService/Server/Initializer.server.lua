@@ -107,6 +107,10 @@ local entries = {
 		name = "StormService",
 		module = servicesFolder:WaitForChild("Storm"):WaitForChild("StormService"),
 	},
+	{
+		name = "PressureDestructionService",
+		module = servicesFolder:WaitForChild("Destruction"):WaitForChild("PressureDestructionService"),
+	},
 }
 
 -- Temporary recv isolation toggles. Set to true to skip loading a service.

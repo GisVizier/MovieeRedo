@@ -53,6 +53,56 @@ local function getCharacterFromPart(part)
 	return nil
 end
 
+local RAYCAST_SKIP_STEP = 0.01
+local MAX_SKIP_ITERATIONS = 32
+
+local function isNonBlockingDestroyedRemnant(part)
+	if not part then
+		return false
+	end
+
+	if part:HasTag("Debris") then
+		return true
+	end
+
+	local destroyedFlag = part:GetAttribute("__Breakable") == false or part:GetAttribute("__BreakableClient") == false
+	if not destroyedFlag then
+		return false
+	end
+
+	return part.Transparency >= 0.98 and (part.CanCollide == false or part.CanQuery == false)
+end
+
+local function raycastWithDestroyedSkip(origin, direction, raycastParams)
+	local remaining = direction.Magnitude
+	if remaining <= 0 then
+		return nil
+	end
+
+	local dirUnit = direction.Unit
+	local currentOrigin = origin
+	local attempts = 0
+
+	while attempts < MAX_SKIP_ITERATIONS and remaining > RAYCAST_SKIP_STEP do
+		local result = workspace:Raycast(currentOrigin, dirUnit * remaining, raycastParams)
+		if not result then
+			return nil
+		end
+
+		if not isNonBlockingDestroyedRemnant(result.Instance) then
+			return result
+		end
+
+		local traveled = (result.Position - currentOrigin).Magnitude
+		local advance = traveled + RAYCAST_SKIP_STEP
+		remaining = remaining - advance
+		currentOrigin = result.Position + dirUnit * RAYCAST_SKIP_STEP
+		attempts += 1
+	end
+
+	return nil
+end
+
 -- Normalize nested/cosmetic rig models to canonical character models.
 -- This keeps damage/state writes on the actual gameplay character.
 normalizeCharacterModel = function(character)
@@ -315,7 +365,7 @@ function WeaponService:OnWeaponFired(player, shotData)
 				raycastParams.FilterDescendantsInstances = ignoreList
 
 				-- Raycast to verify hit
-				local result = workspace:Raycast(hitData.origin, direction.Unit * (distance + 5), raycastParams)
+				local result = raycastWithDestroyedSkip(hitData.origin, direction.Unit * (distance + 5), raycastParams)
 				if result then
 					local character = getCharacterFromPart(result.Instance)
 					if character then
@@ -417,7 +467,7 @@ function WeaponService:_processPellets(player, shotData, weaponConfig)
 	local firstHitCharacter = nil
 
 	for i, dir in ipairs(shotData.pelletDirections) do
-		local result = workspace:Raycast(origin, dir * range, raycastParams)
+		local result = raycastWithDestroyedSkip(origin, dir * range, raycastParams)
 		if result then
 			if not firstHitPosition then
 				firstHitPosition = result.Position

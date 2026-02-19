@@ -121,6 +121,14 @@ local RIGHT = Vector3.new(1, 0, 0)
 local UP = Vector3.new(0, 1, 0)
 local BACK = Vector3.new(0, 0, 1)
 
+local function getPieceFolderParent(wall: Instance?)
+	if wall and wall.Parent then
+		return wall.Parent
+	end
+
+	return workspace
+end
+
 local function unsparse(array)
 	if array ~= nil and typeof(array) == "table" and #array > 0 then
 		local highestIndex = 0
@@ -352,7 +360,8 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
-	local folder = if id then workspace.Camera:FindFirstChild(id) else nil
+	local folderParent = getPieceFolderParent(wall)
+	local folder = if id then folderParent:FindFirstChild(id) else nil
 	local parent = wall
 	if game:GetService("RunService"):IsServer() and Settings.OnClient and Settings.OnServer and folder then
 		parent = folder
@@ -367,6 +376,9 @@ function Repair(wall: Part | Model, __self: boolean?)
 	end
 
 	wall.CanCollide = wall:GetAttribute("__OriginalCanCollide") or wall.CanCollide
+	if wall:GetAttribute("__OriginalCanQuery") ~= nil then
+		wall.CanQuery = wall:GetAttribute("__OriginalCanQuery")
+	end
 	wall.Transparency = wall:GetAttribute("__OriginalTransparency") or wall.Transparency
 
 	wall:SetAttribute("__" .. Settings.Tag .. clientID, true)
@@ -620,6 +632,9 @@ function Destroy(
 					if not wall:GetAttribute("__OriginalCanCollide") then
 						wall:SetAttribute("__OriginalCanCollide", wall.CanCollide)
 					end
+					if wall:GetAttribute("__OriginalCanQuery") == nil then
+						wall:SetAttribute("__OriginalCanQuery", wall.CanQuery)
+					end
 					if not wall:GetAttribute("__OriginalTransparency") then
 						wall:SetAttribute("__OriginalTransparency", wall.Transparency)
 					end
@@ -639,10 +654,11 @@ function Destroy(
 						local originalCanCollide = wall:GetAttribute("__OriginalCanCollide")
 						piece.Transparency = originalTransparency or piece.Transparency
 						piece.CanCollide = originalCanCollide or piece.CanCollide
+						piece.MaterialVariant = wall.MaterialVariant
 
 						Clone.wipeAttributes(piece)
 						piece:AddTag(Settings.Tag .. "Piece")
-						piece.CanQuery = false -- Voxel pieces should not be hit by projectiles
+						piece.CanQuery = true -- Visible voxel leftovers should be queryable by gun raycasts
 
 						if game:GetService("RunService"):IsServer() and Settings.OnClient and Settings.OnServer then
 							local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
@@ -651,7 +667,8 @@ function Destroy(
 								wall:SetAttribute("__VoxelDestructID" .. clientID, id)
 							end
 
-							local folder = workspace.Camera:FindFirstChild(id)
+							local folderParent = getPieceFolderParent(wall)
+							local folder = folderParent:FindFirstChild(id)
 							if not folder then
 								folder = Instance.new("Folder")
 
@@ -660,7 +677,7 @@ function Destroy(
 								end)
 
 								folder.Name = id
-								folder.Parent = workspace.Camera
+								folder.Parent = folderParent
 							end
 
 							piece.Parent = folder
@@ -759,8 +776,9 @@ function Destroy(
 						end
 
 						local id = wall:GetAttribute("__VoxelDestructID" .. clientID)
+						local folderParent = getPieceFolderParent(wall)
 						local folder = if id
-							then workspace.Camera:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
+							then folderParent:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
 							else nil
 
 						local parent = wall
@@ -811,6 +829,7 @@ function Destroy(
 
 						local function handleDebris(debri)
 							debri.Name = "Debris"
+							debri.MaterialVariant = wall.MaterialVariant
 							debri.CanQuery = false
 							game:GetService("CollectionService"):AddTag(debri, "Debris")
 							debri.Parent = Settings.DebrisContainer
@@ -884,6 +903,7 @@ function Destroy(
 						end
 
 						wall.CanCollide = false
+						wall.CanQuery = false
 						wall.Transparency = 1
 
 						-- Remove textures/decals from the now-invisible wall
