@@ -218,7 +218,8 @@ function module:_ensureCurrentUserCard()
 		return
 	end
 
-	local data = self:_buildPlayerData(localPlayer)
+	-- Use replica-backed data if available so wins/streak are actual values
+	local data = self._playersByUserId[localPlayer.UserId] or self:_buildPlayerData(localPlayer)
 	if not data then
 		return
 	end
@@ -250,7 +251,11 @@ function module:_updateCurrentUserCard()
 	if not localPlayer then
 		return
 	end
-	local data = self:_buildPlayerData(localPlayer)
+	-- Prefer replica-backed data so wins/streak at top are actual values
+	local data = self._playersByUserId[localPlayer.UserId]
+	if not data then
+		data = self:_buildPlayerData(localPlayer)
+	end
 	if not data then
 		return
 	end
@@ -345,10 +350,12 @@ function module:_bindEvents()
 
 	self._connections:add(self._export:on("MatchStart", function()
 		self:setMatchStatus("InGame")
+		self:setPanelVisible(false)
 	end), "events")
 
 	self._connections:add(self._export:on("RoundStart", function()
 		self:setMatchStatus("InGame")
+		self:setPanelVisible(false)
 	end), "events")
 
 	self._connections:add(self._export:on("ReturnToLobby", function()
@@ -1001,6 +1008,12 @@ function module:addPlayer(payload)
 	self:_applyFilters()
 	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
+
+	-- Keep User frame wins/streak in sync with actual profile data
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and data.userId == localPlayer.UserId then
+		self:_updateCurrentUserCard()
+	end
 end
 
 function module:removePlayer(payload)
