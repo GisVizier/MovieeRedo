@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
 local MapConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MapConfig"))
+local VoxelDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
 
 
 --------------------------------------------------------------------------------
@@ -1137,6 +1138,12 @@ end
 
 function MatchManager:_resetRound(match)
 	match._deadThisRound = {}
+
+	-- Reset voxel destruction: repair map, clear server state, tell clients to clear debris
+	if match.mapInstance then
+		VoxelDestruction.ResetAll(match.mapInstance)
+	end
+	self:_fireMatchClients(match, "VoxelReset", {})
 
 	-- Stop the round timer
 	if match._roundTimerThread then

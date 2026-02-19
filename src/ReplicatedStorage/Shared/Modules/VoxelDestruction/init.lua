@@ -54,6 +54,9 @@ export type _breaker = {
 
 	Repair: (wall: Part | Model) -> nil,
 
+	-- Reset all destruction for a round: repairs map, clears server state and __Destruction folder. Call after each round.
+	ResetAll: (mapModel: Model?) -> nil,
+
 	GreedyMesh: (parts: { Part }) -> { Part },
 
 	Intersect: (part: Part | MeshPart, canvas: Part) -> (Part?, { Part }),
@@ -372,6 +375,27 @@ function Repair(wall: Part | Model, __self: boolean?)
 
 	if parent and parent:IsA("Folder") then
 		parent:Destroy()
+	end
+end
+
+-- Reset all destruction (round end): repair map, clear Storage and __Destruction. Server-only.
+function ResetAll(mapModel: Model?)
+	if not game:GetService("RunService"):IsServer() then
+		return
+	end
+	-- Repair entire map so all breakables are restored (replicates to clients)
+	if mapModel and mapModel:IsA("Model") and mapModel.Parent then
+		Repair(mapModel)
+	end
+	-- Clear server destruction state
+	for id in pairs(Storage) do
+		Storage[id] = nil
+	end
+	local destructionFolder = workspace:FindFirstChild("__Destruction")
+	if destructionFolder then
+		for _, child in ipairs(destructionFolder:GetChildren()) do
+			child:Destroy()
+		end
 	end
 end
 
@@ -1726,6 +1750,7 @@ local breaker: _breaker = {
 	Hitbox = Hitbox,
 	Cleanup = Cleanup,
 	Repair = Repair,
+	ResetAll = ResetAll,
 	GreedyMesh = GreedyMesh,
 	Intersect = Intersect,
 }

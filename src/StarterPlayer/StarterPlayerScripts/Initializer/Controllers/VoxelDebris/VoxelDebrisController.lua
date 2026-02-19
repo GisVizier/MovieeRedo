@@ -35,6 +35,11 @@ function VoxelDebrisController:Init(registry, net)
 		self:_onDebrisData(data)
 	end)
 	
+	-- Listen for round reset: clear all debris so next round starts clean
+	self._net:ConnectClient("VoxelReset", function()
+		self:Cleanup()
+	end)
+	
 	self._initialized = true
 end
 

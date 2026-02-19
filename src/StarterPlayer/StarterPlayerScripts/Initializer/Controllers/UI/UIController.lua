@@ -254,6 +254,66 @@ end
 
 function UIController:Start() end
 
+function UIController:_setupPlayerListData(ui)
+	local coreUi = self._coreUi
+	if not coreUi then
+		return
+	end
+
+	local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
+	-- Ensure replica client is requested so we receive PeekableData
+	PlayerDataTable.init()
+
+	local ok, Replica = pcall(require, ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ReplicaClient"))
+	if not ok or not Replica then
+		return
+	end
+
+	local function buildPayload(replica)
+		local userId = replica.Tags and replica.Tags.UserId
+		if not userId or type(userId) ~= "number" then
+			return nil
+		end
+		local data = replica.Data or {}
+		local player = Players:GetPlayerByUserId(userId)
+		local displayName = player and player.DisplayName or nil
+		local username = player and player.Name or nil
+		return {
+			userId = userId,
+			displayName = displayName,
+			username = username,
+			wins = type(data.WINS) == "number" and data.WINS or 0,
+			streak = type(data.STREAK) == "number" and data.STREAK or 0,
+			crowns = type(data.CROWNS) == "number" and data.CROWNS or 0,
+		}
+	end
+
+	local function emitJoined(replica)
+		local payload = buildPayload(replica)
+		if payload then
+			safeCall(function()
+				coreUi:emit("PlayerList_PlayerJoined", payload)
+			end)
+		end
+	end
+
+	local function emitUpdated(replica)
+		local payload = buildPayload(replica)
+		if payload then
+			safeCall(function()
+				coreUi:emit("PlayerList_PlayerUpdated", payload)
+			end)
+		end
+	end
+
+	Replica.OnNew("PeekableData", function(replica)
+		emitJoined(replica)
+		replica:OnChange(function()
+			emitUpdated(replica)
+		end)
+	end)
+end
+
 function UIController:_bootstrapUi()
 	local player = Players.LocalPlayer
 	if not player then
@@ -270,6 +330,8 @@ function UIController:_bootstrapUi()
 	local ui = CoreUI.new(screenGui)
 	ui:init()
 	self._coreUi = ui
+
+	self:_setupPlayerListData(ui)
 
 	-- Force-hide any UI that might be Visible by default in Studio.
 	for _, name in ipairs({
