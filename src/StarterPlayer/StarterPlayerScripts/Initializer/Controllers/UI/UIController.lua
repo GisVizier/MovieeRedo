@@ -7,7 +7,8 @@ local TweenService = game:GetService("TweenService")
 
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local DialogueConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DialogueConfig"))
-local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
+local ServiceRegistry =
+	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
 local UIController = {}
 
@@ -51,7 +52,10 @@ local function playKilledSkull(screenGui: ScreenGui)
 	local uiScale = killed:FindFirstChildOfClass("UIScale") or killed:FindFirstChild("UIScale")
 
 	if skull and skull:IsA("ImageLabel") then
-		skull:SetAttribute("_origImageTransparency", skull:GetAttribute("_origImageTransparency") or skull.ImageTransparency)
+		skull:SetAttribute(
+			"_origImageTransparency",
+			skull:GetAttribute("_origImageTransparency") or skull.ImageTransparency
+		)
 	end
 	if bg and bg:IsA("ImageLabel") then
 		bg:SetAttribute("_origImageTransparency", bg:GetAttribute("_origImageTransparency") or bg.ImageTransparency)
@@ -82,10 +86,24 @@ local function playKilledSkull(screenGui: ScreenGui)
 		table.insert(tweens, TweenService:Create(uiScale, popInfo, { Scale = uiScale:GetAttribute("_origScale") or 1 }))
 	end
 	if skull and skull:IsA("ImageLabel") then
-		table.insert(tweens, TweenService:Create(skull, fadeInInfo, { ImageTransparency = skull:GetAttribute("_origImageTransparency") or 0.29 }))
+		table.insert(
+			tweens,
+			TweenService:Create(
+				skull,
+				fadeInInfo,
+				{ ImageTransparency = skull:GetAttribute("_origImageTransparency") or 0.29 }
+			)
+		)
 	end
 	if bg and bg:IsA("ImageLabel") then
-		table.insert(tweens, TweenService:Create(bg, fadeInInfo, { ImageTransparency = bg:GetAttribute("_origImageTransparency") or 0.79 }))
+		table.insert(
+			tweens,
+			TweenService:Create(
+				bg,
+				fadeInInfo,
+				{ ImageTransparency = bg:GetAttribute("_origImageTransparency") or 0.79 }
+			)
+		)
 	end
 	for _, t in ipairs(tweens) do
 		t:Play()
@@ -158,8 +176,7 @@ local function showPlayerDeathNotification(playerGui: PlayerGui, data)
 	spec.Visible = true
 	spec.Parent = playerDeath
 
-	local killerDisplay =
-		(data and data.killerData and (data.killerData.displayName or data.killerData.userName))
+	local killerDisplay = (data and data.killerData and (data.killerData.displayName or data.killerData.userName))
 		or (data and data.killerName)
 		or "UNKNOWN"
 	updateDeathTemplateText(spec, killerDisplay)
@@ -334,19 +351,19 @@ function UIController:Init(registry, net)
 	self._net:ConnectClient("StormStart", function(data)
 		self:_onStormStart(data)
 	end)
-	
+
 	self._net:ConnectClient("StormEnter", function(data)
 		self:_onStormEnter(data)
 	end)
-	
+
 	self._net:ConnectClient("StormLeave", function(data)
 		self:_onStormLeave(data)
 	end)
-	
+
 	self._net:ConnectClient("StormSound", function(data)
 		self:_onStormSound(data)
 	end)
-	
+
 	self._net:ConnectClient("StormUpdate", function(data)
 		self:_onStormUpdate(data)
 	end)
@@ -356,11 +373,15 @@ function UIController:Init(registry, net)
 	self._betweenRoundEndTime = 0
 	self._betweenRoundDuration = 10
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
+		if gameProcessed then
+			return
+		end
 		if input.KeyCode == Enum.KeyCode.M and self._betweenRounds and self._coreUi then
 			-- Toggle: if loadout is currently open, close it and go back to first person
 			if self._coreUi:isOpen("Loadout") then
-				safeCall(function() self._coreUi:hide("Loadout") end)
+				safeCall(function()
+					self._coreUi:hide("Loadout")
+				end)
 				local cameraController = self._registry and self._registry:TryGet("Camera")
 				if cameraController and type(cameraController.SetCameraMode) == "function" then
 					cameraController:SetCameraMode("FirstPerson")
@@ -387,7 +408,9 @@ function UIController:Init(registry, net)
 			if cameraController and type(cameraController.SetCameraMode) == "function" then
 				cameraController:SetCameraMode("Orbit")
 			end
-			safeCall(function() self._coreUi:show("Loadout", true) end)
+			safeCall(function()
+				self._coreUi:show("Loadout", true)
+			end)
 		end
 	end)
 
@@ -403,17 +426,17 @@ function UIController:Init(registry, net)
 	self._net:ConnectClient("PlayerKilled", function(data)
 		if self._coreUi then
 			self._coreUi:emit("PlayerKilled", data)
-			
+
 			-- Show Kill UI if local player was killed
-			if data and data.victimUserId == player.UserId then
-				local pg = player:FindFirstChild("PlayerGui")
-				if pg then
-					pcall(function()
-						showPlayerDeathNotification(pg, data)
-					end)
-				end
-				self:_showKillScreen(data)
+			--	if data and data.victimUserId == player.UserId then
+			local pg = player:FindFirstChild("PlayerGui")
+			if pg then
+				pcall(function()
+					showPlayerDeathNotification(pg, data)
+				end)
 			end
+			self:_showKillScreen(data)
+			--	end
 		end
 	end)
 
@@ -771,8 +794,12 @@ function UIController:_onShowRoundLoadout(data)
 	end
 
 	-- Hide HUD and Map (in case map selection was showing)
-	safeCall(function() self._coreUi:hide("HUD") end)
-	safeCall(function() self._coreUi:hide("Map") end)
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Map")
+	end)
 
 	-- Set up loadout module with round data including server duration
 	local loadoutModule = self._coreUi:getModule("Loadout")
@@ -808,7 +835,9 @@ function UIController:_onShowRoundLoadout(data)
 	end
 
 	-- Notify HUD to hide health/loadout bars
-	pcall(function() self._coreUi:emit("LoadoutOpened") end)
+	pcall(function()
+		self._coreUi:emit("LoadoutOpened")
+	end)
 end
 
 --------------------------------------------------------------------------------
@@ -816,7 +845,9 @@ end
 --------------------------------------------------------------------------------
 
 function UIController:_onShowMapSelection(data)
-	if not self._coreUi then return end
+	if not self._coreUi then
+		return
+	end
 
 	local player = Players.LocalPlayer
 	if player then
@@ -824,15 +855,25 @@ function UIController:_onShowMapSelection(data)
 	end
 
 	-- Hide lobby/other UI
-	safeCall(function() self._coreUi:hide("Start") end)
-	safeCall(function() self._coreUi:hide("HUD") end)
-	safeCall(function() self._coreUi:hide("Loadout") end)
+	safeCall(function()
+		self._coreUi:hide("Start")
+	end)
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Loadout")
+	end)
 
 	-- Build team data for the Map module
 	local teams = { team1 = data.team1 or {}, team2 = data.team2 or {} }
 	local allPlayers = {}
-	for _, uid in ipairs(teams.team1) do table.insert(allPlayers, uid) end
-	for _, uid in ipairs(teams.team2) do table.insert(allPlayers, uid) end
+	for _, uid in ipairs(teams.team1) do
+		table.insert(allPlayers, uid)
+	end
+	for _, uid in ipairs(teams.team2) do
+		table.insert(allPlayers, uid)
+	end
 
 	-- Configure the Map module
 	local mapModule = self._coreUi:getModule("Map")
@@ -874,7 +915,9 @@ function UIController:_onShowMapSelection(data)
 end
 
 function UIController:_onMapVoteUpdate(data)
-	if not self._coreUi then return end
+	if not self._coreUi then
+		return
+	end
 
 	local mapModule = self._coreUi:getModule("Map")
 	if mapModule and data and data.oduserId and data.mapId then
@@ -887,7 +930,9 @@ function UIController:_onMapVoteUpdate(data)
 end
 
 function UIController:_onMapVoteResult(data)
-	if not self._coreUi then return end
+	if not self._coreUi then
+		return
+	end
 
 	local winningMapId = data and data.winningMapId or "ApexArena"
 	self._currentMapId = winningMapId
@@ -896,18 +941,18 @@ function UIController:_onMapVoteResult(data)
 	safeCall(function()
 		self._coreUi:hide("Map")
 	end)
-	
+
 	-- Restore camera and mouse if player was in waiting room
 	local player = game:GetService("Players").LocalPlayer
 	if player:GetAttribute("InWaitingRoom") then
 		player:SetAttribute("InWaitingRoom", nil)
-		
+
 		-- Restore camera to custom (first person)
 		local camera = workspace.CurrentCamera
 		if camera then
 			camera.CameraType = Enum.CameraType.Custom
 		end
-		
+
 		-- Re-lock mouse for gameplay
 		local UserInputService = game:GetService("UserInputService")
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
@@ -916,7 +961,9 @@ function UIController:_onMapVoteResult(data)
 end
 
 function UIController:_onBetweenRoundFreeze(data)
-	if not self._coreUi then return end
+	if not self._coreUi then
+		return
+	end
 
 	-- Clean up storm visuals from previous round (clouds, mesh)
 	local stormModule = self._coreUi:getModule("Storm")
@@ -930,7 +977,9 @@ function UIController:_onBetweenRoundFreeze(data)
 			end
 		end)
 	end
-	safeCall(function() self._coreUi:hide("Storm") end)
+	safeCall(function()
+		self._coreUi:hide("Storm")
+	end)
 
 	self._betweenRounds = true
 
@@ -956,13 +1005,19 @@ function UIController:_onBetweenRoundFreeze(data)
 	end
 
 	-- Notify HUD FIRST that loadout is opening (sets flag to skip animating player/health/items)
-	pcall(function() self._coreUi:emit("LoadoutOpened") end)
+	pcall(function()
+		self._coreUi:emit("LoadoutOpened")
+	end)
 
 	-- Now show HUD (score counter will show, but player/health/items will stay hidden due to flag)
-	safeCall(function() self._coreUi:show("HUD", true) end)
+	safeCall(function()
+		self._coreUi:show("HUD", true)
+	end)
 
 	-- Emit score update
-	pcall(function() self._coreUi:emit("BetweenRoundFreeze", data) end)
+	pcall(function()
+		self._coreUi:emit("BetweenRoundFreeze", data)
+	end)
 
 	-- Open loadout UI directly with previous loadout pre-selected
 	local loadoutModule = self._coreUi:getModule("Loadout")
@@ -972,7 +1027,7 @@ function UIController:_onBetweenRoundFreeze(data)
 		-- We need to use the cached loadout from PlayerDataTable instead
 		local player = Players.LocalPlayer
 		local previousLoadout = nil
-		
+
 		-- Try PlayerDataTable first (cached from previous round)
 		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 		local equipped = PlayerDataTable.getEquippedLoadout()
@@ -1019,8 +1074,12 @@ function UIController:_onBetweenRoundFreeze(data)
 end
 
 function UIController:_onLoadoutTimerHalved(data)
-	if not self._coreUi then return end
-	if not data or type(data.remaining) ~= "number" then return end
+	if not self._coreUi then
+		return
+	end
+	if not data or type(data.remaining) ~= "number" then
+		return
+	end
 
 	local loadoutModule = self._coreUi:getModule("Loadout")
 	if loadoutModule and loadoutModule.halveTimer then
@@ -1031,7 +1090,9 @@ function UIController:_onLoadoutTimerHalved(data)
 end
 
 function UIController:_onLoadoutLocked(data)
-	if not self._coreUi then return end
+	if not self._coreUi then
+		return
+	end
 
 	local loadoutModule = self._coreUi:getModule("Loadout")
 	if loadoutModule then
@@ -1107,7 +1168,9 @@ function UIController:_onRoundStart(data)
 		self._coreUi:hide("Loadout")
 	end)
 	-- Notify HUD to show health/loadout bars
-	pcall(function() self._coreUi:emit("LoadoutClosed") end)
+	pcall(function()
+		self._coreUi:emit("LoadoutClosed")
+	end)
 
 	-- Get the loadout to apply
 	local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
@@ -1189,7 +1252,7 @@ function UIController:_onRoundOutcome(data)
 			hudModule:RoundEnd(outcome)
 		end)
 	end
-	
+
 	-- Also emit to CoreUI in case other modules want to listen
 	pcall(function()
 		self._coreUi:emit("RoundOutcome", data)
@@ -1204,10 +1267,16 @@ function UIController:_onMatchEnd(data)
 	self._betweenRounds = false
 
 	-- Hide all match UI
-	safeCall(function() self._coreUi:hide("HUD") end)
-	safeCall(function() self._coreUi:hide("Loadout") end)
-	safeCall(function() self._coreUi:hide("Storm") end)
-	
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Loadout")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Storm")
+	end)
+
 	-- Explicitly destroy storm mesh and restore clouds
 	local stormModule = self._coreUi:getModule("Storm")
 	if stormModule then
@@ -1234,13 +1303,13 @@ end
 
 function UIController:_onStormStart(data)
 	print("[UICONTROLLER] Storm phase started for match:", data.matchId)
-	
+
 	-- Emit to CoreUI for any listeners
 	if self._coreUi then
 		pcall(function()
 			self._coreUi:emit("StormStart", data)
 		end)
-		
+
 		-- Show "STORM INCOMING" announcement via HUD
 		local hudModule = self._coreUi:getModule("HUD")
 		if hudModule and hudModule.StormStarted then
@@ -1248,7 +1317,7 @@ function UIController:_onStormStart(data)
 				hudModule:StormStarted()
 			end)
 		end
-		
+
 		-- Create local storm mesh (client-side only)
 		local stormModule = self._coreUi:getModule("Storm")
 		if stormModule and stormModule.createStormMesh then
@@ -1257,7 +1326,7 @@ function UIController:_onStormStart(data)
 			end)
 		end
 	end
-	
+
 	-- Store storm data for UI updates
 	self._stormData = {
 		center = data.center,
@@ -1269,9 +1338,11 @@ end
 
 function UIController:_onStormEnter(data)
 	print("[UICONTROLLER] Player entered storm zone")
-	
-	if not self._coreUi then return end
-	
+
+	if not self._coreUi then
+		return
+	end
+
 	-- Show the Storm UI overlay
 	safeCall(function()
 		self._coreUi:show("Storm")
@@ -1280,9 +1351,11 @@ end
 
 function UIController:_onStormLeave(data)
 	print("[UICONTROLLER] Player left storm zone (safe)")
-	
-	if not self._coreUi then return end
-	
+
+	if not self._coreUi then
+		return
+	end
+
 	-- Hide the Storm UI overlay
 	safeCall(function()
 		self._coreUi:hide("Storm")
@@ -1290,8 +1363,10 @@ function UIController:_onStormLeave(data)
 end
 
 function UIController:_onStormSound(data)
-	if not self._coreUi then return end
-	
+	if not self._coreUi then
+		return
+	end
+
 	local stormModule = self._coreUi:getModule("Storm")
 	if stormModule then
 		if data.sound == "stormforming" and stormModule.playFormingSound then
@@ -1303,32 +1378,34 @@ function UIController:_onStormSound(data)
 end
 
 function UIController:_onStormUpdate(data)
-	if not self._coreUi then return end
-	
+	if not self._coreUi then
+		return
+	end
+
 	-- Update the Storm UI with new radius info
 	local stormModule = self._coreUi:getModule("Storm")
 	if stormModule and stormModule.updateRadius and self._stormData then
 		pcall(function()
-			stormModule:updateRadius(
-				data.currentRadius,
-				self._stormData.targetRadius,
-				self._stormData.initialRadius
-			)
+			stormModule:updateRadius(data.currentRadius, self._stormData.targetRadius, self._stormData.initialRadius)
 		end)
 	end
 end
 
 function UIController:_showKillScreen(data)
-	if not self._coreUi then return end
-	
+	if not self._coreUi then
+		return
+	end
+
 	local player = Players.LocalPlayer
 	local killModule = self._coreUi:getModule("Kill")
-	if not killModule then return end
-	
+	if not killModule then
+		return
+	end
+
 	-- Build killer data for the Kill UI
 	local killerUserId = data.killerUserId
 	local isSelfKill = not killerUserId or killerUserId == player.UserId
-	
+
 	-- Get wins/streak - for self-kills use local data, for real kills use 0 (unknown)
 	local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 	local wins = 0
@@ -1337,10 +1414,11 @@ function UIController:_showKillScreen(data)
 		wins = PlayerDataTable.getData("WINS") or 0
 		streak = PlayerDataTable.getData("STREAK") or 0
 	end
-	
+
 	local killerInfo = {
 		userId = isSelfKill and player.UserId or killerUserId,
-		displayName = isSelfKill and player.DisplayName or (data.killerData and data.killerData.displayName or "Unknown"),
+		displayName = isSelfKill and player.DisplayName
+			or (data.killerData and data.killerData.displayName or "Unknown"),
 		userName = isSelfKill and player.Name or (data.killerData and data.killerData.userName or "unknown"),
 		kitId = isSelfKill and nil or (data.killerData and data.killerData.kitId),
 		weaponId = isSelfKill and nil or data.weaponId, -- Don't show weapon for self-kills
@@ -1349,19 +1427,19 @@ function UIController:_showKillScreen(data)
 		health = isSelfKill and 0 or (data.killerData and data.killerData.health or 100),
 		teamColor = Color3.fromRGB(255, 100, 100), -- Red team color for enemy
 	}
-	
+
 	-- If self-kill, use blue team color
 	if isSelfKill then
 		killerInfo.teamColor = Color3.fromRGB(100, 150, 255)
 	end
-	
+
 	-- Set killer data and show the Kill UI
 	if killModule.setKillerData then
 		pcall(function()
 			killModule:setKillerData(killerInfo)
 		end)
 	end
-	
+
 	-- Hide HUD health/loadout bars but keep counter visible
 	local hudModule = self._coreUi:getModule("HUD")
 	if hudModule and hudModule._hideHealthAndLoadoutBars then
@@ -1369,7 +1447,7 @@ function UIController:_showKillScreen(data)
 			hudModule:_hideHealthAndLoadoutBars()
 		end)
 	end
-	
+
 	-- Show Kill UI
 	safeCall(function()
 		self._coreUi:show("Kill", true)
@@ -1379,7 +1457,7 @@ end
 function UIController:_onReturnToLobby(data)
 	print("[UICONTROLLER] === _onReturnToLobby called ===")
 	print("[UICONTROLLER]   data:", data)
-	
+
 	if not self._coreUi then
 		return
 	end
@@ -1397,8 +1475,12 @@ function UIController:_onReturnToLobby(data)
 	end
 
 	-- Hide all match UI
-	safeCall(function() self._coreUi:hide("HUD") end)
-	safeCall(function() self._coreUi:hide("Loadout") end)
+	safeCall(function()
+		self._coreUi:hide("HUD")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Loadout")
+	end)
 
 	-- Hide crosshair and restore mouse cursor for lobby
 	local weaponController = self._registry and self._registry:TryGet("Weapon")
@@ -1455,7 +1537,9 @@ function UIController:_onShowTrainingLoadout(data)
 		self._coreUi:show("Loadout", true)
 	end)
 	-- Notify HUD to hide health/loadout bars
-	pcall(function() self._coreUi:emit("LoadoutOpened") end)
+	pcall(function()
+		self._coreUi:emit("LoadoutOpened")
+	end)
 end
 
 -- Training mode entry confirmed: show HUD and force first person
@@ -1476,7 +1560,9 @@ function UIController:_onTrainingLoadoutConfirmed(data)
 		self._coreUi:hide("Loadout")
 	end)
 	-- Notify HUD to show health/loadout bars
-	pcall(function() self._coreUi:emit("LoadoutClosed") end)
+	pcall(function()
+		self._coreUi:emit("LoadoutClosed")
+	end)
 
 	-- Show HUD for training with correct data
 	safeCall(function()
