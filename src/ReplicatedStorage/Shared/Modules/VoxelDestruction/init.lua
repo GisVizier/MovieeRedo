@@ -129,6 +129,53 @@ local function getPieceFolderParent(wall: Instance?)
 	return workspace
 end
 
+local function resolveWallFromPiece(hitPart: BasePart, clientID: string)
+	if not hitPart:HasTag(Settings.Tag .. "Piece") then
+		return hitPart
+	end
+
+	local pieceFolder = hitPart.Parent
+	if pieceFolder and pieceFolder:IsA("Folder") then
+		local owner = pieceFolder:FindFirstChild("__Owner")
+		if owner and owner:IsA("ObjectValue") and owner.Value and owner.Value:IsA("BasePart") then
+			return owner.Value
+		end
+	end
+
+	local idAttribute = "__VoxelDestructID" .. clientID
+	local pieceId = hitPart:GetAttribute(idAttribute)
+	if not pieceId and pieceFolder and pieceFolder:IsA("Folder") then
+		pieceId = pieceFolder.Name
+	end
+
+	if not pieceId then
+		return hitPart
+	end
+
+	local searchRoot = if pieceFolder and pieceFolder.Parent then pieceFolder.Parent else nil
+	if not searchRoot then
+		return hitPart
+	end
+
+	for _, candidate in ipairs(searchRoot:GetChildren()) do
+		if (candidate:IsA("Part") or candidate:IsA("MeshPart")) and not candidate:HasTag(Settings.Tag .. "Piece") then
+			if candidate:GetAttribute(idAttribute) == pieceId then
+				return candidate
+			end
+		end
+	end
+
+	return hitPart
+end
+
+local TRACE_VOXEL_DESTRUCTION = true
+
+local function traceDestroy(...)
+	if TRACE_VOXEL_DESTRUCTION and game:GetService("RunService"):IsServer() then
+		warn("[VoxelDestruction.Destroy]", ...)
+	end
+end
+
 local function unsparse(array)
 	if array ~= nil and typeof(array) == "table" and #array > 0 then
 		local highestIndex = 0
@@ -332,7 +379,7 @@ function Repair(wall: Part | Model, __self: boolean?)
 
 	-- Client
 
-	if not __self and game:GetService("RunService"):IsServer() and Settings.OnClient then
+	if not __self and game:GetService("RunService"):IsServer() and Settings.OnClient and not Settings.OnServer then
 		Remote:FireAllClients("Repair", wall)
 
 		if not Settings.OnServer then
@@ -431,7 +478,12 @@ function Destroy(
 	local isClient = game:GetService("RunService"):IsClient()
 	local clientID = if isClient then "Client" else ""
 
-	if focus:GetAttribute("__HitboxID") == nil and game:GetService("RunService"):IsServer() and Settings.OnClient then
+	if
+		focus:GetAttribute("__HitboxID") == nil
+		and game:GetService("RunService"):IsServer()
+		and Settings.OnClient
+		and not Settings.OnServer
+	then
 		task.wait()
 		Remote:FireAllClients("Destroy", focus, parameters, voxelSize, debrisCount, reset)
 
@@ -463,6 +515,14 @@ function Destroy(
 	elseif reset ~= nil and reset > 0 and reset < Settings.ResetMinimum then
 		reset = Settings.ResetMinimum
 	end
+	traceDestroy(
+		"Start",
+		"focus=", focus:GetFullName(),
+		"size=", tostring(focus.Size),
+		"voxelSize=", tostring(voxelSize),
+		"debrisCount=", tostring(debrisCount),
+		"reset=", tostring(reset)
+	)
 
 	local part = focus:Clone()
 	for _, tag in ipairs(part:GetTags()) do
@@ -491,7 +551,7 @@ function Destroy(
 		end
 	end
 
-	if game:GetService("RunService"):IsServer() and Settings.OnClient == true then
+	if game:GetService("RunService"):IsServer() and Settings.OnClient == true and not Settings.OnServer then
 		debrisCount = 0
 	end
 
@@ -508,7 +568,12 @@ function Destroy(
 
 	-- Store destruction info
 
-	if Settings.RecordDestruction and game:GetService("RunService"):IsServer() and Settings.OnClient then
+	if
+		Settings.RecordDestruction
+		and game:GetService("RunService"):IsServer()
+		and Settings.OnClient
+		and not Settings.OnServer
+	then
 		if not workspace:FindFirstChild("__Destruction") then
 			local folder = Instance.new("Folder")
 			folder.Name = "__Destruction"
@@ -587,9 +652,22 @@ function Destroy(
 	--
 
 	local debris, walls = {}, {}
+	local processedWalls = {}
 
 	if not Settings.OnClient or game:GetService("RunService"):IsClient() or Settings.OnServer then
-		for i, wall in ipairs(game:GetService("Workspace"):GetPartsInPart(part, parameters)) do
+		local overlappedWalls = game:GetService("Workspace"):GetPartsInPart(part, parameters)
+		traceDestroy("Hitbox overlap count", #overlappedWalls, "hitboxPos=", tostring(part.Position))
+		for i, rawWall in ipairs(overlappedWalls) do
+			local wall = resolveWallFromPiece(rawWall, clientID)
+			if processedWalls[wall] then
+				continue
+			end
+			processedWalls[wall] = true
+
+			if rawWall ~= wall then
+				traceDestroy("Resolved piece hit to owner wall", rawWall:GetFullName(), "->", wall:GetFullName())
+			end
+
 			-- Is part inside tagged model?
 
 			local container = wall
@@ -604,6 +682,7 @@ function Destroy(
 
 			if
 				(container == wall or container:IsA("Model"))
+				and not wall:HasTag(Settings.Tag .. "Piece")
 				and wall:GetAttribute("__" .. Settings.Tag .. clientID) == nil
 			then
 				wall:SetAttribute("__" .. Settings.Tag .. clientID, true)
@@ -626,6 +705,12 @@ function Destroy(
 				and not wall:HasTag(Settings.Tag .. "Piece")
 				and wall:GetAttribute(Settings.Tag .. "Locked" .. clientID) ~= true
 			then
+				traceDestroy(
+					"Processing wall",
+					wall:GetFullName(),
+					"__Breakable=", tostring(wall:GetAttribute("__" .. Settings.Tag .. clientID)),
+					"id=", tostring(wall:GetAttribute("__VoxelDestructID" .. clientID))
+				)
 				local queue = Queuer.Fetch(wall) or Queuer.New(wall, false)
 
 				queue:Add(function()
@@ -666,11 +751,17 @@ function Destroy(
 								id = game:GetService("HttpService"):GenerateGUID()
 								wall:SetAttribute("__VoxelDestructID" .. clientID, id)
 							end
+							piece:SetAttribute("__VoxelDestructID" .. clientID, id)
+							piece:SetAttribute("__" .. Settings.Tag .. clientID, false)
 
 							local folderParent = getPieceFolderParent(wall)
 							local folder = folderParent:FindFirstChild(id)
 							if not folder then
 								folder = Instance.new("Folder")
+								local owner = Instance.new("ObjectValue")
+								owner.Name = "__Owner"
+								owner.Value = wall
+								owner.Parent = folder
 
 								wall.Destroying:Once(function()
 									folder:Destroy()
@@ -780,6 +871,14 @@ function Destroy(
 						local folder = if id
 							then folderParent:FindFirstChild(wall:GetAttribute("__VoxelDestructID" .. clientID))
 							else nil
+						if id and not folder then
+							traceDestroy(
+								"Missing folder for destroyed wall",
+								wall:GetFullName(),
+								"id=", tostring(id),
+								"folderParent=", folderParent:GetFullName()
+							)
+						end
 
 						local parent = wall
 						if
@@ -793,6 +892,12 @@ function Destroy(
 
 						if parent then
 							local children = parent:GetChildren()
+							traceDestroy(
+								"Destroyed wall parent children",
+								wall:GetFullName(),
+								"parent=", parent:GetFullName(),
+								"childCount=", #children
+							)
 
 							if #children > 0 then
 								local params = OverlapParams.new()
@@ -804,11 +909,13 @@ function Destroy(
 										table.insert(pieces, found)
 									end
 								end
+								traceDestroy("Recovered piece overlaps", wall:GetFullName(), "#pieces=", #pieces)
 							end
 						end
 					end
 
 					if #pieces > 0 then
+						traceDestroy("Pieces ready", wall:GetFullName(), "#pieces=", #pieces)
 						if wall:GetAttribute(Settings.Tag .. "OriginalCanCollide") then
 							wall.CanCollide = wall:GetAttribute(Settings.Tag .. "OriginalCanCollide")
 						end
@@ -826,6 +933,7 @@ function Destroy(
 								end
 							end
 						end
+						traceDestroy("Intersections built", wall:GetFullName(), "#intersections=", #intersections)
 
 						local function handleDebris(debri)
 							debri.Name = "Debris"
@@ -868,6 +976,12 @@ function Destroy(
 								if voxelizeChild and voxelizeChild.Parent then
 									local newVoxels, newDebris =
 										Voxelize.voxelize(voxelizeChild, voxelSize, Cache, debrisCount, #debris, part)
+									traceDestroy(
+										"Voxelize result",
+										wall:GetFullName(),
+										"#newVoxels=", type(newVoxels) == "table" and #newVoxels or 0,
+										"#newDebris=", type(newDebris) == "table" and #newDebris or 0
+									)
 
 									if #newDebris > 0 then
 										for i, debri in ipairs(newDebris) do
@@ -905,6 +1019,13 @@ function Destroy(
 						wall.CanCollide = false
 						wall.CanQuery = false
 						wall.Transparency = 1
+						traceDestroy(
+							"Wall finalized",
+							wall:GetFullName(),
+							"CanCollide=", tostring(wall.CanCollide),
+							"CanQuery=", tostring(wall.CanQuery),
+							"Transparency=", wall.Transparency
+						)
 
 						-- Remove textures/decals from the now-invisible wall
 						for _, child in ipairs(wall:GetChildren()) do
@@ -912,6 +1033,13 @@ function Destroy(
 								child:Destroy()
 							end
 						end
+					else
+						traceDestroy(
+							"No pieces resolved for wall",
+							wall:GetFullName(),
+							"state=", tostring(wall:GetAttribute("__" .. Settings.Tag .. clientID)),
+							"id=", tostring(wall:GetAttribute("__VoxelDestructID" .. clientID))
+						)
 					end
 				end, true, true)
 
@@ -927,6 +1055,7 @@ function Destroy(
 				and Settings.ResetModel
 				and Settings.RecordDestruction
 				and Settings.OnClient
+				and not Settings.OnServer
 				and Storage[id]
 				and Storage[id].Models[container] == nil
 			then
@@ -944,6 +1073,7 @@ function Destroy(
 		Settings.RecordDestruction == true
 		and game:GetService("RunService"):IsServer()
 		and Settings.OnClient == true
+		and not Settings.OnServer
 		and id ~= nil
 		and Storage[id] ~= nil
 	then
@@ -1074,6 +1204,7 @@ function Destroy(
 	--
 
 	part:Destroy()
+	traceDestroy("Complete", "focus=", focus:GetFullName(), "#walls=", #walls, "#debris=", #debris)
 
 	return unsparse(debris), unsparse(walls)
 end
@@ -1625,9 +1756,13 @@ coroutine.resume(coroutine.create(function()
 
 		Remote.OnClientEvent:Connect(function(key, ...)
 			if key == "Destroy" then
-				Destroy(...)
+				if not Settings.OnServer then
+					Destroy(...)
+				end
 			elseif key == "Repair" then
-				Repair(...)
+				if not Settings.OnServer then
+					Repair(...)
+				end
 			end
 
 			if key == "Hitbox" or key == "Start" or key == "Stop" or key == "Fire" then
@@ -1733,7 +1868,7 @@ coroutine.resume(coroutine.create(function()
 			Players[player] = nil
 		end)
 
-		if Settings.OnClient and Settings.RecordDestruction then
+		if Settings.OnClient and Settings.RecordDestruction and not Settings.OnServer then
 			game:GetService("Players").PlayerAdded:Connect(function(player: Player)
 				repeat
 					task.wait()

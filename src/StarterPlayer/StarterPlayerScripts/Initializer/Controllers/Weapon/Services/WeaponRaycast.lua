@@ -402,6 +402,17 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		end
 
 		if isDestroyedRemnant or isSelfHit then
+			warn(
+				"[RAYCAST REMNANT SKIP]",
+				hitInst:GetFullName(),
+				"destroyedRemnant=", tostring(isDestroyedRemnant),
+				"selfHit=", tostring(isSelfHit),
+				"__Breakable=", tostring(hitInst:GetAttribute("__Breakable")),
+				"__BreakableClient=", tostring(hitInst:GetAttribute("__BreakableClient")),
+				"CanQuery=", tostring(hitInst.CanQuery),
+				"CanCollide=", tostring(hitInst.CanCollide),
+				"Transparency=", hitInst.Transparency
+			)
 			local hitPos = result.Position
 			local remaining = range - (hitPos - origin).Magnitude
 			if remaining <= WALL_SKIP_STEP then
@@ -534,6 +545,14 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 			if PressureDestruction and result.Instance then
 				-- Get destruction pressure from weapon config
 				local destructionPressure = weaponConfig.destructionPressure or 20
+				warn(
+					"[RAYCAST->PRESSURE SEND]",
+					"part=", result.Instance:GetFullName(),
+					"position=", tostring(result.Position),
+					"normal=", tostring(result.Normal),
+					"pressure=", destructionPressure,
+					"range=", range
+				)
 				
 				PressureDestruction:RegisterImpact(
 					result.Position,

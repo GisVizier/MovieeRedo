@@ -46,7 +46,12 @@ local DESTRUCTION_RADIUS = {
 -- Debug Helpers
 --------------------------------------------------------------------------------
 
+local DEBUG_DESTRUCTION_LOGS = true
+
 local function log(...)
+	if DEBUG_DESTRUCTION_LOGS then
+		print("[HonoredOne.Server]", ...)
+	end
 end
 local DEBUG_PROJECTILE_RELAY = true
 local RELAY_LOG_INTERVAL = 0.25
@@ -601,12 +606,18 @@ local function handleBlueHit(self, clientData)
 
 		-- excludePlayer = player: the originating client already did local destruction
 		-- for instant feedback, so only replicate to other clients
-		VoxelDestruction.Destroy(
+		local destroyDebris, destroyWalls = VoxelDestruction.Destroy(
 			hitbox,
 			nil, -- OverlapParams
 			2, -- voxelSize
 			8, -- debrisCount
 			nil -- reset (uses default)
+		)
+		log(
+			"Blue hit destroy result",
+			"hitbox=", hitbox:GetFullName(),
+			"walls=", type(destroyWalls) == "table" and #destroyWalls or 0,
+			"debris=", type(destroyDebris) == "table" and #destroyDebris or 0
 		)
 
 		-- Delay cleanup so clients have time to receive and process the replicated hitbox
@@ -665,12 +676,18 @@ local function handleBlueDestruction(self, clientData)
 
 		-- excludePlayer = player: the originating client already did local destruction
 		-- for instant feedback, so only replicate to other clients
-		VoxelDestruction.Destroy(
+		local destroyDebris, destroyWalls = VoxelDestruction.Destroy(
 			hitbox,
 			nil, -- OverlapParams
 			2, -- voxelSize
 			5, -- debrisCount
 			nil -- reset (uses default)
+		)
+		log(
+			"Blue tick destroy result",
+			"hitbox=", hitbox:GetFullName(),
+			"walls=", type(destroyWalls) == "table" and #destroyWalls or 0,
+			"debris=", type(destroyDebris) == "table" and #destroyDebris or 0
 		)
 
 		-- Delay cleanup so clients have time to receive and process the replicated hitbox
@@ -725,12 +742,18 @@ local function handleRedDestruction(self, clientData)
 		hitbox.Transparency = 1
 		hitbox.Parent = workspace
 
-		VoxelDestruction.Destroy(
+		local destroyDebris, destroyWalls = VoxelDestruction.Destroy(
 			hitbox,
 			nil,
 			4,    -- voxelSize (larger = fewer chunks, less lag)
 			2,    -- debrisCount (minimal debris at explosion only)
 			nil
+		)
+		log(
+			"Red destroy result",
+			"hitbox=", hitbox:GetFullName(),
+			"walls=", type(destroyWalls) == "table" and #destroyWalls or 0,
+			"debris=", type(destroyDebris) == "table" and #destroyDebris or 0
 		)
 
 		task.delay(2, function()

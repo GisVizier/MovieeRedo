@@ -25,7 +25,7 @@ local PressureDestructionService = {}
 -- DEBUG
 --------------------------------------------------------------------------------
 
-local DEBUG = false -- Set to true to enable debug logging/visuals
+local DEBUG = true -- Set to false to disable debug logging/visuals
 
 local function log(...)
 	if DEBUG then
@@ -37,6 +37,30 @@ local function logWarn(...)
 	if DEBUG then
 		warn("[PressureDestruction Server]", ...)
 	end
+end
+
+local function summarizeParts(parts, maxCount)
+	if not parts or #parts == 0 then
+		return "none"
+	end
+
+	local cap = math.min(#parts, maxCount or 6)
+	local names = table.create(cap)
+	for i = 1, cap do
+		local p = parts[i]
+		names[i] = string.format(
+			"%s(__Breakable=%s piece=%s canQuery=%s canCollide=%s transp=%.2f)",
+			p:GetFullName(),
+			tostring(p:GetAttribute("__Breakable")),
+			tostring(p:HasTag("BreakablePiece")),
+			tostring(p.CanQuery),
+			tostring(p.CanCollide),
+			p.Transparency
+		)
+	end
+
+	local suffix = if #parts > cap then string.format(" (+%d more)", #parts - cap) else ""
+	return table.concat(names, " | ") .. suffix
 end
 
 --------------------------------------------------------------------------------
@@ -358,6 +382,9 @@ local function triggerDestruction(position, normal, radius, penetrationData)
 		"ImpactedPart:",
 		impactedPart and impactedPart.Name or "nil"
 	)
+	if not impactedPart then
+		logWarn("No impacted Breakable part found near impact position", position)
+	end
 	
 	-- Check what breakable parts are nearby
 	local breakableParts = CollectionService:GetTagged("Breakable")
@@ -372,12 +399,24 @@ local function triggerDestruction(position, normal, radius, penetrationData)
 		end
 	end
 	log("Total nearby breakable parts:", nearbyCount)
+
+	local overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Include
+	overlapParams.FilterDescendantsInstances = breakableParts
+	overlapParams.RespectCanCollide = false
+	local overlapped = workspace:GetPartsInPart(hitbox, overlapParams)
+	log(
+		"Breakable overlap count at hitbox:",
+		#overlapped,
+		"overlaps:",
+		summarizeParts(overlapped, 5)
+	)
 	
 	-- Call VoxelDestruction (server-side, will replicate to clients)
 	task.spawn(function()
 		log("Calling VoxelDestruction.Destroy...")
-		local success, err = pcall(function()
-			VoxelDestruction.Destroy(
+		local success, destroyDebris, destroyWalls = pcall(function()
+			return VoxelDestruction.Destroy(
 				hitbox,
 				nil,                    -- OverlapParams (nil = use default which finds all Breakable parts)
 				CONFIG.VOXEL_SIZE,      -- voxelSize
@@ -387,9 +426,18 @@ local function triggerDestruction(position, normal, radius, penetrationData)
 		end)
 		
 		if success then
-			log("VoxelDestruction.Destroy completed successfully")
+			local debrisCount = type(destroyDebris) == "table" and #destroyDebris or 0
+			local wallCount = type(destroyWalls) == "table" and #destroyWalls or 0
+			log(
+				"VoxelDestruction.Destroy completed successfully",
+				"walls=", wallCount,
+				"debris=", debrisCount
+			)
+			if wallCount == 0 then
+				logWarn("Destroy returned zero walls. Impact likely did not resolve against active breakable targets.")
+			end
 		else
-			logWarn("VoxelDestruction error:", err)
+			logWarn("VoxelDestruction error:", destroyDebris)
 		end
 		
 		-- Cleanup hitbox after delay

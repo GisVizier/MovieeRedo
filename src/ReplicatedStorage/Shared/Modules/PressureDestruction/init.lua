@@ -30,7 +30,7 @@ PressureDestruction.__index = PressureDestruction
 -- DEBUG
 --------------------------------------------------------------------------------
 
-local DEBUG = false -- Set to true to enable debug logging
+local DEBUG = true -- Set to false to disable debug logging
 
 local function log(...)
 	if DEBUG then
@@ -94,6 +94,27 @@ local function normalizeRange(rangeValue)
 		return rangeValue
 	end
 	return nil
+end
+
+local function describeHitPart(part)
+	if not part or typeof(part) ~= "Instance" then
+		return "part=nil"
+	end
+
+	local parentName = part.Parent and part.Parent.Name or "nil"
+	return string.format(
+		"path=%s parent=%s breakable=%s piece=%s debris=%s __Breakable=%s __BreakableClient=%s canQuery=%s canCollide=%s transp=%.2f",
+		part:GetFullName(),
+		parentName,
+		tostring(part:HasTag("Breakable")),
+		tostring(part:HasTag("BreakablePiece")),
+		tostring(part:HasTag("Debris")),
+		tostring(part:GetAttribute("__Breakable")),
+		tostring(part:GetAttribute("__BreakableClient")),
+		tostring(part.CanQuery),
+		tostring(part.CanCollide),
+		part.Transparency
+	)
 end
 
 --------------------------------------------------------------------------------
@@ -220,6 +241,7 @@ end
 ]]
 function PressureDestruction:RegisterImpact(position, normal, part, pressure, isShotgun, shotId, options)
 	log("RegisterImpact called. Pressure:", pressure, "IsShotgun:", isShotgun, "Position:", position)
+	log("RegisterImpact hit part:", describeHitPart(part))
 	
 	-- Only run on client
 	if RunService:IsServer() then 

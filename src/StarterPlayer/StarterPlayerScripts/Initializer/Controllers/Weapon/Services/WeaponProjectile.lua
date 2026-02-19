@@ -17,6 +17,7 @@
 
 local WeaponProjectile = {}
 local PROJECTILE_COLLISION_NUDGE = 0.01
+local DEBUG_DESTRUCTION_FLOW = true
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -38,6 +39,12 @@ pcall(function()
 end)
 
 local LocalPlayer = Players.LocalPlayer
+
+local function destructionLog(...)
+	if DEBUG_DESTRUCTION_FLOW then
+		warn("[WeaponProjectile.Destruction]", ...)
+	end
+end
 
 local function shouldPassThroughRemnant(part)
 	if not part then
@@ -404,6 +411,8 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 
 	-- Fire timestamp (same for all pellets)
 	local fireTimestamp = workspace:GetServerTimeNow()
+	local shotId = HttpService:GenerateGUID(false)
+	local destructionPressure = weaponConfig.destructionPressure or 20
 
 	-- Pellet speed
 	local speed = projectileConfig.speed
@@ -490,6 +499,11 @@ function WeaponProjectile:FirePellets(weaponInstance, options)
 			-- Pellet metadata
 			isPellet = true,
 			pelletIndex = i,
+
+			-- Pressure Destruction (group all pellets from this shot)
+			shotId = shotId,
+			isShotgun = true,
+			destructionPressure = destructionPressure,
 		}
 
 		-- Store projectile
@@ -648,6 +662,16 @@ function WeaponProjectile:_handleCollision(projectile, hitResult)
 
 	-- Pass through only truly non-blocking remnants and debris.
 	if shouldPassThroughRemnant(hitInstance) then
+		destructionLog(
+			"Pass-through remnant",
+			hitInstance:GetFullName(),
+			"__Breakable=", tostring(hitInstance:GetAttribute("__Breakable")),
+			"__BreakableClient=", tostring(hitInstance:GetAttribute("__BreakableClient")),
+			"DebrisTag=", tostring(hitInstance:HasTag("Debris")),
+			"CanQuery=", tostring(hitInstance.CanQuery),
+			"CanCollide=", tostring(hitInstance.CanCollide),
+			"Transparency=", hitInstance.Transparency
+		)
 		return true, nil
 	end
 
@@ -766,7 +790,16 @@ function WeaponProjectile:_handleEnvironmentHit(projectile, hitResult)
 	end
 	
 	-- Register impact for pressure-based destruction
-	if PressureDestruction then
+	if not projectile.isRemote and PressureDestruction then
+		destructionLog(
+			"RegisterImpact send",
+			"part=", hitResult.Instance:GetFullName(),
+			"pos=", tostring(hitResult.Position),
+			"normal=", tostring(hitResult.Normal),
+			"pressure=", tostring(projectile.destructionPressure or 20),
+			"isShotgun=", tostring(projectile.isShotgun or false),
+			"shotId=", tostring(projectile.shotId)
+		)
 		PressureDestruction:RegisterImpact(
 			hitResult.Position,
 			hitResult.Normal,
