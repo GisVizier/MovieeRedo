@@ -383,8 +383,18 @@ function ResetAll(mapModel: Model?)
 	if not game:GetService("RunService"):IsServer() then
 		return
 	end
-	-- Repair entire map so all breakables are restored (replicates to clients)
-	if mapModel and mapModel:IsA("Model") and mapModel.Parent then
+	-- Repair all destroyed parts in the map. Repair(mapModel) only recurses into direct Model/Part
+	-- children, but breakables can be nested under Folders. So we find every Part/Model with
+	-- __Breakable == false (was destroyed) and Repair each.
+	if mapModel and mapModel.Parent then
+		for _, desc in ipairs(mapModel:GetDescendants()) do
+			if (desc:IsA("Part") or desc:IsA("MeshPart") or desc:IsA("Model")) then
+				if desc:GetAttribute("__" .. Settings.Tag) == false then
+					Repair(desc)
+				end
+			end
+		end
+		-- Also run Repair on map root in case it has direct breakable children (covers both traversal paths)
 		Repair(mapModel)
 	end
 	-- Clear server destruction state

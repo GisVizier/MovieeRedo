@@ -275,6 +275,7 @@ function module:_bindInput()
 	if self._searchBox then
 		self._connections:add(self._searchBox:GetPropertyChangedSignal("Text"):Connect(function()
 			self._searchQuery = string.lower(self._searchBox.Text or "")
+			self:_applySearchToSections()
 			self:_applyFilters()
 			self._export:emit("PlayerList_SearchChanged", self._searchBox.Text)
 		end), "search")
@@ -817,6 +818,37 @@ function module:_matchesSearch(data)
 	local username = string.lower(tostring(data.username or ""))
 	return string.find(displayName, self._searchQuery, 1, true) ~= nil
 		or string.find(username, self._searchQuery, 1, true) ~= nil
+end
+
+function module:_applySearchToSections()
+	if self._searchQuery == "" then
+		for _, sectionId in ipairs(SECTION_IDS) do
+			local sectionData = self._sections[sectionId]
+			if sectionData then
+				sectionData.open = true
+			end
+		end
+		return
+	end
+	-- Close all, then open only sections that have at least one matching row
+	for _, sectionId in ipairs(SECTION_IDS) do
+		local sectionData = self._sections[sectionId]
+		if sectionData then
+			sectionData.open = false
+		end
+	end
+	local sectionsWithMatches = {}
+	for _, row in pairs(self._rows) do
+		if row.section and self:_matchesSearch(row.data) then
+			sectionsWithMatches[row.section] = true
+		end
+	end
+	for sectionId, _ in pairs(sectionsWithMatches) do
+		local sectionData = self._sections[sectionId]
+		if sectionData then
+			sectionData.open = true
+		end
+	end
 end
 
 function module:_applyFilters()
