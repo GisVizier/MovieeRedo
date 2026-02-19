@@ -11,7 +11,15 @@ local LobbyData = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild
 local module = {}
 module.__index = module
 
+-- Match Overhead name-tag verified display (utf8 verified badge)
+local VERIFIED_CHAR = utf8.char(0xE000)
+
 local SECTION_IDS = { "InLobby", "InGame", "InParty" }
+local SECTION_DISPLAY_NAMES = {
+	InLobby = "IN LOBBY",
+	InGame = "IN GAME",
+	InParty = "IN PARTY",
+}
 local DEFAULT_SECTION = "InLobby"
 local TOGGLE_KEY = Enum.KeyCode.Tab
 
@@ -99,6 +107,7 @@ function module.start(export, ui)
 	self._rows = {}
 	self._playersByUserId = {}
 	self._selectedUserId = nil
+	self._currentUserRow = nil
 
 	self._searchQuery = ""
 	self._statMode = "wins"
@@ -110,6 +119,7 @@ function module.start(export, ui)
 	self:_bindInput()
 	self:_bindEvents()
 	self:_bootstrapPlayers()
+	self:_ensureCurrentUserCard()
 
 	self._ui.Visible = true
 	self:_setPanelVisible(true, false)
@@ -139,12 +149,14 @@ function module:_bindUi()
 
 	self._scrollingFrame = panelGroup and panelGroup:FindFirstChild("ScrollingFrame")
 	self._scrollingLayout = self._scrollingFrame and self._scrollingFrame:FindFirstChild("UIListLayout")
+	self._userFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("User")
 
 	for _, sectionId in ipairs(SECTION_IDS) do
 		local sectionFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild(sectionId)
 		local sectionHolder = sectionFrame and sectionFrame:FindFirstChild("Holder")
 		local template = sectionHolder and (sectionHolder:FindFirstChild("Template") or sectionHolder:FindFirstChild("User"))
 		local headerButton = sectionHolder and sectionHolder:FindFirstChild("InGame")
+		local countLabel = headerButton and headerButton:FindFirstChild("Aim")
 
 		if template and template:IsA("GuiObject") then
 			template.Visible = false
@@ -155,6 +167,7 @@ function module:_bindUi()
 			holder = sectionHolder,
 			template = template,
 			headerButton = headerButton,
+			countLabel = countLabel,
 			open = true,
 		}
 
@@ -166,7 +179,83 @@ function module:_bindUi()
 	end
 
 	self:_syncTabVisuals(false)
+	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
+end
+
+function module:_updateSectionCounts()
+	local counts = {}
+	for _, sid in ipairs(SECTION_IDS) do
+		counts[sid] = 0
+	end
+	for _, row in pairs(self._rows) do
+		if row.section and counts[row.section] ~= nil then
+			counts[row.section] = counts[row.section] + 1
+		end
+	end
+	for _, sectionId in ipairs(SECTION_IDS) do
+		local sectionData = self._sections[sectionId]
+		local label = sectionData and sectionData.countLabel
+		if label and label:IsA("TextLabel") then
+			local displayName = SECTION_DISPLAY_NAMES[sectionId] or sectionId:upper()
+			label.Text = displayName .. " (" .. tostring(counts[sectionId] or 0) .. ")"
+		end
+	end
+end
+
+function module:_ensureCurrentUserCard()
+	if not self._userFrame or self._currentUserRow then
+		return
+	end
+
+	local template = self:_getRowTemplate(DEFAULT_SECTION)
+	if not template then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return
+	end
+
+	local data = self:_buildPlayerData(localPlayer)
+	if not data then
+		return
+	end
+
+	local frame = template:Clone()
+	frame.Name = "CurrentUser"
+	frame.Visible = true
+	frame.Parent = self._userFrame
+
+	local row = {
+		userId = data.userId,
+		section = data.section,
+		frame = frame,
+		refs = self:_captureRowRefs(frame),
+		data = data,
+	}
+	self:_applyRowData(row)
+	self:_setGlowVisibility(row, false)
+	self:_setGlowInstant(row, TweenConfig.Values.HiddenGlowTransparency)
+
+	self._currentUserRow = row
+end
+
+function module:_updateCurrentUserCard()
+	if not self._currentUserRow then
+		return
+	end
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return
+	end
+	local data = self:_buildPlayerData(localPlayer)
+	if not data then
+		return
+	end
+	self._currentUserRow.data = data
+	self:_applyRowData(self._currentUserRow)
 end
 
 function module:_bindInput()
@@ -527,21 +616,18 @@ function module:_applyVerified(refs, data)
 		return
 	end
 
+	-- Match Overhead: displayName + " " + VERIFIED_CHAR when verified (no RichText)
 	local baseDisplayName = data.displayName or ("Player " .. tostring(data.userId))
-	local verifiedSuffix = " <font color=\"#4FA3FF\">✓</font>"
+	local suffix = data.isVerified and (" " .. VERIFIED_CHAR) or ""
 
 	if refs.verifiedIcon and refs.verifiedIcon:IsA("TextLabel") then
-		refs.verifiedIcon.Text = data.isVerified and "✓" or ""
+		refs.verifiedIcon.Text = data.isVerified and VERIFIED_CHAR or ""
 		refs.verifiedIcon.Visible = data.isVerified
 	end
 
 	if refs.nameLabel and refs.nameLabel:IsA("TextLabel") then
-		refs.nameLabel.RichText = true
-		if data.isVerified and not refs.verifiedIcon then
-			refs.nameLabel.Text = baseDisplayName .. verifiedSuffix
-		else
-			refs.nameLabel.Text = baseDisplayName
-		end
+		refs.nameLabel.Text = baseDisplayName .. suffix
+		refs.nameLabel.RichText = false
 	end
 end
 
@@ -573,7 +659,8 @@ function module:_applyRowData(row)
 					Enum.ThumbnailSize.Size420x420
 				)
 			end)
-			if ok and content and self._rows[data.userId] == row then
+			local stillThisRow = self._rows[data.userId] == row or self._currentUserRow == row
+			if ok and content and stillThisRow and refs.playerImage then
 				refs.playerImage.Image = content
 			end
 		end)
@@ -797,6 +884,8 @@ function module:_syncTabVisuals(emitChanged)
 		self:_applyRowData(row)
 	end
 
+	self:_updateCurrentUserCard()
+
 	if emitChanged then
 		self._export:emit("PlayerList_ViewChanged", self._statMode)
 	end
@@ -878,6 +967,7 @@ function module:addPlayer(payload)
 
 	self:_sortSection(data.section)
 	self:_applyFilters()
+	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
 end
 
@@ -898,6 +988,7 @@ function module:removePlayer(payload)
 		self._rows[userId] = nil
 	end
 
+	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
 end
 
@@ -934,6 +1025,7 @@ function module:setPlayers(payload)
 		end
 	end
 
+	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
 end
 
@@ -1044,6 +1136,10 @@ function module:_cleanup()
 	table.clear(self._rows)
 	table.clear(self._playersByUserId)
 	self._selectedUserId = nil
+	if self._currentUserRow and self._currentUserRow.frame and self._currentUserRow.frame.Parent then
+		self._currentUserRow.frame:Destroy()
+	end
+	self._currentUserRow = nil
 end
 
 return module

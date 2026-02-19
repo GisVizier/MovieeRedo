@@ -116,6 +116,7 @@ local Remotes = {
 
 	-- Voxel destruction system
 	{ name = "VoxelDebris", description = "Server sends debris creation data to clients", unreliable = true },
+	{ name = "VoxelReset", description = "Server tells clients to clear voxel debris (round reset)" },
 
 	-- Debug / testing
 	{ name = "RequestTestDeath", description = "Client requests self-kill for testing respawn flow" },
