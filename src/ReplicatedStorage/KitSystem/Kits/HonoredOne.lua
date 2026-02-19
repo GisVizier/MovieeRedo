@@ -32,6 +32,7 @@ local MAX_TARGETS = 15 -- Max targets to accept per ability use
 local RED_MAX_HIT_DISTANCE = 700 -- Plausible distance from attacker to victim/hit
 local RED_EXPLOSION_RADIUS = 20
 local RED_EXPLOSION_HIT_BUFFER = 6
+local VOXEL_HITBOX_RADIUS_SCALE = 0.6
 
 -- Destruction radius mapping
 local DESTRUCTION_RADIUS = {
@@ -225,6 +226,10 @@ local function toVector3(data)
 		return nil
 	end
 	return Vector3.new(data.X, data.Y, data.Z)
+end
+
+local function getScaledVoxelRadius(radius)
+	return math.max(0.6, radius * VOXEL_HITBOX_RADIUS_SCALE)
 end
 
 local function resolveBlueUpdatePivot(clientData)
@@ -580,11 +585,12 @@ local function handleBlueHit(self, clientData)
 	end
 
 	local radius = DESTRUCTION_RADIUS[destructionLevel] or 10
+	local scaledRadius = getScaledVoxelRadius(radius)
 
 	task.spawn(function()
 		-- Create hitbox for destruction
 		local hitbox = Instance.new("Part")
-		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Size = Vector3.new(scaledRadius * 2, scaledRadius * 2, scaledRadius * 2)
 		hitbox.Position = explosionPos
 		hitbox.Shape = Enum.PartType.Ball
 		hitbox.Anchored = true
@@ -611,7 +617,7 @@ local function handleBlueHit(self, clientData)
 		end)
 	end)
 
-	log("Terrain destruction at", explosionPos, "radius:", radius)
+	log("Terrain destruction at", explosionPos, "radius:", radius, "scaledRadius:", scaledRadius)
 end
 
 --------------------------------------------------------------------------------
@@ -644,10 +650,11 @@ local function handleBlueDestruction(self, clientData)
 
 	-- Clamp radius to prevent abuse
 	radius = math.clamp(radius, 1, 25)
+	local scaledRadius = getScaledVoxelRadius(radius)
 
 	task.spawn(function()
 		local hitbox = Instance.new("Part")
-		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Size = Vector3.new(scaledRadius * 2, scaledRadius * 2, scaledRadius * 2)
 		hitbox.Position = position
 		hitbox.Shape = Enum.PartType.Ball
 		hitbox.Anchored = true
@@ -705,10 +712,11 @@ local function handleRedDestruction(self, clientData)
 	clientRadius = math.clamp(clientRadius, 4, 25)
 
 	local radius = math.max(configRadius, clientRadius)
+	local scaledRadius = getScaledVoxelRadius(radius)
 
 	task.spawn(function()
 		local hitbox = Instance.new("Part")
-		hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+		hitbox.Size = Vector3.new(scaledRadius * 2, scaledRadius * 2, scaledRadius * 2)
 		hitbox.Position = position
 		hitbox.Shape = Enum.PartType.Ball
 		hitbox.Anchored = true
@@ -732,7 +740,7 @@ local function handleRedDestruction(self, clientData)
 		end)
 	end)
 
-	log("Red destruction at", position, "radius:", radius)
+	log("Red destruction at", position, "radius:", radius, "scaledRadius:", scaledRadius)
 end
 
 --------------------------------------------------------------------------------
