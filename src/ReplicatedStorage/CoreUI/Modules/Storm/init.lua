@@ -7,6 +7,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local TweenConfig = require(script.TweenConfig)
@@ -15,6 +16,9 @@ local module = {}
 module.__index = module
 
 local currentTweens = {}
+
+-- Storm mesh lerp settings for smooth shrinking
+local STORM_LERP_SPEED = 8 -- Higher = faster interpolation toward target
 
 -- Cloud settings for storm atmosphere (client-side only)
 local STORM_CLOUD_START_COVER = 0.669
@@ -188,7 +192,7 @@ function module:show()
 end
 
 function module:hide()
-	if not self._isVisible then return true end
+	if not self._isVisible then return false end
 	self._isVisible = false
 	self._isInStorm = false
 	
@@ -245,7 +249,9 @@ function module:hide()
 	
 	self._export:emit("StormUIHidden")
 	
-	return true
+	-- Return false to prevent CoreUI from calling _cleanup()
+	-- Storm mesh and clouds should persist until match/round ends
+	return false
 end
 
 --[[
@@ -448,6 +454,12 @@ function module:createStormMesh(data)
 		scaleFactor = scaleFactor,
 	}
 	
+	-- Initialize target size for lerping (start at current size)
+	self._stormTargetSize = stormMesh.Size
+	
+	-- Start the continuous lerp loop for smooth shrinking
+	self:_startStormLerpLoop()
+	
 	-- Fade in the mesh
 	local fadeInfo = TweenInfo.new(STORM_FADE_IN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local fadeTween = TweenService:Create(stormMesh, fadeInfo, { Transparency = STORM_MESH_TRANSPARENCY })
@@ -457,8 +469,45 @@ function module:createStormMesh(data)
 end
 
 --[[
-	Updates the local storm mesh size based on current radius.
-	Uses tweening for smooth shrinking animation.
+	Starts a continuous lerp loop that smoothly interpolates storm mesh size.
+	Runs every frame for butter-smooth animation.
+]]
+function module:_startStormLerpLoop()
+	-- Clean up existing loop if any
+	if self._stormLerpConnection then
+		self._stormLerpConnection:Disconnect()
+		self._stormLerpConnection = nil
+	end
+	
+	self._stormLerpConnection = RunService.RenderStepped:Connect(function(deltaTime)
+		if not self._stormMesh or not self._stormMesh.Parent then
+			-- Mesh was destroyed, stop the loop
+			if self._stormLerpConnection then
+				self._stormLerpConnection:Disconnect()
+				self._stormLerpConnection = nil
+			end
+			return
+		end
+		
+		if not self._stormTargetSize then return end
+		
+		local currentSize = self._stormMesh.Size
+		local targetSize = self._stormTargetSize
+		
+		-- Lerp toward target size (exponential smoothing for natural motion)
+		local lerpFactor = 1 - math.exp(-STORM_LERP_SPEED * deltaTime)
+		local newSize = currentSize:Lerp(targetSize, lerpFactor)
+		
+		-- Only update if there's meaningful difference (prevents micro-jitter)
+		if (newSize - currentSize).Magnitude > 0.001 then
+			self._stormMesh.Size = newSize
+		end
+	end)
+end
+
+--[[
+	Updates the local storm mesh target size based on current radius.
+	The lerp loop will smoothly interpolate toward this target.
 ]]
 function module:updateStormMesh(currentRadius)
 	if not self._stormMesh or not self._stormMesh.Parent then return end
@@ -468,29 +517,24 @@ function module:updateStormMesh(currentRadius)
 	local radiusRatio = currentRadius / data.initialRadius
 	local newScaleFactor = data.scaleFactor * radiusRatio
 	
-	-- Calculate target size
-	local targetSize = Vector3.new(
+	-- Set target size - the lerp loop will smoothly interpolate toward this
+	self._stormTargetSize = Vector3.new(
 		data.originalSizeX * newScaleFactor,
 		self._stormMesh.Size.Y,
 		data.originalSizeZ * newScaleFactor
 	)
-	
-	-- Cancel any existing shrink tween
-	cancelTweens("storm_shrink")
-	
-	-- Tween to new size smoothly (slightly longer than server update rate for seamless motion)
-	local shrinkInfo = TweenInfo.new(0.15, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-	local shrinkTween = TweenService:Create(self._stormMesh, shrinkInfo, { Size = targetSize })
-	currentTweens["storm_shrink"] = { shrinkTween }
-	shrinkTween:Play()
 end
 
 --[[
 	Destroys the local storm mesh.
 ]]
 function module:destroyStormMesh()
-	-- Cancel shrink tween before destroying
-	cancelTweens("storm_shrink")
+	-- Stop the lerp loop
+	if self._stormLerpConnection then
+		self._stormLerpConnection:Disconnect()
+		self._stormLerpConnection = nil
+	end
+	self._stormTargetSize = nil
 	
 	if self._stormModel and self._stormModel.Parent then
 		self._stormModel:Destroy()
@@ -532,11 +576,17 @@ function module:_cleanup()
 	self._isInStorm = false
 	self._isVisible = false
 	
-	-- Cancel all tweens first
+	-- Stop the storm lerp loop
+	if self._stormLerpConnection then
+		self._stormLerpConnection:Disconnect()
+		self._stormLerpConnection = nil
+	end
+	self._stormTargetSize = nil
+	
+	-- Cancel all tweens
 	cancelTweens("main")
 	cancelTweens("pulse")
 	cancelTweens("ambience_fade")
-	cancelTweens("storm_shrink")
 	
 	-- Stop all sounds and reset ambience volume
 	for name, sound in self._sounds do
