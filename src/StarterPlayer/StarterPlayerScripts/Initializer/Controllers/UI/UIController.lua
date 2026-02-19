@@ -427,16 +427,29 @@ function UIController:Init(registry, net)
 		if self._coreUi then
 			self._coreUi:emit("PlayerKilled", data)
 
-			-- Show Kill UI if local player was killed
-			--	if data and data.victimUserId == player.UserId then
-			local pg = player:FindFirstChild("PlayerGui")
-			if pg then
-				pcall(function()
-					showPlayerDeathNotification(pg, data)
-				end)
+			local localUserId = player and player.UserId
+
+			-- Show KilledPlayer > PlayerDeath > Spec ONLY to the killer, with the victim's name
+			if data and data.killerUserId == localUserId then
+				local pg = player:FindFirstChild("PlayerGui")
+				if pg then
+					-- Resolve victim display name
+					local victimDisplay = (data.victimData and (data.victimData.displayName or data.victimData.userName))
+						or (data.victimUserId and (function()
+							local vp = Players:GetPlayerByUserId(data.victimUserId)
+							return vp and (vp.DisplayName or vp.Name)
+						end)())
+						or "Unknown"
+					pcall(function()
+						showPlayerDeathNotification(pg, { killerName = victimDisplay })
+					end)
+				end
 			end
-			self:_showKillScreen(data)
-			--	end
+
+			-- Show kill screen (who killed you) ONLY to the victim
+			if data and data.victimUserId == localUserId then
+				self:_showKillScreen(data)
+			end
 		end
 	end)
 
