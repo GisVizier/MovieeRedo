@@ -10,7 +10,6 @@ local FADE_OUT_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDir
 
 local START_SCALE = 0.5
 local END_SCALE = 0.7
-local BIG_DAMAGE_THRESHOLD = 40
 
 function module.start(export, ui)
 	local self = setmetatable({}, module)
@@ -22,7 +21,6 @@ function module.start(export, ui)
 	self._player = Players.LocalPlayer
 	self._character = self._player and self._player.Character or nil
 	self._sourcePosition = nil
-	self._lastDamage = 0
 
 	self._isActive = false
 	self._isFadingOut = false
@@ -35,31 +33,13 @@ function module.start(export, ui)
 	self._currentFadeTween = nil
 
 	self._container = ui:FindFirstChild("Frame")
-
-	-- Support both legacy structure (Frame/Arrow) and newer structure (Indicator/Bigger + Indicator/Smaller)
-	local indicator = ui:FindFirstChild("Indicator")
-	if not indicator and self._container then
-		indicator = self._container:FindFirstChild("Indicator")
-	end
-
-	self._biggerArrow = indicator and indicator:FindFirstChild("Bigger") or nil
-	self._smallerArrow = indicator and indicator:FindFirstChild("Smaller") or nil
-
-	self._arrow = (self._container and self._container:FindFirstChild("Arrow"))
-		or self._smallerArrow
-		or self._biggerArrow
+	self._arrow = self._container and self._container:FindFirstChild("Arrow")
 	self._uiScale = self._arrow and self._arrow:FindFirstChildOfClass("UIScale")
 
 	self._ui.Visible = false
 
-	if self._arrow and self._arrow:IsA("ImageLabel") then
+	if self._arrow then
 		self._arrow.ImageTransparency = 1
-	end
-	if self._biggerArrow and self._biggerArrow:IsA("ImageLabel") then
-		self._biggerArrow.ImageTransparency = 1
-	end
-	if self._smallerArrow and self._smallerArrow:IsA("ImageLabel") then
-		self._smallerArrow.ImageTransparency = 1
 	end
 
 	if self._uiScale then
@@ -69,43 +49,6 @@ function module.start(export, ui)
 	self:_bindCharacterTracking()
 
 	return self
-end
-
-function module:_setArrow(newArrow)
-	if newArrow == self._arrow then
-		return
-	end
-
-	-- Cancel tweens tied to the old arrow/scale and hide it.
-	self:_cancelTweens()
-	if self._arrow and self._arrow:IsA("ImageLabel") then
-		self._arrow.ImageTransparency = 1
-	end
-
-	self._arrow = newArrow
-	self._uiScale = self._arrow and self._arrow:FindFirstChildOfClass("UIScale")
-	if self._uiScale then
-		self._uiScale.Scale = END_SCALE
-	end
-end
-
-function module:_chooseArrowForDamage(damageAmount: number)
-	-- If only one arrow exists, keep current behavior.
-	if not (self._biggerArrow or self._smallerArrow) then
-		return
-	end
-
-	local useBig = (damageAmount or 0) >= BIG_DAMAGE_THRESHOLD
-	local candidate = nil
-	if useBig then
-		candidate = self._biggerArrow or self._smallerArrow
-	else
-		candidate = self._smallerArrow or self._biggerArrow
-	end
-
-	if candidate then
-		self:_setArrow(candidate)
-	end
 end
 
 function module:_bindCharacterTracking()
@@ -204,7 +147,7 @@ function module:_updateRotation()
 end
 
 function module:_showIndicator()
-	if not (self._arrow and self._arrow:IsA("ImageLabel")) then
+	if not self._arrow then
 		return
 	end
 
@@ -223,7 +166,7 @@ function module:_showIndicator()
 end
 
 function module:_fadeOutIndicator()
-	if not (self._arrow and self._arrow:IsA("ImageLabel")) or self._isFadingOut then
+	if not self._arrow or self._isFadingOut then
 		return
 	end
 
@@ -257,16 +200,13 @@ function module:_onRenderStep()
 	self:_updateRotation()
 end
 
-function module:reportDamageFromPosition(worldPosition, damageAmount)
+function module:reportDamageFromPosition(worldPosition)
 	if typeof(worldPosition) ~= "Vector3" then
 		return
 	end
 
 	self._sourcePosition = worldPosition
-	self._lastDamage = tonumber(damageAmount) or 0
 	self._expiresAt = os.clock() + self._holdDuration
-
-	self:_chooseArrowForDamage(self._lastDamage)
 
 	self:_showIndicator()
 
@@ -333,7 +273,7 @@ function module:hide()
 	self._isFadingOut = false
 	self._sourcePosition = nil
 
-	if self._arrow and self._arrow:IsA("ImageLabel") then
+	if self._arrow then
 		self._arrow.ImageTransparency = 1
 		self._arrow.Rotation = 0
 	end

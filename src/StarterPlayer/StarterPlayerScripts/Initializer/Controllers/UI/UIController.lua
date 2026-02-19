@@ -51,6 +51,7 @@ local function playKilledSkull(screenGui: ScreenGui)
 	local bg = killed:FindFirstChild("Bg", true)
 	local uiScale = killed:FindFirstChildOfClass("UIScale") or killed:FindFirstChild("UIScale")
 
+	-- Store original values once (before any animation runs)
 	if skull and skull:IsA("ImageLabel") then
 		skull:SetAttribute(
 			"_origImageTransparency",
@@ -64,7 +65,11 @@ local function playKilledSkull(screenGui: ScreenGui)
 		uiScale:SetAttribute("_origScale", uiScale:GetAttribute("_origScale") or uiScale.Scale)
 	end
 
-	-- Reset to hidden-ish start state
+	-- Increment run ID so any stale task.delay from a previous call bails out
+	local runId = (killed:GetAttribute("_skullRunId") or 0) + 1
+	killed:SetAttribute("_skullRunId", runId)
+
+	-- Reset to hidden start state
 	if uiScale and uiScale:IsA("UIScale") then
 		uiScale.Scale = 0.65
 	end
@@ -110,7 +115,10 @@ local function playKilledSkull(screenGui: ScreenGui)
 	end
 
 	task.delay(1.05, function()
-		-- Fade out + shrink a bit, then restore originals
+		-- A newer call started; let it own the animation
+		if killed:GetAttribute("_skullRunId") ~= runId then
+			return
+		end
 		if not killed.Parent then
 			return
 		end
@@ -130,19 +138,14 @@ local function playKilledSkull(screenGui: ScreenGui)
 			t:Play()
 		end
 
-		-- When skull completes, restore base state
+		-- Hide the element once fully faded out
 		local doneTween = outTweens[1] or outTweens[2] or outTweens[3]
 		if doneTween then
 			doneTween.Completed:Once(function()
-				if uiScale and uiScale:IsA("UIScale") then
-					uiScale.Scale = uiScale:GetAttribute("_origScale") or uiScale.Scale
+				if killed:GetAttribute("_skullRunId") ~= runId then
+					return
 				end
-				if skull and skull:IsA("ImageLabel") then
-					skull.ImageTransparency = skull:GetAttribute("_origImageTransparency") or skull.ImageTransparency
-				end
-				if bg and bg:IsA("ImageLabel") then
-					bg.ImageTransparency = bg:GetAttribute("_origImageTransparency") or bg.ImageTransparency
-				end
+				killed.Visible = false
 			end)
 		end
 	end)
