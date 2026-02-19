@@ -260,7 +260,7 @@ function CombatController:_onDamageDealt(data)
 		if sourcePosition then
 			local damageRad = self:_getDamageRad()
 			if damageRad and damageRad.reportDamageFromPosition then
-				damageRad:reportDamageFromPosition(sourcePosition)
+				damageRad:reportDamageFromPosition(sourcePosition, tonumber(data.damage) or 0)
 			end
 		end
 	end
