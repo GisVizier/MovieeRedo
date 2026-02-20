@@ -30,7 +30,6 @@ local function isStatefulViewmodelAction(actionName: string): boolean
 	return actionName == "ADS"
 		or actionName == "PlayWeaponTrack"
 		or actionName == "PlayAnimation"
-		or actionName == "SetTrackSpeed"
 end
 
 local function getViewmodelActionStateKey(weaponId: string, actionName: string, trackName: string): string
@@ -545,7 +544,7 @@ function ReplicationService:SendInitialStatesToPlayer(newPlayer)
 						state.IsGrounded or false,
 						state.AnimationId or 1,
 						state.RigTilt or 0,
-						0,
+						state.SequenceNumber or 0,
 						state.AimPitch or 0
 					)
 
@@ -571,7 +570,7 @@ function ReplicationService:SendInitialStatesToPlayer(newPlayer)
 					state.IsGrounded or false,
 					state.AnimationId or 1,
 					state.RigTilt or 0,
-					0,
+					state.SequenceNumber or 0,
 					state.AimPitch or 0
 				)
 

@@ -233,6 +233,8 @@ function ViewmodelAnimator.new()
 	
 	-- Kit animation tracks (loaded per-instance since they need an animator)
 	self._kitTracks = {} -- { [animName] = AnimationTrack }
+	self._kitTrackReplicateStopTokens = {}
+	self._kitTrackReplicateStopConnections = {}
 	
 	return self
 end
@@ -424,12 +426,84 @@ function ViewmodelAnimator:Unbind()
 		end)
 	end
 	self._kitTracks = {}
+	self:_clearKitReplicatedStopWatch()
 	self._bindPose = nil
 
 	self._rig = nil
 	self._tracks = {}
 	self._currentMove = nil
 	self._initialized = false
+end
+
+function ViewmodelAnimator:_clearKitReplicatedStopWatch(animKey: string?)
+	local connectionMap = self._kitTrackReplicateStopConnections
+	if type(connectionMap) ~= "table" then
+		self._kitTrackReplicateStopConnections = {}
+		return
+	end
+
+	if animKey == nil then
+		for key, connections in pairs(connectionMap) do
+			if type(connections) == "table" then
+				for _, connection in ipairs(connections) do
+					if typeof(connection) == "RBXScriptConnection" then
+						connection:Disconnect()
+					end
+				end
+			end
+			connectionMap[key] = nil
+		end
+		self._kitTrackReplicateStopTokens = {}
+		return
+	end
+
+	local connections = connectionMap[animKey]
+	if type(connections) == "table" then
+		for _, connection in ipairs(connections) do
+			if typeof(connection) == "RBXScriptConnection" then
+				connection:Disconnect()
+			end
+		end
+	end
+	connectionMap[animKey] = nil
+end
+
+function ViewmodelAnimator:_watchKitReplicatedStop(animIdOrName: string, track: AnimationTrack)
+	if type(animIdOrName) ~= "string" or animIdOrName == "" then
+		return
+	end
+	if type(track) ~= "userdata" then
+		return
+	end
+
+	local key = tostring(animIdOrName)
+	local tokenMap = self._kitTrackReplicateStopTokens
+	if type(tokenMap) ~= "table" then
+		tokenMap = {}
+		self._kitTrackReplicateStopTokens = tokenMap
+	end
+
+	local token = (tokenMap[key] or 0) + 1
+	tokenMap[key] = token
+	self:_clearKitReplicatedStopWatch(key)
+
+	local emitted = false
+	local function replicateStop()
+		if emitted then
+			return
+		end
+		if tokenMap[key] ~= token then
+			return
+		end
+		emitted = true
+		self:_clearKitReplicatedStopWatch(key)
+		replicateKitTrackAction(animIdOrName, false)
+	end
+
+	self._kitTrackReplicateStopConnections[key] = {
+		track.Stopped:Connect(replicateStop),
+		track.Ended:Connect(replicateStop),
+	}
 end
 
 function ViewmodelAnimator:Play(name: string, fadeTime: number?, restart: boolean?)
@@ -655,6 +729,7 @@ function ViewmodelAnimator:PlayKitAnimation(animIdOrName: string, settings: {[st
 	-- Play the track
 	track:Play(fadeTime, weight, speed)
 	replicateKitTrackAction(animIdOrName, true)
+	self:_watchKitReplicatedStop(animIdOrName, track)
 	
 	if DEBUG_VIEWMODEL then
 	end
@@ -671,6 +746,7 @@ end
 function ViewmodelAnimator:StopKitAnimation(animIdOrName: string, fadeTime: number?)
 	local track = self._kitTracks[animIdOrName]
 	if track and track.IsPlaying then
+		self:_clearKitReplicatedStopWatch(tostring(animIdOrName))
 		track:Stop(fadeTime or 0.1)
 		replicateKitTrackAction(animIdOrName, false)
 	end
@@ -684,6 +760,7 @@ end
 function ViewmodelAnimator:StopAllKitAnimations(fadeTime: number?)
 	local fade = fadeTime or 0.1
 	for name, track in pairs(self._kitTracks) do
+		self:_clearKitReplicatedStopWatch(tostring(name))
 		if track and track.IsPlaying then
 			track:Stop(fade)
 			replicateKitTrackAction(name, false)

@@ -51,6 +51,37 @@ local function findCharacterFromPart(hitPart: BasePart): Model?
 	return nil
 end
 
+local function getTracerSettings(weaponConfig)
+	local settings = {
+		trailScale = 1,
+		muzzleScale = nil,
+	}
+
+	if type(weaponConfig) ~= "table" then
+		return settings
+	end
+
+	local tracerConfig = weaponConfig.tracer
+	if type(tracerConfig) == "table" then
+		if type(tracerConfig.trailScale) == "number" and tracerConfig.trailScale > 0 then
+			settings.trailScale = tracerConfig.trailScale
+		end
+		if type(tracerConfig.muzzleScale) == "number" and tracerConfig.muzzleScale > 0 then
+			settings.muzzleScale = tracerConfig.muzzleScale
+		end
+	end
+
+	-- Backward compatibility for legacy flat fields.
+	if type(weaponConfig.tracerScale) == "number" and weaponConfig.tracerScale > 0 then
+		settings.trailScale = weaponConfig.tracerScale
+	end
+	if type(weaponConfig.muzzleScale) == "number" and weaponConfig.muzzleScale > 0 then
+		settings.muzzleScale = weaponConfig.muzzleScale
+	end
+
+	return settings
+end
+
 function WeaponFX.new(loadoutConfig, logService)
 	local self = setmetatable({}, WeaponFX)
 	self._loadoutConfig = loadoutConfig
@@ -73,11 +104,12 @@ end
 function WeaponFX:FireTracer(weaponId: string, origin: Vector3, gunModel: Model?, playerTracerId: string?)
 	local weaponConfig = self._loadoutConfig.getWeapon(weaponId)
 	local tracerId = weaponConfig and weaponConfig.tracerId or nil
+	local tracerSettings = getTracerSettings(weaponConfig)
 	
 	-- Resolve: weapon tracer > player cosmetic > default
 	local resolvedTracerId = Tracers:Resolve(tracerId, playerTracerId)
 	
-	return Tracers:Fire(resolvedTracerId, origin, gunModel)
+	return Tracers:Fire(resolvedTracerId, origin, gunModel, true, tracerSettings)
 end
 
 --[[
@@ -114,6 +146,7 @@ function WeaponFX:RenderBulletTracer(hitData)
 
 	local weaponConfig = self._loadoutConfig.getWeapon(hitData.weaponId)
 	local tracerId = weaponConfig and weaponConfig.tracerId or nil
+	local tracerSettings = getTracerSettings(weaponConfig)
 	local resolvedId = Tracers:Resolve(tracerId, nil)
 	local tracerModule = Tracers:Get(resolvedId)
 	if not tracerModule then return end
@@ -127,7 +160,7 @@ function WeaponFX:RenderBulletTracer(hitData)
 			muzzleAttachment = Tracers:FindMuzzleAttachment(hitData.gunModel)
 		end
 		if muzzleAttachment then
-			tracerModule:Muzzle(hitData.origin, hitData.gunModel, nil, Tracers, muzzleAttachment)
+			tracerModule:Muzzle(hitData.origin, hitData.gunModel, nil, Tracers, muzzleAttachment, tracerSettings)
 		end
 	end
 

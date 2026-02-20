@@ -30,18 +30,14 @@ PressureDestruction.__index = PressureDestruction
 -- DEBUG
 --------------------------------------------------------------------------------
 
-local DEBUG = true -- Set to false to disable debug logging
+local DEBUG = false -- Set to false to disable debug logging
 
 local function log(...)
-	if DEBUG then
-		print("[PressureDestruction Client]", ...)
-	end
+	return
 end
 
 local function logWarn(...)
-	if DEBUG then
-		warn("[PressureDestruction Client]", ...)
-	end
+	return
 end
 
 --------------------------------------------------------------------------------

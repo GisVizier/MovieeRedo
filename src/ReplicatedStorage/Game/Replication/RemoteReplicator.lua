@@ -35,11 +35,13 @@ RemoteReplicator.ActiveViewmodelState = {} -- [userId] = { [key] = payload }
 RemoteReplicator._localInLobby = false
 RemoteReplicator._lobbyConn = nil
 
+local MAX_SEQUENCE = 65536
+local HALF_SEQUENCE = MAX_SEQUENCE / 2
+
 local function isStatefulViewmodelAction(actionName: string): boolean
 	return actionName == "ADS"
 		or actionName == "PlayWeaponTrack"
 		or actionName == "PlayAnimation"
-		or actionName == "SetTrackSpeed"
 end
 
 local function getViewmodelActionStateKey(weaponId: string, actionName: string, trackName: string): string
@@ -366,12 +368,21 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				end
 			end
 		else
-			local lastSeq = remoteData.LastSequenceNumber
-			local currentSeq = state.SequenceNumber
-			local sequenceGap = currentSeq >= lastSeq and (currentSeq - lastSeq) or ((65536 - lastSeq) + currentSeq)
+			local lastSeq = tonumber(remoteData.LastSequenceNumber) or 0
+			local currentSeq = tonumber(state.SequenceNumber) or 0
+			local sequenceGap = (currentSeq - lastSeq) % MAX_SEQUENCE
 
 			self.PlayerLossStats[userId] = self.PlayerLossStats[userId]
 				or { LossRate = 0, PacketsLost = 0, PacketsReceived = 0 }
+
+			-- Drop duplicate/out-of-order snapshots so stale initial states cannot
+			-- overwrite a newer movement animation state for late joiners.
+			if sequenceGap == 0 then
+				continue
+			end
+			if sequenceGap > HALF_SEQUENCE then
+				continue
+			end
 
 			if sequenceGap > 1 then
 				local lostPackets = sequenceGap - 1

@@ -23,6 +23,13 @@ local _debugRayLines = {}
 local DEBUG_RAY_DURATION = 5
 local WALL_SKIP_STEP = 0.01
 
+local function debugWarn(...)
+	if not DEBUG_LOGGING then
+		return
+	end
+	warn("[WeaponRaycast]", ...)
+end
+
 -- =============================================================================
 -- HELPER FUNCTIONS
 -- =============================================================================
@@ -175,6 +182,55 @@ local function getPlayerFromCharacterFallback(character)
 		end
 	end
 	return nil
+end
+
+local function getOwnerUserIdFromAncestor(part)
+	local current = part
+	while current and current ~= Workspace do
+		local ownerUserId = current:GetAttribute("OwnerUserId")
+		if type(ownerUserId) == "number" then
+			local isCharacterOwner = current.Name == "Collider"
+				or current.Name == "Rig"
+				or (current:IsA("Model") and current:FindFirstChildWhichIsA("Humanoid", true) ~= nil)
+			if isCharacterOwner then
+				return ownerUserId
+			end
+		end
+		if
+			current.Name == "Collider"
+			and current:GetAttribute("OwnerUserId") == nil
+			and current.Parent
+			and current.Parent:IsA("Model")
+		then
+			local modelOwnerUserId = current.Parent:GetAttribute("OwnerUserId")
+			if type(modelOwnerUserId) == "number" then
+				return modelOwnerUserId
+			end
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function getRawOwnerUserIdFromAncestor(part)
+	local current = part
+	while current and current ~= Workspace do
+		local ownerUserId = current:GetAttribute("OwnerUserId")
+		if type(ownerUserId) == "number" then
+			return ownerUserId
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function isPartOwnedByPlayer(part, player)
+	if not part or not player then
+		return false
+	end
+
+	local ownerUserId = getOwnerUserIdFromAncestor(part)
+	return ownerUserId ~= nil and ownerUserId == player.UserId
 end
 
 local function isNonBlockingDestroyedRemnant(part)
@@ -375,9 +431,9 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	raycastParams.FilterDescendantsInstances = filterList
 
 	-- DEBUG: Log filter list contents
-	warn("[RAYCAST] Filter list count:", #filterList)
+	debugWarn("[RAYCAST] Filter list count:", #filterList)
 	for i, inst in ipairs(filterList) do
-		warn(string.format("[RAYCAST FILTER %d] %s", i, inst:GetFullName()))
+		debugWarn(string.format("[RAYCAST FILTER %d] %s", i, inst:GetFullName()))
 	end
 	-- END DEBUG
 
@@ -390,6 +446,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		local hitInst = result.Instance
 		local isDestroyedRemnant = isNonBlockingDestroyedRemnant(hitInst)
 		local isSelfHit = false
+		local isSelfOwnedHit = isPartOwnedByPlayer(hitInst, localPlayer)
 		local hitCharacterForSkip = getCharacterFromPart(hitInst)
 
 		if hitCharacterForSkip and localPlayer then
@@ -401,12 +458,13 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 			end
 		end
 
-		if isDestroyedRemnant or isSelfHit then
-			warn(
+		if isDestroyedRemnant or isSelfHit or isSelfOwnedHit then
+			debugWarn(
 				"[RAYCAST REMNANT SKIP]",
 				hitInst:GetFullName(),
 				"destroyedRemnant=", tostring(isDestroyedRemnant),
 				"selfHit=", tostring(isSelfHit),
+				"selfOwned=", tostring(isSelfOwnedHit),
 				"__Breakable=", tostring(hitInst:GetAttribute("__Breakable")),
 				"__BreakableClient=", tostring(hitInst:GetAttribute("__BreakableClient")),
 				"CanQuery=", tostring(hitInst.CanQuery),
@@ -431,14 +489,14 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		local hitClass = result.Instance.ClassName
 		local parentName = result.Instance.Parent and result.Instance.Parent.Name or "nil"
 		local grandparentName = result.Instance.Parent and result.Instance.Parent.Parent and result.Instance.Parent.Parent.Name or "nil"
-		warn(string.format("[RAYCAST HIT] Instance: %s | Class: %s | Parent: %s | Grandparent: %s", 
+		debugWarn(string.format("[RAYCAST HIT] Instance: %s | Class: %s | Parent: %s | Grandparent: %s", 
 			hitPath, hitClass, parentName, grandparentName))
 		
 		-- Check if this looks like a Collider hitbox
 		if parentName == "Standing" or parentName == "Crouching" then
-			warn("[RAYCAST HIT] Detected hitbox structure! Looking for Collider...")
+			debugWarn("[RAYCAST HIT] Detected hitbox structure! Looking for Collider...")
 		elseif parentName == "Collider" or grandparentName == "Collider" then
-			warn("[RAYCAST HIT] Hit something in Collider folder")
+			debugWarn("[RAYCAST HIT] Hit something in Collider folder")
 		end
 		-- END DEBUG
 		
@@ -532,20 +590,23 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		local isHeadshot = isHeadshotPart(result.Instance)
 
 		-- DEBUG: Log final hit resolution
+		local ownerUserId = getOwnerUserIdFromAncestor(result.Instance)
+		local rawOwnerUserId = getRawOwnerUserIdFromAncestor(result.Instance)
+		local localUserId = localPlayer and localPlayer.UserId or nil
 		if hitPlayer then
-			warn(string.format("[RAYCAST RESULT] HIT PLAYER: %s | Character: %s | Headshot: %s",
+			debugWarn(string.format("[RAYCAST RESULT] HIT PLAYER: %s | Character: %s | Headshot: %s",
 				hitPlayer.Name, hitCharacter and hitCharacter.Name or "nil", tostring(isHeadshot)))
 		elseif hitCharacter then
-			warn(string.format("[RAYCAST RESULT] HIT CHARACTER (no player): %s | Headshot: %s",
+			debugWarn(string.format("[RAYCAST RESULT] HIT CHARACTER (no player): %s | Headshot: %s",
 				hitCharacter.Name, tostring(isHeadshot)))
 		else
-			warn("[RAYCAST RESULT] NO PLAYER/CHARACTER - environment hit")
+			debugWarn("[RAYCAST RESULT] NO PLAYER/CHARACTER - environment hit")
 			
 			-- Register environment hit for pressure destruction
 			if PressureDestruction and result.Instance then
 				-- Get destruction pressure from weapon config
 				local destructionPressure = weaponConfig.destructionPressure or 20
-				warn(
+				debugWarn(
 					"[RAYCAST->PRESSURE SEND]",
 					"part=", result.Instance:GetFullName(),
 					"position=", tostring(result.Position),
@@ -568,6 +629,15 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 				)
 			end
 		end
+		debugWarn(
+			"[RAYCAST RESULT DETAIL]",
+			"instance=", result.Instance:GetFullName(),
+			"ownerUserId=", tostring(ownerUserId),
+			"rawOwnerUserId=", tostring(rawOwnerUserId),
+			"localUserId=", tostring(localUserId),
+			"resolvedPlayer=", hitPlayer and hitPlayer.Name or "nil",
+			"resolvedCharacter=", hitCharacter and hitCharacter:GetFullName() or "nil"
+		)
 		-- END DEBUG
 
 		if WeaponRaycast.DebugRaycastEnabled then
@@ -589,7 +659,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 	end
 
 	-- DEBUG: Log when ray missed everything
-	warn("[RAYCAST MISS] Ray hit nothing - went full range to:", tostring(targetPosition))
+	debugWarn("[RAYCAST MISS] Ray hit nothing - went full range to:", tostring(targetPosition))
 	-- END DEBUG
 
 	if WeaponRaycast.DebugRaycastEnabled then

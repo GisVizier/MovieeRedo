@@ -29,7 +29,7 @@ MatchmakingConfig.Queue = {
 
 	-- Debug settings
 	Debug = {
-		ShowZones = true,
+		ShowZones = false,
 		ZoneColor = Color3.fromRGB(0, 200, 255),
 		ZoneTransparency = 0.7,
 	},

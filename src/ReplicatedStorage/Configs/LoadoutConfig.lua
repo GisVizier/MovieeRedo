@@ -288,20 +288,27 @@ LoadoutConfig.Weapons = {
 			canQuickUseAblility = true,
 		},
 		maxAmmo = 120,
-		clipSize = 21,
+		clipSize = 24,
 		reloadTime = 1.8,
 		isAbility = false,
+
 		fireProfile = {
 			mode = "Auto",
 			autoReloadOnEmpty = true,
-			spread = 0.02,
+			spread = 0.01,
+		},
+
+		-- Optional tracer VFX tuning (consumed by Tracers system)
+		tracer = {
+			trailScale = 1.0,
+			muzzleScale = 0.45,
 		},
 
 		-- Speed settings
-		speedMultiplier = 0.95, -- 5% slower when holding
+		speedMultiplier = 1.1, -- 5% slower when holding
 
 		-- ADS settings
-		adsFOV = 50,
+		adsFOV = 40,
 		adsSpeedMultiplier = 0.7,
 
 		-- Weapon ballistics
@@ -311,14 +318,29 @@ LoadoutConfig.Weapons = {
 		fireRate = 600, -- Rounds per minute (automatic)
 		projectileSpeed = nil, -- Hitscan
 		bulletDrop = false,
-		spread = 0.02,
+		spread = 0.01,
+		-- Optional spread tuning (consumed by WeaponController:_performRaycast)
+		-- If omitted, runtime falls back to existing hardcoded/crosshair defaults.
+		spreadFactors = {
+			speedReference = 5,
+			speedMaxBonus = 0.2,
+			hipfireMult = .5,
+			crouchMult = 0.115,
+			slideMult = 1.0,
+			sprintMult = 2.2,
+			airMult = 2.5,
+			adsMult = 0.01,
+			minMultiplier = 0,
+			maxMultiplier = 1.25,
+		},
+
 		minRange = 15,
 		maxRange = 250,
 		minDamage = 5,
 		tracerColor = Color3.fromRGB(255, 230, 150),
 		
 		-- Wall destruction pressure
-		destructionPressure = 22,
+		destructionPressure = 5,
 
 		recoil = {
 			pitchUp = 1.2,
@@ -328,15 +350,15 @@ LoadoutConfig.Weapons = {
 
 		crosshair = {
 			type = "Default",
-			spreadX = 2.5,
-			spreadY = 2.5,
+			spreadX = 3.5,
+			spreadY = 3.5,
 			recoilMultiplier = 2.0,
 			-- Movement state spread modifiers (VERY NOTICEABLE)
-			crouchMult = 0.25, -- 75% reduction when crouching
+			crouchMult = 0.115, -- 75% reduction when crouching
 			sprintMult = 2.2, -- 120% more spread when sprinting
 			airMult = 2.5, -- 150% more spread in air
-			adsMult = 0.15, -- 85% reduction when ADS
-			baseGap = 8, -- Base gap for crosshair
+			adsMult = 0.01, -- 85% reduction when ADS
+			baseGap = 10, -- Base gap for crosshair
 		},
 
 		-- Aim Assist settings (assault rifle: balanced, medium range)
@@ -838,6 +860,42 @@ LoadoutConfig.Crosshair = {
 		dynamicSpreadEnabled = true,
 	},
 }
+
+LoadoutConfig.Balance = {
+	-- Global weapon damage tuning for guns only (Primary/Secondary).
+	-- Set to 1 to disable scaling.
+	GunDamageMultiplier = 0.85,
+}
+
+local function applyGlobalGunDamageBalance()
+	local multiplier = LoadoutConfig.Balance and LoadoutConfig.Balance.GunDamageMultiplier or 1
+	if type(multiplier) ~= "number" or multiplier <= 0 or multiplier == 1 then
+		return
+	end
+
+	for _, weapon in pairs(LoadoutConfig.Weapons) do
+		if weapon and (weapon.weaponType == "Primary" or weapon.weaponType == "Secondary") then
+			if type(weapon.damage) == "number" then
+				weapon.damage = weapon.damage * multiplier
+			end
+			if type(weapon.minDamage) == "number" then
+				weapon.minDamage = weapon.minDamage * multiplier
+			end
+
+			local projectile = weapon.projectile
+			if type(projectile) == "table" then
+				if type(projectile.pelletDamage) == "number" then
+					projectile.pelletDamage = projectile.pelletDamage * multiplier
+				end
+				if type(projectile.minDamage) == "number" then
+					projectile.minDamage = projectile.minDamage * multiplier
+				end
+			end
+		end
+	end
+end
+
+applyGlobalGunDamageBalance()
 
 function LoadoutConfig.getWeapon(weaponId)
 	return LoadoutConfig.Weapons[weaponId]

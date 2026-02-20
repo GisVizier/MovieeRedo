@@ -51,7 +51,7 @@ return {
 	OWNED = {
 		OWNED_EMOTES = { "Template", "SBR", "BC", "CR", "FR", "HS", "SB", "BMB" },
 		OWNED_KITS = { "WhiteBeard", "Genji", "Aki", "Airborne", "HonoredOne" },
-		OWNED_PRIMARY = { "Shotgun", "Sniper" },
+		OWNED_PRIMARY = { "Shotgun", "Sniper", "AssaultRifle" },
 		OWNED_SECONDARY = { "Revolver", "Shorty", "DualPistols" },
 		OWNED_MELEE = { "Tomahawk", "ExecutionerBlade" },
 	},

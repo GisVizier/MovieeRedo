@@ -422,10 +422,20 @@ end
 	@param origin Vector3 - Starting position
 	@param gunModel Model? - Weapon model (for muzzle VFX)
 	@param playMuzzle boolean? - Whether to play muzzle FX (default true, set false for pellets 2+)
-	@param scale number? - Optional scale factor for tracer VFX size (default 1, e.g. 1.5 = 50% larger)
+	@param scaleOrOptions number|table? - Optional trail scale number or table:
+		{
+			trailScale = number?, -- trail FX scale (default 1)
+			muzzleScale = number?, -- muzzle FX scale (optional)
+		}
 	@return { attachment: Attachment, tracer: TracerModule, cleanup: () -> () }?
 ]]
-function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, playMuzzle: boolean?, scale: number?)
+function Tracers:Fire(
+	tracerId: string?,
+	origin: Vector3,
+	gunModel: Model?,
+	playMuzzle: boolean?,
+	scaleOrOptions: number | { trailScale: number?, muzzleScale: number? }?
+)
 	if not self._initialized then
 		self:Init()
 	end
@@ -438,6 +448,24 @@ function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, play
 	local resolvedId = tracerId or self.DEFAULT
 	local tracer = self:Get(resolvedId)
 	if not tracer then return nil end
+
+	local trailScale = 1
+	local muzzleScale = nil
+	if type(scaleOrOptions) == "number" then
+		if scaleOrOptions > 0 then
+			trailScale = scaleOrOptions
+		end
+	elseif type(scaleOrOptions) == "table" then
+		local requestedTrailScale = scaleOrOptions.trailScale
+		if type(requestedTrailScale) == "number" and requestedTrailScale > 0 then
+			trailScale = requestedTrailScale
+		end
+
+		local requestedMuzzleScale = scaleOrOptions.muzzleScale
+		if type(requestedMuzzleScale) == "number" and requestedMuzzleScale > 0 then
+			muzzleScale = requestedMuzzleScale
+		end
+	end
 	
 	local attachment = self:_getAttachment()
 	if not attachment then
@@ -448,12 +476,14 @@ function Tracers:Fire(tracerId: string?, origin: Vector3, gunModel: Model?, play
 	attachment.WorldPosition = origin
 	
 	-- Attach trail FX from assets (replicates to all clients)
-	self:_attachTrailFX(resolvedId, attachment, scale)
+	self:_attachTrailFX(resolvedId, attachment, trailScale)
 	
 	-- Only play muzzle FX once per shot (not per pellet)
 	if playMuzzle and tracer.Muzzle then
 		local muzzleAttachment = self:FindMuzzleAttachment(gunModel)
-		tracer:Muzzle(origin, gunModel, attachment, self, muzzleAttachment)
+		tracer:Muzzle(origin, gunModel, attachment, self, muzzleAttachment, {
+			muzzleScale = muzzleScale,
+		})
 	end
 	
 	-- Return handle for caller to animate and cleanup

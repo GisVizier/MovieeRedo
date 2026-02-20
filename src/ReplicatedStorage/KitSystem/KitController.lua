@@ -28,6 +28,7 @@ function KitController.new(player: Player?, coreUi: any?, net: any?, inputContro
 	self._holsteredSlot = nil -- Weapon slot to restore after ability ends
 	self._abilityActive = false
 	self._weaponSwitchLocked = false -- Manual weapon switch lock
+	self._replicatedFistsTrack = nil
 
 	return self
 end
@@ -142,6 +143,8 @@ function KitController:_interruptClientKit(reason: string)
 	local kit = self._clientKit
 	local kitId = self._clientKitId
 	if not kit or type(kitId) ~= "string" then
+		self:_unholsterWeapon()
+		self:_clearReplicatedFistsTrack()
 		return
 	end
 	
@@ -154,6 +157,7 @@ function KitController:_interruptClientKit(reason: string)
 	
 	-- Restore weapon on client-side interrupt
 	self:_unholsterWeapon()
+	self:_clearReplicatedFistsTrack()
 
 	local function callInterrupt(handlerTable, abilityType)
 		if type(handlerTable) ~= "table" then
@@ -212,6 +216,7 @@ function KitController:_onLocalPlayerDied()
 	self._abilityActive = false
 	self._holsteredSlot = nil
 	self._weaponSwitchLocked = false
+	self:_clearReplicatedFistsTrack()
 
 	-- Clear ALL kit-related player attributes that could linger after death
 	-- (movement multipliers, crouch gates, VFX state, projectile state, etc.)
@@ -253,6 +258,7 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 			self._abilityActive = false
 			self._holsteredSlot = nil
 			self._weaponSwitchLocked = false
+			self:_clearReplicatedFistsTrack()
 		end
 	end
 
@@ -377,9 +383,32 @@ function KitController:_replicateFistsTrack(trackName: string)
 		return
 	end
 	local replicationController = ServiceRegistry:GetController("Replication")
-	if replicationController and type(replicationController.ReplicateViewmodelAction) == "function" then
-		replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", trackName, true)
+	if not replicationController or type(replicationController.ReplicateViewmodelAction) ~= "function" then
+		return
 	end
+
+	local previousTrack = self._replicatedFistsTrack
+	if type(previousTrack) == "string" and previousTrack ~= "" and previousTrack ~= trackName then
+		replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", previousTrack, false)
+	end
+
+	replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", trackName, true)
+	self._replicatedFistsTrack = trackName
+end
+
+function KitController:_clearReplicatedFistsTrack()
+	local trackName = self._replicatedFistsTrack
+	if type(trackName) ~= "string" or trackName == "" then
+		self._replicatedFistsTrack = nil
+		return
+	end
+
+	local replicationController = ServiceRegistry:GetController("Replication")
+	if replicationController and type(replicationController.ReplicateViewmodelAction) == "function" then
+		replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", trackName, false)
+	end
+
+	self._replicatedFistsTrack = nil
 end
 
 function KitController:_holsterWeapon(abilityType: string?)
@@ -448,8 +477,15 @@ function KitController:_unholsterWeapon()
 		self._player:SetAttribute("DisplaySlot", nil)
 	end
 
+	self:_clearReplicatedFistsTrack()
+
 	-- Ability end track (only ability path uses Release by config convention).
 	self:_replicateFistsTrack("Release")
+	task.delay(1.25, function()
+		if not self._abilityActive and self._replicatedFistsTrack == "Release" then
+			self:_clearReplicatedFistsTrack()
+		end
+	end)
 end
 
 --[[
@@ -579,6 +615,7 @@ function KitController:_onKitState(state)
 		self._abilityActive = false
 		self._holsteredSlot = nil
 		self._weaponSwitchLocked = false
+		self:_clearReplicatedFistsTrack()
 		self:_emit("KitUnequipped")
 		return
 	end

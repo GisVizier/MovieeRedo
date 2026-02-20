@@ -118,7 +118,11 @@ local function getCurrentWeaponMuzzleScale(): number
 		return 1
 	end
 
-	local configuredScale = weaponConfig.muzzleScale
+	local tracerConfig = weaponConfig.tracer
+	local configuredScale = type(tracerConfig) == "table" and tracerConfig.muzzleScale or nil
+	if type(configuredScale) ~= "number" then
+		configuredScale = weaponConfig.muzzleScale
+	end
 	if type(configuredScale) ~= "number" then
 		configuredScale = weaponConfig.MuzzleScale
 	end
@@ -149,6 +153,19 @@ local function getGunModelScale(gunModel: Model?): number
 	return modelScale
 end
 
+local function resolveMuzzleScaleOption(options)
+	if type(options) ~= "table" then
+		return nil
+	end
+
+	local configuredScale = options.muzzleScale
+	if type(configuredScale) ~= "number" or configuredScale <= 0 then
+		return nil
+	end
+
+	return configuredScale
+end
+
 --[[
 	Muzzle flash effect
 	@param origin Vector3 - Barrel position
@@ -157,7 +174,14 @@ end
 	@param tracers table - Reference to Tracers system
 	@param muzzleAttachment Attachment? - The gun's muzzle attachment
 ]]
-function Default:Muzzle(origin: Vector3, gunModel: Model?, attachment: Attachment, tracers, muzzleAttachment: Attachment?)
+function Default:Muzzle(
+	origin: Vector3,
+	gunModel: Model?,
+	attachment: Attachment,
+	tracers,
+	muzzleAttachment: Attachment?,
+	options: { muzzleScale: number? }?
+)
 	if not muzzleAttachment then return end
 	
 	local FxFolder = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Tracers"):WaitForChild("Defualt")
@@ -167,7 +191,8 @@ function Default:Muzzle(origin: Vector3, gunModel: Model?, attachment: Attachmen
 		endFX = endFX:Clone()
 		endFX.Parent = muzzleAttachment
 
-		local finalScale = math.clamp(getCurrentWeaponMuzzleScale() * getGunModelScale(gunModel), 0.05, 20)
+		local configuredScale = resolveMuzzleScaleOption(options) or getCurrentWeaponMuzzleScale()
+		local finalScale = math.clamp(configuredScale * getGunModelScale(gunModel), 0.05, 20)
 		applyMuzzleFxScale(endFX, finalScale)
 		
 		Utils.PlayAttachment(endFX, 5)

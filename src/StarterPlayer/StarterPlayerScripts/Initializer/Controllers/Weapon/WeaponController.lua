@@ -48,6 +48,7 @@ local ActionsRoot = ReplicatedStorage:WaitForChild("Game"):WaitForChild("Weapons
 local DEBUG_WEAPON = false
 local SHOW_TRACERS = true
 local DEBUG_QUICK_MELEE = true
+local DEBUG_HITMARKER = true
 
 local LocalPlayer = Players.LocalPlayer
 local WEAPON_SOUND_MODULE_INFO = { Module = "Sound" }
@@ -76,6 +77,13 @@ local function emitWeaponSoundDebug(message, data)
 		line = line .. " | " .. table.concat(parts, ", ")
 	end
 	warn(line)
+end
+
+local function hitmarkerDebug(message, data)
+	if not DEBUG_HITMARKER then
+		return
+	end
+	warn("[WeaponHitmarker]", message, data)
 end
 
 local function normalizeSoundId(soundRef)
@@ -181,6 +189,8 @@ WeaponController._debugRaycastKeyConn = nil
 WeaponController._quickMeleeToken = 0
 WeaponController._quickMeleeSession = nil
 WeaponController._replicatedMovementTrack = nil
+WeaponController._replicatedTrackStopTokens = {}
+WeaponController._replicatedTrackStopConnections = {}
 WeaponController._activeActionSounds = {}
 WeaponController._lastActionSoundAt = {}
 
@@ -884,6 +894,7 @@ function WeaponController:OnRespawnRefresh()
 end
 
 function WeaponController:_unequipCurrentWeapon()
+	self:_clearReplicatedTrackStopWatch()
 	self:_stopAllTrackedWeaponActionSounds(true)
 
 	if self._replicatedMovementTrack then
@@ -1364,13 +1375,20 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 
 		-- Animation helpers
 		PlayAnimation = function(name, fade, restart)
-			self:_playViewmodelAnimation(name, fade, restart)
+			local track = self:_playViewmodelAnimation(name, fade, restart)
 			self:_replicateViewmodelAction("PlayAnimation", name, true)
+			if track then
+				self:_watchReplicatedTrackStop("PlayAnimation", name, track)
+			end
+			return track
 		end,
 		PlayWeaponTrack = function(name, fade)
 			if self._viewmodelController and self._viewmodelController.PlayWeaponTrack then
 				local track = self._viewmodelController:PlayWeaponTrack(name, fade)
 				self:_replicateViewmodelAction("PlayWeaponTrack", name, true)
+				if track then
+					self:_watchReplicatedTrackStop("PlayWeaponTrack", name, track)
+				end
 				return track
 			end
 			return nil
@@ -2342,13 +2360,113 @@ function WeaponController:_replicateViewmodelAction(actionName, trackName, isAct
 		return
 	end
 
+	if isActive ~= true and type(trackName) == "string" and trackName ~= "" then
+		local trackKey = string.format("%s|%s", tostring(actionName), tostring(trackName))
+		self:_clearReplicatedTrackStopWatch(trackKey)
+	end
+
 	replicationController:ReplicateViewmodelAction(weaponId, actionName, trackName or "", isActive == true)
+end
+
+function WeaponController:_clearReplicatedTrackStopWatch(trackKey)
+	local connectionMap = self._replicatedTrackStopConnections
+	if type(connectionMap) ~= "table" then
+		self._replicatedTrackStopConnections = {}
+		return
+	end
+
+	if trackKey == nil then
+		for key, connections in pairs(connectionMap) do
+			if type(connections) == "table" then
+				for _, connection in ipairs(connections) do
+					if typeof(connection) == "RBXScriptConnection" then
+						connection:Disconnect()
+					end
+				end
+			end
+			connectionMap[key] = nil
+		end
+		self._replicatedTrackStopTokens = {}
+		return
+	end
+
+	local connections = connectionMap[trackKey]
+	if type(connections) == "table" then
+		for _, connection in ipairs(connections) do
+			if typeof(connection) == "RBXScriptConnection" then
+				connection:Disconnect()
+			end
+		end
+	end
+	connectionMap[trackKey] = nil
+end
+
+function WeaponController:_watchReplicatedTrackStop(actionName, trackName, track)
+	if type(actionName) ~= "string" or actionName == "" then
+		return
+	end
+	if type(trackName) ~= "string" or trackName == "" then
+		return
+	end
+	if type(track) ~= "userdata" then
+		return
+	end
+
+	local trackKey = string.format("%s|%s", tostring(actionName), tostring(trackName))
+	local tokenMap = self._replicatedTrackStopTokens
+	if type(tokenMap) ~= "table" then
+		tokenMap = {}
+		self._replicatedTrackStopTokens = tokenMap
+	end
+
+	local token = (tokenMap[trackKey] or 0) + 1
+	tokenMap[trackKey] = token
+	self:_clearReplicatedTrackStopWatch(trackKey)
+
+	local emitted = false
+	local function replicateStop()
+		if emitted then
+			return
+		end
+		if tokenMap[trackKey] ~= token then
+			return
+		end
+		emitted = true
+		self:_clearReplicatedTrackStopWatch(trackKey)
+		self:_replicateViewmodelAction(actionName, trackName, false)
+	end
+
+	local connections = {
+		track.Stopped:Connect(replicateStop),
+		track.Ended:Connect(replicateStop),
+	}
+	self._replicatedTrackStopConnections[trackKey] = connections
+end
+
+function WeaponController:_getViewmodelTrack(name)
+	if type(name) ~= "string" or name == "" then
+		return nil
+	end
+
+	local viewmodelController = self._viewmodelController
+	if not viewmodelController then
+		return nil
+	end
+
+	local animator = viewmodelController._animator
+	if not animator or type(animator.GetTrack) ~= "function" then
+		return nil
+	end
+
+	return animator:GetTrack(name)
 end
 
 function WeaponController:_playViewmodelAnimation(name, fade, restart)
 	if self._viewmodelController and type(self._viewmodelController.PlayViewmodelAnimation) == "function" then
 		self._viewmodelController:PlayViewmodelAnimation(name, fade, restart)
+		return self:_getViewmodelTrack(name)
 	end
+	return nil
 end
 
 function WeaponController:_stopWeaponTracks(exceptTrackName)
@@ -2380,6 +2498,7 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 
 	if not ignoreSpread and LocalPlayer and weaponConfig then
 		local crosshairData = weaponConfig.crosshair or {}
+		local spreadFactors = weaponConfig.spreadFactors or {}
 		local movementState = self._crosshair
 			and self._crosshair._getMovementState
 			and self._crosshair:_getMovementState()
@@ -2392,26 +2511,59 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 			horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 		end
 
-		local movementBoost = 1 + math.clamp(horizontalSpeed / 20, 0, 1) * 0.8
+		local speedReference = tonumber(spreadFactors.speedReference) or tonumber(spreadFactors.velocityReference) or 20
+		if speedReference <= 0 then
+			speedReference = 20
+		end
+		local speedMaxBonus = tonumber(spreadFactors.speedMaxBonus)
+		if speedMaxBonus == nil then
+			speedMaxBonus = tonumber(spreadFactors.velocityMaxBonus) or 0.8
+		end
+		speedMaxBonus = math.max(speedMaxBonus, 0)
+
+		local function resolveSpreadFactor(key, fallback)
+			local customValue = spreadFactors[key]
+			if type(customValue) == "number" then
+				return customValue
+			end
+			local legacyValue = crosshairData[key]
+			if type(legacyValue) == "number" then
+				return legacyValue
+			end
+			return fallback
+		end
+
+		local movementBoost = 1 + math.clamp(horizontalSpeed / speedReference, 0, 1) * speedMaxBonus
 		spreadMultiplier *= movementBoost
 
 		if movementState then
 			if movementState.isCrouching then
-				spreadMultiplier *= (crosshairData.crouchMult or 1)
+				spreadMultiplier *= resolveSpreadFactor("crouchMult", 1)
 			elseif movementState.isSliding then
-				spreadMultiplier *= (crosshairData.slideMult or 1)
+				spreadMultiplier *= resolveSpreadFactor("slideMult", 1)
 			elseif movementState.isSprinting then
-				spreadMultiplier *= (crosshairData.sprintMult or 1)
+				spreadMultiplier *= resolveSpreadFactor("sprintMult", 1)
 			end
 
 			if movementState.isGrounded == false then
-				spreadMultiplier *= (crosshairData.airMult or 1)
+				spreadMultiplier *= resolveSpreadFactor("airMult", 1)
 			end
 
 			if movementState.isADS then
-				spreadMultiplier *= (crosshairData.adsMult or 1)
+				spreadMultiplier *= resolveSpreadFactor("adsMult", 1)
+			else
+				spreadMultiplier *= resolveSpreadFactor("hipfireMult", 1)
 			end
+		else
+			spreadMultiplier *= resolveSpreadFactor("hipfireMult", 1)
 		end
+
+		local minMultiplier = tonumber(spreadFactors.minMultiplier) or 0
+		local maxMultiplier = tonumber(spreadFactors.maxMultiplier) or math.huge
+		if maxMultiplier < minMultiplier then
+			maxMultiplier = minMultiplier
+		end
+		spreadMultiplier = math.clamp(spreadMultiplier, minMultiplier, maxMultiplier)
 	end
 
 	return WeaponRaycast.PerformRaycast(self._camera, LocalPlayer, weaponConfig, ignoreSpread, spreadMultiplier)
@@ -2464,9 +2616,13 @@ function WeaponController:_onHitConfirmed(hitData)
 		return
 	end
 
+	local localUserId = LocalPlayer and LocalPlayer.UserId or nil
+	local localCharacter = LocalPlayer and LocalPlayer.Character or nil
+	local localCharacterName = localCharacter and localCharacter.Name or nil
+
 	-- Tracers are now rendered immediately in _playFireEffects (client-side prediction)
 	-- Only render here for OTHER players' shots (so we see their tracers)
-	if SHOW_TRACERS and hitData.shooter ~= LocalPlayer.UserId then
+	if SHOW_TRACERS and hitData.shooter ~= localUserId then
 		-- Populate gunModel from shooter's 3rd person weapon for muzzle flash
 		if not hitData.gunModel and hitData.shooter then
 			local RemoteReplicator = require(
@@ -2482,12 +2638,29 @@ function WeaponController:_onHitConfirmed(hitData)
 
 	local didHitTarget = hitData.hitPlayer ~= nil
 		or (type(hitData.hitCharacterName) == "string" and hitData.hitCharacterName ~= "")
+	local isLocalPlayerHit = localUserId ~= nil and hitData.hitPlayer == localUserId
+	local isLocalCharacterHit = localCharacterName ~= nil and hitData.hitCharacterName == localCharacterName
+	local shouldShowHitmarker = hitData.shooter == localUserId and didHitTarget and not isLocalPlayerHit and not isLocalCharacterHit
 
-	if hitData.shooter == LocalPlayer.UserId and didHitTarget then
+	if hitData.shooter == localUserId then
+		hitmarkerDebug("HitConfirmed", {
+			shooter = hitData.shooter,
+			hitPlayer = hitData.hitPlayer,
+			hitCharacterName = hitData.hitCharacterName,
+			localUserId = localUserId,
+			localCharacterName = localCharacterName,
+			didHitTarget = didHitTarget,
+			isLocalPlayerHit = isLocalPlayerHit,
+			isLocalCharacterHit = isLocalCharacterHit,
+			shouldShowHitmarker = shouldShowHitmarker,
+		})
+	end
+
+	if shouldShowHitmarker then
 		self:_showHitmarker(hitData)
 	end
 
-	if hitData.hitPlayer == LocalPlayer.UserId then
+	if hitData.hitPlayer == localUserId then
 		self:_showDamageIndicator(hitData)
 	end
 end

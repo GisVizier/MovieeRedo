@@ -26,7 +26,8 @@ export type _breaker = {
 		parameters: OverlapParams?,
 		voxelSize: number?,
 		debrisCount: number?,
-		reset: number?
+		reset: number?,
+		suppressSounds: boolean?
 	) -> ({ Part }, { Part }),
 
 	Hitbox: (
@@ -69,6 +70,7 @@ local Mesh = require(script:WaitForChild("Mesh"))
 local Signal = require(script:WaitForChild("Signal"))
 local PartCache = require(script:WaitForChild("PartCache"))
 local Clone = require(script:WaitForChild("PartCache"):WaitForChild("Clone"))
+local DestructionSounds = require(script:WaitForChild("DestructionSounds"))
 
 local RemoteName = "_ClientDestruction"
 local Remote = nil
@@ -168,12 +170,10 @@ local function resolveWallFromPiece(hitPart: BasePart, clientID: string)
 	return hitPart
 end
 
-local TRACE_VOXEL_DESTRUCTION = true
+local TRACE_VOXEL_DESTRUCTION = false
 
 local function traceDestroy(...)
-	if TRACE_VOXEL_DESTRUCTION and game:GetService("RunService"):IsServer() then
-		warn("[VoxelDestruction.Destroy]", ...)
-	end
+	return
 end
 
 local function unsparse(array)
@@ -473,7 +473,8 @@ function Destroy(
 	parameters: OverlapParams?,
 	voxelSize: number?,
 	debrisCount: number?,
-	reset: number?
+	reset: number?,
+	suppressSounds: boolean?
 )
 	local isClient = game:GetService("RunService"):IsClient()
 	local clientID = if isClient then "Client" else ""
@@ -651,6 +652,8 @@ function Destroy(
 
 	--
 
+	local playSounds = not suppressSounds and Settings.DestructionSounds and Settings.DestructionSounds.Enabled
+	local soundEvents = {}
 	local debris, walls = {}, {}
 	local processedWalls = {}
 
@@ -956,14 +959,8 @@ function Destroy(
 									debri:SetAttribute(Settings.Tag .. "Timer", Settings.DebrisReset)
 
 									coroutine.resume(coroutine.create(function()
-										repeat
-											task.wait(1)
-											debri:SetAttribute(
-												Settings.Tag .. "Timer",
-												debri:GetAttribute(Settings.Tag .. "Timer") - 1
-											)
-										until debri:GetAttribute(Settings.Tag .. "Timer") <= 0
-
+										task.wait(Settings.DebrisReset)
+										debri:SetAttribute(Settings.Tag .. "Timer", 0)
 										Cleanup(debri)
 									end))
 								end
@@ -1031,6 +1028,13 @@ function Destroy(
 						for _, child in ipairs(wall:GetChildren()) do
 							if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceAppearance") then
 								child:Destroy()
+							end
+						end
+
+						if playSounds then
+							local soundEvent = DestructionSounds.BuildEvent(wall, part.Position, part.Size, Settings)
+							if soundEvent then
+								table.insert(soundEvents, soundEvent)
 							end
 						end
 					else
@@ -1202,6 +1206,18 @@ function Destroy(
 	end
 
 	--
+
+	if playSounds and #soundEvents > 0 then
+		if game:GetService("RunService"):IsServer() then
+			if Settings.DestructionSounds.Replicate ~= false then
+				Remote:FireAllClients("PlayDestructionSounds", soundEvents)
+			else
+				DestructionSounds.PlayBatch(soundEvents, Settings)
+			end
+		else
+			DestructionSounds.PlayBatch(soundEvents, Settings)
+		end
+	end
 
 	part:Destroy()
 	traceDestroy("Complete", "focus=", focus:GetFullName(), "#walls=", #walls, "#debris=", #debris)
@@ -1763,6 +1779,10 @@ coroutine.resume(coroutine.create(function()
 				if not Settings.OnServer then
 					Repair(...)
 				end
+			elseif key == "PlayDestructionSounds" then
+				local args = { ... }
+				DestructionSounds.PlayBatch(args[1], Settings)
+				return
 			end
 
 			if key == "Hitbox" or key == "Start" or key == "Stop" or key == "Fire" then
@@ -1838,7 +1858,8 @@ coroutine.resume(coroutine.create(function()
 										nil,
 										cframe[2] or 1,
 										0,
-										focus:GetAttribute(Settings.Tag .. "Timer") or 1
+										focus:GetAttribute(Settings.Tag .. "Timer") or 1,
+										true
 									)
 								end
 							end

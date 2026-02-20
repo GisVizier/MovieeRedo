@@ -16,6 +16,10 @@ local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local ThirdPersonWeaponManager = require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
 local function vmLog(...) end
 
+local function isSingleTrackViewmodelAction(actionName: string): boolean
+	return actionName == "PlayWeaponTrack" or actionName == "PlayAnimation"
+end
+
 ClientReplicator.Character = nil
 ClientReplicator.PrimaryPart = nil
 ClientReplicator.Rig = nil
@@ -44,6 +48,7 @@ ClientReplicator._lastAnimChangeTime = 0  -- Tracks when animation last changed 
 ClientReplicator._viewmodelActionSequence = 0
 ClientReplicator._lastViewmodelActionTimes = {}
 ClientReplicator._pendingViewmodelActions = {}
+ClientReplicator._activeViewmodelActionTracks = {}
 
 function ClientReplicator:Init(net)
 	self._net = net
@@ -64,6 +69,7 @@ function ClientReplicator:Start(character)
 	self._viewmodelActionSequence = 0
 	self._lastViewmodelActionTimes = {}
 	self._pendingViewmodelActions = {}
+	self._activeViewmodelActionTracks = {}
 
 	self:CalculateOffsets()
 	self:_cacheRigOffsets()
@@ -197,6 +203,7 @@ function ClientReplicator:Stop()
 	self._viewmodelActionSequence = 0
 	self._lastViewmodelActionTimes = {}
 	self._pendingViewmodelActions = {}
+	self._activeViewmodelActionTracks = {}
 end
 
 -- Parse the JSON loadout from player attribute
@@ -450,6 +457,24 @@ function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, 
 		return
 	end
 
+	actionName = tostring(actionName or "")
+	trackName = tostring(trackName or "")
+	local actionTrackState = self._activeViewmodelActionTracks
+	if type(actionTrackState) ~= "table" then
+		actionTrackState = {}
+		self._activeViewmodelActionTracks = actionTrackState
+	end
+
+	if actionName == "Unequip" or actionName == "Equip" then
+		table.clear(actionTrackState)
+	elseif isSingleTrackViewmodelAction(actionName) and isActive == true and trackName ~= "" then
+		local stateKey = string.format("%s|%s", tostring(weaponId or ""), actionName)
+		local previousTrack = actionTrackState[stateKey]
+		if type(previousTrack) == "string" and previousTrack ~= "" and previousTrack ~= trackName then
+			self:_sendViewmodelAction(weaponId, actionName, previousTrack, false, now)
+		end
+	end
+
 	now = now or workspace:GetServerTimeNow()
 	local minInterval = ReplicationConfig.ViewmodelActions and ReplicationConfig.ViewmodelActions.MinInterval or 0.03
 	local actionKey = string.format("%s|%s|%s", tostring(actionName), tostring(trackName), tostring(isActive == true))
@@ -474,6 +499,15 @@ function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, 
 	if compressed then
 		self._net:FireServer("ViewmodelActionUpdate", compressed)
 		vmLog("Sent action", "weaponId=", tostring(weaponId), "action=", tostring(actionName), "track=", tostring(trackName), "active=", tostring(isActive))
+
+		if isSingleTrackViewmodelAction(actionName) then
+			local stateKey = string.format("%s|%s", tostring(weaponId or ""), actionName)
+			if isActive == true and trackName ~= "" then
+				actionTrackState[stateKey] = trackName
+			elseif actionTrackState[stateKey] == trackName then
+				actionTrackState[stateKey] = nil
+			end
+		end
 	end
 end
 

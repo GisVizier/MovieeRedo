@@ -25,18 +25,14 @@ local PressureDestructionService = {}
 -- DEBUG
 --------------------------------------------------------------------------------
 
-local DEBUG = true -- Set to false to disable debug logging/visuals
+local DEBUG = false -- Set to false to disable debug logging/visuals
 
 local function log(...)
-	if DEBUG then
-		print("[PressureDestruction Server]", ...)
-	end
+	return
 end
 
 local function logWarn(...)
-	if DEBUG then
-		warn("[PressureDestruction Server]", ...)
-	end
+	return
 end
 
 local function summarizeParts(parts, maxCount)
@@ -83,9 +79,11 @@ local CONFIG = {
 	-- Hole sizing based on pressure from LoadoutConfig
 	-- Sniper (100) -> 6 studs, Shotgun (30*8=240) -> 12 studs (clamped)
 	-- Shorty (50*6=300) -> 12 studs (clamped), AR (28) -> 1.68 (clamped to 1.5)
-	MIN_HOLE_SIZE = 1.5,            -- Minimum hole radius (studs)
+	MIN_HOLE_SIZE = 1,              -- Minimum hole radius (studs)
 	MAX_HOLE_SIZE = 12,             -- Maximum hole radius (studs)
+	MAX_SHOTGUN_HOLE_SIZE = 5.5,    -- Separate cap for grouped pellet shots
 	PRESSURE_TO_SIZE = 0.06,        -- pressure * this = radius
+	SHOTGUN_CLUSTER_PRESSURE_SCALE = 0.3, -- Slightly weaker grouped pellet pressure
 	MIN_PART_CLAMP_RADIUS = 0.35,   -- Lower floor when clamping to small wall faces
 	MAX_HOLE_RADIUS_RATIO_TO_FACE = 0.4, -- Max radius as ratio of the smallest face dimension
 	MAX_DEPTH_RATIO_TO_THICKNESS = 0.9, -- Prevent depth from exceeding most of wall thickness
@@ -96,7 +94,8 @@ local CONFIG = {
 	DEBRIS_COUNT = 4,               -- Less debris for performance
 	DESTRUCTION_DEPTH = 3,          -- Base hole depth
 	MIN_PENETRATION_DEPTH = 1.25,   -- Clamp min depth for reliable overlap
-	MAX_PENETRATION_DEPTH = 9,      -- Clamp max depth to avoid giant tunnels
+	MAX_PENETRATION_DEPTH = 6,      -- Clamp max depth to avoid giant tunnels
+	MAX_DEPTH_TO_RADIUS = 2,        -- Prevent very long thin hitboxes (depth <= radius * ratio)
 	PENETRATION_PADDING = 0.15,     -- Extra push inward so hitbox is not surface-flush
 	PENETRATION_CENTER_RATIO = 0.22, -- Portion of depth used to shift hitbox center inward
 	MAX_FORWARD_OFFSET = 1.2,       -- Hard cap so entry hole stays near impact
@@ -104,8 +103,8 @@ local CONFIG = {
 	-- Range scaling for penetration
 	CLOSE_RANGE_DISTANCE = 15,      -- <= this distance gets max depth bonus
 	FALLOFF_END_DISTANCE = 100,     -- >= this distance gets normal depth
-	CLOSE_RANGE_DEPTH_MULT = 2,     -- 2x depth up close
-	RANGE_DEPTH_BONUS_MULT = 0.5,   -- Additional up-to-50% depth at very close range vs weapon range
+	CLOSE_RANGE_DEPTH_MULT = 1.35,  -- Mild depth boost up close
+	RANGE_DEPTH_BONUS_MULT = 0.2,   -- Additional up-to-20% depth at very close range vs weapon range
 }
 
 -- Default pressure if not provided by client
@@ -342,6 +341,8 @@ local function triggerDestruction(position, normal, radius, penetrationData)
 	local penetrationDepth = calculatePenetrationDepth(impactDistance, weaponRange)
 	local impactedPart = findBreakablePartAtImpact(position)
 	radius, penetrationDepth = clampHoleToPart(impactedPart, inwardNormal, radius, penetrationDepth)
+	local maxDepthByRadius = math.max(CONFIG.MIN_PENETRATION_DEPTH, radius * CONFIG.MAX_DEPTH_TO_RADIUS)
+	penetrationDepth = math.min(penetrationDepth, maxDepthByRadius)
 	local forwardOffset = math.min(
 		(penetrationDepth * CONFIG.PENETRATION_CENTER_RATIO) + CONFIG.PENETRATION_PADDING,
 		CONFIG.MAX_FORWARD_OFFSET
@@ -474,12 +475,16 @@ local function finalizeCluster(clusterId)
 	if not center then return end
 	
 	-- Calculate total pressure and hole size
-	local totalPressure = perPelletPressure * pelletCount
+	local totalPressure = perPelletPressure * pelletCount * CONFIG.SHOTGUN_CLUSTER_PRESSURE_SCALE
 	local spreadBonus = math.min(spreadRadius * 0.5, 2)
 	
 	-- Hole radius based on total pressure
 	local holeRadius = (totalPressure * CONFIG.PRESSURE_TO_SIZE) + spreadBonus
-	holeRadius = math.clamp(holeRadius, CONFIG.MIN_HOLE_SIZE, CONFIG.MAX_HOLE_SIZE)
+	holeRadius = math.clamp(
+		holeRadius,
+		CONFIG.MIN_HOLE_SIZE,
+		math.min(CONFIG.MAX_HOLE_SIZE, CONFIG.MAX_SHOTGUN_HOLE_SIZE)
+	)
 	
 	log("Cluster hole: totalPressure", totalPressure, "* multiplier + spreadBonus", spreadBonus, "= radius", holeRadius)
 	

@@ -17,7 +17,7 @@
 
 local WeaponProjectile = {}
 local PROJECTILE_COLLISION_NUDGE = 0.01
-local DEBUG_DESTRUCTION_FLOW = true
+local DEBUG_DESTRUCTION_FLOW = false
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -41,9 +41,7 @@ end)
 local LocalPlayer = Players.LocalPlayer
 
 local function destructionLog(...)
-	if DEBUG_DESTRUCTION_FLOW then
-		warn("[WeaponProjectile.Destruction]", ...)
-	end
+	return
 end
 
 local function shouldPassThroughRemnant(part)
@@ -1173,6 +1171,39 @@ function WeaponProjectile:_calculateSpread(projectileConfig, spreadState, crossh
 	return physics:CalculateSpreadAngle(projectileConfig, spreadState, crosshairConfig)
 end
 
+local function getProjectileTracerSettings(projectile)
+	local settings = {
+		trailScale = 1,
+		muzzleScale = nil,
+	}
+
+	if type(projectile) ~= "table" then
+		return settings
+	end
+
+	local weaponConfig = projectile.weaponConfig
+	local tracerConfig = weaponConfig and weaponConfig.tracer
+	if type(tracerConfig) == "table" then
+		if type(tracerConfig.trailScale) == "number" and tracerConfig.trailScale > 0 then
+			settings.trailScale = tracerConfig.trailScale
+		end
+		if type(tracerConfig.muzzleScale) == "number" and tracerConfig.muzzleScale > 0 then
+			settings.muzzleScale = tracerConfig.muzzleScale
+		end
+	end
+
+	if weaponConfig then
+		if type(weaponConfig.tracerScale) == "number" and weaponConfig.tracerScale > 0 then
+			settings.trailScale = weaponConfig.tracerScale
+		end
+		if type(weaponConfig.muzzleScale) == "number" and weaponConfig.muzzleScale > 0 then
+			settings.muzzleScale = weaponConfig.muzzleScale
+		end
+	end
+
+	return settings
+end
+
 -- =============================================================================
 -- VISUALS (Using Tracer System)
 -- =============================================================================
@@ -1186,12 +1217,13 @@ end
 function WeaponProjectile:_spawnVisual(projectile, gunModel, playMuzzle)
 	-- Get tracer ID from weapon config (or use default)
 	local tracerId = projectile.projectileConfig.tracerId or projectile.weaponConfig.tracerId
+	local tracerSettings = getProjectileTracerSettings(projectile)
 
 	-- Resolve tracer (weapon config > player cosmetic > default)
 	local resolvedTracerId = Tracers:Resolve(tracerId, nil)
 
 	-- Fire tracer - get attachment handle (playMuzzle controls muzzle FX)
-	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel, playMuzzle)
+	local handle = Tracers:Fire(resolvedTracerId, projectile.position, gunModel, playMuzzle, tracerSettings)
 	if not handle then
 		return
 	end
