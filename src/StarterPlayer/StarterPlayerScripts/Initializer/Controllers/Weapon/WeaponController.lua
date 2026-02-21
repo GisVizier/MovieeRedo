@@ -56,6 +56,9 @@ local LOCAL_WEAPON_VOLUME = 1.0
 local LOCAL_WEAPON_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
 local LOCAL_WEAPON_MIN_DISTANCE = 7.5
 local LOCAL_WEAPON_MAX_DISTANCE = 260
+local FIRE_SOUND_PITCH_MIN = 0.96
+local FIRE_SOUND_PITCH_MAX = 1.04
+local FIRE_SOUND_PITCH_RNG = Random.new()
 
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
@@ -1067,6 +1070,21 @@ function WeaponController:_isLayeredWeaponActionSound(actionName)
 	return string.find(lowered, "fire", 1, true) ~= nil
 end
 
+function WeaponController:_resolveActionSoundPitch(actionName, pitch)
+	if type(pitch) == "number" then
+		if self:_isLayeredWeaponActionSound(actionName) then
+			return pitch * FIRE_SOUND_PITCH_RNG:NextNumber(FIRE_SOUND_PITCH_MIN, FIRE_SOUND_PITCH_MAX)
+		end
+		return pitch
+	end
+
+	if self:_isLayeredWeaponActionSound(actionName) then
+		return FIRE_SOUND_PITCH_RNG:NextNumber(FIRE_SOUND_PITCH_MIN, FIRE_SOUND_PITCH_MAX)
+	end
+
+	return nil
+end
+
 function WeaponController:_stopWeaponActionSoundByAction(weaponId, slot, actionName)
 	local actionKey = self:_getWeaponActionSoundKey(weaponId, slot, actionName)
 	if not actionKey then
@@ -1191,11 +1209,12 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	self._lastActionSoundAt[actionKey] = now
 
 	local layered = self:_isLayeredWeaponActionSound(actionName)
+	local resolvedPitch = self:_resolveActionSoundPitch(actionName, pitch)
 	if not layered then
 		self:_stopTrackedWeaponActionSound(actionKey, false)
 	end
 
-	local localSound = self:_playLocalWeaponSound(soundDef, pitch, slot, actionName)
+	local localSound = self:_playLocalWeaponSound(soundDef, resolvedPitch, slot, actionName)
 	if actionName == "Equip" then
 		local soundKey = soundDef.SoundId
 		if not soundKey and soundDef.Template then
@@ -1247,8 +1266,8 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	if type(skinId) == "string" and skinId ~= "" then
 		payload.skinId = skinId
 	end
-	if type(pitch) == "number" then
-		payload.pitch = pitch
+	if type(resolvedPitch) == "number" then
+		payload.pitch = resolvedPitch
 	end
 	if not layered then
 		payload.key = actionKey
