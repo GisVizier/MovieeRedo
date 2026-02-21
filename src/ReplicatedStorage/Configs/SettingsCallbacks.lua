@@ -10,6 +10,48 @@ local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 local SettingsCallbacks = {}
 
+local function getLocalPlayer()
+	return Players.LocalPlayer
+end
+
+local function clampNumber(value, minValue, maxValue, fallback)
+	local n = tonumber(value)
+	if n == nil then
+		return fallback
+	end
+	return math.clamp(n, minValue, maxValue)
+end
+
+local function getNumericAttribute(player, name, fallback)
+	if not player then
+		return fallback
+	end
+	local value = player:GetAttribute(name)
+	if type(value) == "number" then
+		return value
+	end
+	return fallback
+end
+
+local function applyMouseSensitivityFromSettings()
+	local player = getLocalPlayer()
+	if not player then
+		return
+	end
+
+	local hipSensitivity = getNumericAttribute(player, "MouseSensitivityScale", UserInputService.MouseDeltaSensitivity or 1)
+	local adsSensitivityScale = getNumericAttribute(player, "ADSSensitivityScale", 1)
+	local adsSpeedMultiplier = getNumericAttribute(player, "ADSSpeedMultiplier", 1)
+	local isADSActive = player:GetAttribute("WeaponADSActive") == true
+
+	local targetSensitivity = hipSensitivity
+	if isADSActive then
+		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier
+	end
+
+	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
+end
+
 SettingsCallbacks.Callbacks = {
 	Gameplay = {
 		DisableShadows = function(value, oldValue)
@@ -45,13 +87,24 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		HorizontalSensitivity = function(value, oldValue)
-			UserInputService.MouseDeltaSensitivity = value / 50
+			local player = getLocalPlayer()
+			if player then
+				local scale = clampNumber(value, 0, 100, 50) / 50
+				player:SetAttribute("MouseSensitivityScale", math.clamp(scale, 0.01, 4))
+			end
+			applyMouseSensitivityFromSettings()
 		end,
 
 		VerticalSensitivity = function(value, oldValue)
 		end,
 
 		ADSSensitivity = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				local scale = clampNumber(value, 0, 100, 100) / 100
+				player:SetAttribute("ADSSensitivityScale", math.clamp(scale, 0.01, 2))
+			end
+			applyMouseSensitivityFromSettings()
 		end,
 
 		FieldOfView = function(value, oldValue)

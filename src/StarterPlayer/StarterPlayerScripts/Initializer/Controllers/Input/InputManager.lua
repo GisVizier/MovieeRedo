@@ -75,6 +75,10 @@ local function IsGamepadInputType(inputType)
 		or inputType == Enum.UserInputType.Gamepad2
 		or inputType == Enum.UserInputType.Gamepad3
 		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
 end
 
 function InputManager:IsKeybind(input, keybindKey)
@@ -263,12 +267,7 @@ function InputManager:DetectInputMode()
 		self.InputMode = "Mobile"
 	elseif
 		UserInputService.GamepadEnabled
-		and (
-			self.LastInputType == Enum.UserInputType.Gamepad1
-			or self.LastInputType == Enum.UserInputType.Gamepad2
-			or self.LastInputType == Enum.UserInputType.Gamepad3
-			or self.LastInputType == Enum.UserInputType.Gamepad4
-		)
+		and IsGamepadInputType(self.LastInputType)
 	then
 		self.InputMode = "Controller"
 	elseif UserInputService.KeyboardEnabled then
@@ -510,11 +509,7 @@ function InputManager:SetupGamepad()
 			return
 		end
 
-		if input.UserInputType == Enum.UserInputType.Gamepad1
-			or input.UserInputType == Enum.UserInputType.Gamepad2
-			or input.UserInputType == Enum.UserInputType.Gamepad3
-			or input.UserInputType == Enum.UserInputType.Gamepad4
-		then
+		if IsGamepadInputType(input.UserInputType) then
 			self.ActiveGamepadType = input.UserInputType
 			self.InputMode = "Controller"
 		end

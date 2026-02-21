@@ -287,6 +287,23 @@ end
 
 function WeaponController:Start()
 	LocalPlayer = Players.LocalPlayer
+
+	if LocalPlayer then
+		local baseSensitivity = UserInputService.MouseDeltaSensitivity
+		if type(baseSensitivity) ~= "number" or baseSensitivity <= 0 then
+			baseSensitivity = 1
+		end
+
+		if type(LocalPlayer:GetAttribute("MouseSensitivityScale")) ~= "number" then
+			LocalPlayer:SetAttribute("MouseSensitivityScale", math.clamp(baseSensitivity, 0.01, 4))
+		end
+		if type(LocalPlayer:GetAttribute("ADSSensitivityScale")) ~= "number" then
+			LocalPlayer:SetAttribute("ADSSensitivityScale", 1.0)
+		end
+		LocalPlayer:SetAttribute("WeaponADSActive", false)
+		self:_applyMouseSensitivityForADS(false)
+	end
+
 	local inputController = self._registry:TryGet("Input")
 	self._inputManager = inputController and inputController.Manager
 	self._viewmodelController = self._registry:TryGet("Viewmodel")
@@ -740,7 +757,9 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	if LocalPlayer and weaponConfig then
 		local speedMult = weaponConfig.speedMultiplier or 1.0
 		LocalPlayer:SetAttribute("WeaponSpeedMultiplier", speedMult)
+		LocalPlayer:SetAttribute("WeaponADSActive", false)
 	end
+	self:_applyMouseSensitivityForADS(false)
 
 	-- Initialize and equip
 	if self._currentActions.Main then
@@ -889,8 +908,54 @@ function WeaponController:_updateAimAssistSensitivity()
 	})
 end
 
+function WeaponController:_setADSActiveAttribute(isADS: boolean)
+	if LocalPlayer then
+		LocalPlayer:SetAttribute("WeaponADSActive", isADS == true)
+	end
+end
+
+function WeaponController:_applyMouseSensitivityForADS(isADS: boolean?)
+	if not LocalPlayer then
+		return
+	end
+
+	local hipSensitivity = LocalPlayer:GetAttribute("MouseSensitivityScale")
+	if type(hipSensitivity) ~= "number" then
+		hipSensitivity = UserInputService.MouseDeltaSensitivity
+		if type(hipSensitivity) ~= "number" or hipSensitivity <= 0 then
+			hipSensitivity = 1
+		end
+		LocalPlayer:SetAttribute("MouseSensitivityScale", hipSensitivity)
+	end
+
+	local adsSensitivityScale = LocalPlayer:GetAttribute("ADSSensitivityScale")
+	if type(adsSensitivityScale) ~= "number" then
+		adsSensitivityScale = 1
+		LocalPlayer:SetAttribute("ADSSensitivityScale", adsSensitivityScale)
+	end
+
+	local adsSpeedMultiplier = LocalPlayer:GetAttribute("ADSSpeedMultiplier")
+	if type(adsSpeedMultiplier) ~= "number" then
+		adsSpeedMultiplier = 1
+	end
+
+	local adsActive = isADS
+	if adsActive == nil then
+		adsActive = self._isADS == true
+	end
+
+	local targetSensitivity = hipSensitivity
+	if adsActive then
+		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier
+	end
+
+	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
+end
+
 function WeaponController:OnRespawnRefresh()
 	self._isADS = false
+	self:_setADSActiveAttribute(false)
+	self:_applyMouseSensitivityForADS(false)
 	self:_unequipCurrentWeapon()
 	self:_initializeAmmo()
 	local slot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
@@ -934,6 +999,7 @@ function WeaponController:_unequipCurrentWeapon()
 	if LocalPlayer then
 		LocalPlayer:SetAttribute("WeaponSpeedMultiplier", 1.0)
 		LocalPlayer:SetAttribute("ADSSpeedMultiplier", 1.0)
+		LocalPlayer:SetAttribute("WeaponADSActive", false)
 	end
 
 	-- Disable Aim Assist and Auto-shoot
@@ -950,6 +1016,7 @@ function WeaponController:_unequipCurrentWeapon()
 	self._isReloading = false
 	self._reloadFireLocked = false
 	self._isADS = false
+	self:_applyMouseSensitivityForADS(false)
 
 	_recoilConfig = nil
 	_recoilPitch = 0
@@ -2183,6 +2250,8 @@ function WeaponController:Reload()
 		self._currentActions.Special.Cancel()
 	end
 	self._isADS = false
+	self:_setADSActiveAttribute(false)
+	self:_applyMouseSensitivityForADS(false)
 	self:_updateAimAssistADS(false)
 	self:_stopWeaponTracks("Reload")
 
@@ -2253,6 +2322,8 @@ function WeaponController:Special(isPressed)
 			self._currentActions.Special.Cancel()
 		end
 		self._isADS = false
+		self:_setADSActiveAttribute(false)
+		self:_applyMouseSensitivityForADS(false)
 		self:_updateAimAssistADS(false)
 		return
 	end
@@ -2273,6 +2344,8 @@ function WeaponController:Special(isPressed)
 	end
 
 	self._isADS = self:_resolveADSState(isPressed)
+	self:_setADSActiveAttribute(self._isADS)
+	self:_applyMouseSensitivityForADS(self._isADS)
 
 	-- Apply Aim Assist ADS boost
 	self:_updateAimAssistADS(self._isADS)
@@ -2789,6 +2862,7 @@ end
 function WeaponController:SetADSSpeedMultiplier(multiplier: number)
 	if LocalPlayer then
 		LocalPlayer:SetAttribute("ADSSpeedMultiplier", multiplier or 1.0)
+		self:_applyMouseSensitivityForADS(self._isADS == true)
 	end
 end
 

@@ -99,13 +99,37 @@ function ActionsIcon.getNoneIcon(): string
 	return ActionsIcon.SpecialIcons.None
 end
 
-function ActionsIcon.getKeyDisplayName(keyCode: Enum.KeyCode?): string
+local function normalizeKeyName(keyCode): string?
 	if not keyCode then
-		return "NONE"
+		return nil
 	end
 
-	local name = (typeof(keyCode) == "EnumItem" and keyCode.Name) or tostring(keyCode)
-	if not name or name == "" then
+	if typeof(keyCode) == "EnumItem" then
+		return keyCode.Name
+	end
+
+	if type(keyCode) ~= "string" then
+		return nil
+	end
+
+	local name = keyCode
+	name = name:gsub("^%s+", "")
+	name = name:gsub("%s+$", "")
+	name = name:gsub("^Enum%.KeyCode%.", "")
+	name = name:gsub("^KeyCode%.", "")
+	name = name:gsub("^Enum%.UserInputType%.", "")
+	name = name:gsub("^UserInputType%.", "")
+
+	if name == "" then
+		return nil
+	end
+
+	return name
+end
+
+function ActionsIcon.getKeyDisplayName(keyCode: Enum.KeyCode?): string
+	local name = normalizeKeyName(keyCode)
+	if not name then
 		return "NONE"
 	end
 
@@ -137,6 +161,9 @@ function ActionsIcon.getKeyDisplayName(keyCode: Enum.KeyCode?): string
 		ButtonR2 = "RT",
 		ButtonL3 = "LS",
 		ButtonR3 = "RS",
+		MouseButton1 = "M1",
+		MouseButton2 = "M2",
+		MouseButton3 = "M3",
 	}
 
 	return displayNames[name] or name:upper()

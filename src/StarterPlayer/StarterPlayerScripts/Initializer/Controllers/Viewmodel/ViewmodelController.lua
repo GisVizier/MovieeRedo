@@ -168,6 +168,17 @@ local function isLoadoutVisible(): boolean
 	return loadout.Visible == true
 end
 
+local function isGamepadInputType(inputType: Enum.UserInputType): boolean
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
+end
+
 local function getRigForSlot(self, slot: string)
 	return self._loadoutVm and self._loadoutVm.Rigs and self._loadoutVm.Rigs[slot] or nil
 end
@@ -267,14 +278,13 @@ function ViewmodelController:Init(registry, net)
 		local manager = inputController and inputController.Manager or nil
 
 		self._equipKeysConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-			local isGamepad = input.UserInputType == Enum.UserInputType.Gamepad1
-				or input.UserInputType == Enum.UserInputType.Gamepad2
-				or input.UserInputType == Enum.UserInputType.Gamepad3
-				or input.UserInputType == Enum.UserInputType.Gamepad4
+			local isGamepad = isGamepadInputType(input.UserInputType)
 			local isCycleInput = manager
 				and (manager:IsKeybind(input, "CycleWeaponLeft") or manager:IsKeybind(input, "CycleWeaponRight"))
 
-			if gameProcessed and not (isGamepad and isCycleInput and isHudVisible() and not isLoadoutVisible()) then
+			-- On console, bumper input is often marked gameProcessed by focused HUD elements.
+			-- Allow weapon cycling anyway unless the loadout screen is open.
+			if gameProcessed and not (isGamepad and isCycleInput and not isLoadoutVisible()) then
 				return
 			end
 
@@ -299,11 +309,11 @@ function ViewmodelController:Init(registry, net)
 			elseif manager:IsKeybind(input, "EquipMelee") then
 				self:_tryEquipSlotFromLoadout("Melee")
 			elseif manager:IsKeybind(input, "CycleWeaponLeft") then
-				if not isLoadoutVisible() and isHudVisible() then
+				if not isLoadoutVisible() then
 					self:_cycleEquipSlot(-1)
 				end
 			elseif manager:IsKeybind(input, "CycleWeaponRight") then
-				if not isLoadoutVisible() and isHudVisible() then
+				if not isLoadoutVisible() then
 					self:_cycleEquipSlot(1)
 				end
 			end
