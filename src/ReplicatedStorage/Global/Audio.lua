@@ -90,8 +90,20 @@ Audio.Sounds = {
 }
 
 Audio.Groups = {
+	Guns = {
+		Volume = 0.8,
+		Effects = {},
+	},
+	Explosions = {
+		Volume = 0.8,
+		Effects = {},
+	},
 	Movement = {
 		Volume = 0.6,
+		Effects = {},
+	},
+	Ambience = {
+		Volume = 0.7,
 		Effects = {},
 	},
 	SFX = {

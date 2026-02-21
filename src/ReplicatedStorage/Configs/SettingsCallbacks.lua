@@ -5,6 +5,8 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 
 local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 local SettingsCallbacks = {}
 
@@ -75,18 +77,26 @@ SettingsCallbacks.Callbacks = {
 		MasterVolume = function(value, oldValue)
 			SoundService.RespectFilteringEnabled = true
 			local volume = value / 100
+			SoundService.Volume = math.clamp(volume, 0, 1)
 		end,
 
 		MusicVolume = function(value, oldValue)
 			local volume = value / 100
+			SoundManager:setGroupVolume("Music", volume)
+			SoundManager:setGroupVolume("Ambience", volume)
 		end,
 
 		SFXVolume = function(value, oldValue)
 			local volume = value / 100
+			SoundManager:setGroupVolume("Guns", volume)
+			SoundManager:setGroupVolume("Explosions", volume)
+			SoundManager:setGroupVolume("Movement", volume)
+			SoundManager:setGroupVolume("UI", volume)
 		end,
 
 		EmoteVolume = function(value, oldValue)
 			local volume = value / 100
+			SoundManager:setGroupVolume("Voice", volume)
 		end,
 	},
 

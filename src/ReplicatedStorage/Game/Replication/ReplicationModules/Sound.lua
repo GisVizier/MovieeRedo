@@ -18,6 +18,7 @@ local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 
 local Sound = {}
@@ -36,6 +37,7 @@ local REPLICATED_WEAPON_VOLUME = 1.0
 local REPLICATED_WEAPON_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
 local REPLICATED_WEAPON_MIN_DISTANCE = 7.5
 local REPLICATED_WEAPON_MAX_DISTANCE = 260
+local REPLICATED_WEAPON_DISTANT_THRESHOLD = 95
 
 local LOOPED_SOUNDS = {
 	Falling = true,
@@ -238,6 +240,10 @@ local function getSoundGroup(name)
 	return nil
 end
 
+local function getWeaponSoundGroup()
+	return getSoundGroup("Guns") or getSoundGroup("SFX")
+end
+
 local function getCharacterFromUserId(userId)
 	local player = Players:GetPlayerByUserId(userId)
 	if not player then
@@ -306,9 +312,43 @@ local function createWeaponSoundInstance(soundDef, parent, pitch)
 	sound.RollOffMode = REPLICATED_WEAPON_ROLLOFF_MODE
 	sound.RollOffMinDistance = REPLICATED_WEAPON_MIN_DISTANCE
 	sound.RollOffMaxDistance = REPLICATED_WEAPON_MAX_DISTANCE
-	sound.SoundGroup = getSoundGroup("SFX")
+	sound.SoundGroup = getWeaponSoundGroup()
 	sound.Parent = parent
 	return sound
+end
+
+local function getLocalListenerDistance(position)
+	if typeof(position) ~= "Vector3" then
+		return nil
+	end
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return nil
+	end
+	local character = localPlayer.Character
+	if not character then
+		return nil
+	end
+	local root = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+	if not root then
+		return nil
+	end
+	return (root.Position - position).Magnitude
+end
+
+local function applyWeaponSpatialPreset(sound, sourcePosition)
+	if not sound or not sourcePosition then
+		return
+	end
+
+	local distance = getLocalListenerDistance(sourcePosition)
+	local isDistant = type(distance) == "number" and distance >= REPLICATED_WEAPON_DISTANT_THRESHOLD
+	local isIndoor = SoundManager:GetIsIndoor()
+
+	SoundManager:ApplyPresets(sound, {
+		isDistant and "Gun_Distant" or "Gun_Close",
+		isIndoor and "Indoor" or "Outdoor",
+	})
 end
 
 function Sound:Validate(_player, data)
@@ -407,6 +447,8 @@ function Sound:_handleWeaponOneShot(userId, soundDef, primaryPart, data)
 	if not sound then
 		return
 	end
+
+	applyWeaponSpatialPreset(sound, primaryPart.Position)
 
 	local key = data and (data.key or data.token)
 	if typeof(key) == "string" and key ~= "" then
