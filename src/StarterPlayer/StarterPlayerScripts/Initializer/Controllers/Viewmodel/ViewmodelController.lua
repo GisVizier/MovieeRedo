@@ -18,6 +18,7 @@ local Spring = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("Sp
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 
 local ViewmodelController = {}
+local DEBUG_WEAPON_CYCLE = true
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -191,6 +192,13 @@ local function axisAngleToCFrame(vec: Vector3): CFrame
 	return CFrame.fromAxisAngle(vec / angle, angle)
 end
 
+local function cycleLog(message: string, data: { [string]: any }?)
+	if not DEBUG_WEAPON_CYCLE then
+		return
+	end
+	LogService:Info("VIEWMODEL_CYCLE", message, data)
+end
+
 function ViewmodelController:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -286,9 +294,29 @@ function ViewmodelController:Init(registry, net)
 				or (isGamepad and input.KeyCode == Enum.KeyCode.ButtonR1)
 			local isCycleInput = isCycleLeft or isCycleRight
 
+			if isCycleInput then
+				cycleLog("Cycle input detected", {
+					keyCode = tostring(input.KeyCode),
+					gameProcessed = gameProcessed == true,
+					isGamepad = isGamepad == true,
+					loadoutVisible = isLoadoutVisible() == true,
+					managerAvailable = manager ~= nil,
+					isMenuOpen = manager and manager.IsMenuOpen == true or false,
+					isChatFocused = manager and manager.IsChatFocused == true or false,
+					isSettingsOpen = manager and manager.IsSettingsOpen == true or false,
+					activeSlot = self._activeSlot,
+				})
+			end
+
 			-- On console, bumper input is often marked gameProcessed by focused HUD elements.
 			-- Allow weapon cycling anyway unless the loadout screen is open.
 			if gameProcessed and not (isGamepad and isCycleInput and not isLoadoutVisible()) then
+				if isCycleInput then
+					cycleLog("Cycle blocked: input was gameProcessed", {
+						keyCode = tostring(input.KeyCode),
+						loadoutVisible = isLoadoutVisible() == true,
+					})
+				end
 				return
 			end
 
@@ -298,6 +326,13 @@ function ViewmodelController:Init(registry, net)
 					or manager.IsChatFocused
 					or manager.IsSettingsOpen
 				then
+					if isCycleInput then
+						cycleLog("Cycle blocked: UI/chat/settings state", {
+							isMenuOpen = manager.IsMenuOpen == true,
+							isChatFocused = manager.IsChatFocused == true,
+							isSettingsOpen = manager.IsSettingsOpen == true,
+						})
+					end
 					return
 				end
 			end
@@ -315,10 +350,14 @@ function ViewmodelController:Init(registry, net)
 			elseif isCycleLeft then
 				if not isLoadoutVisible() then
 					self:_cycleEquipSlot(-1)
+				else
+					cycleLog("Cycle blocked: loadout UI visible", { direction = "Left" })
 				end
 			elseif isCycleRight then
 				if not isLoadoutVisible() then
 					self:_cycleEquipSlot(1)
+				else
+					cycleLog("Cycle blocked: loadout UI visible", { direction = "Right" })
 				end
 			end
 		end)
@@ -949,28 +988,38 @@ end
 
 function ViewmodelController:_tryEquipSlotFromLoadout(slot: string)
 	if type(slot) ~= "string" then
-		return
+		return false, "InvalidSlotType"
 	end
 	if not self._loadout or type(self._loadout) ~= "table" then
-		return
+		return false, "NoLoadout"
 	end
 
 	-- Block weapon swapping while ability is active
 	local kitController = ServiceRegistry:GetController("Kit")
 	if kitController and kitController:IsWeaponSwitchLocked() then
-		return
+		cycleLog("Equip blocked: weapon switch locked", {
+			slot = slot,
+			activeSlot = self._activeSlot,
+		})
+		return false, "WeaponSwitchLocked"
 	end
 
 	local weaponId = self._loadout[slot]
 	if type(weaponId) ~= "string" or weaponId == "" then
-		return
+		return false, "SlotEmpty"
 	end
 
 	self:SetActiveSlot(slot)
+	cycleLog("Equipped slot from loadout", {
+		slot = slot,
+		weaponId = weaponId,
+	})
+	return true
 end
 
 function ViewmodelController:_cycleEquipSlot(direction: number)
 	if not self._loadout or type(self._loadout) ~= "table" then
+		cycleLog("Cycle blocked: no loadout data", nil)
 		return
 	end
 
@@ -983,6 +1032,10 @@ function ViewmodelController:_cycleEquipSlot(direction: number)
 	end
 
 	if #slots <= 1 then
+		cycleLog("Cycle blocked: insufficient equipped slots", {
+			slotCount = #slots,
+			slots = table.concat(slots, ","),
+		})
 		return
 	end
 
@@ -1006,7 +1059,20 @@ function ViewmodelController:_cycleEquipSlot(direction: number)
 		nextIndex = 1
 	end
 
-	self:_tryEquipSlotFromLoadout(slots[nextIndex])
+	local targetSlot = slots[nextIndex]
+	cycleLog("Cycle attempting equip", {
+		direction = direction >= 0 and "Right" or "Left",
+		currentSlot = current,
+		targetSlot = targetSlot,
+	})
+	local ok, reason = self:_tryEquipSlotFromLoadout(targetSlot)
+	if not ok then
+		cycleLog("Cycle equip failed", {
+			reason = reason,
+			targetSlot = targetSlot,
+			activeSlot = self._activeSlot,
+		})
+	end
 end
 
 function ViewmodelController:_ensureRenderLoop()
