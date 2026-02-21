@@ -222,22 +222,24 @@ end
 
 function Kon:User(originUserId, data)
 	local localPlayer = Players.LocalPlayer
-	if not localPlayer or localPlayer.UserId ~= originUserId then
-		return -- Only run on caster's client
+	if not localPlayer then return end
+
+	local isLocal = localPlayer.UserId == originUserId
+	local isSpectate = data and data._spectate == true
+	if not isLocal and not isSpectate then
+		return
 	end
 
+	local character = data.Character or localPlayer.Character
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	local ViewModel = data.ViewModel or (viewmodelController and viewmodelController:GetActiveRig())
 
 	local action = data.forceAction
 	if action == "start" then
-		-- Screen shake, viewmodel particles on ability start
-		ReplicateFX("kon", "shake", { Character = localPlayer.Character, ViewModel = ViewModel})
-		-- TODO: Add screen shake, particles, etc.
+		ReplicateFX("kon", "shake", { Character = character, ViewModel = ViewModel })
 
 	elseif action == "bite" then
-		-- Screen shake on bite impact
-		-- TODO: Add camera shake for impact
+		-- Camera shake on bite impact
 
 	elseif action == "stop" then
 		-- Cleanup viewmodel effects

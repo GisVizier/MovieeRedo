@@ -1,6 +1,9 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+
 local VFXRep = {}
 
 VFXRep.Modules = {}
@@ -8,6 +11,7 @@ VFXRep._initialized = false
 VFXRep._registry = nil
 VFXRep._matchManager = nil
 VFXRep._lastRelayByUserId = {}
+VFXRep._spectatorMap = {} -- [spectatedUserId] = { [spectatorPlayer] = true }
 
 -- Temporary recv isolation toggle: disable server-side VFX relay.
 local DISABLE_SERVER_VFX_RELAY = false
@@ -213,6 +217,62 @@ function VFXRep:Init(net, isServer, registry)
 				self._net:FireClient("VFXRep", target, player.UserId, moduleName, functionName, data)
 			end
 		end)
+
+		-- Spectate VFX: track who is spectating whom
+		self._net:ConnectServer("SpectateRegister", function(player, targetUserId)
+			-- Remove player from any previous spectate mapping
+			for uid, spectators in pairs(self._spectatorMap) do
+				if spectators[player] then
+					spectators[player] = nil
+					if next(spectators) == nil then
+						self._spectatorMap[uid] = nil
+					end
+				end
+			end
+
+			-- Register new target
+			if type(targetUserId) == "number" and targetUserId > 0 then
+				local map = self._spectatorMap[targetUserId]
+				if not map then
+					map = {}
+					self._spectatorMap[targetUserId] = map
+				end
+				map[player] = true
+			end
+		end)
+
+		-- Spectate VFX: forward "Me" VFX to spectators
+		self._net:ConnectServer("SpectateVFXForward", function(player, moduleName, functionName, data)
+			if type(moduleName) ~= "string" or type(functionName) ~= "string" then
+				return
+			end
+
+			local spectators = self._spectatorMap[player.UserId]
+			if not spectators then
+				return
+			end
+
+			for spectator, _ in pairs(spectators) do
+				if spectator and spectator.Parent then
+					self._net:FireClient("SpectateVFXForward", spectator, player.UserId, moduleName, functionName, data)
+				end
+			end
+		end)
+
+		-- Clean up spectator tracking on leave
+		Players.PlayerRemoving:Connect(function(player)
+			-- Remove as spectator
+			for uid, spectators in pairs(self._spectatorMap) do
+				spectators[player] = nil
+				if next(spectators) == nil then
+					self._spectatorMap[uid] = nil
+				end
+			end
+			-- Remove as spectated
+			self._spectatorMap[player.UserId] = nil
+			-- Clean relay throttles
+			self._lastRelayByUserId[player.UserId] = nil
+		end)
 	else
 		-- Connect OnClientEvent IMMEDIATELY so no events are dropped.
 		-- getModule() will lazy-load individual modules on demand if they
@@ -220,6 +280,35 @@ function VFXRep:Init(net, isServer, registry)
 		self._net:ConnectClient("VFXRep", function(originUserId, moduleName, functionName, data)
 			local mod = getModule(moduleName)
 			if mod and type(mod[functionName]) == "function" then
+				mod[functionName](mod, originUserId, data)
+			end
+		end)
+
+		-- Receive forwarded "Me" VFX while spectating
+		self._net:ConnectClient("SpectateVFXForward", function(originUserId, moduleName, functionName, data)
+			local spectateController = ServiceRegistry:GetController("Spectate")
+			if not spectateController or not spectateController:IsSpectating() then
+				return
+			end
+			if spectateController:GetTargetUserId() ~= originUserId then
+				return
+			end
+
+			local mod = getModule(moduleName)
+			if mod and type(mod[functionName]) == "function" then
+				if type(data) ~= "table" then
+					data = {}
+				end
+				data._spectate = true
+				data._originUserId = originUserId
+
+				-- Inject the spectate viewmodel and target character
+				data.ViewModel = spectateController:GetSpectateViewmodelRig()
+				local targetPlayer = Players:GetPlayerByUserId(originUserId)
+				if targetPlayer and targetPlayer.Character then
+					data.Character = targetPlayer.Character
+				end
+
 				mod[functionName](mod, originUserId, data)
 			end
 		end)
@@ -238,6 +327,23 @@ function VFXRep:Init(net, isServer, registry)
 	end
 end
 
+local function stripInstancesForNetwork(tbl)
+	if type(tbl) ~= "table" then
+		return tbl
+	end
+	local clean = {}
+	for key, value in pairs(tbl) do
+		if typeof(value) == "Instance" then
+			-- skip
+		elseif type(value) == "table" then
+			clean[key] = stripInstancesForNetwork(value)
+		else
+			clean[key] = value
+		end
+	end
+	return clean
+end
+
 function VFXRep:Fire(targetSpec, moduleInfo, data)
 	if not self._net then
 		return
@@ -254,6 +360,10 @@ function VFXRep:Fire(targetSpec, moduleInfo, data)
 				local localUserId = Players.LocalPlayer and Players.LocalPlayer.UserId or 0
 				mod[functionName](mod, localUserId, data)
 			end
+
+			-- Forward to any spectators via server (strip Instance refs for serialization)
+			local cleanData = stripInstancesForNetwork(data)
+			self._net:FireServer("SpectateVFXForward", moduleName, functionName, cleanData)
 		end
 		return
 	end

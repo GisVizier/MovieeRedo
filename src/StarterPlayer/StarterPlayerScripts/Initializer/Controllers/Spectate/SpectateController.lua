@@ -137,9 +137,19 @@ function SpectateController:Init(registry, net)
 	self._net:ConnectClient("ViewmodelActionReplicated", function(compressedPayload)
 		self:_onViewmodelActionReplicated(compressedPayload)
 	end)
+
+	-- VFX forwarding handled by VFXRep's SpectateVFXForward client handler;
+	-- it sets data._spectate = true so modules know to use data.ViewModel/Character
 end
 
 function SpectateController:Start() end
+
+function SpectateController:GetSpectateViewmodelRig()
+	if not self._active or not self._spectateVmLoadout or not self._spectateActiveSlot then
+		return nil
+	end
+	return self._spectateVmLoadout.Rigs[self._spectateActiveSlot]
+end
 
 function SpectateController:_onMatchStart(matchData)
 	self:EndSpectate()
@@ -202,6 +212,11 @@ function SpectateController:BeginSpectate(killerUserId)
 	self:_buildSpectateViewmodel()
 	self:_bindRenderLoop()
 	self:_hideTargetRig()
+
+	-- Tell server so "Me" VFX from this target get forwarded to us
+	pcall(function()
+		self._net:FireServer("SpectateRegister", self._targetUserId)
+	end)
 end
 
 function SpectateController:OnSpectateEnded(fn)
@@ -220,6 +235,11 @@ function SpectateController:EndSpectate()
 	self._targetUserId = nil
 	self._targetList = {}
 	self._targetIndex = 0
+
+	-- Unregister spectate on server
+	pcall(function()
+		self._net:FireServer("SpectateRegister", 0)
+	end)
 
 	for _, fn in self._onEndCallbacks do
 		task.defer(fn)
@@ -250,6 +270,11 @@ function SpectateController:CycleTarget(direction)
 
 	self:_buildSpectateViewmodel()
 	self:_hideTargetRig()
+
+	-- Update server registration to new target
+	pcall(function()
+		self._net:FireServer("SpectateRegister", self._targetUserId)
+	end)
 
 	return self._targetUserId
 end
@@ -442,6 +467,65 @@ function SpectateController:_onViewmodelActionReplicated(compressedPayload)
 	self:_applyVmAction(payload)
 end
 
+function SpectateController:_playSpectateKitAnim(trackName)
+	local animator = self._spectateAnimator
+	if not animator or not animator._rig or not animator._rig.Animator then return end
+
+	local track = animator._kitTracks and animator._kitTracks[trackName]
+	if not track then
+		local animInstance = ViewmodelAnimator.GetKitAnimation(trackName)
+		if not animInstance then return end
+		local animId = animInstance.AnimationId
+		if type(animId) ~= "string" or animId == "" or animId == "rbxassetid://0" then return end
+
+		local ok, loaded = pcall(function()
+			return animator._rig.Animator:LoadAnimation(animInstance)
+		end)
+		if not ok or not loaded then return end
+
+		local priorityAttr = animInstance:GetAttribute("Priority")
+		if type(priorityAttr) == "string" and Enum.AnimationPriority[priorityAttr] then
+			loaded.Priority = Enum.AnimationPriority[priorityAttr]
+		elseif typeof(priorityAttr) == "EnumItem" then
+			loaded.Priority = priorityAttr
+		else
+			loaded.Priority = Enum.AnimationPriority.Action4
+		end
+
+		local loopAttr = animInstance:GetAttribute("Loop") or animInstance:GetAttribute("Looped")
+		loaded.Looped = (type(loopAttr) == "boolean" and loopAttr) or false
+
+		animator._kitTracks[trackName] = loaded
+		track = loaded
+	end
+
+	if track.IsPlaying then track:Stop(0) end
+
+	local fadeTime = 0.1
+	local speed = 1
+	local weight = 1
+	local animInstance = ViewmodelAnimator.GetKitAnimation(trackName)
+	if animInstance then
+		local fadeAttr = animInstance:GetAttribute("FadeInTime") or animInstance:GetAttribute("FadeTime")
+		if type(fadeAttr) == "number" then fadeTime = fadeAttr end
+		local speedAttr = animInstance:GetAttribute("Speed")
+		if type(speedAttr) == "number" then speed = speedAttr end
+		local weightAttr = animInstance:GetAttribute("Weight")
+		if type(weightAttr) == "number" then weight = weightAttr end
+	end
+
+	track:Play(fadeTime, weight, speed)
+end
+
+function SpectateController:_stopSpectateKitAnim(trackName)
+	local animator = self._spectateAnimator
+	if not animator then return end
+	local track = animator._kitTracks and animator._kitTracks[trackName]
+	if track and track.IsPlaying then
+		track:Stop(0.1)
+	end
+end
+
 function SpectateController:_applyVmAction(payload)
 	if not self._spectateVmLoadout then return end
 
@@ -497,14 +581,14 @@ function SpectateController:_applyVmAction(payload)
 			if weaponTrack then
 				self._spectateAnimator:Play(trackName, nil, true)
 			else
-				self._spectateAnimator:PlayKitAnimation(trackName)
+				self:_playSpectateKitAnim(trackName)
 			end
 		else
 			local weaponTrack = self._spectateAnimator:GetTrack(trackName)
 			if weaponTrack then
 				self._spectateAnimator:Stop(trackName)
 			else
-				self._spectateAnimator:StopKitAnimation(trackName)
+				self:_stopSpectateKitAnim(trackName)
 			end
 		end
 	elseif actionName == "ADS" then
