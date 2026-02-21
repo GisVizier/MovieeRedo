@@ -1767,24 +1767,22 @@ function module:_showInviteBanner(data)
 		end
 	end)
 
-	if not isSent then
-		local progressBar = nil
-		for _, child in frame:GetChildren() do
-			if child.Name == "LoadingHolder" and child:IsA("Frame") then
-				local canvas = child:FindFirstChildWhichIsA("CanvasGroup")
-				if canvas then
-					progressBar = canvas:FindFirstChild("Frame")
-					break
-				end
+	local progressBar = nil
+	for _, child in frame:GetChildren() do
+		if child.Name == "LoadingHolder" and child:IsA("Frame") then
+			local canvas = child:FindFirstChildWhichIsA("CanvasGroup")
+			if canvas then
+				progressBar = canvas:FindFirstChild("Frame")
+				break
 			end
 		end
-		if progressBar then
-			progressBar.Size = UDim2.new(1, 0, 1, 0)
-			local tween = TweenService:Create(progressBar, TweenInfo.new(timeout, Enum.EasingStyle.Linear), {
-				Size = UDim2.new(0, 0, 1, 0),
-			})
-			tween:Play()
-		end
+	end
+	if progressBar then
+		progressBar.Size = UDim2.new(1, 0, 1, 0)
+		local tween = TweenService:Create(progressBar, TweenInfo.new(timeout, Enum.EasingStyle.Linear), {
+			Size = UDim2.new(0, 0, 1, 0),
+		})
+		tween:Play()
 	end
 end
 

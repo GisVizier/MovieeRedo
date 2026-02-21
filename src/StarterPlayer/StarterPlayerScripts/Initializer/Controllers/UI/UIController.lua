@@ -353,6 +353,9 @@ function UIController:Init(registry, net)
 
 	-- Current match data
 	self._currentMapId = nil
+	self._matchTeam1 = nil
+	self._matchTeam2 = nil
+	self._matchMode = nil
 
 	self._net:ConnectClient("MatchStart", function(matchData)
 		print("[UICONTROLLER] Received MatchStart from server:", matchData)
@@ -692,11 +695,35 @@ function UIController:_bootstrapUi()
 		"HUD",
 		"Emotes",
 		"Dialogue",
+		"Spec",
 	}) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then
 			inst.Visible = false
 		end
+	end
+
+	-- Spec arrow events
+	ui:on("SpecArrowLeft", function()
+		self:_onSpecCycle(-1)
+	end)
+	ui:on("SpecArrowRight", function()
+		self:_onSpecCycle(1)
+	end)
+
+	-- Hide Spec/Kill UI whenever spectating ends (respawn, round start, etc.)
+	local spectateController = self._registry and self._registry:TryGet("Spectate")
+	if spectateController and spectateController.OnSpectateEnded then
+		spectateController:OnSpectateEnded(function()
+			if self._coreUi then
+				safeCall(function()
+					self._coreUi:hide("Spec")
+				end)
+				safeCall(function()
+					self._coreUi:hide("Kill")
+				end)
+			end
+		end)
 	end
 
 	-- Kit controller
@@ -761,6 +788,10 @@ function UIController:_bootstrapUi()
 
 	ui:on("PartyLeave", function()
 		self._net:FireServer("PartyLeave")
+	end)
+
+	task.defer(function()
+		self._net:FireServer("PartyRequestState")
 	end)
 
 	-- Emote wheel input wiring
@@ -901,13 +932,20 @@ function UIController:_onStartMatch(matchData)
 		player:SetAttribute("InLobby", false)
 	end
 
+	self:_stopSpectate()
+
 	if not self._coreUi then
 		return
 	end
 
-	-- Store map ID for round loadout
-	if typeof(matchData) == "table" and matchData.mapId then
-		self._currentMapId = matchData.mapId
+	-- Store match data for spectating and round loadout
+	if typeof(matchData) == "table" then
+		if matchData.mapId then
+			self._currentMapId = matchData.mapId
+		end
+		self._matchTeam1 = matchData.team1
+		self._matchTeam2 = matchData.team2
+		self._matchMode = matchData.mode
 	end
 
 	-- Hide any lobby/map UI. We intentionally do NOT show HUD (Rojo UI test flow).
@@ -945,6 +983,8 @@ function UIController:_onShowRoundLoadout(data)
 	if not self._coreUi then
 		return
 	end
+
+	self:_stopSpectate()
 
 	-- Hide HUD and Map (in case map selection was showing)
 	safeCall(function()
@@ -1286,6 +1326,8 @@ function UIController:_onRoundStart(data)
 		return
 	end
 
+	self:_stopSpectate()
+
 	local wasBetweenRound = self._betweenRounds
 	self._betweenRounds = false
 
@@ -1420,6 +1462,7 @@ function UIController:_onMatchEnd(data)
 		return
 	end
 
+	self:_stopSpectate()
 	self._betweenRounds = false
 	self:_stopStormCameraCheckLoop()
 	self._stormVisualActive = false
@@ -1609,6 +1652,73 @@ function UIController:_showKillScreen(data)
 	safeCall(function()
 		self._coreUi:show("Kill", true)
 	end)
+
+	-- Start spectating
+	self:_startSpectate(data.killerUserId)
+end
+
+function UIController:_startSpectate(killerUserId)
+	print("[SPECTATE-UI] _startSpectate called, killerUserId:", killerUserId)
+
+	local spectateController = self._registry and self._registry:TryGet("Spectate")
+	if not spectateController then
+		warn("[SPECTATE-UI] SpectateController not found in registry!")
+		return
+	end
+
+	spectateController:BeginSpectate(killerUserId)
+
+	if not spectateController:IsSpectating() then
+		warn("[SPECTATE-UI] BeginSpectate did not activate spectating")
+		return
+	end
+
+	print("[SPECTATE-UI] Spectating active, target:", spectateController:GetTargetUserId())
+
+	local specModule = self._coreUi and self._coreUi:getModule("Spec")
+	if not specModule then
+		warn("[SPECTATE-UI] Spec CoreUI module not found (spectating still active without UI)")
+	else
+		local info = spectateController:GetTargetInfo()
+		if info then
+			specModule:setTarget(info)
+		end
+		specModule:setArrowsVisible(spectateController:CanCycle())
+		safeCall(function()
+			self._coreUi:show("Spec", true)
+		end)
+	end
+end
+
+function UIController:_stopSpectate()
+	local spectateController = self._registry and self._registry:TryGet("Spectate")
+	if spectateController then
+		spectateController:EndSpectate()
+	end
+
+	if self._coreUi then
+		safeCall(function()
+			self._coreUi:hide("Spec")
+		end)
+		safeCall(function()
+			self._coreUi:hide("Kill")
+		end)
+	end
+end
+
+function UIController:_onSpecCycle(direction)
+	local spectateController = self._registry and self._registry:TryGet("Spectate")
+	if not spectateController or not spectateController:IsSpectating() then return end
+
+	spectateController:CycleTarget(direction)
+
+	local specModule = self._coreUi and self._coreUi:getModule("Spec")
+	if not specModule then return end
+
+	local info = spectateController:GetTargetInfo()
+	if info then
+		specModule:setTarget(info)
+	end
 end
 
 function UIController:_onReturnToLobby(data)
@@ -1619,8 +1729,14 @@ function UIController:_onReturnToLobby(data)
 		return
 	end
 
+	-- Stop spectating
+	self:_stopSpectate()
+
 	-- Reset state
 	self._currentMapId = nil
+	self._matchTeam1 = nil
+	self._matchTeam2 = nil
+	self._matchMode = nil
 	self._betweenRounds = false
 	self:_stopStormCameraCheckLoop()
 	self._stormVisualActive = false
