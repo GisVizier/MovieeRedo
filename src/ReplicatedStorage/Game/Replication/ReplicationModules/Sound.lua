@@ -336,7 +336,7 @@ local function getLocalListenerDistance(position)
 	return (root.Position - position).Magnitude
 end
 
-local function applyWeaponSpatialPreset(sound, sourcePosition)
+local function applyWeaponSpatialPreset(sound, sourcePosition, weaponId)
 	if not sound or not sourcePosition then
 		return
 	end
@@ -344,9 +344,15 @@ local function applyWeaponSpatialPreset(sound, sourcePosition)
 	local distance = getLocalListenerDistance(sourcePosition)
 	local isDistant = type(distance) == "number" and distance >= REPLICATED_WEAPON_DISTANT_THRESHOLD
 	local isIndoor = SoundManager:GetIsIndoor()
+	local closePreset = "Gun_Close"
+	local distantPreset = "Gun_Distant"
+	if weaponId == "Shorty" then
+		closePreset = "Gun_NeutralClose"
+		distantPreset = "Gun_NeutralDistant"
+	end
 
 	SoundManager:ApplyPresets(sound, {
-		isDistant and "Gun_Distant" or "Gun_Close",
+		isDistant and distantPreset or closePreset,
 		isIndoor and "Indoor" or "Outdoor",
 	})
 end
@@ -448,7 +454,7 @@ function Sound:_handleWeaponOneShot(userId, soundDef, primaryPart, data)
 		return
 	end
 
-	applyWeaponSpatialPreset(sound, primaryPart.Position)
+	applyWeaponSpatialPreset(sound, primaryPart.Position, data and data.weaponId)
 
 	local key = data and (data.key or data.token)
 	if typeof(key) == "string" and key ~= "" then

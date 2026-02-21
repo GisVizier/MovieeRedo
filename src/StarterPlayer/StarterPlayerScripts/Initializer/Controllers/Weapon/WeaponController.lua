@@ -38,6 +38,7 @@ local WeaponRaycast = require(WeaponServices:WaitForChild("WeaponRaycast"))
 local WeaponFX = require(WeaponServices:WaitForChild("WeaponFX"))
 local WeaponCooldown = require(WeaponServices:WaitForChild("WeaponCooldown"))
 local WeaponProjectile = require(WeaponServices:WaitForChild("WeaponProjectile"))
+local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("Tracers"))
 
 -- Aim Assist
 local AimAssist = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"))
@@ -197,6 +198,7 @@ WeaponController._replicatedTrackStopTokens = {}
 WeaponController._replicatedTrackStopConnections = {}
 WeaponController._activeActionSounds = {}
 WeaponController._lastActionSoundAt = {}
+WeaponController._muzzleAttachmentCache = setmetatable({}, { __mode = "k" })
 
 -- =============================================================================
 -- INITIALIZATION
@@ -1071,6 +1073,32 @@ function WeaponController:_isLayeredWeaponActionSound(actionName)
 	return string.find(lowered, "fire", 1, true) ~= nil
 end
 
+function WeaponController:_resolveCachedMuzzleAttachment(rig)
+	if not rig or not rig.Model or not rig.Model:IsA("Model") then
+		return nil
+	end
+
+	local model = rig.Model
+	local cache = self._muzzleAttachmentCache
+	if type(cache) ~= "table" then
+		cache = setmetatable({}, { __mode = "k" })
+		self._muzzleAttachmentCache = cache
+	end
+
+	local cached = cache[model]
+	if cached == false then
+		return nil
+	end
+
+	if cached and cached.Parent then
+		return cached
+	end
+
+	local resolved = Tracers:FindMuzzleAttachment(model)
+	cache[model] = resolved or false
+	return resolved
+end
+
 function WeaponController:_resolveActionSoundPitch(actionName, pitch)
 	if type(pitch) == "number" then
 		if self:_isLayeredWeaponActionSound(actionName) then
@@ -1215,7 +1243,7 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 		self:_stopTrackedWeaponActionSound(actionKey, false)
 	end
 
-	local localSound = self:_playLocalWeaponSound(soundDef, resolvedPitch, slot, actionName)
+	local localSound = self:_playLocalWeaponSound(soundDef, resolvedPitch, slot, actionName, weaponId)
 	if actionName == "Equip" then
 		local soundKey = soundDef.SoundId
 		if not soundKey and soundDef.Template then
@@ -1276,7 +1304,7 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	VFXRep:Fire("Others", WEAPON_SOUND_MODULE_INFO, payload)
 end
 
-function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionName)
+function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionName, weaponId)
 	if type(soundDef) ~= "table" then
 		return nil
 	end
@@ -1291,16 +1319,24 @@ function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionNam
 		if not rig and type(viewmodelController.GetActiveRig) == "function" then
 			rig = viewmodelController:GetActiveRig()
 		end
-
 		if rig then
+			if self:_isLayeredWeaponActionSound(actionName) and rig.Model and rig.Model:IsA("Model") then
+				local muzzleAttachment = self:_resolveCachedMuzzleAttachment(rig)
+				if muzzleAttachment then
+					parent = muzzleAttachment
+				end
+			end
+
 			if rig.Anchor and rig.Anchor:IsA("BasePart") then
-				parent = rig.Anchor
+				if parent == SoundService then
+					parent = rig.Anchor
+				end
 			elseif rig.Model then
 				local model = rig.Model
 				local basePart = model.PrimaryPart
 					or model:FindFirstChild("HumanoidRootPart", true)
 					or model:FindFirstChildWhichIsA("BasePart", true)
-				if basePart and basePart:IsA("BasePart") then
+				if parent == SoundService and basePart and basePart:IsA("BasePart") then
 					parent = basePart
 				end
 			end
@@ -1343,8 +1379,12 @@ function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionNam
 	end
 
 	if self:_isLayeredWeaponActionSound(actionName) then
+		local closePreset = "Gun_Close"
+		if weaponId == "Shorty" then
+			closePreset = "Gun_NeutralClose"
+		end
 		SoundManager:ApplyPresets(sound, {
-			"Gun_Close",
+			closePreset,
 			SoundManager:GetIsIndoor() and "Indoor" or "Outdoor",
 		})
 	end

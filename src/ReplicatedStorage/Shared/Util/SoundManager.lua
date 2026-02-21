@@ -70,6 +70,51 @@ local PRESET_DEFINITIONS = {
 			},
 		},
 	},
+	Gun_NeutralClose = {
+		Effects = {
+			{
+				ClassName = "EqualizerSoundEffect",
+				Properties = {
+					LowGain = 1.2,
+					MidGain = 0.1,
+					HighGain = -0.8,
+				},
+			},
+			{
+				ClassName = "CompressorSoundEffect",
+				Properties = {
+					Threshold = -14,
+					Ratio = 3.2,
+					Attack = 0.01,
+					Release = 0.14,
+					GainMakeup = 1.0,
+				},
+			},
+		},
+	},
+	Gun_NeutralDistant = {
+		VolumeMultiplier = 0.9,
+		Effects = {
+			{
+				ClassName = "EqualizerSoundEffect",
+				Properties = {
+					LowGain = -0.8,
+					MidGain = -0.3,
+					HighGain = -1.8,
+				},
+			},
+			{
+				ClassName = "ReverbSoundEffect",
+				Properties = {
+					DecayTime = 1.3,
+					Density = 0.35,
+					Diffusion = 0.48,
+					WetLevel = -20,
+					DryLevel = -1,
+				},
+			},
+		},
+	},
 	Explosion_Close = {
 		Effects = {
 			{
