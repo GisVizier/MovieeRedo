@@ -4,6 +4,7 @@ local ContentProvider = game:GetService("ContentProvider")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local DialogueConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DialogueConfig"))
@@ -16,6 +17,9 @@ UIController._registry = nil
 UIController._net = nil
 UIController._coreUi = nil
 UIController._kitController = nil
+UIController._stormData = nil
+UIController._stormVisualActive = false
+UIController._stormCameraCheckConnection = nil
 
 local function updateDeathTemplateText(specClone: Instance, killerName: string?)
 	-- Your template uses "PlayersName"
@@ -220,6 +224,73 @@ local function safeCall(fn, ...)
 		fn(table.unpack(args, 1, args.n))
 	end)
 	return ok, err
+end
+
+local function getHorizontalDistance(pos1: Vector3, pos2: Vector3): number
+	local dx = pos1.X - pos2.X
+	local dz = pos1.Z - pos2.Z
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+function UIController:_stopStormCameraCheckLoop()
+	if self._stormCameraCheckConnection then
+		self._stormCameraCheckConnection:Disconnect()
+		self._stormCameraCheckConnection = nil
+	end
+end
+
+function UIController:_isCameraInStormZone(): boolean
+	if not self._stormData or self._stormData.active ~= true then
+		return false
+	end
+
+	local center = self._stormData.center
+	local radius = self._stormData.currentRadius or self._stormData.initialRadius
+	if typeof(center) ~= "Vector3" or type(radius) ~= "number" then
+		return false
+	end
+
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return false
+	end
+
+	local camPos = camera.CFrame.Position
+	local dist = getHorizontalDistance(camPos, center)
+	return dist > radius
+end
+
+function UIController:_syncStormVisualFromCamera()
+	if not self._coreUi then
+		return
+	end
+
+	local shouldShow = self:_isCameraInStormZone()
+	if self._stormVisualActive == shouldShow then
+		return
+	end
+
+	self._stormVisualActive = shouldShow
+	if shouldShow then
+		safeCall(function()
+			self._coreUi:show("Storm")
+		end)
+	else
+		safeCall(function()
+			self._coreUi:hide("Storm")
+		end)
+	end
+end
+
+function UIController:_startStormCameraCheckLoop()
+	self:_stopStormCameraCheckLoop()
+
+	self._stormCameraCheckConnection = RunService.RenderStepped:Connect(function()
+		if not self._stormData or self._stormData.active ~= true then
+			return
+		end
+		self:_syncStormVisualFromCamera()
+	end)
 end
 
 -- Preload all dialogue sounds for smoother playback
@@ -1048,6 +1119,9 @@ function UIController:_onBetweenRoundFreeze(data)
 	end
 
 	-- Clean up storm visuals from previous round (clouds, mesh)
+	self:_stopStormCameraCheckLoop()
+	self._stormVisualActive = false
+	self._stormData = nil
 	local stormModule = self._coreUi:getModule("Storm")
 	if stormModule then
 		safeCall(function()
@@ -1347,6 +1421,9 @@ function UIController:_onMatchEnd(data)
 	end
 
 	self._betweenRounds = false
+	self:_stopStormCameraCheckLoop()
+	self._stormVisualActive = false
+	self._stormData = nil
 
 	-- Hide all match UI
 	safeCall(function()
@@ -1409,39 +1486,31 @@ function UIController:_onStormStart(data)
 		end
 	end
 
-	-- Store storm data for UI updates
+	-- Store storm data for UI updates and camera-based visual checks.
 	self._stormData = {
+		active = true,
 		center = data.center,
 		initialRadius = data.initialRadius,
+		currentRadius = data.initialRadius,
 		targetRadius = data.targetRadius,
 		shrinkDuration = data.shrinkDuration,
 	}
+
+	self._stormVisualActive = false
+	self:_startStormCameraCheckLoop()
+	self:_syncStormVisualFromCamera()
 end
 
 function UIController:_onStormEnter(data)
-	print("[UICONTROLLER] Player entered storm zone")
-
-	if not self._coreUi then
-		return
-	end
-
-	-- Show the Storm UI overlay
-	safeCall(function()
-		self._coreUi:show("Storm")
-	end)
+	-- Character-based enter event is server-authoritative for damage only.
+	-- Visuals are now camera-driven in _syncStormVisualFromCamera.
+	print("[UICONTROLLER] Character entered storm zone (damage active)")
 end
 
 function UIController:_onStormLeave(data)
-	print("[UICONTROLLER] Player left storm zone (safe)")
-
-	if not self._coreUi then
-		return
-	end
-
-	-- Hide the Storm UI overlay
-	safeCall(function()
-		self._coreUi:hide("Storm")
-	end)
+	-- Character-based leave event is server-authoritative for damage only.
+	-- Visuals are now camera-driven in _syncStormVisualFromCamera.
+	print("[UICONTROLLER] Character left storm zone (safe from damage)")
 end
 
 function UIController:_onStormSound(data)
@@ -1464,6 +1533,10 @@ function UIController:_onStormUpdate(data)
 		return
 	end
 
+	if self._stormData then
+		self._stormData.currentRadius = data.currentRadius
+	end
+
 	-- Update the Storm UI with new radius info
 	local stormModule = self._coreUi:getModule("Storm")
 	if stormModule and stormModule.updateRadius and self._stormData then
@@ -1471,6 +1544,8 @@ function UIController:_onStormUpdate(data)
 			stormModule:updateRadius(data.currentRadius, self._stormData.targetRadius, self._stormData.initialRadius)
 		end)
 	end
+
+	self:_syncStormVisualFromCamera()
 end
 
 function UIController:_showKillScreen(data)
@@ -1547,6 +1622,9 @@ function UIController:_onReturnToLobby(data)
 	-- Reset state
 	self._currentMapId = nil
 	self._betweenRounds = false
+	self:_stopStormCameraCheckLoop()
+	self._stormVisualActive = false
+	self._stormData = nil
 
 	local player = Players.LocalPlayer
 	if player then
@@ -1562,6 +1640,9 @@ function UIController:_onReturnToLobby(data)
 	end)
 	safeCall(function()
 		self._coreUi:hide("Loadout")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Storm")
 	end)
 
 	-- Hide crosshair and restore mouse cursor for lobby
