@@ -275,12 +275,16 @@ function ViewmodelController:Init(registry, net)
 
 	do
 		local inputController = self._registry and self._registry:TryGet("Input")
-		local manager = inputController and inputController.Manager or nil
 
 		self._equipKeysConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+			local runtimeInputController = self._registry and self._registry:TryGet("Input")
+			local manager = runtimeInputController and runtimeInputController.Manager or nil
 			local isGamepad = isGamepadInputType(input.UserInputType)
-			local isCycleInput = manager
-				and (manager:IsKeybind(input, "CycleWeaponLeft") or manager:IsKeybind(input, "CycleWeaponRight"))
+			local isCycleLeft = (manager and manager:IsKeybind(input, "CycleWeaponLeft"))
+				or (isGamepad and input.KeyCode == Enum.KeyCode.ButtonL1)
+			local isCycleRight = (manager and manager:IsKeybind(input, "CycleWeaponRight"))
+				or (isGamepad and input.KeyCode == Enum.KeyCode.ButtonR1)
+			local isCycleInput = isCycleLeft or isCycleRight
 
 			-- On console, bumper input is often marked gameProcessed by focused HUD elements.
 			-- Allow weapon cycling anyway unless the loadout screen is open.
@@ -298,21 +302,21 @@ function ViewmodelController:Init(registry, net)
 				end
 			end
 
-			if not manager then
-				return
-			end
+			local isEquipPrimary = manager and manager:IsKeybind(input, "EquipPrimary")
+			local isEquipSecondary = manager and manager:IsKeybind(input, "EquipSecondary")
+			local isEquipMelee = manager and manager:IsKeybind(input, "EquipMelee")
 
-			if manager:IsKeybind(input, "EquipPrimary") then
+			if isEquipPrimary then
 				self:_tryEquipSlotFromLoadout("Primary")
-			elseif manager:IsKeybind(input, "EquipSecondary") then
+			elseif isEquipSecondary then
 				self:_tryEquipSlotFromLoadout("Secondary")
-			elseif manager:IsKeybind(input, "EquipMelee") then
+			elseif isEquipMelee then
 				self:_tryEquipSlotFromLoadout("Melee")
-			elseif manager:IsKeybind(input, "CycleWeaponLeft") then
+			elseif isCycleLeft then
 				if not isLoadoutVisible() then
 					self:_cycleEquipSlot(-1)
 				end
-			elseif manager:IsKeybind(input, "CycleWeaponRight") then
+			elseif isCycleRight then
 				if not isLoadoutVisible() then
 					self:_cycleEquipSlot(1)
 				end
@@ -320,7 +324,7 @@ function ViewmodelController:Init(registry, net)
 		end)
 
 		-- Mobile weapon wheel slot change
-		if inputController.ConnectToInput then
+		if inputController and inputController.ConnectToInput then
 			inputController:ConnectToInput("SlotChange", function(slot)
 				if slot == "Fists" then
 					self:SetActiveSlot("Fists")
