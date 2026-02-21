@@ -340,7 +340,7 @@ LoadoutConfig.Weapons = {
 		tracerColor = Color3.fromRGB(255, 230, 150),
 		
 		-- Wall destruction pressure
-		destructionPressure = 5,
+		destructionPressure = 20,
 
 		recoil = {
 			pitchUp = 1.2,

@@ -73,16 +73,15 @@ local CONFIG = {
 	
 	-- Pressure zone settings (non-shotgun)
 	ZONE_RADIUS = 2.5,              -- Wider zone so rapid fire hits count together
-	ZONE_LIFETIME = 0.03,           -- 30ms window for accumulation (snappier response)
-	MIN_PRESSURE = 60,              -- Requires ~2-3 AR hits, 1 sniper hit
+	ZONE_LIFETIME = 0.35,           -- Allow automatic fire to stack into one pressure zone
+	MIN_PRESSURE = 70,              -- AR should need ~3-4 hits before breaking
 	
 	-- Hole sizing based on pressure from LoadoutConfig
-	-- Sniper (100) -> 6 studs, Shotgun (30*8=240) -> 12 studs (clamped)
-	-- Shorty (50*6=300) -> 12 studs (clamped), AR (28) -> 1.68 (clamped to 1.5)
+	-- Sniper (100) -> 3 studs, Shotgun clusters stay tighter, AR remains small unless pressure stacks
 	MIN_HOLE_SIZE = 1,              -- Minimum hole radius (studs)
-	MAX_HOLE_SIZE = 12,             -- Maximum hole radius (studs)
-	MAX_SHOTGUN_HOLE_SIZE = 5.5,    -- Separate cap for grouped pellet shots
-	PRESSURE_TO_SIZE = 0.06,        -- pressure * this = radius
+	MAX_HOLE_SIZE = 6,              -- Maximum hole radius (studs)
+	MAX_SHOTGUN_HOLE_SIZE = 3.6,    -- Separate cap for grouped pellet shots
+	PRESSURE_TO_SIZE = 0.03,        -- pressure * this = radius
 	SHOTGUN_CLUSTER_PRESSURE_SCALE = 0.3, -- Slightly weaker grouped pellet pressure
 	MIN_PART_CLAMP_RADIUS = 0.35,   -- Lower floor when clamping to small wall faces
 	MAX_HOLE_RADIUS_RATIO_TO_FACE = 0.4, -- Max radius as ratio of the smallest face dimension
@@ -476,7 +475,7 @@ local function finalizeCluster(clusterId)
 	
 	-- Calculate total pressure and hole size
 	local totalPressure = perPelletPressure * pelletCount * CONFIG.SHOTGUN_CLUSTER_PRESSURE_SCALE
-	local spreadBonus = math.min(spreadRadius * 0.5, 2)
+	local spreadBonus = math.min(spreadRadius * 0.2, 0.8)
 	
 	-- Hole radius based on total pressure
 	local holeRadius = (totalPressure * CONFIG.PRESSURE_TO_SIZE) + spreadBonus
@@ -638,12 +637,11 @@ local function handleSingleImpact(position, normal, pressure, impactDistance, we
 			log("Single shot exceeds threshold! Triggering destruction.")
 			triggerZoneDestruction(zone)
 		else
-			-- Schedule expiration - but ALWAYS create destruction (just smaller for low pressure)
+			-- Expire zone if pressure never reached threshold.
 			task.delay(CONFIG.ZONE_LIFETIME, function()
 				if activeZones[zoneId] and not zone.triggered then
-					-- Always trigger destruction - size scales with pressure
-					log("Zone expired with", zone.pressure, "pressure. Creating hole.")
-					triggerZoneDestruction(zone)
+					activeZones[zoneId] = nil
+					log("Zone expired below threshold:", zone.pressure, "<", CONFIG.MIN_PRESSURE)
 				end
 			end)
 		end
