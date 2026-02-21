@@ -179,7 +179,7 @@ function QueueService:_registerPad(pad)
 				team = "Team1",
 				zonePart = zonePart,
 				size = zoneSize,
-				currentPlayer = nil,
+				currentPlayers = {},
 				modeId = modeId,
 			}
 			self:_updatePadVisual(zonePart, "empty")
@@ -203,7 +203,7 @@ function QueueService:_registerPad(pad)
 				team = "Team2",
 				zonePart = zonePart,
 				size = zoneSize,
-				currentPlayer = nil,
+				currentPlayers = {},
 				modeId = modeId,
 			}
 			self:_updatePadVisual(zonePart, "empty")
@@ -224,7 +224,7 @@ function QueueService:_registerPad(pad)
 				team = "Team1",
 				zonePart = zonePart,
 				size = zoneSize,
-				currentPlayer = nil,
+				currentPlayers = {},
 				modeId = modeId,
 			}
 			self:_updatePadVisual(zonePart, "empty")
@@ -374,7 +374,7 @@ function QueueService:_printDebugSummary()
 	local occupiedCount = 0
 	for _, zoneData in self._zones do
 		zoneCount = zoneCount + 1
-		if zoneData.currentPlayer then
+		if #(zoneData.currentPlayers or {}) > 0 then
 			occupiedCount = occupiedCount + 1
 		end
 	end
@@ -433,19 +433,30 @@ function QueueService:_checkAllZones()
 		end
 
 		local playersInZone = self:_getPlayersInZone(zoneData)
-		local newPlayer = playersInZone[1]
+		local currentPlayers = zoneData.currentPlayers or {}
 
-		if newPlayer ~= zoneData.currentPlayer then
-			local oldPlayer = zoneData.currentPlayer
-			zoneData.currentPlayer = newPlayer
+		-- Build sets for comparison
+		local newSet = {}
+		for _, p in ipairs(playersInZone) do newSet[p] = true end
 
-			if oldPlayer then
-				self:_onPlayerExitZone(zoneData, oldPlayer)
-			end
-			if newPlayer then
-				self:_onPlayerEnterZone(zoneData, newPlayer)
+		local oldSet = {}
+		for _, p in ipairs(currentPlayers) do oldSet[p] = true end
+
+		-- Players who entered
+		for _, player in ipairs(playersInZone) do
+			if not oldSet[player] then
+				self:_onPlayerEnterZone(zoneData, player)
 			end
 		end
+
+		-- Players who left
+		for _, player in ipairs(currentPlayers) do
+			if not newSet[player] then
+				self:_onPlayerExitZone(zoneData, player)
+			end
+		end
+
+		zoneData.currentPlayers = playersInZone
 	end
 end
 
@@ -521,7 +532,6 @@ function QueueService:_getPlayersInZone(zoneData)
 			debugPrint("Player", player.Name, "IS IN ZONE", zoneData.padName, zoneData.team, "| inMatch:", inMatch)
 			if not inMatch then
 				table.insert(playersInZone, player)
-				break
 			else
 				debugPrint("  SKIPPED - player is in match")
 			end
@@ -547,6 +557,101 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 	local padName = zoneData.padName
 	local team = zoneData.team
 
+	local partyService = self._registry:TryGet("PartyService")
+	if partyService and partyService:IsInParty(player) then
+		local partyMembers = partyService:GetPartyMembers(player)
+		if partyMembers and #partyMembers > 1 then
+			local modeId = MatchmakingConfig.getModeFromPadName(padName)
+			local mode = MatchmakingConfig.getMode(modeId)
+			local required = mode and mode.playersPerTeam or 1
+
+			if #partyMembers > required then
+				return
+			end
+
+			local allOnPad = true
+			for _, uid in ipairs(partyMembers) do
+				local memberPlayer = Players:GetPlayerByUserId(uid)
+				if not memberPlayer then
+					allOnPad = false
+					break
+				end
+				local memberOnThisPad = false
+				for _, zd in pairs(self._zones) do
+					if zd.padName == padName then
+						local currentPlayers = zd.currentPlayers or {}
+						for _, p in ipairs(currentPlayers) do
+							if p == memberPlayer then
+								memberOnThisPad = true
+								break
+							end
+						end
+						if memberOnThisPad then break end
+					end
+				end
+				if not memberOnThisPad then
+					local memberPos = self:_getPlayerPosition(memberPlayer)
+					if memberPos then
+						for _, zd in pairs(self._zones) do
+							if zd.padName == padName then
+								local halfSize = zd.size / 2
+								local verticalTolerance = MatchmakingConfig.Queue.VerticalTolerance or halfSize.Y
+								local localPos = zd.zonePart.CFrame:PointToObjectSpace(memberPos)
+								if math.abs(localPos.X) <= halfSize.X
+									and math.abs(localPos.Z) <= halfSize.Z
+									and math.abs(localPos.Y) <= verticalTolerance then
+									memberOnThisPad = true
+									break
+								end
+							end
+						end
+					end
+				end
+				if not memberOnThisPad then
+					allOnPad = false
+					break
+				end
+			end
+
+			if not allOnPad then
+				self:_removePlayerFromAllQueues(player)
+				local queue = self._queues[padName]
+				if queue then
+					table.insert(queue[team], player)
+				end
+				self:_updatePadVisual(zoneData.zonePart, "occupied")
+				self._net:FireAllClients("QueuePadUpdate", {
+					padName = padName,
+					team = team,
+					occupied = true,
+					playerId = player.UserId,
+				})
+				return
+			end
+
+			-- Add all party members to the zone's team (Team1 or Team2)
+			for _, uid in ipairs(partyMembers) do
+				local memberPlayer = Players:GetPlayerByUserId(uid)
+				if memberPlayer then
+					self:_removePlayerFromAllQueues(memberPlayer)
+					local queue = self._queues[padName]
+					if queue and not table.find(queue[team], memberPlayer) then
+						table.insert(queue[team], memberPlayer)
+					end
+				end
+			end
+
+			self:_updatePadVisual(zoneData.zonePart, "occupied")
+			self._net:FireAllClients("QueuePadUpdate", {
+				padName = padName,
+				team = team,
+				occupied = true,
+				playerId = player.UserId,
+			})
+			self:_checkQueueReady(padName)
+			return
+		end
+	end
 
 	self:_removePlayerFromAllQueues(player)
 
@@ -571,7 +676,6 @@ function QueueService:_onPlayerExitZone(zoneData, player)
 	local padName = zoneData.padName
 	local team = zoneData.team
 
-
 	local queue = self._queues[padName]
 	if queue then
 		local index = table.find(queue[team], player)
@@ -580,7 +684,14 @@ function QueueService:_onPlayerExitZone(zoneData, player)
 		end
 	end
 
-	self:_updatePadVisual(zoneData.zonePart, "empty")
+	-- Only show empty if no players left in this zone
+	local remainingInZone = 0
+	for _, p in ipairs(zoneData.currentPlayers or {}) do
+		if p ~= player then remainingInZone = remainingInZone + 1 end
+	end
+	if remainingInZone == 0 then
+		self:_updatePadVisual(zoneData.zonePart, "empty")
+	end
 
 	self._net:FireAllClients("QueuePadUpdate", {
 		padName = padName,
@@ -603,9 +714,17 @@ function QueueService:_removePlayerFromAllQueues(player)
 				table.remove(teamPlayers, index)
 
 				for zonePart, zoneData in self._zones do
-					if zoneData.padName == padName and zoneData.team == teamName and zoneData.currentPlayer == player then
-						zoneData.currentPlayer = nil
-						self:_updatePadVisual(zonePart, "empty")
+					if zoneData.padName == padName and zoneData.team == teamName then
+						local currentPlayers = zoneData.currentPlayers or {}
+						local idx = table.find(currentPlayers, player)
+						if idx then
+							table.remove(currentPlayers, idx)
+							zoneData.currentPlayers = currentPlayers
+						end
+						-- Only show empty if no players left in zone
+						if #(zoneData.currentPlayers or {}) == 0 then
+							self:_updatePadVisual(zonePart, "empty")
+						end
 
 						self._net:FireAllClients("QueuePadUpdate", {
 							padName = padName,
@@ -661,7 +780,7 @@ function QueueService:_startCountdown(padName)
 	countdown.remaining = MatchmakingConfig.Queue.CountdownDuration
 
 	for zonePart, zoneData in self._zones do
-		if zoneData.padName == padName and zoneData.currentPlayer then
+		if zoneData.padName == padName and #(zoneData.currentPlayers or {}) > 0 then
 			self:_updatePadVisual(zonePart, "countdown")
 		end
 	end
@@ -709,7 +828,7 @@ function QueueService:_cancelCountdown(padName)
 
 	for zonePart, zoneData in self._zones do
 		if zoneData.padName == padName then
-			if zoneData.currentPlayer then
+			if #(zoneData.currentPlayers or {}) > 0 then
 				self:_updatePadVisual(zonePart, "occupied")
 			else
 				self:_updatePadVisual(zonePart, "empty")
@@ -728,7 +847,7 @@ function QueueService:_onCountdownComplete(padName)
 	countdown.thread = nil
 
 	for zonePart, zoneData in self._zones do
-		if zoneData.padName == padName and zoneData.currentPlayer then
+		if zoneData.padName == padName and #(zoneData.currentPlayers or {}) > 0 then
 			self:_updatePadVisual(zonePart, "ready")
 		end
 	end
@@ -788,7 +907,7 @@ end
 function QueueService:_clearQueue(padName)
 	for zonePart, zoneData in self._zones do
 		if zoneData.padName == padName then
-			zoneData.currentPlayer = nil
+			zoneData.currentPlayers = {}
 			self:_updatePadVisual(zonePart, "empty")
 		end
 	end

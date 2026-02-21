@@ -298,6 +298,7 @@ function module.start(export, ui: UI)
 	self._counterTimerDefaultText = nil
 	self._counterTimerThread = nil
 	self._counterTimerGeneration = 0
+	self._hideCounterInTraining = false
 
 	local playerSpace = ui.PlayerSpace
 
@@ -825,6 +826,11 @@ function module:_setupMatchListeners()
 	-- Show health/loadout bars when Loadout UI is hidden  
 	self._export:on("LoadoutClosed", function()
 		self:_showHealthAndLoadoutBars()
+	end)
+
+	-- Training ground: hide counter (top bar) when HUD is shown
+	self._export:on("TrainingHUDShow", function()
+		self._hideCounterInTraining = true
 	end)
 
 	-- Refresh HUD icons when player changes weapon in loadout selection
@@ -3327,6 +3333,12 @@ function module:_animateShow()
 		return nil
 	end
 
+	-- Training ground: skip counter (no score/timer needed)
+	local hideCounterInTraining = self._hideCounterInTraining
+	if hideCounterInTraining then
+		self._hideCounterInTraining = false
+	end
+
 	-- Skip bottom bar animation on mobile (hidden; MobileControls shows compact ammo)
 	if not UserInputService.TouchEnabled and self._itemHolderSpace and self._itemHolderOriginalPosition then
 		local itemsTween = TweenService:Create(self._itemHolderSpace, TweenConfig.get("Main", "show"), {
@@ -3359,7 +3371,11 @@ function module:_animateShow()
 		currentTweens["show_bars"] = { barsTween }
 	end)
 
-	self:ShowCounter()
+	if hideCounterInTraining then
+		self:HideCounter()
+	else
+		self:ShowCounter()
+	end
 
 	return playerTween
 end

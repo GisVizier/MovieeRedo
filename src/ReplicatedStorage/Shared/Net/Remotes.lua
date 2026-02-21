@@ -90,6 +90,7 @@ local Remotes = {
 	{ name = "MatchStart", description = "Match has started" },
 	{ name = "RoundStart", description = "New round beginning" },
 	{ name = "RoundKill", description = "Kill occurred during round" },
+	{ name = "MatchStatsUpdate", description = "Per-player match stats (kills, deaths, damage) updated" },
 	{ name = "ScoreUpdate", description = "Match score changed" },
 	{ name = "RoundOutcome", description = "Round ended with outcome (win/lose/draw) for player" },
 	{ name = "ShowRoundLoadout", description = "Show loadout UI between rounds" },
@@ -137,6 +138,18 @@ local Remotes = {
 	{ name = "StormEnter", description = "Player entered the storm zone" },
 	{ name = "StormLeave", description = "Player left the storm zone (safe)" },
 	{ name = "StormSound", description = "Server triggers storm sound effect" },
+
+	-- Party system
+	{ name = "PartyInviteSend", description = "Client requests to invite a player to party" },
+	{ name = "PartyInviteReceived", description = "Server notifies target of incoming party invite" },
+	{ name = "PartyInviteResponse", description = "Client accepts or declines a party invite" },
+	{ name = "PartyUpdate", description = "Server broadcasts party state to all members" },
+	{ name = "PartyInviteBusy", description = "Server notifies sender that target is busy" },
+	{ name = "PartyInviteDeclined", description = "Server notifies sender that invite was declined" },
+	{ name = "PartyKick", description = "Client requests to kick a party member" },
+	{ name = "PartyLeave", description = "Client requests to leave their party" },
+	{ name = "PartyDisbanded", description = "Server notifies members that party was disbanded" },
+	{ name = "PartyKicked", description = "Server notifies a player they were kicked from party" },
 }
 
 return Remotes

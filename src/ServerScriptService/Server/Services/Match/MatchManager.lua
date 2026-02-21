@@ -50,6 +50,22 @@ function MatchManager:_fireMatchClients(match, eventName, data)
 	end
 end
 
+function MatchManager:_fireMatchStatsUpdate(match)
+	if not match._stats then return end
+	local stats = {}
+	for userId, s in pairs(match._stats) do
+		stats[userId] = {
+			kills = s.kills or 0,
+			deaths = s.deaths or 0,
+			damage = s.damage or 0,
+		}
+	end
+	self:_fireMatchClients(match, "MatchStatsUpdate", {
+		matchId = match.id,
+		stats = stats,
+	})
+end
+
 function MatchManager:_setMatchPlayersMovement(match, mult)
 	for _, player in self:_getMatchPlayers(match) do
 		player:SetAttribute("ExternalMoveMult", mult)
@@ -867,6 +883,21 @@ function MatchManager:_startMatchRound(match)
 	match._pendingLoadouts = nil
 	match._deadThisRound = {}
 
+	-- Init per-player stats for this match (kills, deaths, damage)
+	if not match._stats then
+		match._stats = {}
+	end
+	for _, userId in match.team1 do
+		if not match._stats[userId] then
+			match._stats[userId] = { kills = 0, deaths = 0, damage = 0 }
+		end
+	end
+	for _, userId in match.team2 do
+		if not match._stats[userId] then
+			match._stats[userId] = { kills = 0, deaths = 0, damage = 0 }
+		end
+	end
+
 	-- Unfreeze movement + abilities
 	self:_unfreezeMatchPlayers(match)
 
@@ -874,11 +905,22 @@ function MatchManager:_startMatchRound(match)
 	self:_reviveAllPlayers(match)
 
 	print("[MATCHMANAGER] Firing MatchStart - team1:", match.team1, "team2:", match.team2)
+	local statsPayload = {}
+	if match._stats then
+		for userId, s in pairs(match._stats) do
+			statsPayload[userId] = {
+				kills = s.kills or 0,
+				deaths = s.deaths or 0,
+				damage = s.damage or 0,
+			}
+		end
+	end
 	self:_fireMatchClients(match, "MatchStart", {
 		matchId = match.id,
 		mode = match.mode,
 		team1 = match.team1,
 		team2 = match.team2,
+		stats = statsPayload,
 	})
 
 	self:_fireRoundStart(match)
@@ -1001,11 +1043,23 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 	-- Mark victim as dead this round
 	match._deadThisRound[victimPlayer.UserId] = true
 
+	-- Update match stats (kills, deaths)
+	match._stats = match._stats or {}
+	local victimId = victimPlayer.UserId
+	local killerId = killerPlayer and killerPlayer.UserId or nil
+	if not match._stats[victimId] then match._stats[victimId] = { kills = 0, deaths = 0, damage = 0 } end
+	match._stats[victimId].deaths = (match._stats[victimId].deaths or 0) + 1
+	if killerId and killerId ~= victimId then
+		if not match._stats[killerId] then match._stats[killerId] = { kills = 0, deaths = 0, damage = 0 } end
+		match._stats[killerId].kills = (match._stats[killerId].kills or 0) + 1
+	end
+
 	self:_fireMatchClients(match, "RoundKill", {
 		matchId = match.id,
-		killerId = killerPlayer and killerPlayer.UserId or nil,
-		victimId = victimPlayer.UserId,
+		killerId = killerId,
+		victimId = victimId,
 	})
+	self:_fireMatchStatsUpdate(match)
 
 	local postKillDelay = match.modeConfig.postKillDelay or 5
 
@@ -1530,7 +1584,6 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 
 	local userId = player.UserId
 
-	-- Fire to remaining match players BEFORE removing the leaving player
 	self:_fireMatchClients(match, "PlayerLeftMatch", {
 		matchId = matchId,
 		playerId = userId,
@@ -1542,6 +1595,11 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 	if idx1 then table.remove(match.team1, idx1) end
 	local idx2 = table.find(match.team2, userId)
 	if idx2 then table.remove(match.team2, idx2) end
+
+	local partyService = self._registry:TryGet("PartyService")
+	if partyService and partyService:IsInParty(player) then
+		partyService:RemoveFromParty(player)
+	end
 
 	if match.state == "playing" or match.state == "resetting" or match.state == "storm" then
 		if #match.team1 == 0 and #match.team2 > 0 then
@@ -1576,6 +1634,28 @@ function MatchManager:GetPlayerTeam(match, player)
 	if table.find(match.team1, userId) then return "Team1" end
 	if table.find(match.team2, userId) then return "Team2" end
 	return nil
+end
+
+--[[
+	Called by CombatService when a player deals damage to another in a match.
+	Tracks damage for leaderboard and fires MatchStatsUpdate.
+]]
+function MatchManager:NotifyDamageDealt(attacker, victim, damage)
+	if not attacker or not victim or not damage or damage <= 0 then return end
+	local match = self:GetMatchForPlayer(victim)
+	if not match or (match.state ~= "playing" and match.state ~= "storm") then return end
+	-- Both must be in the match
+	if self:GetPlayerTeam(match, attacker) == nil then return end
+	if self:GetPlayerTeam(match, victim) == nil then return end
+
+	match._stats = match._stats or {}
+	local attackerId = attacker.UserId
+	if not match._stats[attackerId] then
+		match._stats[attackerId] = { kills = 0, deaths = 0, damage = 0 }
+	end
+	match._stats[attackerId].damage = (match._stats[attackerId].damage or 0) + math.floor(damage + 0.5)
+
+	self:_fireMatchStatsUpdate(match)
 end
 
 --[[
