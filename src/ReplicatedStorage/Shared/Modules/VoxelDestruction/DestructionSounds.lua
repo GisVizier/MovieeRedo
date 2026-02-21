@@ -98,6 +98,8 @@ local MaterialAliases = {
 }
 
 local lastPlayedByWall = setmetatable({}, { __mode = "k" })
+local activeEmitters = 0
+local lastGlobalPlayAt = 0
 
 local rng = Random.new()
 
@@ -156,6 +158,22 @@ local function shouldEmitForWall(soundSettings, wall)
 	end
 
 	lastPlayedByWall[wall] = now
+	return true
+end
+
+local function shouldEmitGlobally(soundSettings)
+	local now = os.clock()
+	local minInterval = (soundSettings and soundSettings.MinIntervalGlobal) or 0.02
+	if minInterval > 0 and (now - lastGlobalPlayAt) < minInterval then
+		return false
+	end
+
+	local maxConcurrent = (soundSettings and soundSettings.MaxConcurrentEmitters) or 6
+	if maxConcurrent > 0 and activeEmitters >= maxConcurrent then
+		return false
+	end
+
+	lastGlobalPlayAt = now
 	return true
 end
 
@@ -228,6 +246,9 @@ function DestructionSounds.PlayEvent(eventData, settings)
 	if not soundId then
 		return nil
 	end
+	if not shouldEmitGlobally(soundSettings) then
+		return nil
+	end
 
 	local emitter = Instance.new("Part")
 	emitter.Name = "DestructionSoundEmitter"
@@ -244,10 +265,10 @@ function DestructionSounds.PlayEvent(eventData, settings)
 	local sound = Instance.new("Sound")
 	sound.SoundId = soundId
 	sound.RollOffMode = Enum.RollOffMode.InverseTapered
-	sound.RollOffMinDistance = soundSettings.RollOffMinDistance or 10
+	sound.RollOffMinDistance = soundSettings.RollOffMinDistance or 8
 	sound.RollOffMaxDistance = rng:NextInteger(
-		soundSettings.RollOffMaxDistanceMin or 150,
-		soundSettings.RollOffMaxDistanceMax or 170
+		soundSettings.RollOffMaxDistanceMin or 65,
+		soundSettings.RollOffMaxDistanceMax or 90
 	)
 	sound.PlaybackSpeed = rng:NextNumber(
 		soundSettings.PlaybackSpeedMin or 1,
@@ -274,6 +295,7 @@ function DestructionSounds.PlayEvent(eventData, settings)
 	sound.Parent = emitter
 	CollectionService:AddTag(sound, "SoundEffect")
 	sound:Play()
+	activeEmitters += 1
 
 	local fadeOutDelay = rng:NextNumber(
 		soundSettings.FadeOutDelayMin or 0.65,
@@ -290,7 +312,11 @@ function DestructionSounds.PlayEvent(eventData, settings)
 		end
 	end)
 
-	Debris:AddItem(emitter, soundSettings.EmitterLifetime or 2)
+	local emitterLifetime = soundSettings.EmitterLifetime or 2
+	task.delay(emitterLifetime, function()
+		activeEmitters = math.max(0, activeEmitters - 1)
+	end)
+	Debris:AddItem(emitter, emitterLifetime)
 	return sound
 end
 
@@ -299,8 +325,24 @@ function DestructionSounds.PlayBatch(eventList, settings)
 		return
 	end
 
-	for _, eventData in ipairs(eventList) do
-		DestructionSounds.PlayEvent(eventData, settings)
+	local soundSettings = getSoundSettings(settings)
+	local maxEventsPerBatch = (soundSettings and soundSettings.MaxEventsPerBatch) or 4
+	local totalEvents = #eventList
+	if totalEvents <= 0 then
+		return
+	end
+
+	local selectedCount = math.clamp(maxEventsPerBatch, 1, totalEvents)
+	if selectedCount >= totalEvents then
+		for _, eventData in ipairs(eventList) do
+			DestructionSounds.PlayEvent(eventData, settings)
+		end
+		return
+	end
+
+	for i = 1, selectedCount do
+		local index = math.floor(((i - 0.5) / selectedCount) * totalEvents + 1)
+		DestructionSounds.PlayEvent(eventList[index], settings)
 	end
 end
 

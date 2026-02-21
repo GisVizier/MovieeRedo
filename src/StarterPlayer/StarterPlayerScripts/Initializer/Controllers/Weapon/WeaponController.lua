@@ -25,6 +25,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
@@ -55,7 +56,7 @@ local WEAPON_SOUND_MODULE_INFO = { Module = "Sound" }
 local LOCAL_WEAPON_VOLUME = 1.0
 local LOCAL_WEAPON_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
 local LOCAL_WEAPON_MIN_DISTANCE = 7.5
-local LOCAL_WEAPON_MAX_DISTANCE = 260
+local LOCAL_WEAPON_MAX_DISTANCE = 360
 local FIRE_SOUND_PITCH_MIN = 0.92
 local FIRE_SOUND_PITCH_MAX = 1.10
 local FIRE_SOUND_PITCH_RNG = Random.new()
@@ -1336,9 +1337,16 @@ function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionNam
 		return nil
 	end
 
-	local sfxGroup = SoundService:FindFirstChild("SFX")
-	if sfxGroup and sfxGroup:IsA("SoundGroup") then
-		sound.SoundGroup = sfxGroup
+	local weaponSoundGroup = SoundService:FindFirstChild("Guns") or SoundService:FindFirstChild("SFX")
+	if weaponSoundGroup and weaponSoundGroup:IsA("SoundGroup") then
+		sound.SoundGroup = weaponSoundGroup
+	end
+
+	if self:_isLayeredWeaponActionSound(actionName) then
+		SoundManager:ApplyPresets(sound, {
+			"Gun_Close",
+			SoundManager:GetIsIndoor() and "Indoor" or "Outdoor",
+		})
 	end
 
 	sound.Parent = parent

@@ -30,41 +30,41 @@ local PRESET_DEFINITIONS = {
 			{
 				ClassName = "EqualizerSoundEffect",
 				Properties = {
-					LowGain = 0.8,
-					MidGain = 0.2,
-					HighGain = -1.0,
+					LowGain = 4.5,
+					MidGain = -1.2,
+					HighGain = -3.8,
 				},
 			},
 			{
 				ClassName = "CompressorSoundEffect",
 				Properties = {
-					Threshold = -14,
-					Ratio = 4,
+					Threshold = -16,
+					Ratio = 4.5,
 					Attack = 0.01,
-					Release = 0.15,
-					GainMakeup = 2.0,
+					Release = 0.16,
+					GainMakeup = 2.4,
 				},
 			},
 		},
 	},
 	Gun_Distant = {
-		VolumeMultiplier = 0.82,
+		VolumeMultiplier = 0.92,
 		Effects = {
 			{
 				ClassName = "EqualizerSoundEffect",
 				Properties = {
-					LowGain = -4.5,
-					MidGain = -1.0,
-					HighGain = -2.0,
+					LowGain = -1.2,
+					MidGain = -0.8,
+					HighGain = -2.8,
 				},
 			},
 			{
 				ClassName = "ReverbSoundEffect",
 				Properties = {
-					DecayTime = 1.8,
-					Density = 0.45,
-					Diffusion = 0.55,
-					WetLevel = -16,
+					DecayTime = 1.5,
+					Density = 0.4,
+					Diffusion = 0.52,
+					WetLevel = -18,
 					DryLevel = -1,
 				},
 			},
@@ -168,7 +168,7 @@ SoundManager._initialized = false
 SoundManager._environmentConnection = nil
 SoundManager._environmentTimer = 0
 SoundManager._environmentCheckInterval = 0.16
-SoundManager._environmentRayLength = 72
+SoundManager._environmentRayLength = 12
 SoundManager._isIndoor = false
 SoundManager._manualIndoor = nil
 SoundManager._groupAliases = {
