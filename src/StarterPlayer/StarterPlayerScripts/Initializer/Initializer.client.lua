@@ -89,6 +89,10 @@ local entries = {
 		module = controllersFolder:WaitForChild("Queue"):WaitForChild("QueueController"),
 	},
 	{
+		name = "Spectate",
+		module = controllersFolder:WaitForChild("Spectate"):WaitForChild("SpectateController"),
+	},
+	{
 		name = "VoxelDebris",
 		module = controllersFolder:WaitForChild("VoxelDebris"):WaitForChild("VoxelDebrisController"),
 	},

@@ -151,6 +151,11 @@ local Remotes = {
 	{ name = "PartyLeave", description = "Client requests to leave their party" },
 	{ name = "PartyDisbanded", description = "Server notifies members that party was disbanded" },
 	{ name = "PartyKicked", description = "Server notifies a player they were kicked from party" },
+	{ name = "PartyRequestState", description = "Client requests current party state on init" },
+
+	-- Spectate VFX forwarding
+	{ name = "SpectateRegister", description = "Client registers/unregisters as spectating a player" },
+	{ name = "SpectateVFXForward", description = "Forwards local-only VFX to spectators", unreliable = true },
 }
 
 return Remotes

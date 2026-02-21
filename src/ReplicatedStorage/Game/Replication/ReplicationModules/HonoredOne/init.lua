@@ -151,88 +151,94 @@ end
 
 function HonoredOne:User(originUserId, data)
 	local localPlayer = Players.LocalPlayer
-	local originPlayer = Players:GetPlayerByUserId(originUserId)
-	--if not localPlayer or localPlayer.UserId ~= originUserId then
-	--	return -- Only run on caster's client
-	--end
+	if not localPlayer then return end
 
+	local originPlayer = Players:GetPlayerByUserId(originUserId)
+	local isLocal = localPlayer.UserId == originUserId
+	local isSpectate = data and data._spectate == true
+
+	local character = data.Character or (originPlayer and originPlayer.Character) or localPlayer.Character
 	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
 	local ViewModel = data.ViewModel or (viewmodelController and viewmodelController:GetActiveRig())
 
 	local action = data.forceAction
-	if action == "red_charge" and localPlayer.UserId == originUserId then
+	if action == "red_charge" and (isLocal or isSpectate) then
 
-		local chargingFXcleanup = ReplicateFX("red", "chargeFX", { Character = localPlayer.Character, ViewModel = ViewModel})
+		local chargingFXcleanup = ReplicateFX("red", "chargeFX", { Character = character, ViewModel = ViewModel })
 
-		local connection; connection =localPlayer:GetAttributeChangedSignal(`red_charge`):Connect(function()
-			if not localPlayer:GetAttribute(`red_charge`) then
-				chargingFXcleanup()
-				connection:Disconnect()
-
-				--warn(`ran231`)
+		if isLocal then
+			local connection; connection = localPlayer:GetAttributeChangedSignal(`red_charge`):Connect(function()
+				if not localPlayer:GetAttribute(`red_charge`) then
+					chargingFXcleanup()
+					connection:Disconnect()
+				end
+			end)
+		elseif isSpectate then
+			-- For spectators, clean up when the spectated player clears the attribute
+			if originPlayer then
+				local connection; connection = originPlayer:GetAttributeChangedSignal(`red_charge`):Connect(function()
+					if not originPlayer:GetAttribute(`red_charge`) then
+						chargingFXcleanup()
+						connection:Disconnect()
+					end
+				end)
 			end
-		end)
-
+		end
 
 	elseif action == "red_create" then
-		ReplicateFX("red", "charge", { Character = localPlayer.Character, ViewModel = ViewModel, Part = `Right Arm`})
-		ReplicateFX("red", "armFX", { Character = localPlayer.Character, ViewModel = ViewModel, Effect = `createred`})
+		ReplicateFX("red", "charge", { Character = character, ViewModel = ViewModel, Part = `Right Arm` })
+		ReplicateFX("red", "armFX", { Character = character, ViewModel = ViewModel, Effect = `createred` })
 
 		task.wait(.1)
 
-		ReplicateFX("red", "createFire", { Character = localPlayer.Character, ViewModel = ViewModel, Effect = `createdmesh`})	
+		ReplicateFX("red", "createFire", { Character = character, ViewModel = ViewModel, Effect = `createdmesh` })
 
 	elseif action == "red_fire" then
-		ReplicateFX("red", "armFX", { Character = localPlayer.Character, ViewModel = ViewModel, Effect = `fire`})	
+		ReplicateFX("red", "armFX", { Character = character, ViewModel = ViewModel, Effect = `fire` })
 	end
 
 	if action == "red_shootlolll" then
 		ReplicateFX("red", "ReplicateProjectile", {
-			Character = data.Character,
+			Character = character,
 			Player = originPlayer,
 			playerId = originUserId,
 			ViewModel = ViewModel,
-		})	
-		
-		
+		})
+
 	elseif action == "red_explode" then
 		ReplicateFX("red", "explodeplz", {
-			Character = localPlayer.Character,
+			Character = character,
 			Player = originPlayer,
 			playerId = originUserId,
 			pivot = data.pivot,
-		})	
-
+		})
 
 	elseif action == "blue_open" then
-
-		ReplicateFX("blue", "open", { 
-			Character = data.Character, 
+		ReplicateFX("blue", "open", {
+			Character = character,
 			Player = originPlayer,
 			playerId = originUserId,
-			projectile = data.projectile, 
-			lifetime = data.lifetime
-		})	
+			projectile = data.projectile,
+			lifetime = data.lifetime,
+		})
 
 	elseif action == "blue_loop" then
-		--warn(data)
-		ReplicateFX("blue", "loop", { 
-			Character = data.Character, 
+		ReplicateFX("blue", "loop", {
+			Character = character,
 			Player = originPlayer,
 			playerId = originUserId,
-			projectile = data.projectile, 
-			lifetime = data.lifetime
-		})	
+			projectile = data.projectile,
+			lifetime = data.lifetime,
+		})
 
 	elseif action == "blue_close" then
-
-		--ReplicateFX("blue", "close", { 
-		--	Character = localPlayer.Character, 
+		--ReplicateFX("blue", "close", {
+		--	Character = character,
 		--	Player = originPlayer,
 		--	playerId = originUserId,
-		--	projectile = data.projectile, 
-		--	lifetime = data.lifetime
-		--})	
+		--	projectile = data.projectile,
+		--	lifetime = data.lifetime,
+		--})
 	end
 
 end

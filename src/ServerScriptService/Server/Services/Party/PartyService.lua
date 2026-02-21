@@ -348,6 +348,18 @@ function PartyService:_setupNetworkEvents()
 	self._net:ConnectServer("PartyLeave", function(player)
 		self:_leaveParty(player)
 	end)
+
+	self._net:ConnectServer("PartyRequestState", function(player)
+		local party = self:GetParty(player)
+		if party then
+			self._net:FireClient("PartyUpdate", player, {
+				partyId = party.id,
+				leaderId = party.leaderId,
+				members = party.members,
+				maxSize = party.maxSize,
+			})
+		end
+	end)
 end
 
 --------------------------------------------------------------------------------
