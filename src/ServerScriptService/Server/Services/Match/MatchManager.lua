@@ -1462,6 +1462,17 @@ function MatchManager:_returnPlayersToLobby(match)
 	local lobbySpawns = CollectionService:GetTagged(MatchmakingConfig.Spawns.LobbyTag)
 	if #lobbySpawns == 0 then return end
 
+	-- CRITICAL: Unragdoll all players before teleport (last killed player may be ragdolled with invisible parts)
+	local characterService = self._registry:TryGet("CharacterService")
+	if characterService then
+		for _, player in self:_getMatchPlayers(match) do
+			pcall(function() characterService:Unragdoll(player) end)
+		end
+	end
+
+	-- Revive dead players (CombatResource, humanoid, kit) so they're fully restored before teleport
+	self:_reviveAllPlayers(match)
+
 	-- Get kit service to destroy kits
 	local kitService = self._registry:TryGet("KitService")
 	-- Get weapon service to clear weapons
@@ -1559,19 +1570,27 @@ function MatchManager:_teleportPlayerToSpawn(player, spawn)
 		spawnLookVector = Vector3.new(0, 0, -1)
 	end
 
+	-- If player has no character (edge case), spawn one at lobby position
+	local character = player.Character
+	if not character or not character.Parent then
+		local characterService = self._registry:TryGet("CharacterService")
+		if characterService then
+			characterService:SpawnCharacter(player, { spawnPosition = spawnPosition })
+		end
+		return
+	end
+
 	self._net:FireClient("MatchTeleport", player, {
 		matchId = "reset",
 		spawnPosition = spawnPosition,
 		spawnLookVector = spawnLookVector,
+		roundReset = true, -- Full character refresh (viewmodel, weapons, animations) so last-killed player displays correctly
 	})
 
 	-- Just heal - let CLIENT handle teleportation (like training grounds)
 	-- Server-side CFrame manipulation conflicts with client teleport and breaks Colliders
-	local character = player.Character
-	if character then
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then humanoid.Health = humanoid.MaxHealth end
-	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then humanoid.Health = humanoid.MaxHealth end
 end
 
 --------------------------------------------------------------------------------

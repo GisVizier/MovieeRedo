@@ -108,6 +108,7 @@ function module.start(export, ui)
 	self._playersByUserId = {}
 	self._selectedUserId = nil
 	self._currentUserRow = nil
+	self._localMirrorRow = nil
 
 	self._searchQuery = ""
 	self._statMode = "wins"
@@ -222,6 +223,12 @@ function module:_updateSectionCounts()
 			counts[row.section] = counts[row.section] + 1
 		end
 	end
+	if self._localMirrorRow and self._localMirrorRow.frame and self._localMirrorRow.frame.Parent then
+		local mirrorSection = self._localMirrorRow.section
+		if mirrorSection and counts[mirrorSection] ~= nil then
+			counts[mirrorSection] = counts[mirrorSection] + 1
+		end
+	end
 	for _, sectionId in ipairs(SECTION_IDS) do
 		local sectionData = self._sections[sectionId]
 		local label = sectionData and sectionData.countLabel
@@ -309,11 +316,13 @@ function module:_ensureUserLeaveAction()
 		return
 	end
 
+	self._userFrame.LayoutOrder = -2
+
 	local instance = self._userLeaveTemplate:Clone()
 	instance.Name = "UserLeaveAction"
 	instance.Visible = false
 	if instance:IsA("GuiObject") then
-		instance.LayoutOrder = (self._userFrame.LayoutOrder or 0) + 1
+		instance.LayoutOrder = -1
 	end
 	instance.Parent = self._scrollingFrame
 	self._userLeaveInstance = instance
@@ -542,7 +551,6 @@ function module:_buildPlayerData(inputData)
 
 	local section = explicitSection
 	if inParty then
-		-- Party state is authoritative for player list sectioning.
 		section = "InParty"
 	elseif not section then
 		local state = livePlayer and livePlayer:GetAttribute("PlayerState")
@@ -908,6 +916,9 @@ function module:_sortSection(sectionId)
 			table.insert(sorted, row)
 		end
 	end
+	if self._localMirrorRow and self._localMirrorRow.section == sectionId then
+		table.insert(sorted, self._localMirrorRow)
+	end
 
 	table.sort(sorted, function(a, b)
 		local ad = string.lower(tostring(a.data.displayName or a.data.username or ""))
@@ -973,6 +984,12 @@ function module:_applyFilters()
 		if not visible and self._selectedUserId == row.userId then
 			self:_clearSelection()
 		end
+	end
+
+	if self._localMirrorRow and self._localMirrorRow.frame then
+		local sectionState = self._sections[self._localMirrorRow.section]
+		local visible = (sectionState and sectionState.open == true) and self:_matchesSearch(self._localMirrorRow.data)
+		self._localMirrorRow.frame.Visible = visible
 	end
 
 	self:_refreshCanvasSize()
@@ -1114,20 +1131,7 @@ function module:addPlayer(payload)
 
 	self._playersByUserId[data.userId] = data
 
-	-- Local player is rendered only in the dedicated "User" container.
-	-- Keep it out of section lists to avoid duplicate entries (InLobby/InParty).
 	local localPlayer = Players.LocalPlayer
-	if localPlayer and data.userId == localPlayer.UserId then
-		local existingLocalRow = self._rows[data.userId]
-		if existingLocalRow then
-			self:_destroyRow(existingLocalRow)
-			self._rows[data.userId] = nil
-		end
-		self:_updateCurrentUserCard()
-		self:_updateSectionCounts()
-		self:_refreshCanvasSize()
-		return
-	end
 
 	local existingRow = self._rows[data.userId]
 	if existingRow and existingRow.section ~= data.section then
@@ -1524,6 +1528,7 @@ function module:_showPlayerShow(userId, data)
 
 		if inviteButton then
 			inviteButton.Visible = canInvite
+			inviteButton.Active = true
 			local statusLabel = inviteButton:FindFirstChild("Status")
 			if statusLabel and statusLabel:IsA("TextLabel") then
 				statusLabel.Text = "PARTY INVITE"
@@ -1579,7 +1584,42 @@ function module:_showPlayerShow(userId, data)
 		end
 	end
 
+	self:_positionPlayerShow(userId)
 	frame.Visible = true
+end
+
+function module:_positionPlayerShow(userId)
+	local frame = self._playerShowFrame
+	if not frame then
+		return
+	end
+
+	local row = self._rows[userId]
+	if not row then
+		local lp = Players.LocalPlayer
+		if lp and userId == lp.UserId then
+			row = self._currentUserRow
+		end
+	end
+	if not row or not row.frame then
+		return
+	end
+
+	local uiAbsSize = self._ui.AbsoluteSize
+	if uiAbsSize.Y == 0 then
+		return
+	end
+
+	local uiScaleObj = self._ui:FindFirstChildWhichIsA("UIScale")
+	local scaleFactor = uiScaleObj and uiScaleObj.Scale or 1
+
+	local rowAbsY = row.frame.AbsolutePosition.Y
+	local uiAbsY = self._ui.AbsolutePosition.Y
+
+	local yScale = (rowAbsY - uiAbsY) / (uiAbsSize.Y * scaleFactor)
+	yScale = math.clamp(yScale, 0, 0.75)
+
+	frame.Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, yScale, 0)
 end
 
 function module:_hidePlayerShow()
@@ -1875,6 +1915,13 @@ function module:_reconcilePartySections()
 		end
 	end
 
+	local localInParty = memberSet[localPlayer.UserId] == true
+	if localInParty then
+		self:_ensureLocalMirrorRow()
+	else
+		self:_destroyLocalMirrorRow()
+	end
+
 	self:_updateCurrentUserCard()
 
 	if self._selectedUserId then
@@ -1961,6 +2008,106 @@ function module:_movePlayerToSection(userId, sectionId, force)
 end
 
 --------------------------------------------------------------------------------
+-- LOCAL PLAYER MIRROR ROW  (keeps them visible in InLobby while also in InParty)
+--------------------------------------------------------------------------------
+
+function module:_ensureLocalMirrorRow()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return
+	end
+
+	local data = self._playersByUserId[localPlayer.UserId]
+	if not data then
+		return
+	end
+
+	local sectionData = self._sections[self._defaultSection] or self._sections[DEFAULT_SECTION]
+	if not sectionData or not sectionData.holder then
+		return
+	end
+
+	if self._localMirrorRow and self._localMirrorRow.frame and self._localMirrorRow.frame.Parent then
+		self._localMirrorRow.data = data
+		self:_applyRowData(self._localMirrorRow)
+		return
+	end
+
+	local template = self:_getRowTemplate(self._defaultSection)
+	if not template then
+		return
+	end
+
+	local frame = template:Clone()
+	frame.Name = "User_Mirror_" .. tostring(localPlayer.UserId)
+	frame.Visible = true
+	frame.Parent = sectionData.holder
+	frame.LayoutOrder = TweenConfig.Values.RowLayoutBaseOrder
+
+	local mirrorData = {}
+	for k, v in pairs(data) do
+		mirrorData[k] = v
+	end
+	mirrorData.section = self._defaultSection
+
+	local row = {
+		userId = localPlayer.UserId,
+		section = self._defaultSection,
+		frame = frame,
+		refs = self:_captureRowRefs(frame),
+		data = mirrorData,
+		hovered = false,
+		selected = false,
+		pulseToken = 0,
+		glowTweens = {},
+		isMirror = true,
+	}
+
+	self:_setGlowVisibility(row, false)
+	self:_setGlowInstant(row, TweenConfig.Values.HiddenGlowTransparency)
+
+	local groupName = "row_mirror_" .. tostring(localPlayer.UserId)
+	if frame:IsA("GuiButton") then
+		self._connections:track(frame, "Activated", function()
+			self:_selectUser(localPlayer.UserId)
+		end, groupName)
+	else
+		self._connections:track(frame, "InputBegan", function(input)
+			local inputType = input.UserInputType
+			if inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch then
+				self:_selectUser(localPlayer.UserId)
+			end
+		end, groupName)
+	end
+
+	self:_applyRowData(row)
+	self._localMirrorRow = row
+
+	self:_sortSection(self._defaultSection)
+	self:_updateSectionCounts()
+	self:_refreshCanvasSize()
+end
+
+function module:_destroyLocalMirrorRow()
+	if not self._localMirrorRow then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		self._connections:cleanupGroup("row_mirror_" .. tostring(localPlayer.UserId))
+	end
+
+	if self._localMirrorRow.frame and self._localMirrorRow.frame.Parent then
+		self._localMirrorRow.frame:Destroy()
+	end
+	self._localMirrorRow = nil
+
+	self:_updateSectionCounts()
+	self:_refreshCanvasSize()
+end
+
+--------------------------------------------------------------------------------
 -- CLEANUP
 --------------------------------------------------------------------------------
 
@@ -1975,6 +2122,7 @@ function module:_cleanup()
 		self._currentUserRow.frame:Destroy()
 	end
 	self._currentUserRow = nil
+	self:_destroyLocalMirrorRow()
 	self:_hidePlayerShow()
 	self:_hideInviteBanner()
 	self._partyState = nil
