@@ -61,7 +61,8 @@ function QueueService:Init(registry, net)
 
 	self:_setupZones()
 	self:_setupPlayerRemoving()
-	
+	self:_setupPlayerAdded()
+
 	debugPrint("=== QueueService:Init() COMPLETE ===")
 end
 
@@ -350,6 +351,26 @@ function QueueService:_setupPlayerRemoving()
 	end)
 end
 
+function QueueService:_setupPlayerAdded()
+	Players.PlayerAdded:Connect(function(player)
+		task.defer(function()
+			for padName, queue in self._queues do
+				if #queue.Team1 > 0 or #queue.Team2 > 0 then
+					local team1Ids = {}
+					for _, p in queue.Team1 do table.insert(team1Ids, p.UserId) end
+					local team2Ids = {}
+					for _, p in queue.Team2 do table.insert(team2Ids, p.UserId) end
+					self._net:FireClient("QueuePadFullUpdate", player, {
+						padName = padName,
+						team1 = team1Ids,
+						team2 = team2Ids,
+					})
+				end
+			end
+		end)
+	end)
+end
+
 function QueueService:_startZoneChecking()
 	local interval = MatchmakingConfig.Queue.ZoneCheckInterval
 	debugPrint("Starting zone checking with interval:", interval, "seconds")
@@ -626,6 +647,7 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 					occupied = true,
 					playerId = player.UserId,
 				})
+				self:_fireQueuePadFullUpdate(padName)
 				return
 			end
 
@@ -648,6 +670,7 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 				occupied = true,
 				playerId = player.UserId,
 			})
+			self:_fireQueuePadFullUpdate(padName)
 			self:_checkQueueReady(padName)
 			return
 		end
@@ -668,6 +691,7 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 		occupied = true,
 		playerId = player.UserId,
 	})
+	self:_fireQueuePadFullUpdate(padName)
 
 	self:_checkQueueReady(padName)
 end
@@ -699,6 +723,7 @@ function QueueService:_onPlayerExitZone(zoneData, player)
 		occupied = false,
 		playerId = nil,
 	})
+	self:_fireQueuePadFullUpdate(padName)
 
 	local countdown = self._countdowns[padName]
 	if countdown and countdown.active then
@@ -732,6 +757,7 @@ function QueueService:_removePlayerFromAllQueues(player)
 							occupied = false,
 							playerId = nil,
 						})
+						self:_fireQueuePadFullUpdate(padName)
 					end
 				end
 
@@ -742,6 +768,26 @@ function QueueService:_removePlayerFromAllQueues(player)
 			end
 		end
 	end
+end
+
+function QueueService:_fireQueuePadFullUpdate(padName)
+	local queue = self._queues[padName]
+	if not queue then return end
+
+	local team1Ids = {}
+	for _, p in queue.Team1 do
+		table.insert(team1Ids, p.UserId)
+	end
+	local team2Ids = {}
+	for _, p in queue.Team2 do
+		table.insert(team2Ids, p.UserId)
+	end
+
+	self._net:FireAllClients("QueuePadFullUpdate", {
+		padName = padName,
+		team1 = team1Ids,
+		team2 = team2Ids,
+	})
 end
 
 function QueueService:_checkQueueReady(padName)
@@ -757,12 +803,11 @@ function QueueService:_checkQueueReady(padName)
 		return
 	end
 
-	local required = mode.playersPerTeam or 1
-
 	local team1Count = #queue.Team1
 	local team2Count = #queue.Team2
 
-	if team1Count >= required and team2Count >= required then
+	-- Allow match to start with at least 1 player per team (1v1, 1v2, 2v1, 2v2, etc.)
+	if team1Count >= 1 and team2Count >= 1 then
 		local countdown = self._countdowns[padName]
 		if not countdown.active then
 			self:_startCountdown(padName)

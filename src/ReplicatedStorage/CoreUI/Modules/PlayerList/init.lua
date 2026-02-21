@@ -788,7 +788,7 @@ function module:_applyRowData(row)
 					Enum.ThumbnailSize.Size420x420
 				)
 			end)
-			local stillThisRow = self._rows[data.userId] == row or self._currentUserRow == row
+			local stillThisRow = self._rows[data.userId] == row or self._currentUserRow == row or self._localMirrorRow == row
 			if ok and content and stillThisRow and refs.playerImage then
 				refs.playerImage.Image = content
 			end
@@ -1616,7 +1616,8 @@ function module:_positionPlayerShow(userId)
 	local rowAbsY = row.frame.AbsolutePosition.Y
 	local uiAbsY = self._ui.AbsolutePosition.Y
 
-	local yScale = (rowAbsY - uiAbsY) / (uiAbsSize.Y * scaleFactor)
+	local nudgeUp = 0.05
+	local yScale = (rowAbsY - uiAbsY) / (uiAbsSize.Y * scaleFactor) - nudgeUp
 	yScale = math.clamp(yScale, 0, 0.75)
 
 	frame.Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, yScale, 0)
@@ -1850,6 +1851,8 @@ function module:_bindPartyEvents()
 	end), "partyEvents")
 
 	self._connections:add(self._export:on("PartyInviteBusy", function(data)
+		self:_hideInviteBanner()
+
 		if self._playerShowFrame and data then
 			local contentFrame = self._playerShowFrame:FindFirstChild("Frame")
 			local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")

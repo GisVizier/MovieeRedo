@@ -122,6 +122,11 @@ function QueueController:_setupNetworkListeners()
 		self:_onPadUpdate(data)
 	end)
 
+	-- Full queue state (for 2v2 multi-slot boards)
+	self._net:ConnectClient("QueuePadFullUpdate", function(data)
+		self:_onPadFullUpdate(data)
+	end)
+
 	-- Countdown events
 	self._net:ConnectClient("QueueCountdownStart", function(data)
 		self:_onCountdownStart(data)
@@ -239,14 +244,20 @@ function QueueController:_cacheBoardForPad(pad)
 
 	local leftSide = frame:FindFirstChild("LeftSide")
 	local rightSide = frame:FindFirstChild("RightSide")
+	local upLeftSide = frame:FindFirstChild("UpLeftSide")
+	local upRightSide = frame:FindFirstChild("UpRightSide")
 	local counter = frame:FindFirstChild("Counter")
 
 	debugPrint("  LeftSide found:", leftSide ~= nil)
 	debugPrint("  RightSide found:", rightSide ~= nil)
+	debugPrint("  UpLeftSide found:", upLeftSide ~= nil)
+	debugPrint("  UpRightSide found:", upRightSide ~= nil)
 	debugPrint("  Counter found:", counter ~= nil)
 
 	local leftImage = leftSide and self:_findImageLabel(leftSide)
 	local rightImage = rightSide and self:_findImageLabel(rightSide)
+	local upLeftImage = upLeftSide and self:_findImageLabel(upLeftSide)
+	local upRightImage = upRightSide and self:_findImageLabel(upRightSide)
 
 	debugPrint("  LeftImage found:", leftImage ~= nil, leftImage and leftImage:GetFullName() or "N/A")
 	debugPrint("  RightImage found:", rightImage ~= nil, rightImage and rightImage:GetFullName() or "N/A")
@@ -282,18 +293,20 @@ function QueueController:_cacheBoardForPad(pad)
 	self._boards[pad.Name] = {
 		leftSide = leftSide,
 		rightSide = rightSide,
+		upLeftSide = upLeftSide,
+		upRightSide = upRightSide,
 		counter = counter,
 		counterText = counterText,
 		leftImage = leftImage,
 		rightImage = rightImage,
+		upLeftImage = upLeftImage,
+		upRightImage = upRightImage,
 	}
 
-	if leftSide then
-		leftSide.Visible = false
-	end
-	if rightSide then
-		rightSide.Visible = false
-	end
+	if leftSide then leftSide.Visible = false end
+	if rightSide then rightSide.Visible = false end
+	if upLeftSide then upLeftSide.Visible = false end
+	if upRightSide then upRightSide.Visible = false end
 	if counterText then
 		counterText.Text = "0"
 	end
@@ -318,8 +331,8 @@ end
 
 function QueueController:_initQueueState(padName)
 	self._queueState[padName] = {
-		Team1 = nil,
-		Team2 = nil,
+		Team1 = {},
+		Team2 = {},
 	}
 end
 
@@ -339,15 +352,22 @@ function QueueController:_onPadUpdate(data)
 
 	-- Update pad visual for the specific team zone
 	self:_updateTeamZoneVisual(padName, team, occupied and "occupied" or "empty")
+end
 
-	-- Update queue state
-	local queueState = self._queueState[padName]
-	if queueState then
-		queueState[team] = occupied and playerId or nil
+function QueueController:_onPadFullUpdate(data)
+	local padName = data.padName or data.padId
+	local team1Ids = data.team1 or {}
+	local team2Ids = data.team2 or {}
+
+	-- Update queue state (init if needed for late-joining players)
+	if not self._queueState[padName] then
+		self._queueState[padName] = { Team1 = {}, Team2 = {} }
 	end
+	self._queueState[padName].Team1 = team1Ids
+	self._queueState[padName].Team2 = team2Ids
 
-	-- Update board display
-	self:_updateBoardDisplay(padName, team, occupied, playerId)
+	-- Update board display with full state
+	self:_updateBoardDisplayFromState(padName, team1Ids, team2Ids)
 end
 
 function QueueController:_updatePadVisual(padName, state)
@@ -421,44 +441,65 @@ end
 -- BOARD DISPLAY
 --------------------------------------------------------------------------------
 
-function QueueController:_updateBoardDisplay(padName, team, occupied, playerId)
-	debugPrint("_updateBoardDisplay:", padName, team, "occupied:", occupied, "playerId:", playerId)
+-- Slot mapping for 2v2: Team1 slot 1->UpLeft, slot 2->Left; Team2 slot 1->UpRight, slot 2->Right
+-- For 1v1: Team1 slot 1->Left, Team2 slot 1->Right
+local SLOT_2V2 = {
+	Team1 = { "upLeft", "left" },
+	Team2 = { "upRight", "right" },
+}
+local SLOT_1V1 = {
+	Team1 = { "left" },
+	Team2 = { "right" },
+}
 
+function QueueController:_updateBoardDisplayFromState(padName, team1Ids, team2Ids)
 	local board = self._boards[padName]
-	if not board then
-		debugPrint("  No board cached for pad:", padName)
-		return
+	if not board then return end
+
+	local has4Slots = board.upLeftSide ~= nil and board.upRightSide ~= nil
+	local slotMap = has4Slots and SLOT_2V2 or SLOT_1V1
+
+	local function setSlot(teamName, slotIndex, playerId)
+		local slotName = slotMap[teamName] and slotMap[teamName][slotIndex]
+		if not slotName then return end
+
+		local side = board[slotName .. "Side"]
+		local image = board[slotName .. "Image"]
+		if side then
+			side.Visible = playerId ~= nil
+		end
+		if image then
+			if playerId then
+				self:_setPlayerAvatar(image, playerId)
+			else
+				image.Image = ""
+			end
+		end
 	end
 
-	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	-- Team1 slots
+	for i = 1, #(slotMap.Team1 or {}) do
+		setSlot("Team1", i, team1Ids[i])
+	end
+	-- Clear extra slots
+	for i = #team1Ids + 1, #(slotMap.Team1 or {}) do
+		setSlot("Team1", i, nil)
+	end
 
-	if team == "Team1" then
-		debugPrint("  Team1 - leftSide:", board.leftSide ~= nil, "leftImage:", board.leftImage ~= nil)
-		if board.leftSide then
-			board.leftSide.Visible = occupied
-			debugPrint("  Set leftSide.Visible =", occupied)
-		end
-		if occupied and playerId and board.leftImage then
-			debugPrint("  Setting player avatar for Team1, playerId:", playerId)
-			self:_setPlayerAvatar(board.leftImage, playerId)
-		elseif occupied and playerId and not board.leftImage then
-			debugPrint("  WARNING: No leftImage to set avatar!")
-		end
-	elseif team == "Team2" then
-		debugPrint("  Team2 - rightSide:", board.rightSide ~= nil, "rightImage:", board.rightImage ~= nil)
-		if board.rightSide then
-			board.rightSide.Visible = occupied
-			debugPrint("  Set rightSide.Visible =", occupied)
-		end
-		if occupied and playerId and board.rightImage then
-			debugPrint("  Setting player avatar for Team2, playerId:", playerId)
-			self:_setPlayerAvatar(board.rightImage, playerId)
-		elseif occupied and playerId and not board.rightImage then
-			debugPrint("  WARNING: No rightImage to set avatar!")
-		end
+	-- Team2 slots
+	for i = 1, #(slotMap.Team2 or {}) do
+		setSlot("Team2", i, team2Ids[i])
+	end
+	for i = #team2Ids + 1, #(slotMap.Team2 or {}) do
+		setSlot("Team2", i, nil)
 	end
 
 	self:_updateBoardCounter(padName)
+end
+
+function QueueController:_updateBoardDisplay(padName, team, occupied, playerId)
+	-- Legacy: QueuePadUpdate still fires but we rely on QueuePadFullUpdate for board
+	-- If we get an update before full sync, we could merge - but full update should follow
 end
 
 function QueueController:_updateBoardCounter(padName)
@@ -469,13 +510,7 @@ function QueueController:_updateBoardCounter(padName)
 		return
 	end
 
-	local count = 0
-	if queueState.Team1 then
-		count = count + 1
-	end
-	if queueState.Team2 then
-		count = count + 1
-	end
+	local count = #(queueState.Team1 or {}) + #(queueState.Team2 or {})
 
 	if board.counterText then
 		board.counterText.Text = tostring(count)
@@ -521,20 +556,18 @@ function QueueController:_resetBoardDisplay(padName)
 		return
 	end
 
-	if board.leftSide then
-		board.leftSide.Visible = false
-	end
-	if board.rightSide then
-		board.rightSide.Visible = false
-	end
+	if board.leftSide then board.leftSide.Visible = false end
+	if board.rightSide then board.rightSide.Visible = false end
+	if board.upLeftSide then board.upLeftSide.Visible = false end
+	if board.upRightSide then board.upRightSide.Visible = false end
 	if board.counterText then
 		board.counterText.Text = "0"
 	end
 
 	local queueState = self._queueState[padName]
 	if queueState then
-		queueState.Team1 = nil
-		queueState.Team2 = nil
+		queueState.Team1 = {}
+		queueState.Team2 = {}
 	end
 end
 

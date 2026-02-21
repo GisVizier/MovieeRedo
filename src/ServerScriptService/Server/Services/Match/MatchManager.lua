@@ -609,10 +609,10 @@ function MatchManager:_teleportPlayers(match)
 
 	if spawn1 then
 		print("[MATCHMANAGER] Teleporting Team1 (" .. #match.team1 .. " players) to:", spawn1:GetFullName())
-		for _, userId in match.team1 do
+		for i, userId in match.team1 do
 			local player = Players:GetPlayerByUserId(userId)
-			if player then 
-				self:_requestPlayerTeleport(match, player, spawn1, "Team1") 
+			if player then
+				self:_requestPlayerTeleport(match, player, spawn1, "Team1", i, #match.team1)
 			else
 				warn("[MATCHMANAGER] Team1 player not found for userId:", userId)
 			end
@@ -620,13 +620,13 @@ function MatchManager:_teleportPlayers(match)
 	else
 		warn("[MATCHMANAGER] WARNING: No spawn1 available for Team1!")
 	end
-	
+
 	if spawn2 then
 		print("[MATCHMANAGER] Teleporting Team2 (" .. #match.team2 .. " players) to:", spawn2:GetFullName())
-		for _, userId in match.team2 do
+		for i, userId in match.team2 do
 			local player = Players:GetPlayerByUserId(userId)
-			if player then 
-				self:_requestPlayerTeleport(match, player, spawn2, "Team2") 
+			if player then
+				self:_requestPlayerTeleport(match, player, spawn2, "Team2", i, #match.team2)
 			else
 				warn("[MATCHMANAGER] Team2 player not found for userId:", userId)
 			end
@@ -649,30 +649,38 @@ function MatchManager:_teleportPlayers(match)
 	end)
 end
 
-function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName)
-	print("[MATCHMANAGER] _requestPlayerTeleport - player:", player.Name, "team:", teamName, "spawn:", spawn.Name)
-	
+function MatchManager:_requestPlayerTeleport(match, player, spawn, teamName, playerIndex, teamSize)
+	playerIndex = playerIndex or 1
+	teamSize = teamSize or 1
+
+	print("[MATCHMANAGER] _requestPlayerTeleport - player:", player.Name, "team:", teamName, "spawn:", spawn.Name, "index:", playerIndex, "/", teamSize)
+
 	local spawnPosition, spawnLookVector
 
-	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
-	-- TESTING: Disabled to debug hit detection issues
-	-- self:_clearPlayerPositionHistory(player)
-	
 	if spawn:IsA("BasePart") then
-		-- Get random position within spawn bounds
 		local size = spawn.Size
-		local randomOffset = Vector3.new(
-			(math.random() - 0.5) * size.X,
-			3, -- Height above spawn
-			(math.random() - 0.5) * size.Z
-		)
-		spawnPosition = spawn.Position + randomOffset
-		spawnLookVector = spawn.CFrame.LookVector
-		print("[MATCHMANAGER] BasePart spawn - basePos:", spawn.Position, "size:", size, "finalPos:", spawnPosition)
+		local cf = spawn.CFrame
+		local rightVec = cf.RightVector
+		local lookVec = cf.LookVector
+
+		-- For multiple players, spread them along the spawn's right axis to avoid overlap
+		local offset
+		if teamSize > 1 then
+			local spread = math.min(size.X * 0.4, 6)
+			local t = (playerIndex - 1) / math.max(1, teamSize - 1) - 0.5
+			offset = rightVec * (t * spread) + Vector3.new(0, 3, 0)
+		else
+			offset = Vector3.new(
+				(math.random() - 0.5) * size.X * 0.5,
+				3,
+				(math.random() - 0.5) * size.Z * 0.5
+			)
+		end
+		spawnPosition = spawn.Position + offset
+		spawnLookVector = lookVec
 	else
 		spawnPosition = spawn.Position + Vector3.new(0, 3, 0)
 		spawnLookVector = Vector3.new(0, 0, -1)
-		print("[MATCHMANAGER] Non-BasePart spawn - basePos:", spawn.Position, "finalPos:", spawnPosition)
 	end
 
 	-- Clear frozen state from waiting room
@@ -1301,36 +1309,45 @@ function MatchManager:_teleportMatchPlayersDirect(match)
 	local spawn2 = match.spawns and match.spawns.Team2
 
 	if spawn1 then
-		for _, userId in match.team1 do
+		for i, userId in match.team1 do
 			local player = Players:GetPlayerByUserId(userId)
-			if player then self:_teleportPlayerDirect(match, player, spawn1) end
+			if player then self:_teleportPlayerDirect(match, player, spawn1, i, #match.team1) end
 		end
 	end
 	if spawn2 then
-		for _, userId in match.team2 do
+		for i, userId in match.team2 do
 			local player = Players:GetPlayerByUserId(userId)
-			if player then self:_teleportPlayerDirect(match, player, spawn2) end
+			if player then self:_teleportPlayerDirect(match, player, spawn2, i, #match.team2) end
 		end
 	end
 end
 
-function MatchManager:_teleportPlayerDirect(match, player, spawn)
+function MatchManager:_teleportPlayerDirect(match, player, spawn, playerIndex, teamSize)
+	playerIndex = playerIndex or 1
+	teamSize = teamSize or 1
+
 	local spawnPosition, spawnLookVector
 
-	-- Clear position history so projectile hit validation doesn't use stale pre-teleport positions
-	-- TESTING: Disabled to debug hit detection issues
-	-- self:_clearPlayerPositionHistory(player)
-
 	if spawn:IsA("BasePart") then
-		-- Get random position within spawn bounds
 		local size = spawn.Size
-		local randomOffset = Vector3.new(
-			(math.random() - 0.5) * size.X,
-			3, -- Height above spawn
-			(math.random() - 0.5) * size.Z
-		)
-		spawnPosition = spawn.Position + randomOffset
-		spawnLookVector = spawn.CFrame.LookVector
+		local cf = spawn.CFrame
+		local rightVec = cf.RightVector
+		local lookVec = cf.LookVector
+
+		local offset
+		if teamSize > 1 then
+			local spread = math.min(size.X * 0.4, 6)
+			local t = (playerIndex - 1) / math.max(1, teamSize - 1) - 0.5
+			offset = rightVec * (t * spread) + Vector3.new(0, 3, 0)
+		else
+			offset = Vector3.new(
+				(math.random() - 0.5) * size.X * 0.5,
+				3,
+				(math.random() - 0.5) * size.Z * 0.5
+			)
+		end
+		spawnPosition = spawn.Position + offset
+		spawnLookVector = lookVec
 	else
 		spawnPosition = spawn.Position + Vector3.new(0, 3, 0)
 		spawnLookVector = Vector3.new(0, 0, -1)

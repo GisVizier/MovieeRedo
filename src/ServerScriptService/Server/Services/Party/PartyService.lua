@@ -33,7 +33,7 @@ local INVITE_TIMEOUT = 5
 local OFFLINE_GRACE = 300
 local STORE_TTL = 3600
 local MSG_TOPIC = "PartyEvents"
-local ENABLE_CROSS_SERVER = false
+local ENABLE_CROSS_SERVER = true
 
 function PartyService:Init(registry, net)
 	self._registry = registry
