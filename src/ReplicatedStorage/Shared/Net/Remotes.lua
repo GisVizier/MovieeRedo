@@ -79,6 +79,7 @@ local Remotes = {
 
 	-- Queue system
 	{ name = "QueuePadUpdate", description = "Server updates pad occupancy state" },
+	{ name = "QueuePadFullUpdate", description = "Server sends full queue state for multi-slot pads (2v2)" },
 	{ name = "QueueCountdownStart", description = "Server starts queue countdown" },
 	{ name = "QueueCountdownTick", description = "Server sends countdown tick" },
 	{ name = "QueueCountdownCancel", description = "Server cancels queue countdown" },
