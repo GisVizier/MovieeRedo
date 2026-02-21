@@ -61,6 +61,7 @@ local LOCAL_WEAPON_MAX_DISTANCE = 360
 local FIRE_SOUND_PITCH_MIN = 0.92
 local FIRE_SOUND_PITCH_MAX = 1.10
 local FIRE_SOUND_PITCH_RNG = Random.new()
+local ADS_SENSITIVITY_BASE_MULT = 0.75
 
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
@@ -298,7 +299,7 @@ function WeaponController:Start()
 			LocalPlayer:SetAttribute("MouseSensitivityScale", math.clamp(baseSensitivity, 0.01, 4))
 		end
 		if type(LocalPlayer:GetAttribute("ADSSensitivityScale")) ~= "number" then
-			LocalPlayer:SetAttribute("ADSSensitivityScale", 1.0)
+			LocalPlayer:SetAttribute("ADSSensitivityScale", ADS_SENSITIVITY_BASE_MULT)
 		end
 		LocalPlayer:SetAttribute("WeaponADSActive", false)
 		self:_applyMouseSensitivityForADS(false)
@@ -930,7 +931,7 @@ function WeaponController:_applyMouseSensitivityForADS(isADS: boolean?)
 
 	local adsSensitivityScale = LocalPlayer:GetAttribute("ADSSensitivityScale")
 	if type(adsSensitivityScale) ~= "number" then
-		adsSensitivityScale = 1
+		adsSensitivityScale = ADS_SENSITIVITY_BASE_MULT
 		LocalPlayer:SetAttribute("ADSSensitivityScale", adsSensitivityScale)
 	end
 
@@ -946,7 +947,7 @@ function WeaponController:_applyMouseSensitivityForADS(isADS: boolean?)
 
 	local targetSensitivity = hipSensitivity
 	if adsActive then
-		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier
+		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier * ADS_SENSITIVITY_BASE_MULT
 	end
 
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)

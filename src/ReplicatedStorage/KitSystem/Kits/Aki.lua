@@ -1,17 +1,33 @@
 --[[
 	Aki Server Kit
 	
-	Ability: Kon - Summon devil that rushes to target location and bites
+	Ability: KON - Two variants:
+	
+	TRAP VARIANT (E while crouching/sliding):
+	- Places a hidden Kon trap at player's feet
+	- Triggers when enemy enters 9.5 stud radius
+	- Deals 75 damage + KonSlow (30% speed, sprint disabled, 5s)
+	- 1 per match, no cooldown on placement
+	- Self-launch: Aki can reactivate near trap to launch away (no damage)
+	- Trap destroyed when kit is destroyed
+	
+	MAIN VARIANT (E while standing - placeholder for future implementation):
+	- Existing Kon behavior remains for now
 	
 	Server responsibilities:
-	1. Validate spawn location
-	2. Start cooldown
-	3. Validate hits and apply damage
+	1. Validate trap placement position
+	2. Manage trap state (_trapPlaced, _trapPosition, _trapActive)
+	3. Run proximity detection loop for trap trigger
+	4. Apply damage + KonSlow on trap trigger
+	5. Handle self-launch request
+	6. Destroy trap on kit destroy
+	7. Validate konBite hits for main variant
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local RunService = game:GetService("RunService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
@@ -43,13 +59,41 @@ local function getHitDetectionAPI()
 	return nil
 end
 
+-- Service registry helpers (same pattern as HonoredOne)
+local function getKitRegistry(self)
+	local service = self._ctx and self._ctx.service
+	return service and service._registry or nil
+end
+
+local function getCombatService(self)
+	local registry = getKitRegistry(self)
+	return registry and registry:TryGet("CombatService") or nil
+end
+
+local function getWeaponService(self)
+	local registry = getKitRegistry(self)
+	return registry and registry:TryGet("WeaponService") or nil
+end
+
 --------------------------------------------------------------------------------
 -- Constants
 --------------------------------------------------------------------------------
 
 local MAX_RANGE = 150
+local BITE_RADIUS = 12
 local BITE_DAMAGE = 35
 local MAX_HITS_PER_BITE = 5
+
+-- Trap variant constants
+local TRAP_DAMAGE = 75
+local TRAP_TRIGGER_RADIUS = 9.5
+local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Same radius for self-launch auto-detect
+local TRAP_PLACEMENT_MAX_DIST = 25   -- Max distance from player for placement validation (20 stud aim range + tolerance)
+local KONSLOW_DURATION = 5
+local KONSLOW_SPEED_MULT = 0.7       -- 30% reduction
+
+-- Self-launch force
+local SELF_LAUNCH_VELOCITY = 120     -- Strong upward + outward force
 
 --------------------------------------------------------------------------------
 -- Module
@@ -62,6 +106,14 @@ function Kit.new(ctx)
 	local self = setmetatable({}, Kit)
 	self._ctx = ctx
 	self._pendingSpawn = nil
+	
+	-- Trap state
+	self._trapPlaced = false       -- Has the trap been placed this match?
+	self._trapActive = false       -- Is there an active trap in the world?
+	self._trapPosition = nil       -- Vector3 position of the trap
+	self._trapProximityConn = nil  -- Heartbeat connection for proximity detection
+	self._trapOwnerUserId = ctx.player.UserId
+	
 	return self
 end
 
@@ -71,6 +123,7 @@ end
 
 function Kit:Destroy()
 	self._pendingSpawn = nil
+	self:_destroyTrap("kitDestroyed")
 end
 
 function Kit:OnEquipped()
@@ -78,6 +131,193 @@ end
 
 function Kit:OnUnequipped()
 	self._pendingSpawn = nil
+	self:_destroyTrap("unequipped")
+end
+
+--------------------------------------------------------------------------------
+-- Damage Helpers
+--------------------------------------------------------------------------------
+
+local function applyDamage(self, targetCharacter, damage, weaponId)
+	local player = self._ctx.player
+	local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
+	
+	local weaponService = getWeaponService(self)
+	if weaponService then
+		local root = self._ctx.character and self._ctx.character.PrimaryPart
+		local sourcePos = root and root.Position or nil
+		local hitPos = targetCharacter.PrimaryPart and targetCharacter.PrimaryPart.Position or nil
+		
+		weaponService:ApplyDamageToCharacter(
+			targetCharacter,
+			damage,
+			player,
+			false, -- not headshot
+			weaponId or "Aki_Kon",
+			sourcePos,
+			hitPos
+		)
+		return
+	end
+	
+	-- Fallback: direct humanoid damage
+	local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
+	if humanoid and humanoid.Health > 0 then
+		humanoid:TakeDamage(damage)
+		if targetCharacter then
+			targetCharacter:SetAttribute("LastDamageDealer", player.UserId)
+		end
+	end
+end
+
+local function applyKonSlow(self, targetCharacter)
+	local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
+	if not targetPlayer then return end
+	
+	local combatService = getCombatService(self)
+	if combatService then
+		combatService:ApplyStatusEffect(targetPlayer, "KonSlow", {
+			duration = KONSLOW_DURATION,
+			source = self._ctx.player,
+		})
+	end
+end
+
+--------------------------------------------------------------------------------
+-- Trap Logic
+--------------------------------------------------------------------------------
+
+function Kit:_destroyTrap(reason)
+	-- Stop proximity detection
+	if self._trapProximityConn then
+		self._trapProximityConn:Disconnect()
+		self._trapProximityConn = nil
+	end
+	
+	self._trapActive = false
+	self._trapPosition = nil
+	
+	-- Broadcast trap destruction VFX to all clients
+	local service = self._ctx.service
+	if service then
+		service:BroadcastVFX(self._ctx.player, "All", "Kon", {}, "destroyTrap")
+	end
+end
+
+function Kit:_startTrapProximityLoop()
+	if self._trapProximityConn then
+		self._trapProximityConn:Disconnect()
+	end
+	
+	local player = self._ctx.player
+	local trapPos = self._trapPosition
+	if not trapPos then return end
+	
+	self._trapProximityConn = RunService.Heartbeat:Connect(function()
+		if not self._trapActive or not self._trapPosition then
+			if self._trapProximityConn then
+				self._trapProximityConn:Disconnect()
+				self._trapProximityConn = nil
+			end
+			return
+		end
+		
+		-- Check for characters in range (server-authoritative)
+		local targets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS, player)
+		
+		for _, targetCharacter in ipairs(targets) do
+			-- Skip the Aki player's own character
+			local character = self._ctx.character or player.Character
+			if targetCharacter == character then continue end
+			
+			local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid and humanoid.Health > 0 then
+				-- TRAP TRIGGERED! Apply damage and slow
+				self:_triggerTrap(targetCharacter)
+				return -- Only triggers once
+			end
+		end
+		
+		-- Also check if Aki is close for self-launch auto-detect
+		-- (handled client-side via proximity check, server just validates the action)
+	end)
+end
+
+function Kit:_triggerTrap(triggerCharacter)
+	if not self._trapActive then return end
+	
+	local trapPos = self._trapPosition
+	if not trapPos then return end
+	
+	local player = self._ctx.player
+	local service = self._ctx.service
+	
+	-- Stop proximity loop
+	if self._trapProximityConn then
+		self._trapProximityConn:Disconnect()
+		self._trapProximityConn = nil
+	end
+	
+	self._trapActive = false
+	
+	-- Get all characters in radius for damage
+	local targets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+	local character = self._ctx.character or player.Character
+	
+	for _, targetChar in ipairs(targets) do
+		if targetChar == character then continue end -- Skip Aki
+		
+		local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
+		if humanoid and humanoid.Health > 0 then
+			-- Apply trap damage
+			applyDamage(self, targetChar, TRAP_DAMAGE, "Aki_KonTrap")
+			
+			-- Apply KonSlow status effect
+			applyKonSlow(self, targetChar)
+		end
+	end
+	
+	-- Terrain destruction at trap location
+	local kitData = KitConfig.getKit("Aki")
+	local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
+	if destructionLevel then
+		local radiusMap = {
+			Small = 6,
+			Big = 10,
+			Huge = 15,
+			Mega = 22,
+		}
+		local radius = radiusMap[destructionLevel] or 10
+		
+		task.spawn(function()
+			VoxManager:explode(trapPos, radius, {
+				voxelSize = 2,
+				debris = true,
+				debrisAmount = 8,
+			})
+		end)
+	end
+	
+	-- Determine look direction for triggered Kon VFX
+	local lookDir = Vector3.new(0, 0, 1)
+	if triggerCharacter and triggerCharacter.PrimaryPart then
+		local dirToTarget = (triggerCharacter.PrimaryPart.Position - trapPos)
+		dirToTarget = Vector3.new(dirToTarget.X, 0, dirToTarget.Z) -- Flatten Y
+		if dirToTarget.Magnitude > 0.1 then
+			lookDir = dirToTarget.Unit
+		end
+	end
+	
+	-- Broadcast trigger VFX to all clients
+	if service then
+		service:BroadcastVFX(player, "All", "Kon", {
+			position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
+			lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
+		}, "triggerTrap")
+	end
+	
+	-- Clean up trap position (trap is consumed)
+	self._trapPosition = nil
 end
 
 --------------------------------------------------------------------------------
@@ -149,6 +389,79 @@ function Kit:OnAbility(inputState, clientData)
 
 	clientData = clientData or {}
 	local action = clientData.action
+
+	------------------------------------------------------------------------
+	-- TRAP VARIANT ACTIONS
+	------------------------------------------------------------------------
+
+	-- Place Trap
+	if action == "placeTrap" then
+		-- Validate: can only place one trap per match
+		if self._trapPlaced then
+			return false
+		end
+		
+		local posData = clientData.position
+		if not posData then return false end
+		
+		local trapPos = Vector3.new(
+			posData.X or 0,
+			posData.Y or 0,
+			posData.Z or 0
+		)
+		
+		-- Validate placement position (must be near player)
+		local root = character.PrimaryPart
+			or character:FindFirstChild("Root")
+			or character:FindFirstChild("HumanoidRootPart")
+		if not root then return false end
+		
+		local distFromPlayer = (trapPos - root.Position).Magnitude
+		if distFromPlayer > TRAP_PLACEMENT_MAX_DIST then
+			return false
+		end
+		
+		-- Place the trap (no cooldown!)
+		self._trapPlaced = true
+		self._trapActive = true
+		self._trapPosition = trapPos
+		
+		-- VFX is handled client-side via VFXRep:Fire("All") for responsiveness.
+		-- Server only manages state and proximity detection.
+		
+		-- Start proximity detection loop
+		self:_startTrapProximityLoop()
+		
+		return false -- Don't end ability, no cooldown
+	end
+
+	-- Self-Launch from trap
+	if action == "selfLaunch" then
+		if not self._trapActive or not self._trapPosition then
+			return false
+		end
+		
+		-- Validate Aki is near the trap
+		local root = character.PrimaryPart
+			or character:FindFirstChild("Root")
+			or character:FindFirstChild("HumanoidRootPart")
+		if not root then return false end
+		
+		local distToTrap = (root.Position - self._trapPosition).Magnitude
+		if distToTrap > TRAP_SELF_LAUNCH_RADIUS * 1.5 then -- Allow some buffer
+			return false
+		end
+		
+		-- Destroy the trap (no damage to Aki)
+		self:_destroyTrap("selfLaunch")
+		
+		-- Don't start cooldown for self-launch
+		return false
+	end
+
+	------------------------------------------------------------------------
+	-- MAIN VARIANT ACTIONS (existing Kon behavior)
+	------------------------------------------------------------------------
 
 	-- Request Kon Spawn
 	if action == "requestKonSpawn" then
@@ -234,7 +547,6 @@ function Kit:OnAbility(inputState, clientData)
 		local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
 		
 		if destructionLevel then
-			-- Scale radius based on destruction level
 			local radiusMap = {
 				Small = 6,
 				Big = 10,
@@ -249,8 +561,6 @@ function Kit:OnAbility(inputState, clientData)
 					debris = true,
 					debrisAmount = 8,
 				})
-				if not success then
-				end
 			end)
 		end
 

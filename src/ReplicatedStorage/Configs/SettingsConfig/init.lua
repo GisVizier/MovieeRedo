@@ -400,7 +400,7 @@ SettingsConfig.Categories = {
 					Max = 100,
 					Min = 0,
 					Step = 1,
-					Default = 100,
+					Default = 75,
 				},
 			},
 
@@ -989,7 +989,7 @@ SettingsConfig.DefaultSettings = {
 		DisplayArea = 0,
 		HorizontalSensitivity = 50,
 		VerticalSensitivity = 50,
-		ADSSensitivity = 100,
+		ADSSensitivity = 75,
 		FieldOfView = 70,
 		FieldOfViewEffects = 2,
 		ScreenShake = 1,

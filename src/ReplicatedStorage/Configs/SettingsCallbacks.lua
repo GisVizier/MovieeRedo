@@ -9,6 +9,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 local SettingsCallbacks = {}
+local ADS_SENSITIVITY_BASE_MULT = 0.75
 
 local function getLocalPlayer()
 	return Players.LocalPlayer
@@ -40,13 +41,13 @@ local function applyMouseSensitivityFromSettings()
 	end
 
 	local hipSensitivity = getNumericAttribute(player, "MouseSensitivityScale", UserInputService.MouseDeltaSensitivity or 1)
-	local adsSensitivityScale = getNumericAttribute(player, "ADSSensitivityScale", 1)
+	local adsSensitivityScale = getNumericAttribute(player, "ADSSensitivityScale", ADS_SENSITIVITY_BASE_MULT)
 	local adsSpeedMultiplier = getNumericAttribute(player, "ADSSpeedMultiplier", 1)
 	local isADSActive = player:GetAttribute("WeaponADSActive") == true
 
 	local targetSensitivity = hipSensitivity
 	if isADSActive then
-		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier
+		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier * ADS_SENSITIVITY_BASE_MULT
 	end
 
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)

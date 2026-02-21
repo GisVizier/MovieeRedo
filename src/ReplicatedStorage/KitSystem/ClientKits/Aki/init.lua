@@ -1,17 +1,21 @@
 --[[
 	Aki Client Kit
 	
-	Ability: Kon - Summon devil that rushes to target location and bites
+	Ability: KON - Two variants:
 	
-	Flow:
-	1. Press E → Play animation → Freezes at "freeze" marker
-	2. Hold → Animation frozen, player can aim
-	3. Release E → Animation continues, events trigger ability
+	TRAP VARIANT (E while crouching/sliding):
+	- Places a hidden Kon trap at player's feet
+	- Red outline visible to all for 1s, then only to owner
+	- 1 per match, no cooldown
+	- Auto-detects Aki proximity → self-launch away from trap (no damage)
 	
-	Animation Events:
+	MAIN VARIANT (E while standing):
+	- Hold → Aim → Release → Kon spawns at target → Bite
+	- Will be reworked into projectile variant later
+	
+	Animation Events (Main variant):
 	- freeze: Pause animation (Speed = 0)
-	- spawn: Spawn Kon via VFXRep
-	- bite: Hitbox + knockback + send to server
+	- place: Spawn Kon via VFXRep + hitbox
 	- _finish: Cleanup and restore weapon
 ]]
 
@@ -28,6 +32,7 @@ local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegis
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
+local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -44,6 +49,12 @@ local HITBOX_PREVIEW_FADE_TIME = 0.2
 local HITBOX_PREVIEW_FLOOR_PITCH_DEG = 90
 local GROUND_SNAP_HEIGHT = 12
 local GROUND_SNAP_DISTANCE = 180
+
+-- Trap variant constants
+local TRAP_MAX_RANGE = 20            -- Aiming range for trap placement (studs)
+local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Auto-detect proximity for self-launch
+local SELF_LAUNCH_HORIZONTAL = 80    -- Horizontal force away from trap pivot
+local SELF_LAUNCH_VERTICAL = 60      -- Upward force for self-launch
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -222,6 +233,12 @@ Aki._connections = {}
 -- Active ability state
 Aki._abilityState = nil
 
+-- Trap state (static - only one local player per client)
+Aki._trapPlaced = false          -- Has trap been placed this match?
+Aki._trapPosition = nil          -- Vector3 position of the placed trap
+Aki._trapProximityConn = nil     -- Heartbeat connection for self-launch proximity
+Aki._trapPlayerLeftRadius = false -- Has the player left trap radius since placement?
+
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
@@ -371,7 +388,8 @@ local function startHitboxPreview(state)
 		if not state.active or state.cancelled or state.released then
 			return
 		end
-		local targetCFrame, surfaceNormal = getTargetLocation(state.character, MAX_RANGE)
+		local range = state.maxRange or MAX_RANGE
+		local targetCFrame, surfaceNormal = getTargetLocation(state.character, range)
 		if not targetCFrame then
 			return
 		end
@@ -481,6 +499,118 @@ local function stopHitboxPreview(state, fadeDuration: number?)
 end
 
 --------------------------------------------------------------------------------
+-- Trap Variant Helpers
+--------------------------------------------------------------------------------
+
+--[[ Clean up trap proximity detection loop ]]
+local function cleanupTrapProximity()
+	if Aki._trapProximityConn then
+		Aki._trapProximityConn:Disconnect()
+		Aki._trapProximityConn = nil
+	end
+end
+
+--[[ Perform the self-launch from the trap: launch away from trap pivot, destroy trap ]]
+local function performSelfLaunch()
+	if not Aki._trapPosition then return end
+
+	local character = LocalPlayer.Character
+	if not character then return end
+
+	local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local trapPos = Aki._trapPosition
+
+	-- Calculate direction AWAY from trap
+	local awayDir = (root.Position - trapPos)
+	if awayDir.Magnitude < 0.001 then
+		awayDir = root.CFrame.LookVector
+	end
+	awayDir = awayDir.Unit
+
+	-- Build launch velocity: strong horizontal away + strong upward
+	local horizontalDir = Vector3.new(awayDir.X, 0, awayDir.Z)
+	if horizontalDir.Magnitude < 0.001 then
+		horizontalDir = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	end
+	if horizontalDir.Magnitude > 0.001 then
+		horizontalDir = horizontalDir.Unit
+	else
+		horizontalDir = Vector3.zAxis
+	end
+
+	local launchVelocity = horizontalDir * SELF_LAUNCH_HORIZONTAL + Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
+
+	-- Clear vertical velocity for a clean launch
+	root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1)
+
+	-- Apply launch via MovementController (same pattern as Shorty)
+	local movementController = ServiceRegistry:GetController("Movement")
+		or ServiceRegistry:GetController("MovementController")
+	if movementController and movementController.BeginExternalLaunch then
+		movementController:BeginExternalLaunch(launchVelocity, 0.28)
+	else
+		root.AssemblyLinearVelocity = launchVelocity
+	end
+
+	-- Send to server for validation
+	local kitController = ServiceRegistry:GetController("Kit")
+	if kitController then
+		kitController:requestActivateAbility("Ability", Enum.UserInputState.Begin, {
+			action = "selfLaunch",
+			allowMultiple = true,
+		})
+	end
+
+	-- Destroy trap VFX locally (immediate feedback)
+	VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
+
+	-- Clean up local trap state
+	Aki._trapPosition = nil
+	Aki._trapPlayerLeftRadius = false
+	cleanupTrapProximity()
+end
+
+--[[ Start proximity detection loop for self-launch.
+     Only triggers once the player has LEFT the trap radius and returned. ]]
+local function startSelfLaunchProximity()
+	cleanupTrapProximity()
+
+	Aki._trapPlayerLeftRadius = false -- Must leave radius first before self-launch activates
+
+	Aki._trapProximityConn = RunService.Heartbeat:Connect(function()
+		-- Guard: if trap was destroyed, stop checking
+		if not Aki._trapPosition then
+			cleanupTrapProximity()
+			return
+		end
+
+		local character = LocalPlayer.Character
+		if not character then return end
+
+		local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+
+		local distance = (root.Position - Aki._trapPosition).Magnitude
+
+		-- Player must leave radius before self-launch can activate
+		if not Aki._trapPlayerLeftRadius then
+			if distance > TRAP_SELF_LAUNCH_RADIUS then
+				Aki._trapPlayerLeftRadius = true
+			end
+			return
+		end
+
+		-- Auto-detect: if player is within radius and has previously left, trigger self-launch
+		if distance <= TRAP_SELF_LAUNCH_RADIUS then
+			performSelfLaunch()
+		end
+	end)
+end
+
+
+--------------------------------------------------------------------------------
 -- Ability: Kon
 --------------------------------------------------------------------------------
 
@@ -491,10 +621,25 @@ function Aki.Ability:OnStart(abilityRequest)
 
 	local kitController = ServiceRegistry:GetController("Kit")
 
-	if kitController:IsAbilityActive() then return end
-	if abilityRequest.IsOnCooldown() then return end
+	------------------------------------------------------------------------
+	-- Detect variant: Crouch/Slide → Trap, Standing → Main
+	------------------------------------------------------------------------
+	local isCrouching = MovementStateManager:IsCrouching()
+	local isSliding = MovementStateManager:IsSliding()
+	local isTrapVariant = (isCrouching or isSliding)
 
-	-- Start ability
+	-- Trap-specific guards
+	if isTrapVariant then
+		if Aki._trapPlaced then return end -- 1 per match
+	end
+
+	-- Common guards
+	if kitController:IsAbilityActive() then return end
+	if not isTrapVariant and abilityRequest.IsOnCooldown() then return end
+
+	------------------------------------------------------------------------
+	-- Start ability (both variants use the same animation/hold/release flow)
+	------------------------------------------------------------------------
 	local ctx = abilityRequest.StartAbility()
 	local unlock = kitController:LockWeaponSwitch()
 
@@ -518,6 +663,9 @@ function Aki.Ability:OnStart(abilityRequest)
 	playStartSound(viewmodelRig)
 	playAbilityVoice(viewmodelRig)
 
+	-- Determine ability range based on variant
+	local abilityRange = isTrapVariant and TRAP_MAX_RANGE or MAX_RANGE
+
 	-- State tracking
 	local state = {
 		active = true,
@@ -529,6 +677,8 @@ function Aki.Ability:OnStart(abilityRequest)
 		character = character,
 		viewmodelRig = viewmodelRig,
 		connections = {},
+		isTrapPlacement = isTrapVariant,
+		maxRange = abilityRange,
 	}
 	Aki._abilityState = state
 
@@ -536,7 +686,7 @@ function Aki.Ability:OnStart(abilityRequest)
 	animation:AdjustSpeed(1.3)
 	local Events = {
 		["freeze"] = function()
-			-- Pause animation until released
+			-- Pause animation until released (both variants show preview here)
 			if state.active and not state.released then
 				animation:AdjustSpeed(0)
 				replicateTrackSpeed(VM_ANIM_NAME, 0)
@@ -556,122 +706,149 @@ function Aki.Ability:OnStart(abilityRequest)
 			if not state.active or state.cancelled then return end
 			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
 
-			-- Get target location at moment of spawn (prefer held preview target)
+			-- Get target location at moment of placement (prefer held preview target)
 			local targetCFrame = state.previewTargetCFrame
 			local surfaceNormal = state.previewSurfaceNormal
 			if not targetCFrame then
-				targetCFrame, surfaceNormal = getTargetLocation(character, MAX_RANGE)
+				targetCFrame, surfaceNormal = getTargetLocation(character, abilityRange)
 			end
 			if not targetCFrame then return end
 			
 			surfaceNormal = surfaceNormal or Vector3.yAxis
-
 			state.targetCFrame = targetCFrame
 
-			-- Send to server for validation
-			abilityRequest.Send({
-				action = "requestKonSpawn",
-				targetPosition = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
-				targetLookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
-			})
+			if state.isTrapPlacement then
+				----------------------------------------------------------------
+				-- TRAP VARIANT: Place hidden trap at aimed position
+				----------------------------------------------------------------
+				local pos = targetCFrame.Position
 
-			-- Spawn Kon for ALL clients via VFXRep
-			VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
-				position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
-				lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
-				surfaceNormal = { X = surfaceNormal.X, Y = surfaceNormal.Y, Z = surfaceNormal.Z },
-			})
-
-			local targets = Hitbox.GetCharactersInSphere(targetCFrame.Position, BITE_RADIUS, {
-				Exclude = abilityRequest.player,
-			})
-
-			-- Knockback
-			local knockbackController = ServiceRegistry:GetController("Knockback")
-			local hitList = {}
-			local hitAnyPlayer = false
-			
-			for _, targetChar in ipairs(targets) do
-				if knockbackController then
-					local direction = (targetChar.PrimaryPart.Position - targetCFrame.Position).Unit
-
-					knockbackController:ApplyKnockback(targetChar, direction, {
-						upwardVelocity = 60,
-						outwardVelocity = 30,
-						preserveMomentum = -1.0,
-					})
-				end
-
-				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-				if targetPlayer then
-					hitAnyPlayer = true
-				end
-				
-				table.insert(hitList, {
-					characterName = targetChar.Name,
-					playerId = targetPlayer and targetPlayer.UserId or nil,
-					isDummy = targetPlayer == nil,
+				-- Send to server for validation
+				abilityRequest.Send({
+					action = "placeTrap",
+					position = { X = pos.X, Y = pos.Y, Z = pos.Z },
+					allowMultiple = true,
 				})
-			end
-			
-			-- Play hit voice if we hit any player
-			if hitAnyPlayer then
-				task.delay(0.3, playHitVoice)
-			end
-			
-			task.spawn(function()
-				task.wait(.6)
-				
-				if not state.active or state.cancelled then return end
-				if viewmodelController:GetActiveSlot() ~= "Fists" then return end
-				if not state.targetCFrame then return end
 
-				local bitePosition = state.targetCFrame.Position
+				-- Broadcast trap indicator VFX to all clients
+				VFXRep:Fire("All", { Module = "Kon", Function = "placeTrap" }, {
+					position = { X = pos.X, Y = pos.Y, Z = pos.Z },
+					ownerId = LocalPlayer.UserId,
+				})
 
-				-- Hitbox
-				local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
+				-- Update local trap state
+				Aki._trapPlaced = true
+				Aki._trapPosition = pos
+
+				-- Start self-launch proximity detection
+				startSelfLaunchProximity()
+			else
+				----------------------------------------------------------------
+				-- MAIN VARIANT: Spawn Kon at aimed position
+				----------------------------------------------------------------
+
+				-- Send to server for validation
+				abilityRequest.Send({
+					action = "requestKonSpawn",
+					targetPosition = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
+					targetLookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
+				})
+
+				-- Spawn Kon for ALL clients via VFXRep
+				VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
+					position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
+					lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
+					surfaceNormal = { X = surfaceNormal.X, Y = surfaceNormal.Y, Z = surfaceNormal.Z },
+				})
+
+				local targets = Hitbox.GetCharactersInSphere(targetCFrame.Position, BITE_RADIUS, {
 					Exclude = abilityRequest.player,
 				})
 
 				-- Knockback
 				local knockbackController = ServiceRegistry:GetController("Knockback")
 				local hitList = {}
-
+				local hitAnyPlayer = false
+				
 				for _, targetChar in ipairs(targets) do
 					if knockbackController then
-						local direction = (targetChar.PrimaryPart.Position - bitePosition).Unit
-						
-						knockbackController:ApplyKnockback(targetChar, direction, {
-							upwardVelocity = 150,       -- Good lift (slightly less than jump pad)
-							outwardVelocity = 180,     -- Strong horizontal push away
-							preserveMomentum = 0.25,
-						})
+						local direction = (targetChar.PrimaryPart.Position - targetCFrame.Position).Unit
 
-						--knockbackController:ApplyKnockbackPreset(targetChar, `FlingHuge`, bitePosition)
+						knockbackController:ApplyKnockback(targetChar, direction, {
+							upwardVelocity = 60,
+							outwardVelocity = 30,
+							preserveMomentum = -1.0,
+						})
 					end
 
 					local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+					if targetPlayer then
+						hitAnyPlayer = true
+					end
+					
 					table.insert(hitList, {
 						characterName = targetChar.Name,
 						playerId = targetPlayer and targetPlayer.UserId or nil,
 						isDummy = targetPlayer == nil,
 					})
 				end
+				
+				-- Play hit voice if we hit any player
+				if hitAnyPlayer then
+					task.delay(0.3, playHitVoice)
+				end
+				
+				task.spawn(function()
+					task.wait(.6)
+					
+					if not state.active or state.cancelled then return end
+					if viewmodelController:GetActiveSlot() ~= "Fists" then return end
+					if not state.targetCFrame then return end
 
-				-- Send hits to server
-				abilityRequest.Send({
-					action = "konBite",
-					hits = hitList,
-					bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
-				})
+					local bitePosition = state.targetCFrame.Position
 
-				-- Caster bite effects
-				VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-					ViewModel = viewmodelRig,
-					forceAction = "bite",
-				})
-			end)
+					-- Hitbox
+					local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
+						Exclude = abilityRequest.player,
+					})
 
+					-- Knockback
+					local knockbackController = ServiceRegistry:GetController("Knockback")
+					local hitList = {}
+
+					for _, targetChar in ipairs(targets) do
+						if knockbackController then
+							local direction = (targetChar.PrimaryPart.Position - bitePosition).Unit
+							
+							knockbackController:ApplyKnockback(targetChar, direction, {
+								upwardVelocity = 150,
+								outwardVelocity = 180,
+								preserveMomentum = 0.25,
+							})
+						end
+
+						local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+						table.insert(hitList, {
+							characterName = targetChar.Name,
+							playerId = targetPlayer and targetPlayer.UserId or nil,
+							isDummy = targetPlayer == nil,
+						})
+					end
+
+					-- Send hits to server
+					abilityRequest.Send({
+						action = "konBite",
+						hits = hitList,
+						bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
+					})
+
+					-- Caster bite effects
+					VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+						ViewModel = viewmodelRig,
+						forceAction = "bite",
+					})
+				end)
+			end
 		end,
 
 		["_finish"] = function()
@@ -793,6 +970,11 @@ end
 
 function Aki:OnEquip(ctx)
 	self._ctx = ctx
+	-- Reset trap state on re-equip (handles round restart where kit is re-used)
+	Aki._trapPlaced = false
+	Aki._trapPosition = nil
+	Aki._trapPlayerLeftRadius = false
+	cleanupTrapProximity()
 end
 
 function Aki:OnUnequip(reason)
@@ -807,6 +989,14 @@ function Aki:OnUnequip(reason)
 	if Aki._abilityState and Aki._abilityState.active then
 		Aki.Ability:OnInterrupt(nil, "unequip")
 	end
+
+	-- Clean up trap proximity detection
+	cleanupTrapProximity()
+
+	-- Reset trap state (kit is destroyed on death/round end, trap resets)
+	Aki._trapPlaced = false
+	Aki._trapPosition = nil
+	Aki._trapPlayerLeftRadius = false
 end
 
 function Aki:Destroy()

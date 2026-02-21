@@ -222,9 +222,9 @@ KitConfig.Kits = {
 
 		Ability = {
 			Name = "KON",
-			Description = "Call your Devil to rush in, deliver a vicious bite, and then vanish in a burst of smoke.",
+			Description = "Crouch + E: Place a hidden trap (1 per match) that bites enemies for 75 dmg. Stand + E: Hurl Kon as an arcing projectile for 30 dmg. Both apply a crippling slow.",
 			Video = "",
-			Damage = 32.5,
+			Damage = 75,
 			DamageType = "AOE",
 			Destruction = "Big",
 			Cooldown = 7,
