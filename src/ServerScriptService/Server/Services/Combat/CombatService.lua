@@ -361,6 +361,14 @@ function CombatService:ApplyDamage(
 	local dealtDamage = (result.healthDamage or 0) + (result.shieldDamage or 0) + (result.overshieldDamage or 0)
 	self:_broadcastDamage(targetPlayer, dealtDamage, options)
 
+	-- Track damage for match leaderboard
+	if options.source and options.source ~= targetPlayer and dealtDamage > 0 then
+		local matchManager = self._registry and self._registry:TryGet("MatchManager")
+		if matchManager and matchManager.NotifyDamageDealt then
+			matchManager:NotifyDamageDealt(options.source, targetPlayer, dealtDamage)
+		end
+	end
+
 	-- Death is already handled by the OnDeath signal fired from CombatResource:TakeDamage.
 	-- Do NOT call _handleDeath here: _resetRound (triggered by OnPlayerKilled) immediately
 	-- revives players and resets _deathHandled, so a second call would run fully and double-count kills.

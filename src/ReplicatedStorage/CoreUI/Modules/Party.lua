@@ -711,6 +711,8 @@ function module:_updateActivePlayerInPartyState(userId, inParty)
 
 		if inviteButton then
 			inviteButton.TextLabel.Text = "Invite"
+			inviteButton.Active = true
+			inviteButton.Interactable = true
 
 			local inviteGradient = inviteButton:FindFirstChild("UIGradient")
 			if inviteGradient then
@@ -968,31 +970,9 @@ function module:_invitePlayer(userId)
 		
 		inviteButton.Active = false
 		inviteButton.Interactable = false
-		
-		task.delay(INVITE_DELAY, function()
-			if not self._pendingInvites[userId] then
-				return
-			end
-
-			self._pendingInvites[userId] = nil
-
-			self:_createPartyTemplate(userId, false)
-			self:_updateActivePlayerInPartyState(userId, true)
-
-			local partyData = self._partyData[userId]
-			self._export:emit("PartyMemberAdded", {
-				userId = userId,
-				displayName = partyData and partyData.displayName or "",
-				username = partyData and partyData.username or "",
-				position = partyData and partyData.position or 1,
-			})
-
-			local actionsModule = self._export:getModule("Start")
-			if actionsModule and actionsModule.createTemplate then
-				actionsModule:createTemplate(userId)
-			end
-		end)
 	end
+
+	self._export:emit("PartyInviteSend", { targetUserId = userId })
 end
 
 function module:_populateActivePlayers()
@@ -1301,6 +1281,118 @@ function module:_setupEventListeners()
 	self._export:on("KickPartyMember", function(userId)
 		self:_removePartyTemplate(userId)
 	end)
+
+	self._export:on("PartyUpdate", function(data)
+		if type(data) ~= "table" then
+			return
+		end
+		self:_onPartyUpdate(data)
+	end)
+
+	self._export:on("PartyDisbanded", function()
+		self:_onPartyDisbanded()
+	end)
+
+	self._export:on("PartyKicked", function()
+		self:_onPartyDisbanded()
+	end)
+
+	self._export:on("PartyInviteDeclined", function(data)
+		if type(data) == "table" and data.targetUserId then
+			self._pendingInvites[data.targetUserId] = nil
+			self:_resetInviteButton(data.targetUserId)
+		end
+	end)
+
+	self._export:on("PartyInviteBusy", function(data)
+		if type(data) == "table" and data.targetUserId then
+			self._pendingInvites[data.targetUserId] = nil
+			self:_resetInviteButton(data.targetUserId)
+		end
+	end)
+end
+
+function module:_onPartyUpdate(data)
+	local localUserId = self:_getLocalPlayer()
+	local members = data.members or {}
+
+	local newSet = {}
+	for _, uid in ipairs(members) do
+		newSet[uid] = true
+	end
+
+	for uid in pairs(self._partyData) do
+		if not newSet[uid] then
+			self:_removePartyTemplate(uid)
+		end
+	end
+
+	for _, uid in ipairs(members) do
+		if not self._partyData[uid] then
+			local isLeader = uid == data.leaderId
+			self:_createPartyTemplate(uid, isLeader)
+			if uid ~= localUserId then
+				self:_updateActivePlayerInPartyState(uid, true)
+			end
+		else
+			self._partyData[uid].isLeader = uid == data.leaderId
+		end
+	end
+
+	for uid in pairs(self._pendingInvites) do
+		if newSet[uid] then
+			self._pendingInvites[uid] = nil
+		end
+	end
+end
+
+function module:_onPartyDisbanded()
+	local uidsToRemove = {}
+	for uid in pairs(self._partyData) do
+		table.insert(uidsToRemove, uid)
+	end
+
+	for _, uid in ipairs(uidsToRemove) do
+		local localUserId = self:_getLocalPlayer()
+		if uid ~= localUserId then
+			self:_removePartyTemplate(uid)
+		end
+	end
+
+	table.clear(self._pendingInvites)
+end
+
+function module:_resetInviteButton(userId)
+	local activeData = self._activePlayerData[userId]
+	if not activeData then
+		return
+	end
+
+	activeData.invited = false
+	local inviteButton = activeData.template.Actions:FindFirstChild("Invite")
+	if inviteButton then
+		inviteButton.TextLabel.Text = "Invite"
+		inviteButton.Active = true
+		inviteButton.Interactable = true
+
+		local inviteGradient = inviteButton:FindFirstChild("UIGradient")
+		if inviteGradient then
+			inviteGradient.Enabled = true
+		end
+
+		if activeData.originalInviteButtonColor then
+			TweenService:Create(inviteButton, TWEEN_SELECT, {
+				BackgroundColor3 = activeData.originalInviteButtonColor,
+			}):Play()
+		end
+
+		local inviteStroke = inviteButton:FindFirstChild("UIStroke")
+		if inviteStroke and activeData.originalInviteStrokeColor then
+			TweenService:Create(inviteStroke, TWEEN_SELECT, {
+				Color = activeData.originalInviteStrokeColor,
+			}):Play()
+		end
+	end
 end
 
 -- Visual transition for showing (fade in with Black overlay)

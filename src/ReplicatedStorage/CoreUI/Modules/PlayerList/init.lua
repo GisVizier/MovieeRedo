@@ -115,11 +115,22 @@ function module.start(export, ui)
 	self._defaultSection = DEFAULT_SECTION
 	self._isPanelVisible = true
 
+	self._playerShowFrame = nil
+	self._inviteFrame = nil
+	self._partyState = nil
+	self._pendingInvite = nil
+	self._inviteTimerThread = nil
+	self._userLeaveTemplate = nil
+	self._userLeaveInstance = nil
+
 	self:_bindUi()
 	self:_bindInput()
 	self:_bindEvents()
+	self:_bindPartyEvents()
 	self:_bootstrapPlayers()
 	self:_ensureCurrentUserCard()
+	self:_ensureUserLeaveAction()
+	self:_updateUserLeaveAction()
 
 	self._ui.Visible = true
 	self:_setPanelVisible(true, false)
@@ -151,21 +162,29 @@ function module:_bindUi()
 	self._scrollingLayout = self._scrollingFrame and self._scrollingFrame:FindFirstChild("UIListLayout")
 	self._userFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("User")
 
+	local assetsGui = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("Gui")
+	self._rowTemplate = assetsGui and assetsGui:FindFirstChild("PlayerlistTemp")
+	self._userLeaveTemplate = assetsGui and assetsGui:FindFirstChild("LeavePartyTemplate")
+
 	for _, sectionId in ipairs(SECTION_IDS) do
 		local sectionFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild(sectionId)
 		local sectionHolder = sectionFrame and sectionFrame:FindFirstChild("Holder")
-		local template = sectionHolder and (sectionHolder:FindFirstChild("Template") or sectionHolder:FindFirstChild("User"))
 		local headerButton = sectionHolder and sectionHolder:FindFirstChild("InGame")
 		local countLabel = headerButton and headerButton:FindFirstChild("Aim")
 
-		if template and template:IsA("GuiObject") then
-			template.Visible = false
+		if sectionFrame and sectionFrame:IsA("GuiObject") then
+			sectionFrame.AutomaticSize = Enum.AutomaticSize.Y
+			sectionFrame.Size = UDim2.new(sectionFrame.Size.X, UDim.new(0, 0))
+		end
+		if sectionHolder and sectionHolder:IsA("GuiObject") then
+			sectionHolder.AutomaticSize = Enum.AutomaticSize.Y
+			sectionHolder.Size = UDim2.new(sectionHolder.Size.X, UDim.new(0, 0))
 		end
 
 		self._sections[sectionId] = {
 			frame = sectionFrame,
 			holder = sectionHolder,
-			template = template,
+			template = self._rowTemplate,
 			headerButton = headerButton,
 			countLabel = countLabel,
 			open = true,
@@ -181,6 +200,16 @@ function module:_bindUi()
 	self:_syncTabVisuals(false)
 	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
+
+	self._playerShowFrame = self._ui:FindFirstChild("PlayerShow")
+	if self._playerShowFrame then
+		self._playerShowFrame.Visible = false
+	end
+
+	self._inviteFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("Invite")
+	if self._inviteFrame then
+		self._inviteFrame.Visible = false
+	end
 end
 
 function module:_updateSectionCounts()
@@ -224,6 +253,12 @@ function module:_ensureCurrentUserCard()
 		return
 	end
 
+	for _, child in self._userFrame:GetChildren() do
+		if child:IsA("GuiObject") then
+			child.Visible = false
+		end
+	end
+
 	local frame = template:Clone()
 	frame.Name = "CurrentUser"
 	frame.Visible = true
@@ -235,10 +270,15 @@ function module:_ensureCurrentUserCard()
 		frame = frame,
 		refs = self:_captureRowRefs(frame),
 		data = data,
+		hovered = false,
+		selected = false,
+		pulseToken = 0,
+		glowTweens = {},
 	}
 	self:_applyRowData(row)
 	self:_setGlowVisibility(row, false)
 	self:_setGlowInstant(row, TweenConfig.Values.HiddenGlowTransparency)
+	self:_connectRowInteractions(row)
 
 	self._currentUserRow = row
 end
@@ -261,6 +301,58 @@ function module:_updateCurrentUserCard()
 	end
 	self._currentUserRow.data = data
 	self:_applyRowData(self._currentUserRow)
+	self:_updateUserLeaveAction()
+end
+
+function module:_ensureUserLeaveAction()
+	if not self._scrollingFrame or not self._userFrame or self._userLeaveInstance or not self._userLeaveTemplate then
+		return
+	end
+
+	local instance = self._userLeaveTemplate:Clone()
+	instance.Name = "UserLeaveAction"
+	instance.Visible = false
+	if instance:IsA("GuiObject") then
+		instance.LayoutOrder = (self._userFrame.LayoutOrder or 0) + 1
+	end
+	instance.Parent = self._scrollingFrame
+	self._userLeaveInstance = instance
+end
+
+function module:_updateUserLeaveAction()
+	if not self._userLeaveInstance then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		self._userLeaveInstance.Visible = false
+		return
+	end
+
+	local inParty = self._partyState ~= nil
+	local isLeader = inParty and self._partyState.leaderId == localPlayer.UserId
+	self._userLeaveInstance.Visible = inParty
+	self:_refreshCanvasSize()
+
+	local button = self._userLeaveInstance:FindFirstChild("InviteHolder", true)
+	button = button and button:FindFirstChild("Holder")
+	button = button and button:FindFirstChild("Accept")
+	local label = button and button:FindFirstChild("Invited")
+	if label and label:IsA("TextLabel") then
+		label.Text = isLeader and "DISBAND" or "LEAVE"
+	end
+
+	self._connections:cleanupGroup("userLeaveAction")
+	if button and button:IsA("GuiButton") and inParty then
+		self._connections:track(button, "Activated", function()
+			print("[PlayerList] USER ACTION clicked:", isLeader and "DISBAND" or "LEAVE")
+			self._export:emit("PartyLeave")
+			self:_eagerClearParty()
+			self:_hidePlayerShow()
+			self:_clearSelection()
+		end, "userLeaveAction")
+	end
 end
 
 function module:_bindInput()
@@ -272,6 +364,10 @@ function module:_bindInput()
 			return
 		end
 		if UserInputService:GetFocusedTextBox() then
+			return
+		end
+		-- Don't allow player list toggle during match
+		if self._matchStatus == "InGame" then
 			return
 		end
 		self:toggleVisibility()
@@ -350,16 +446,18 @@ function module:_bindEvents()
 
 	self._connections:add(self._export:on("MatchStart", function()
 		self:setMatchStatus("InGame")
-		self:setPanelVisible(false)
 	end), "events")
 
 	self._connections:add(self._export:on("RoundStart", function()
 		self:setMatchStatus("InGame")
-		self:setPanelVisible(false)
 	end), "events")
 
 	self._connections:add(self._export:on("ReturnToLobby", function()
 		self:setMatchStatus("InLobby")
+	end), "events")
+
+	self._connections:add(self._export:on("TrainingStart", function()
+		self:setMatchStatus("InGame")
 	end), "events")
 
 	self._connections:track(Players, "PlayerAdded", function(player)
@@ -369,6 +467,16 @@ function module:_bindEvents()
 	self._connections:track(Players, "PlayerRemoving", function(player)
 		self:removePlayer(player.UserId)
 	end, "players")
+
+	-- Refresh local player section when PlayerState/InLobby changes (e.g. return to lobby)
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		local function refreshLocalPlayerSection()
+			self:updatePlayer(localPlayer)
+		end
+		self._connections:add(localPlayer:GetAttributeChangedSignal("PlayerState"):Connect(refreshLocalPlayerSection), "attributes")
+		self._connections:add(localPlayer:GetAttributeChangedSignal("InLobby"):Connect(refreshLocalPlayerSection), "attributes")
+	end
 end
 
 function module:_bootstrapPlayers()
@@ -422,25 +530,29 @@ function module:_buildPlayerData(inputData)
 	end
 
 	local explicitSection = normalizeSection(tableData.section or tableData.statusSection)
-	local inParty = toBoolean(tableData.inParty, false)
-	if not inParty and livePlayer then
-		inParty = toBoolean(livePlayer:GetAttribute("InParty"), false)
+
+	local inParty
+	if tableData.inParty ~= nil then
+		inParty = toBoolean(tableData.inParty, false)
+	elseif self._partyState then
+		inParty = table.find(self._partyState.members, userId) ~= nil
+	else
+		inParty = false
 	end
 
 	local section = explicitSection
-	if not section then
-		if inParty then
-			section = "InParty"
+	if inParty then
+		-- Party state is authoritative for player list sectioning.
+		section = "InParty"
+	elseif not section then
+		local state = livePlayer and livePlayer:GetAttribute("PlayerState")
+		local inLobby = livePlayer and toBoolean(livePlayer:GetAttribute("InLobby"), false)
+		if inLobby or state == "Lobby" then
+			section = "InLobby"
+		elseif self._defaultSection == "InGame" or state == "InMatch" or state == "Training" then
+			section = "InGame"
 		else
-			local state = livePlayer and livePlayer:GetAttribute("PlayerState")
-			local inLobby = livePlayer and toBoolean(livePlayer:GetAttribute("InLobby"), false)
-			if inLobby or state == "Lobby" then
-				section = "InLobby"
-			elseif self._defaultSection == "InGame" or state == "InMatch" or state == "Training" then
-				section = "InGame"
-			else
-				section = DEFAULT_SECTION
-			end
+			section = DEFAULT_SECTION
 		end
 	end
 
@@ -481,6 +593,7 @@ function module:_buildPlayerData(inputData)
 		isDev = isDev,
 		isPremium = isPremium,
 		isVerified = isVerified,
+		inParty = inParty,
 		sectionLocked = explicitSection ~= nil,
 	}
 end
@@ -715,14 +828,7 @@ function module:_getRowTemplate(sectionId)
 	if sectionData and sectionData.template then
 		return sectionData.template
 	end
-	-- Fallback: use first section that has a template (e.g. InGame may have no Template in UI)
-	for _, sid in ipairs(SECTION_IDS) do
-		local sd = self._sections[sid]
-		if sd and sd.template then
-			return sd.template
-		end
-	end
-	return nil
+	return self._rowTemplate
 end
 
 function module:_createRow(data)
@@ -876,8 +982,14 @@ function module:_refreshCanvasSize()
 	if not self._scrollingFrame or not self._scrollingLayout then
 		return
 	end
-	local sizeY = self._scrollingLayout.AbsoluteContentSize.Y + 8
-	self._scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, sizeY)
+	local function apply()
+		if self._scrollingFrame and self._scrollingLayout then
+			local sizeY = self._scrollingLayout.AbsoluteContentSize.Y + 8
+			self._scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, sizeY)
+		end
+	end
+	apply()
+	task.defer(apply)
 end
 
 function module:_toggleSection(sectionId)
@@ -932,20 +1044,33 @@ end
 
 function module:_clearSelection()
 	local selected = self._selectedUserId and self._rows[self._selectedUserId]
+	if not selected then
+		local localPlayer = Players.LocalPlayer
+		if localPlayer and self._selectedUserId == localPlayer.UserId then
+			selected = self._currentUserRow
+		end
+	end
 	if selected then
 		selected.selected = false
 		self:_stopHoverPulse(selected)
 	end
 	self._selectedUserId = nil
+	self:_hidePlayerShow()
 end
 
 function module:_selectUser(userId)
 	local row = self._rows[userId]
 	if not row then
-		return
+		local localPlayer = Players.LocalPlayer
+		if localPlayer and userId == localPlayer.UserId and self._currentUserRow then
+			row = self._currentUserRow
+		else
+			return
+		end
 	end
 
 	if self._selectedUserId == userId then
+		self:_clearSelection()
 		return
 	end
 
@@ -958,6 +1083,8 @@ function module:_selectUser(userId)
 
 	self:_setGlowVisibility(row, true)
 	self:_tweenGlow(row, TweenConfig.Values.SelectedGlowTransparency, TweenConfig.get("Glow", "selectIn"))
+
+	self:_showPlayerShow(userId, row.data)
 
 	self._export:emit("PlayerList_PlayerSelected", {
 		userId = row.data.userId,
@@ -987,6 +1114,21 @@ function module:addPlayer(payload)
 
 	self._playersByUserId[data.userId] = data
 
+	-- Local player is rendered only in the dedicated "User" container.
+	-- Keep it out of section lists to avoid duplicate entries (InLobby/InParty).
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and data.userId == localPlayer.UserId then
+		local existingLocalRow = self._rows[data.userId]
+		if existingLocalRow then
+			self:_destroyRow(existingLocalRow)
+			self._rows[data.userId] = nil
+		end
+		self:_updateCurrentUserCard()
+		self:_updateSectionCounts()
+		self:_refreshCanvasSize()
+		return
+	end
+
 	local existingRow = self._rows[data.userId]
 	if existingRow and existingRow.section ~= data.section then
 		self:_destroyRow(existingRow)
@@ -1010,7 +1152,6 @@ function module:addPlayer(payload)
 	self:_refreshCanvasSize()
 
 	-- Keep User frame wins/streak in sync with actual profile data
-	local localPlayer = Players.LocalPlayer
 	if localPlayer and data.userId == localPlayer.UserId then
 		self:_updateCurrentUserCard()
 	end
@@ -1084,10 +1225,21 @@ function module:setMatchStatus(status)
 		if lower == "lobby" or lower == "inlobby" then
 			self._defaultSection = "InLobby"
 			self._matchStatus = "InLobby"
-		elseif lower == "ingame" or lower == "match" then
+		elseif lower == "ingame" or lower == "match" or lower == "training" then
 			self._defaultSection = "InGame"
 			self._matchStatus = "InGame"
 		end
+	end
+
+	-- Use proper hide/show methods for full visibility state (not halfway)
+	if self._matchStatus == "InGame" then
+		-- Properly hide: use _setPanelVisible for full hide flow (instant for match/training)
+		self:_setPanelVisible(false, false)
+		self._export:setModuleState("PlayerList", false)
+	elseif self._matchStatus == "InLobby" then
+		-- Properly show: use _setPanelVisible for full restore (panel open, animated)
+		self:_setPanelVisible(true, true)
+		self._export:setModuleState("PlayerList", true)
 	end
 
 	for userId, data in pairs(self._playersByUserId) do
@@ -1122,11 +1274,10 @@ end
 
 function module:_setPanelVisible(visible, animated)
 	self._isPanelVisible = visible
-	self._ui.Visible = true
 
 	if not self._panelGroup or not self._panelGroup:IsA("GuiObject") then
-		if not visible then
-			self._ui.Visible = false
+		if self._ui and self._ui:IsA("GuiObject") then
+			self._ui.Visible = visible
 		end
 		return
 	end
@@ -1134,35 +1285,65 @@ function module:_setPanelVisible(visible, animated)
 	local tweenInfo = visible and TweenConfig.get("Panel", "show") or TweenConfig.get("Panel", "hide")
 	local targetTransparency = visible and 0 or 1
 
-	if animated then
-		local tween = buildTween(self._panelGroup, tweenInfo, { GroupTransparency = targetTransparency })
-		if tween then
-			tween:Play()
+	if visible then
+		self._ui.Visible = true
+		if animated then
+			local tween = buildTween(self._panelGroup, tweenInfo, { GroupTransparency = targetTransparency })
+			if tween then
+				tween:Play()
+			else
+				self._panelGroup.GroupTransparency = targetTransparency
+			end
 		else
 			self._panelGroup.GroupTransparency = targetTransparency
 		end
 	else
-		self._panelGroup.GroupTransparency = targetTransparency
-	end
-
-	if not visible then
-		task.delay(tweenInfo.Time, function()
-			if not self._isPanelVisible then
+		-- Hide: set panel transparent first, then hide root
+		if animated then
+			self._ui.Visible = true
+			local tween = buildTween(self._panelGroup, tweenInfo, { GroupTransparency = targetTransparency })
+			if tween then
+				tween:Play()
+			else
+				self._panelGroup.GroupTransparency = targetTransparency
+			end
+			task.delay(tweenInfo.Time, function()
+				if not self._isPanelVisible and self._ui and self._ui:IsA("GuiObject") then
+					self._ui.Visible = false
+				end
+			end)
+		else
+			-- Instant hide: no animation, no delay
+			self._panelGroup.GroupTransparency = targetTransparency
+			if self._ui and self._ui:IsA("GuiObject") then
 				self._ui.Visible = false
 			end
-		end)
+		end
 	end
 end
 
 function module:setPanelVisible(visible)
+	-- During match, only allow hiding (never showing)
+	if self._matchStatus == "InGame" and visible then
+		return
+	end
 	self:_setPanelVisible(visible == true, true)
 end
 
 function module:toggleVisibility()
+	-- Don't show player list during match
+	if self._matchStatus == "InGame" then
+		self:_setPanelVisible(false, true)
+		return
+	end
 	self:_setPanelVisible(not self._isPanelVisible, true)
 end
 
 function module:show()
+	-- Don't show player list during match
+	if self._matchStatus == "InGame" then
+		return false
+	end
 	self:_setPanelVisible(true, true)
 	self._export:setModuleState("PlayerList", true)
 	return true
@@ -1173,6 +1354,615 @@ function module:hide()
 	self._export:setModuleState("PlayerList", false)
 	return true
 end
+
+--------------------------------------------------------------------------------
+-- PLAYER SHOW CARD
+--------------------------------------------------------------------------------
+
+function module:_showPlayerShow(userId, data)
+	local frame = self._playerShowFrame
+	if not frame then
+		return
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		frame.Visible = false
+		return
+	end
+
+	local isSelf = userId == localPlayer.UserId
+
+	self._connections:cleanupGroup("playerShow")
+
+	local contentFrame = frame:FindFirstChild("Frame")
+	if not contentFrame then
+		return
+	end
+
+	local userHolder = contentFrame:FindFirstChild("userHolder")
+	if userHolder then
+		local nameHolder = userHolder:FindFirstChild("NameHolder")
+		if nameHolder then
+			local username = nameHolder:FindFirstChild("Username")
+			if username and username:IsA("TextLabel") then
+				username.Text = data.displayName or ("Player " .. tostring(userId))
+			end
+		end
+		local status = userHolder:FindFirstChild("Status")
+		if status and status:IsA("TextLabel") then
+			status.Text = "@" .. tostring(data.username or data.displayName or "unknown")
+		end
+		local playerImage = userHolder:FindFirstChild("PlayerImage")
+		if playerImage and playerImage:IsA("ImageLabel") then
+			task.spawn(function()
+				local ok, content = pcall(function()
+					return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+				end)
+				if ok and content and self._selectedUserId == userId then
+					playerImage.Image = content
+				end
+			end)
+		end
+	end
+
+	local statusGroup = contentFrame:FindFirstChild("Status")
+	if statusGroup then
+		local aim = statusGroup:FindFirstChild("Aim")
+		if aim and aim:IsA("TextLabel") then
+			if data.section == "InGame" then
+				aim.Text = "IN GAME"
+			elseif data.section == "InParty" then
+				aim.Text = "IN PARTY"
+			else
+				aim.Text = "IN LOBBY"
+			end
+		end
+	end
+
+	local inviteButton = contentFrame:FindFirstChild("PartyInvite")
+	local leaveButton = contentFrame:FindFirstChild("bar")
+	local inPartyDisplay = contentFrame:FindFirstChild("InPartyDisplay")
+
+	local kickButton, disbandButton
+	for _, child in contentFrame:GetChildren() do
+		if child.Name == "LeaveParty" and child:IsA("GuiButton") then
+			local label = child:FindFirstChild("Status")
+			if label and label:IsA("TextLabel") then
+				if string.find(label.Text, "KICK") then
+					kickButton = child
+				elseif string.find(label.Text, "DISBAND") then
+					disbandButton = child
+				end
+			end
+		end
+	end
+
+	local inParty = self._partyState ~= nil
+	local isLeader = inParty and self._partyState.leaderId == localPlayer.UserId
+	local targetInMyParty = inParty and table.find(self._partyState.members, userId) ~= nil
+
+	local targetInAnyParty = false
+	if not isSelf then
+		if targetInMyParty then
+			targetInAnyParty = true
+		else
+			local trackedData = self._playersByUserId[userId]
+			if trackedData and trackedData.inParty == false then
+				targetInAnyParty = false
+			else
+				local targetPlayer = Players:GetPlayerByUserId(userId)
+				if targetPlayer then
+					targetInAnyParty = targetPlayer:GetAttribute("InParty") == true
+				end
+			end
+		end
+	end
+
+	print("[PlayerList] _showPlayerShow: userId", userId, "isSelf:", isSelf, "inParty:", inParty, "isLeader:", isLeader, "targetInMyParty:", targetInMyParty, "targetInAnyParty:", targetInAnyParty)
+
+	if isSelf then
+		if inviteButton then inviteButton.Visible = false end
+		if kickButton then kickButton.Visible = false end
+
+		if leaveButton then
+			-- Fallback behavior: if no dedicated disband button exists, this button handles both.
+			leaveButton.Visible = inParty and (not isLeader or disbandButton == nil)
+			local leaveLabel = leaveButton:FindFirstChild("Status")
+			if leaveLabel and leaveLabel:IsA("TextLabel") then
+				leaveLabel.Text = isLeader and "DISBAND PARTY" or "LEAVE PARTY"
+			end
+			self._connections:track(leaveButton, "Activated", function()
+				print("[PlayerList] LEAVE PARTY clicked by local player")
+				self._export:emit("PartyLeave")
+				self:_eagerClearParty()
+				self:_hidePlayerShow()
+				self:_clearSelection()
+			end, "playerShow")
+		end
+
+		if disbandButton then
+			disbandButton.Visible = inParty and isLeader
+			local disbandLabel = disbandButton:FindFirstChild("Status")
+			if disbandLabel and disbandLabel:IsA("TextLabel") then
+				disbandLabel.Text = "DISBAND PARTY"
+			end
+			self._connections:track(disbandButton, "Activated", function()
+				print("[PlayerList] DISBAND PARTY clicked by local player (leader)")
+				self._export:emit("PartyLeave")
+				self:_eagerClearParty()
+				self:_hidePlayerShow()
+				self:_clearSelection()
+			end, "playerShow")
+		end
+
+		if inPartyDisplay then
+			inPartyDisplay.Visible = inParty
+			if inParty then
+				local nameHolder = inPartyDisplay:FindFirstChild("NameHolder")
+				if nameHolder then
+					local username = nameHolder:FindFirstChild("Username")
+					if username and username:IsA("TextLabel") then
+						username.Text = isLeader and "PARTY LEADER" or "IN PARTY"
+					end
+					local icon = nameHolder:FindFirstChild("Icon")
+					if icon and icon:IsA("TextLabel") then
+						icon.Visible = true
+						icon.Text = tostring(#self._partyState.members) .. "/" .. tostring(self._partyState.maxSize or 5)
+					end
+				end
+			end
+		end
+	else
+		if leaveButton then leaveButton.Visible = false end
+		if disbandButton then disbandButton.Visible = false end
+
+		local canInvite = not targetInMyParty
+			and not targetInAnyParty
+			and data.section ~= "InGame"
+			and (not inParty or isLeader)
+
+		if inviteButton then
+			inviteButton.Visible = canInvite
+			local statusLabel = inviteButton:FindFirstChild("Status")
+			if statusLabel and statusLabel:IsA("TextLabel") then
+				statusLabel.Text = "PARTY INVITE"
+			end
+			self._connections:track(inviteButton, "Activated", function()
+				self:_sendPartyInvite(userId)
+			end, "playerShow")
+		end
+
+		if kickButton then
+			kickButton.Visible = targetInMyParty and isLeader
+			self._connections:track(kickButton, "Activated", function()
+				print("[PlayerList] KICK clicked: kicking userId", userId)
+				self._export:emit("PartyKick", { targetUserId = userId })
+
+				local kickedTracked = self._playersByUserId[userId]
+				if kickedTracked then
+					kickedTracked.inParty = false
+				end
+				self:_movePlayerToSection(userId, self._defaultSection, true)
+
+				if self._partyState then
+					local members = self._partyState.members
+					local idx = table.find(members, userId)
+					if idx then
+						table.remove(members, idx)
+					end
+					if #members <= 1 then
+						self:_eagerClearParty()
+					end
+				end
+
+				self:_hidePlayerShow()
+				self:_clearSelection()
+			end, "playerShow")
+		end
+
+		if inPartyDisplay then
+			inPartyDisplay.Visible = targetInAnyParty and not targetInMyParty
+			if targetInAnyParty and not targetInMyParty then
+				local nameHolder = inPartyDisplay:FindFirstChild("NameHolder")
+				if nameHolder then
+					local username = nameHolder:FindFirstChild("Username")
+					if username and username:IsA("TextLabel") then
+						username.Text = "CLOSED PARTY"
+					end
+					local icon = nameHolder:FindFirstChild("Icon")
+					if icon and icon:IsA("TextLabel") then
+						icon.Visible = false
+					end
+				end
+			end
+		end
+	end
+
+	frame.Visible = true
+end
+
+function module:_hidePlayerShow()
+	if self._playerShowFrame then
+		self._playerShowFrame.Visible = false
+	end
+	self._connections:cleanupGroup("playerShow")
+end
+
+function module:_sendPartyInvite(targetUserId)
+	print("[PlayerList] _sendPartyInvite: inviting userId", targetUserId)
+	self._export:emit("PartyInviteSend", { targetUserId = targetUserId })
+
+	local frame = self._playerShowFrame
+	if frame then
+		local contentFrame = frame:FindFirstChild("Frame")
+		local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")
+		if inviteButton then
+			local statusLabel = inviteButton:FindFirstChild("Status")
+			if statusLabel and statusLabel:IsA("TextLabel") then
+				statusLabel.Text = "INVITED..."
+			end
+			inviteButton.Active = false
+		end
+	end
+
+	local targetPlayer = Players:GetPlayerByUserId(targetUserId)
+	local displayName = targetPlayer and targetPlayer.DisplayName or ("Player " .. tostring(targetUserId))
+	self:_showInviteBanner({
+		fromDisplayName = displayName,
+		fromUserId = targetUserId,
+		timeout = 3,
+		sentNotification = true,
+	})
+end
+
+--------------------------------------------------------------------------------
+-- INVITE BANNER
+--------------------------------------------------------------------------------
+
+function module:_showInviteBanner(data)
+	local frame = self._inviteFrame
+	if not frame then
+		return
+	end
+
+	if self._inviteTimerThread then
+		pcall(task.cancel, self._inviteTimerThread)
+		self._inviteTimerThread = nil
+	end
+
+	self._pendingInvite = data
+	self._connections:cleanupGroup("inviteBanner")
+
+	local isKicked = data.kicked == true
+	local isSent = data.sentNotification == true
+	local isInfoOnly = isKicked or isSent
+
+	local inviteHolder = frame:FindFirstChild("InviteHolder")
+	if inviteHolder then
+		local username = inviteHolder:FindFirstChild("Username")
+		if username and username:IsA("TextLabel") then
+			if isSent then
+				username.Text = data.fromDisplayName or "Unknown"
+			elseif isKicked then
+				username.Text = "PARTY"
+			else
+				username.Text = data.fromDisplayName or data.fromUsername or "Unknown"
+			end
+		end
+		local invited = inviteHolder:FindFirstChild("Invited")
+		if invited and invited:IsA("TextLabel") then
+			if isSent then
+				invited.Text = "INVITE SENT!"
+			elseif isKicked then
+				invited.Text = "YOU WERE KICKED!"
+			else
+				invited.Text = "HAS INVITED YOU!"
+			end
+		end
+		local playerImage = inviteHolder:FindFirstChild("PlayerImage")
+		if playerImage and playerImage:IsA("ImageLabel") then
+			if data.fromUserId and data.fromUserId ~= 0 then
+				task.spawn(function()
+					local ok, content = pcall(function()
+						return Players:GetUserThumbnailAsync(
+							data.fromUserId,
+							Enum.ThumbnailType.HeadShot,
+							Enum.ThumbnailSize.Size420x420
+						)
+					end)
+					if ok and content and self._pendingInvite == data then
+						playerImage.Image = content
+					end
+				end)
+			else
+				playerImage.Image = ""
+			end
+		end
+	end
+
+	local loadingHolder = frame:FindFirstChild("LoadingHolder")
+	if loadingHolder then
+		if isInfoOnly then
+			loadingHolder.Visible = false
+		else
+			loadingHolder.Visible = true
+			local buttons = {}
+			for _, child in loadingHolder:GetChildren() do
+				if child:IsA("GuiButton") then
+					table.insert(buttons, child)
+				end
+			end
+
+			for _, btn in ipairs(buttons) do
+				local label = btn:FindFirstChild("Invited") or btn:FindFirstChild("TextLabel")
+				local text = label and label:IsA("TextLabel") and label.Text or btn.Name
+				local isAccept = string.find(string.upper(text), "ACCEPT") ~= nil
+
+				if isAccept then
+					self._connections:track(btn, "Activated", function()
+						self:_respondToInvite(true)
+					end, "inviteBanner")
+				else
+					self._connections:track(btn, "Activated", function()
+						self:_respondToInvite(false)
+					end, "inviteBanner")
+				end
+			end
+		end
+	end
+
+	frame.Visible = true
+	frame.LayoutOrder = -999
+
+	local timeout = data.timeout or 5
+	self._inviteTimerThread = task.delay(timeout, function()
+		if self._pendingInvite == data then
+			if isInfoOnly then
+				self:_hideInviteBanner()
+			else
+				self:_respondToInvite(false)
+			end
+		end
+	end)
+
+	if not isSent then
+		local progressBar = nil
+		for _, child in frame:GetChildren() do
+			if child.Name == "LoadingHolder" and child:IsA("Frame") then
+				local canvas = child:FindFirstChildWhichIsA("CanvasGroup")
+				if canvas then
+					progressBar = canvas:FindFirstChild("Frame")
+					break
+				end
+			end
+		end
+		if progressBar then
+			progressBar.Size = UDim2.new(1, 0, 1, 0)
+			local tween = TweenService:Create(progressBar, TweenInfo.new(timeout, Enum.EasingStyle.Linear), {
+				Size = UDim2.new(0, 0, 1, 0),
+			})
+			tween:Play()
+		end
+	end
+end
+
+function module:_hideInviteBanner()
+	if self._inviteTimerThread then
+		pcall(task.cancel, self._inviteTimerThread)
+		self._inviteTimerThread = nil
+	end
+	self._pendingInvite = nil
+	self._connections:cleanupGroup("inviteBanner")
+
+	if self._inviteFrame then
+		self._inviteFrame.Visible = false
+		local loadingHolder = self._inviteFrame:FindFirstChild("LoadingHolder")
+		if loadingHolder then
+			loadingHolder.Visible = true
+		end
+		for _, child in self._inviteFrame:GetChildren() do
+			if child.Name == "LoadingHolder" and child:IsA("Frame") then
+				local canvas = child:FindFirstChildWhichIsA("CanvasGroup")
+				if canvas then
+					local bar = canvas:FindFirstChild("Frame")
+					if bar then
+						bar.Size = UDim2.new(1, 0, 1, 0)
+					end
+				end
+			end
+		end
+	end
+end
+
+function module:_respondToInvite(accept)
+	if not self._pendingInvite then
+		return
+	end
+
+	self._export:emit("PartyInviteResponse", { accept = accept })
+	self:_hideInviteBanner()
+end
+
+--------------------------------------------------------------------------------
+-- PARTY EVENTS
+--------------------------------------------------------------------------------
+
+function module:_bindPartyEvents()
+	self._connections:add(self._export:on("PartyInviteReceived", function(data)
+		if data and type(data) == "table" then
+			self:_showInviteBanner(data)
+		end
+	end), "partyEvents")
+
+	self._connections:add(self._export:on("PartyUpdate", function(data)
+		if data and type(data) == "table" then
+			self:_onPartyUpdate(data)
+		end
+	end), "partyEvents")
+
+	self._connections:add(self._export:on("PartyDisbanded", function(data)
+		self:_onPartyDisbanded(data)
+	end), "partyEvents")
+
+	self._connections:add(self._export:on("PartyKicked", function(data)
+		self:_onPartyKicked(data)
+	end), "partyEvents")
+
+	self._connections:add(self._export:on("PartyInviteBusy", function(data)
+		if self._playerShowFrame and data then
+			local contentFrame = self._playerShowFrame:FindFirstChild("Frame")
+			local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")
+			if inviteButton then
+				local statusLabel = inviteButton:FindFirstChild("Status")
+				if statusLabel and statusLabel:IsA("TextLabel") then
+					statusLabel.Text = "BUSY"
+				end
+				task.delay(1.5, function()
+					if self._selectedUserId == data.targetUserId then
+						if statusLabel and statusLabel:IsA("TextLabel") then
+							statusLabel.Text = "PARTY INVITE"
+						end
+						inviteButton.Active = true
+					end
+				end)
+			end
+		end
+	end), "partyEvents")
+
+	self._connections:add(self._export:on("PartyInviteDeclined", function(data)
+		if self._playerShowFrame and data then
+			local contentFrame = self._playerShowFrame:FindFirstChild("Frame")
+			local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")
+			if inviteButton then
+				local statusLabel = inviteButton:FindFirstChild("Status")
+				if statusLabel and statusLabel:IsA("TextLabel") then
+					statusLabel.Text = "DECLINED"
+				end
+				task.delay(1.5, function()
+					if self._selectedUserId == data.targetUserId then
+						if statusLabel and statusLabel:IsA("TextLabel") then
+							statusLabel.Text = "PARTY INVITE"
+						end
+						inviteButton.Active = true
+					end
+				end)
+			end
+		end
+	end), "partyEvents")
+end
+
+function module:_reconcilePartySections()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return
+	end
+
+	local members = (self._partyState and self._partyState.members) or {}
+	local memberSet = {}
+	for _, uid in ipairs(members) do
+		memberSet[uid] = true
+	end
+
+	for uid, tracked in pairs(self._playersByUserId) do
+		local shouldBeInParty = memberSet[uid] == true
+		tracked.inParty = shouldBeInParty
+		local nextSection = shouldBeInParty and "InParty" or self._defaultSection
+		if tracked.section ~= nextSection then
+			self:_movePlayerToSection(uid, nextSection, true)
+		else
+			self:addPlayer(tracked)
+		end
+	end
+
+	self:_updateCurrentUserCard()
+
+	if self._selectedUserId then
+		local row = self._rows[self._selectedUserId]
+		if row then
+			self:_showPlayerShow(self._selectedUserId, row.data)
+		end
+	end
+
+	self:_updateUserLeaveAction()
+end
+
+function module:_onPartyUpdate(data)
+	local members = data.members or {}
+	print("[PlayerList] _onPartyUpdate: partyId", data.partyId, "leader", data.leaderId, "members:", table.concat(members, ","))
+	self._partyState = {
+		partyId = data.partyId,
+		leaderId = data.leaderId,
+		members = members,
+		maxSize = data.maxSize or 5,
+	}
+	self:_reconcilePartySections()
+end
+
+function module:_onPartyDisbanded()
+	local oldMembers = self._partyState and self._partyState.members or {}
+	print("[PlayerList] _onPartyDisbanded: clearing party, old members:", table.concat(oldMembers, ","))
+	self._partyState = nil
+	self:_reconcilePartySections()
+
+	if self._selectedUserId then
+		local row = self._rows[self._selectedUserId]
+		if row then
+			self:_showPlayerShow(self._selectedUserId, row.data)
+		else
+			self:_hidePlayerShow()
+			self:_clearSelection()
+		end
+	end
+end
+
+function module:_onPartyKicked()
+	local oldMembers = self._partyState and self._partyState.members or {}
+	print("[PlayerList] _onPartyKicked: YOU WERE KICKED, clearing party, old members:", table.concat(oldMembers, ","))
+	self._partyState = nil
+	self:_reconcilePartySections()
+
+	self:_hidePlayerShow()
+	self:_clearSelection()
+
+	self:_showInviteBanner({
+		fromDisplayName = "PARTY",
+		fromUsername = "System",
+		fromUserId = 0,
+		timeout = 3,
+		kicked = true,
+	})
+end
+
+function module:_eagerClearParty()
+	if not self._partyState then
+		return
+	end
+
+	local oldMembers = self._partyState.members or {}
+	print("[PlayerList] _eagerClearParty: clearing party eagerly, old members:", table.concat(oldMembers, ","))
+	self._partyState = nil
+	self:_reconcilePartySections()
+end
+
+function module:_movePlayerToSection(userId, sectionId, force)
+	local data = self._playersByUserId[userId]
+	if not data then
+		return
+	end
+
+	if data.sectionLocked and not force then
+		return
+	end
+
+	data.section = sectionId
+	data.inParty = sectionId == "InParty"
+	self:addPlayer(data)
+end
+
+--------------------------------------------------------------------------------
+-- CLEANUP
+--------------------------------------------------------------------------------
 
 function module:_cleanup()
 	for _, row in pairs(self._rows) do
@@ -1185,6 +1975,15 @@ function module:_cleanup()
 		self._currentUserRow.frame:Destroy()
 	end
 	self._currentUserRow = nil
+	self:_hidePlayerShow()
+	self:_hideInviteBanner()
+	self._partyState = nil
+	self._connections:cleanupGroup("partyEvents")
+	self._connections:cleanupGroup("userLeaveAction")
+	if self._userLeaveInstance and self._userLeaveInstance.Parent then
+		self._userLeaveInstance:Destroy()
+	end
+	self._userLeaveInstance = nil
 end
 
 return module

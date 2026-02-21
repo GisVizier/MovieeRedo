@@ -315,6 +315,12 @@ function UIController:Init(registry, net)
 		end
 	end)
 
+	self._net:ConnectClient("MatchStatsUpdate", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("MatchStatsUpdate", data) end)
+		end
+	end)
+
 	self._net:ConnectClient("MatchEnd", function(data)
 		self:_onMatchEnd(data)
 	end)
@@ -417,6 +423,43 @@ function UIController:Init(registry, net)
 		end
 	end)
 
+	-- Party system events
+	self._net:ConnectClient("PartyInviteReceived", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PartyInviteReceived", data) end)
+		end
+	end)
+
+	self._net:ConnectClient("PartyUpdate", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PartyUpdate", data) end)
+		end
+	end)
+
+	self._net:ConnectClient("PartyInviteBusy", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PartyInviteBusy", data) end)
+		end
+	end)
+
+	self._net:ConnectClient("PartyInviteDeclined", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PartyInviteDeclined", data) end)
+		end
+	end)
+
+	self._net:ConnectClient("PartyDisbanded", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PartyDisbanded", data) end)
+		end
+	end)
+
+	self._net:ConnectClient("PartyKicked", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PartyKicked", data) end)
+		end
+	end)
+
 	-- Training mode entry flow
 	self._net:ConnectClient("ShowTrainingLoadout", function(data)
 		self:_onShowTrainingLoadout(data)
@@ -424,6 +467,12 @@ function UIController:Init(registry, net)
 
 	self._net:ConnectClient("TrainingLoadoutConfirmed", function(data)
 		self:_onTrainingLoadoutConfirmed(data)
+	end)
+
+	self._net:ConnectClient("PlayerLeftMatch", function(data)
+		if self._coreUi and data then
+			pcall(function() self._coreUi:emit("PlayerLeftMatch", data) end)
+		end
 	end)
 
 	self._net:ConnectClient("PlayerKilled", function(data)
@@ -624,6 +673,23 @@ function UIController:_bootstrapUi()
 
 	ui:on("MapVoteComplete", function(selectedMapId)
 		-- Server controls transition in competitive; this is informational only
+	end)
+
+	-- Party system relays (client → server)
+	ui:on("PartyInviteSend", function(data)
+		self._net:FireServer("PartyInviteSend", data)
+	end)
+
+	ui:on("PartyInviteResponse", function(data)
+		self._net:FireServer("PartyInviteResponse", data)
+	end)
+
+	ui:on("PartyKick", function(data)
+		self._net:FireServer("PartyKick", data)
+	end)
+
+	ui:on("PartyLeave", function()
+		self._net:FireServer("PartyLeave")
 	end)
 
 	-- Emote wheel input wiring
@@ -1508,9 +1574,24 @@ function UIController:_onReturnToLobby(data)
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
 
-	-- Core module: cleanup thumbnails
+	-- Core module: cleanup thumbnails and restore PlayerList via proper methods
 	pcall(function()
 		self._coreUi:emit("ReturnToLobby")
+	end)
+	safeCall(function()
+		local playerListModule = self._coreUi:getModule("PlayerList")
+		if playerListModule and playerListModule.setMatchStatus then
+			playerListModule:setMatchStatus("InLobby")
+		end
+		-- Force local player section update so "In Game" correctly changes to "In Lobby"
+		if player then
+			self._coreUi:emit("PlayerList_PlayerUpdated", {
+				userId = player.UserId,
+				displayName = player.DisplayName,
+				username = player.Name,
+				section = "InLobby",
+			})
+		end
 	end)
 
 	-- Force third person (Orbit) camera for lobby
@@ -1525,6 +1606,11 @@ function UIController:_onShowTrainingLoadout(data)
 	if not self._coreUi then
 		return
 	end
+
+	-- Hide player list when entering training (uses proper module methods)
+	safeCall(function()
+		self._coreUi:emit("TrainingStart")
+	end)
 
 	-- Store pending training entry area
 	self._pendingTrainingAreaId = data and data.areaId or nil
@@ -1579,6 +1665,9 @@ function UIController:_onTrainingLoadoutConfirmed(data)
 	pcall(function()
 		self._coreUi:emit("LoadoutClosed")
 	end)
+
+	-- Emit before show so HUD skips counter (top bar) in training ground
+	self._coreUi:emit("TrainingHUDShow")
 
 	-- Show HUD for training with correct data
 	safeCall(function()
