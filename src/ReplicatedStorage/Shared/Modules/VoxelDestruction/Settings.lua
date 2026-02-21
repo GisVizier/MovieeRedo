@@ -55,6 +55,7 @@ Settings.DestructionSounds = {
 		Concrete = { Enabled = true, Volume = 1 },
 		Wood = { Enabled = true, Volume = 1 },
 		Metal = { Enabled = true, Volume = 1 },
+		Dirt = { Enabled = true, Volume = 1 },
 		Neon = { Enabled = true, Volume = 1 },
 		Glass = { Enabled = true, Volume = 1 },
 	},

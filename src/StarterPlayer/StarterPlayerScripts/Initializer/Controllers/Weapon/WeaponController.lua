@@ -56,8 +56,8 @@ local LOCAL_WEAPON_VOLUME = 1.0
 local LOCAL_WEAPON_ROLLOFF_MODE = Enum.RollOffMode.InverseTapered
 local LOCAL_WEAPON_MIN_DISTANCE = 7.5
 local LOCAL_WEAPON_MAX_DISTANCE = 260
-local FIRE_SOUND_PITCH_MIN = 0.96
-local FIRE_SOUND_PITCH_MAX = 1.04
+local FIRE_SOUND_PITCH_MIN = 0.92
+local FIRE_SOUND_PITCH_MAX = 1.10
 local FIRE_SOUND_PITCH_RNG = Random.new()
 
 local function quickMeleeLog(message, data)
