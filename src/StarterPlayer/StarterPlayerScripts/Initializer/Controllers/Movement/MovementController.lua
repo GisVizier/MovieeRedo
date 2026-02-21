@@ -1845,8 +1845,8 @@ function CharacterController:HandleSprint(isSprinting)
 		return
 	end
 
-	-- Bleed status effect: force walk speed (disable sprinting)
-	if self.Character:GetAttribute("Bleed") == true then
+	-- Bleed / KonSlow status effects: force walk speed (disable sprinting)
+	if self.Character:GetAttribute("Bleed") == true or self.Character:GetAttribute("KonSlow") == true then
 		if MovementStateManager:IsSprinting() then
 			MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
 		end
