@@ -54,7 +54,7 @@ local GROUND_SNAP_DISTANCE = 180
 local TRAP_MAX_RANGE = 35            -- Aiming range for trap placement (studs)
 local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Auto-detect proximity for self-launch
 local SELF_LAUNCH_HORIZONTAL = 80    -- Horizontal force away from trap pivot
-local SELF_LAUNCH_VERTICAL = 180     -- Upward force for self-launch
+local SELF_LAUNCH_VERTICAL = 130     -- Upward force for self-launch
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {

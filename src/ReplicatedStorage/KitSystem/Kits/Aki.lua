@@ -222,8 +222,10 @@ function Kit:_startTrapProximityLoop()
 			return
 		end
 		
-		-- Check for characters in range (server-authoritative)
-		local targets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS, player)
+		-- Check for characters in range (server-authoritative, uses physical overlap to detect dummies too)
+		local targets = Hitbox.GetCharactersInSphere(self._trapPosition, TRAP_TRIGGER_RADIUS, {
+			Exclude = player,
+		})
 		
 		for _, targetCharacter in ipairs(targets) do
 			-- Skip the Aki player's own character
@@ -309,7 +311,9 @@ function Kit:_triggerTrap(triggerCharacter)
 	-- Only targets still in radius at bite time get hit
 	task.delay(TRAP_BITE_DELAY, function()
 		local character = self._ctx.character or (player and player.Character)
-		local biteTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		local biteTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
+			Exclude = player,
+		})
 		
 		for _, targetChar in ipairs(biteTargets) do
 			if targetChar == character then continue end -- Skip Aki
@@ -454,14 +458,16 @@ function Kit:OnAbility(inputState, clientData)
 		-- VFX is handled client-side via VFXRep:Fire("All") for responsiveness.
 		-- Server only manages state and proximity detection.
 		
-		-- Immediately check if any enemy is already in range
+		-- Immediately check if any enemy/dummy is already in range (physical overlap)
 		local character = self._ctx.character or player.Character
-		local immediateTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		local immediateTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
+			Exclude = player,
+		})
 		for _, targetChar in ipairs(immediateTargets) do
 			if targetChar == character then continue end
 			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid and humanoid.Health > 0 then
-				-- Enemy already in range — trigger the trap now
+				-- Enemy/dummy already in range — trigger the trap now
 				self:_triggerTrap(targetChar)
 				return false
 			end
