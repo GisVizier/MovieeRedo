@@ -95,8 +95,11 @@ local KONSLOW_SPEED_MULT = 0.7       -- 30% reduction
 -- Self-launch force
 local SELF_LAUNCH_VELOCITY = 120     -- Strong upward + outward force
 
--- Trap trigger upward launch force (applied to targets caught in trap)
-local TRAP_LAUNCH_UPWARD = 120       -- Strong upward velocity on trap trigger
+-- Trap trigger upward launch force (applied to targets on bite)
+local TRAP_LAUNCH_UPWARD = 120       -- Strong upward velocity on trap bite
+
+-- Trap bite timing (must match VFX BITE_DELAY so damage aligns with visual bite)
+local TRAP_BITE_DELAY = 0.6
 
 --------------------------------------------------------------------------------
 -- Module
@@ -264,36 +267,23 @@ function Kit:_triggerTrap(triggerCharacter)
 	
 	self._trapActive = false
 	
-	-- Get all characters in radius for damage
-	local targets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
-	local character = self._ctx.character or player.Character
-	
-	for _, targetChar in ipairs(targets) do
-		if targetChar == character then continue end -- Skip Aki
-		
-		local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
-		if humanoid and humanoid.Health > 0 then
-			-- Apply trap damage
-			applyDamage(self, targetChar, TRAP_DAMAGE, "Aki_KonTrap")
-			
-			-- Apply KonSlow status effect
-			applyKonSlow(self, targetChar)
-			
-			-- Launch target straight upward
-			local root = targetChar.PrimaryPart
-				or targetChar:FindFirstChild("HumanoidRootPart")
-				or targetChar:FindFirstChild("Root")
-			if root then
-				-- Clear existing vertical velocity for a clean upward launch
-				root.AssemblyLinearVelocity = Vector3.new(
-					root.AssemblyLinearVelocity.X * 0.2,
-					0,
-					root.AssemblyLinearVelocity.Z * 0.2
-				)
-				-- Apply strong upward force
-				root.AssemblyLinearVelocity += Vector3.new(0, TRAP_LAUNCH_UPWARD, 0)
-			end
+	-- Determine look direction for triggered Kon VFX (face toward trigger character)
+	local lookDir = Vector3.new(0, 0, 1)
+	if triggerCharacter and triggerCharacter.PrimaryPart then
+		local dirToTarget = (triggerCharacter.PrimaryPart.Position - trapPos)
+		dirToTarget = Vector3.new(dirToTarget.X, 0, dirToTarget.Z) -- Flatten Y
+		if dirToTarget.Magnitude > 0.1 then
+			lookDir = dirToTarget.Unit
 		end
+	end
+	
+	-- Broadcast trigger VFX immediately — Kon rises from the ground
+	if service then
+		service:BroadcastVFX(player, "All", "Kon", {
+			position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
+			lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
+			surfaceNormal = { X = 0, Y = 1, Z = 0 },
+		}, "triggerTrap")
 	end
 	
 	-- Terrain destruction at trap location
@@ -317,24 +307,38 @@ function Kit:_triggerTrap(triggerCharacter)
 		end)
 	end
 	
-	-- Determine look direction for triggered Kon VFX (face toward trigger character)
-	local lookDir = Vector3.new(0, 0, 1)
-	if triggerCharacter and triggerCharacter.PrimaryPart then
-		local dirToTarget = (triggerCharacter.PrimaryPart.Position - trapPos)
-		dirToTarget = Vector3.new(dirToTarget.X, 0, dirToTarget.Z) -- Flatten Y
-		if dirToTarget.Magnitude > 0.1 then
-			lookDir = dirToTarget.Unit
+	-- BITE: delayed to match Kon bite animation timing
+	-- Only targets still in radius at bite time get hit
+	task.delay(TRAP_BITE_DELAY, function()
+		local character = self._ctx.character or (player and player.Character)
+		local biteTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		
+		for _, targetChar in ipairs(biteTargets) do
+			if targetChar == character then continue end -- Skip Aki
+			
+			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid and humanoid.Health > 0 then
+				-- Apply trap damage on bite
+				applyDamage(self, targetChar, TRAP_DAMAGE, "Aki_KonTrap")
+				
+				-- Apply KonSlow status effect
+				applyKonSlow(self, targetChar)
+				
+				-- Fling target upward on bite
+				local root = targetChar.PrimaryPart
+					or targetChar:FindFirstChild("HumanoidRootPart")
+					or targetChar:FindFirstChild("Root")
+				if root then
+					root.AssemblyLinearVelocity = Vector3.new(
+						root.AssemblyLinearVelocity.X * 0.2,
+						0,
+						root.AssemblyLinearVelocity.Z * 0.2
+					)
+					root.AssemblyLinearVelocity += Vector3.new(0, TRAP_LAUNCH_UPWARD, 0)
+				end
+			end
 		end
-	end
-	
-	-- Broadcast trigger VFX to all clients (uses same Kon lifecycle: rise → bite → smoke)
-	if service then
-		service:BroadcastVFX(player, "All", "Kon", {
-			position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
-			lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
-			surfaceNormal = { X = 0, Y = 1, Z = 0 },
-		}, "triggerTrap")
-	end
+	end)
 	
 	-- Reset trap state (trap is consumed — can be placed again)
 	self._trapPosition = nil
