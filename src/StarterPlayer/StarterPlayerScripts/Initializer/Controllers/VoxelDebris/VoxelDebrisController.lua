@@ -19,9 +19,9 @@ VoxelDebrisController._debrisFolder = nil
 
 function VoxelDebrisController:Init(registry, net)
 	self._net = net
-	
+
 	ServiceRegistry:RegisterController("VoxelDebris", self)
-	
+
 	-- Create debris folder
 	self._debrisFolder = workspace:FindFirstChild("VoxelDebris")
 	if not self._debrisFolder then
@@ -29,17 +29,17 @@ function VoxelDebrisController:Init(registry, net)
 		self._debrisFolder.Name = "VoxelDebris"
 		self._debrisFolder.Parent = workspace
 	end
-	
+
 	-- Listen for debris creation events from server
 	self._net:ConnectClient("VoxelDebris", function(data)
 		self:_onDebrisData(data)
 	end)
-	
+
 	-- Listen for round reset: clear all debris so next round starts clean
 	self._net:ConnectClient("VoxelReset", function()
 		self:Cleanup()
 	end)
-	
+
 	self._initialized = true
 end
 
@@ -52,15 +52,17 @@ end
 -- =============================================================================
 
 function VoxelDebrisController:_onDebrisData(data)
-	if not data then return end
-	
+	if not data then
+		return
+	end
+
 	-- Extract data
 	local position = Vector3.new(data.position.X, data.position.Y, data.position.Z)
 	local radius = data.radius or 10
 	local amount = data.amount or 8
 	local sizeMultiplier = data.sizeMultiplier or 0.3
 	local originalInfo = data.originalInfo or {}
-	
+
 	-- Create debris client-side
 	self:_createDebris(position, radius, amount, sizeMultiplier, originalInfo)
 end
@@ -69,7 +71,13 @@ end
 -- DEBRIS CREATION
 -- =============================================================================
 
-function VoxelDebrisController:_createDebris(position: Vector3, radius: number, debrisAmount: number, debrisSizeMultiplier: number, originalInfo: {})
+function VoxelDebrisController:_createDebris(
+	position: Vector3,
+	radius: number,
+	debrisAmount: number,
+	debrisSizeMultiplier: number,
+	originalInfo: {}
+)
 	local debrisCount = debrisAmount
 
 	-- Debris size is based purely on the multiplier (small chunks ~0.2-0.8 studs)
@@ -99,7 +107,7 @@ function VoxelDebrisController:_createDebris(position: Vector3, radius: number, 
 		debrisPart.Position = position + Vector3.new(offsetX, offsetY, offsetZ)
 
 		debrisPart.Anchored = false
-		
+
 		-- Apply material properties from originalInfo
 		if originalInfo.Material then
 			debrisPart.Material = originalInfo.Material
@@ -116,7 +124,7 @@ function VoxelDebrisController:_createDebris(position: Vector3, radius: number, 
 		if originalInfo.Reflectance ~= nil then
 			debrisPart.Reflectance = originalInfo.Reflectance
 		end
-		
+
 		debrisPart.CanCollide = true
 		debrisPart.Parent = self._debrisFolder
 

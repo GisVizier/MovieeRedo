@@ -539,6 +539,8 @@ function SpectateController:_playSpectateKitAnim(trackName)
 
 	local track = animator._kitTracks and animator._kitTracks[trackName]
 	if not track then
+		-- Ensure kit animations are loaded (ViewmodelController may not have run for a dead spectator)
+		ViewmodelAnimator.PreloadKitAnimations()
 		local animInstance = ViewmodelAnimator.GetKitAnimation(trackName)
 		if not animInstance then return end
 		local animId = animInstance.AnimationId
