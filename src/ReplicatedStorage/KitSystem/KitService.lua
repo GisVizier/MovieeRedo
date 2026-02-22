@@ -430,6 +430,7 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 
 	local okCall, result = pcall(callKit)
 	if not okCall then
+		warn("[KitService] OnAbility ERROR for", player.Name, ":", tostring(result))
 		return
 	end
 

@@ -28,6 +28,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
@@ -215,6 +216,9 @@ function Kit:_startTrapProximityLoop()
 	local trapPos = self._trapPosition
 	if not trapPos then return end
 	
+	warn("[Aki Trap] Proximity loop STARTED at", trapPos)
+	local loopTick = 0
+	
 	self._trapProximityConn = RunService.Heartbeat:Connect(function()
 		if not self._trapActive or not self._trapPosition then
 			if self._trapProximityConn then
@@ -224,8 +228,28 @@ function Kit:_startTrapProximityLoop()
 			return
 		end
 		
-		-- Check for characters in range (server-authoritative, magnitude-based — works for both players AND dummies)
-		local targets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS, player)
+		loopTick += 1
+		
+		-- Use both detection methods for robustness
+		local radiusTargets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS, player)
+		local sphereTargets = Hitbox.GetCharactersInSphere(self._trapPosition, TRAP_TRIGGER_RADIUS, {
+			Exclude = player,
+		})
+		
+		-- Log every 60 ticks (~1 second) so we don't spam
+		if loopTick % 60 == 1 then
+			warn("[Aki Trap] Loop tick", loopTick, "| radius:", #radiusTargets, "| sphere:", #sphereTargets)
+		end
+		
+		-- Union both results
+		local seen = {}
+		local targets = {}
+		for _, t in ipairs(radiusTargets) do
+			if not seen[t] then seen[t] = true; table.insert(targets, t) end
+		end
+		for _, t in ipairs(sphereTargets) do
+			if not seen[t] then seen[t] = true; table.insert(targets, t) end
+		end
 		
 		for _, targetCharacter in ipairs(targets) do
 			-- Skip the Aki player's own character
@@ -234,14 +258,11 @@ function Kit:_startTrapProximityLoop()
 			
 			local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid and humanoid.Health > 0 then
-				-- TRAP TRIGGERED! Apply damage and slow
+				warn("[Aki Trap] Loop TRIGGERED on", targetCharacter.Name, "at tick", loopTick)
 				self:_triggerTrap(targetCharacter)
 				return -- Only triggers once
 			end
 		end
-		
-		-- Also check if Aki is close for self-launch auto-detect
-		-- (handled client-side via proximity check, server just validates the action)
 	end)
 end
 
@@ -313,15 +334,33 @@ function Kit:_triggerTrap(triggerCharacter)
 	task.delay(TRAP_BITE_DELAY, function()
 		warn("[Aki Trap] Bite delay fired at", trapPos)
 		local character = self._ctx.character or (player and player.Character)
-		local biteTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
-		warn("[Aki Trap] Bite targets found:", #biteTargets)
+		
+		-- Use both detection methods
+		local radiusBite = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		local sphereBite = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
+			Exclude = player,
+		})
+		warn("[Aki Trap] Bite: radius:", #radiusBite, "| sphere:", #sphereBite)
+		
+		-- Union
+		local seen = {}
+		local biteTargets = {}
+		for _, t in ipairs(radiusBite) do
+			if not seen[t] then seen[t] = true; table.insert(biteTargets, t) end
+		end
+		for _, t in ipairs(sphereBite) do
+			if not seen[t] then seen[t] = true; table.insert(biteTargets, t) end
+		end
+		warn("[Aki Trap] Bite combined targets:", #biteTargets)
 		
 		for _, targetChar in ipairs(biteTargets) do
 			if targetChar == character then continue end -- Skip Aki
 			
 			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
+			warn("[Aki Trap] Bite checking:", targetChar.Name, "| hum:", humanoid ~= nil, "| hp:", humanoid and humanoid.Health or "nil")
 			if humanoid and humanoid.Health > 0 then
 				-- Apply trap damage on bite
+				warn("[Aki Trap] Bite APPLYING DAMAGE to", targetChar.Name)
 				applyDamage(self, targetChar, TRAP_DAMAGE, "Aki_KonTrap")
 				
 				-- Apply KonSlow status effect (players only)
@@ -405,6 +444,8 @@ end
 --------------------------------------------------------------------------------
 
 function Kit:OnAbility(inputState, clientData)
+	warn("[Aki Server] OnAbility called | inputState:", tostring(inputState), "| clientData:", clientData and tostring(clientData.action) or "nil")
+	
 	if inputState ~= Enum.UserInputState.Begin then
 		return false
 	end
@@ -414,11 +455,13 @@ function Kit:OnAbility(inputState, clientData)
 	local service = self._ctx.service
 
 	if not character then
+		warn("[Aki Server] REJECTED: no character")
 		return false
 	end
 
 	clientData = clientData or {}
 	local action = clientData.action
+	warn("[Aki Server] action =", action or "nil", "| trapPlaced:", self._trapPlaced, "| trapActive:", self._trapActive)
 
 	------------------------------------------------------------------------
 	-- TRAP VARIANT ACTIONS
@@ -426,28 +469,40 @@ function Kit:OnAbility(inputState, clientData)
 
 	-- Place Trap
 	if action == "placeTrap" then
+		warn("[Aki Trap] === PLACE TRAP START ===")
+		
 		-- Validate: can only place one trap per match
 		if self._trapPlaced then
+			warn("[Aki Trap] REJECTED: _trapPlaced is already true")
 			return false
 		end
 		
 		local posData = clientData.position
-		if not posData then return false end
+		if not posData then
+			warn("[Aki Trap] REJECTED: no position data")
+			return false
+		end
 		
 		local trapPos = Vector3.new(
 			posData.X or 0,
 			posData.Y or 0,
 			posData.Z or 0
 		)
+		warn("[Aki Trap] trapPos:", trapPos)
 		
 		-- Validate placement position (must be near player)
 		local root = character.PrimaryPart
 			or character:FindFirstChild("Root")
 			or character:FindFirstChild("HumanoidRootPart")
-		if not root then return false end
+		if not root then
+			warn("[Aki Trap] REJECTED: no root part")
+			return false
+		end
 		
 		local distFromPlayer = (trapPos - root.Position).Magnitude
+		warn("[Aki Trap] distFromPlayer:", distFromPlayer, "| max:", TRAP_PLACEMENT_MAX_DIST)
 		if distFromPlayer > TRAP_PLACEMENT_MAX_DIST then
+			warn("[Aki Trap] REJECTED: too far from player")
 			return false
 		end
 		
@@ -455,29 +510,81 @@ function Kit:OnAbility(inputState, clientData)
 		self._trapPlaced = true
 		self._trapActive = true
 		self._trapPosition = trapPos
+		warn("[Aki Trap] Trap state set. Now running detection...")
 		
-		-- VFX is handled client-side via VFXRep:Fire("All") for responsiveness.
-		-- Server only manages state and proximity detection.
+		-- ============================================================
+		-- IMMEDIATE DETECTION: check if anyone is already in range
+		-- ============================================================
+		local myChar = self._ctx.character or player.Character
 		
-		-- Immediately check if any enemy/dummy is already in range (magnitude-based — works for dummies too)
-		local character = self._ctx.character or player.Character
-		local immediateTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
-		warn("[Aki Trap] Immediate check at", trapPos, "| radius:", TRAP_TRIGGER_RADIUS, "| found:", #immediateTargets)
-		for i, t in ipairs(immediateTargets) do
-			warn("[Aki Trap]   target", i, ":", t.Name, "== myChar?", t == character)
+		-- LOG: What does CollectionService see?
+		local allTagged = CollectionService:GetTagged("AimAssistTarget")
+		warn("[Aki Trap] AimAssistTarget tagged count:", #allTagged)
+		for i, tagged in ipairs(allTagged) do
+			if tagged:IsA("Model") then
+				local hum = tagged:FindFirstChildWhichIsA("Humanoid", true)
+				local dRoot = tagged:FindFirstChild("Root") or tagged.PrimaryPart
+				local dist = dRoot and (dRoot.Position - trapPos).Magnitude or "NO_ROOT"
+				warn("[Aki Trap]   tagged[" .. i .. "]:", tagged.Name,
+					"| isModel:", true,
+					"| humanoid:", hum ~= nil,
+					"| health:", hum and hum.Health or "nil",
+					"| root:", dRoot ~= nil,
+					"| dist:", dist,
+					"| inRange:", type(dist) == "number" and dist <= TRAP_TRIGGER_RADIUS)
+			else
+				warn("[Aki Trap]   tagged[" .. i .. "]:", tagged.Name, "| NOT a Model, class:", tagged.ClassName)
+			end
 		end
+		
+		-- LOG: What does GetCharactersInRadius return?
+		local radiusTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		warn("[Aki Trap] GetCharactersInRadius found:", #radiusTargets)
+		for i, t in ipairs(radiusTargets) do
+			warn("[Aki Trap]   radius[" .. i .. "]:", t.Name, "| isMyChar:", t == myChar)
+		end
+		
+		-- LOG: What does GetCharactersInSphere return?
+		local sphereTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
+			Exclude = player,
+		})
+		warn("[Aki Trap] GetCharactersInSphere found:", #sphereTargets)
+		for i, t in ipairs(sphereTargets) do
+			warn("[Aki Trap]   sphere[" .. i .. "]:", t.Name, "| isMyChar:", t == myChar)
+		end
+		
+		-- Use BOTH results (union) — whichever catches more
+		local seen = {}
+		local immediateTargets = {}
+		for _, t in ipairs(radiusTargets) do
+			if not seen[t] then
+				seen[t] = true
+				table.insert(immediateTargets, t)
+			end
+		end
+		for _, t in ipairs(sphereTargets) do
+			if not seen[t] then
+				seen[t] = true
+				table.insert(immediateTargets, t)
+			end
+		end
+		warn("[Aki Trap] Combined unique targets:", #immediateTargets)
+		
 		for _, targetChar in ipairs(immediateTargets) do
-			if targetChar == character then continue end
+			if targetChar == myChar then
+				warn("[Aki Trap] Skipping self:", targetChar.Name)
+				continue
+			end
 			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
-			warn("[Aki Trap]   checking:", targetChar.Name, "humanoid:", humanoid ~= nil, "health:", humanoid and humanoid.Health or "N/A")
+			warn("[Aki Trap] Checking:", targetChar.Name, "| humanoid:", humanoid ~= nil, "| health:", humanoid and humanoid.Health or "N/A")
 			if humanoid and humanoid.Health > 0 then
-				-- Enemy/dummy already in range — trigger the trap now
-				warn("[Aki Trap] TRIGGERING on", targetChar.Name)
+				warn("[Aki Trap] >>> TRIGGERING trap on", targetChar.Name, "<<<")
 				self:_triggerTrap(targetChar)
 				return false
 			end
 		end
 		
+		warn("[Aki Trap] No targets found — starting proximity loop")
 		-- No enemy in range — start proximity detection loop
 		self:_startTrapProximityLoop()
 		
