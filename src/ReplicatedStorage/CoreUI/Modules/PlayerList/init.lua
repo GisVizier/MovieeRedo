@@ -1208,6 +1208,9 @@ function module:removePlayer(payload)
 
 	self:_updateSectionCounts()
 	self:_refreshCanvasSize()
+	task.delay(0.1, function()
+		self:_refreshCanvasSize()
+	end)
 end
 
 function module:updatePlayer(payload)
@@ -1682,7 +1685,9 @@ function module:_showPartyNotification(templateName, opts)
 	local clone = template:Clone()
 	clone.Name = templateName .. "_Active"
 	clone.Visible = true
-	clone.Parent = self._notifScreenGui
+	-- Parent to Folder so UIListLayout lays out notifications statically (no tweens)
+	local folder = self._notifScreenGui and self._notifScreenGui:FindFirstChild("Folder")
+	clone.Parent = folder or self._notifScreenGui
 
 	self._activeNotif = clone
 	self._connections:cleanupGroup("partyNotif")
@@ -1886,6 +1891,7 @@ function module:_reconcilePartySections()
 	end
 
 	self:_updateUserLeaveAction()
+	self:_refreshCanvasSize()
 end
 
 function module:_onPartyUpdate(data)
