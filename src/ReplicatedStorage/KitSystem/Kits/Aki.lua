@@ -148,25 +148,28 @@ local function applyDamage(self, targetCharacter, damage, weaponId)
 	local player = self._ctx.player
 	local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
 	
-	local weaponService = getWeaponService(self)
-	if weaponService then
-		local root = self._ctx.character and self._ctx.character.PrimaryPart
-		local sourcePos = root and root.Position or nil
-		local hitPos = targetCharacter.PrimaryPart and targetCharacter.PrimaryPart.Position or nil
-		
-		weaponService:ApplyDamageToCharacter(
-			targetCharacter,
-			damage,
-			player,
-			false, -- not headshot
-			weaponId or "Aki_Kon",
-			sourcePos,
-			hitPos
-		)
-		return
+	-- For player characters, use WeaponService for proper tracking/events
+	if targetPlayer then
+		local weaponService = getWeaponService(self)
+		if weaponService then
+			local root = self._ctx.character and self._ctx.character.PrimaryPart
+			local sourcePos = root and root.Position or nil
+			local hitPos = targetCharacter.PrimaryPart and targetCharacter.PrimaryPart.Position or nil
+			
+			weaponService:ApplyDamageToCharacter(
+				targetCharacter,
+				damage,
+				player,
+				false, -- not headshot
+				weaponId or "Aki_Kon",
+				sourcePos,
+				hitPos
+			)
+			return
+		end
 	end
 	
-	-- Fallback: direct humanoid damage
+	-- Fallback / Dummies: direct humanoid damage
 	local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 	if humanoid and humanoid.Health > 0 then
 		humanoid:TakeDamage(damage)
@@ -326,21 +329,8 @@ function Kit:_triggerTrap(triggerCharacter)
 				-- Apply trap damage on bite
 				applyDamage(self, targetChar, TRAP_DAMAGE, "Aki_KonTrap")
 				
-				-- Apply KonSlow status effect
+				-- Apply KonSlow status effect (players only)
 				applyKonSlow(self, targetChar)
-				
-				-- Fling target upward on bite
-				local root = targetChar.PrimaryPart
-					or targetChar:FindFirstChild("HumanoidRootPart")
-					or targetChar:FindFirstChild("Root")
-				if root then
-					root.AssemblyLinearVelocity = Vector3.new(
-						root.AssemblyLinearVelocity.X * 0.2,
-						0,
-						root.AssemblyLinearVelocity.Z * 0.2
-					)
-					root.AssemblyLinearVelocity += Vector3.new(0, TRAP_LAUNCH_UPWARD, 0)
-				end
 			end
 		end
 	end)
