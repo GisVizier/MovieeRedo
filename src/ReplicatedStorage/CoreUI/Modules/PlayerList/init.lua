@@ -165,8 +165,14 @@ function module:_bindUi()
 	self._scrollingLayout = self._scrollingFrame and self._scrollingFrame:FindFirstChild("UIListLayout")
 	self._userFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("User")
 
-	if self._scrollingFrame then
-		self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	if self._scrollingFrame and self._scrollingLayout then
+		local sf = self._scrollingFrame
+		local sl = self._scrollingLayout
+		sf.AutomaticCanvasSize = Enum.AutomaticSize.None
+		sf.CanvasSize = UDim2.new(0, 0, 0, sl.AbsoluteContentSize.Y + 8)
+		sl:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			sf.CanvasSize = UDim2.new(0, 0, 0, sl.AbsoluteContentSize.Y + 8)
+		end)
 	end
 
 	local assetsGui = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("Gui")
@@ -1017,24 +1023,12 @@ function module:_applyFilters()
 end
 
 function module:_refreshCanvasSize()
-	if not self._scrollingFrame then
-		warn("[PlayerList] _refreshCanvasSize: no scrollingFrame")
+	if not self._scrollingFrame or not self._scrollingLayout then
 		return
 	end
-	local layout = self._scrollingLayout
-	local beforeY = layout and layout.AbsoluteContentSize.Y or "N/A"
-	local beforeCanvas = self._scrollingFrame.CanvasSize
-
-	self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.None
-	self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-
-	local afterY = layout and layout.AbsoluteContentSize.Y or "N/A"
-	local afterCanvas = self._scrollingFrame.CanvasSize
-	print(string.format(
-		"[PlayerList] _refreshCanvasSize | ContentY: %s -> %s | CanvasSize: %s -> %s",
-		tostring(beforeY), tostring(afterY),
-		tostring(beforeCanvas), tostring(afterCanvas)
-	))
+	self._scrollingFrame.CanvasSize = UDim2.new(
+		0, 0, 0, self._scrollingLayout.AbsoluteContentSize.Y + 8
+	)
 end
 
 function module:_toggleSection(sectionId)
