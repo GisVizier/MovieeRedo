@@ -126,6 +126,12 @@ function Kit:Destroy()
 end
 
 function Kit:OnEquipped()
+	-- Clean up any leftover trap from a previous equip cycle.
+	-- _destroyTrap broadcasts "destroyTrap" VFX → Placed model destroyed on all clients.
+	if self._trapActive or self._trapPosition then
+		self:_destroyTrap("reEquip")
+	end
+
 	-- Reset trap state so the ability is available again on re-equip / area transition
 	self._trapPlaced = false
 	self._trapActive = false

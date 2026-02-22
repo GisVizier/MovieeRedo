@@ -640,6 +640,12 @@ function KitController:_onKitState(state)
 			self._clientKitId = nil
 			self:_emit("KitUnequipped")
 		end
+	elseif state.lastAction == "Equipped" and self._clientKit then
+		-- Re-equip of same kit: reset client kit state (e.g. Aki _trapPlaced)
+		-- without destroying the kit or touching weapons/loadout.
+		if self._clientKit.OnEquip then
+			pcall(function() self._clientKit:OnEquip(self._clientKit._ctx or {}) end)
+		end
 	end
 
 	if state.lastError then

@@ -359,7 +359,16 @@ function KitService:_equip(player: Player, info, kitId: string)
 	info.abilityCooldownEndsAt = 0
 
 	self:_applyAttributes(player, info)
-	self:_ensureKitInstance(player, info)
+	local kit = self:_ensureKitInstance(player, info)
+
+	-- Always call OnEquipped so kits can reset per-equip state.
+	-- When re-equipping the same kit, _ensureKitInstance returns the cached
+	-- instance without calling OnEquipped — but persistent state like
+	-- Aki._trapPlaced needs to be reset and old trap VFX cleaned up.
+	if kit and kit.OnEquipped then
+		pcall(function() kit:OnEquipped() end)
+	end
+
 	self:_fireState(player, info, { lastAction = "Equipped" })
 end
 

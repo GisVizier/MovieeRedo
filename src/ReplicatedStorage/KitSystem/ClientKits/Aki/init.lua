@@ -255,6 +255,10 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 	if effectsFolder then
 		table.insert(filterList, effectsFolder)
 	end
+	-- Exclude camera children (viewmodel rig can block the ray)
+	if Workspace.CurrentCamera then
+		table.insert(filterList, Workspace.CurrentCamera)
+	end
 	TargetParams.FilterDescendantsInstances = filterList
 
 	local camCF = Workspace.CurrentCamera.CFrame
@@ -857,7 +861,15 @@ end
 
 function Aki:OnEquip(ctx)
 	self._ctx = ctx
-	-- Reset trap state on re-equip (handles round restart where kit is re-used)
+
+	-- Clean up any leftover trap visual from a previous equip cycle
+	-- (server OnEquipped also broadcasts destroyTrap, this is belt-and-suspenders)
+	if Aki._trapPlaced then
+		VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
+		VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
+	end
+
+	-- Reset trap state on re-equip
 	Aki._trapPlaced = false
 end
 
