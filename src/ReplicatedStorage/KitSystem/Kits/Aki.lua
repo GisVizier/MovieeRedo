@@ -94,6 +94,12 @@ local KONSLOW_DURATION = 5
 -- Trap bite timing (must match VFX BITE_DELAY so damage aligns with visual bite)
 local TRAP_BITE_DELAY = 0.6
 
+-- Projectile variant constants
+local PROJ_IMPACT_RADIUS = 10       -- Damage/slow radius at impact
+local PROJ_IMPACT_DAMAGE = 35       -- Damage on projectile impact
+local PROJ_MAX_RANGE = 500          -- Max valid distance from player for impact position (matches client)
+local PROJ_KONSLOW_DURATION = 5     -- KonSlow duration on projectile hit
+
 --------------------------------------------------------------------------------
 -- Module
 --------------------------------------------------------------------------------
@@ -323,6 +329,11 @@ function Kit:_triggerTrap()
 		}, "createKon")
 	end
 	
+	-- Play "Got you!" voice line on the owner's client when trap activates
+	if service then
+		service:BroadcastVFX(player, "Me", "Kon", {}, "trapHitVoice")
+	end
+	
 	-- Self-launch Aki IMMEDIATELY if in range (no delay — launch happens on trigger)
 	if akiInRange and service then
 		service:BroadcastVFX(player, "Me", "Kon", {
@@ -542,92 +553,192 @@ function Kit:OnAbility(inputState, clientData)
 	end
 
 	------------------------------------------------------------------------
-	-- MAIN VARIANT ACTIONS (existing Kon behavior)
+	-- MAIN VARIANT ACTIONS — PROJECTILE
 	------------------------------------------------------------------------
 
-	-- Request Kon Spawn
-	if action == "requestKonSpawn" then
-		local targetPosData = clientData.targetPosition
-		if not targetPosData then
-			return false
-		end
+	-- Kon Projectile Start (client tells server it launched)
+	if action == "konProjectile" then
+		local startPosData = clientData.startPosition
+		local dirData = clientData.direction
+		if not startPosData or not dirData then return false end
 
-		local targetPos = Vector3.new(
-			targetPosData.X or 0,
-			targetPosData.Y or 0,
-			targetPosData.Z or 0
-		)
-
-		local valid, reason = validateTargetPosition(player, character, targetPos)
-		if not valid then
-			return false
-		end
-
-		-- Start cooldown
+		-- Start cooldown immediately
 		if service then
 			service:StartCooldown(player)
 		end
 
-		-- Store for bite validation
-		self._pendingSpawn = {
-			position = targetPos,
+		-- Store projectile state for impact validation
+		self._pendingProjectile = {
+			startPosition = Vector3.new(startPosData.X or 0, startPosData.Y or 0, startPosData.Z or 0),
+			direction = Vector3.new(dirData.X or 0, dirData.Y or 0, dirData.Z or 1).Unit,
 			time = os.clock(),
 		}
 
 		return false
 	end
 
-	-- Kon Bite
-	if action == "konBite" then
-		local hits = clientData.hits
-		local bitePosData = clientData.bitePosition
+	-- Kon Projectile Position Update (periodic replication — pass-through, no cooldown trigger)
+	if action == "konProjectileUpdate" then
+		-- Could be used for server-side position tracking if needed
+		-- For now, just acknowledge
+		return false
+	end
 
-		if not bitePosData then
+	-- Kon Projectile Destroy (pierce through breakable wall — VoxelDestruction at pierce point)
+	if action == "konProjectileDestroy" then
+		local posData = clientData.position
+		if not posData then return false end
+
+		local piercePos = Vector3.new(posData.X or 0, posData.Y or 0, posData.Z or 0)
+
+		-- Basic distance validation
+		local playerPos = nil
+		local api = getHitDetectionAPI()
+		if api then
+			playerPos = api:GetPositionAtTime(player, workspace:GetServerTimeNow())
+		end
+		if not playerPos then
+			local root = character.PrimaryPart
+				or character:FindFirstChild("Root")
+				or character:FindFirstChild("HumanoidRootPart")
+			if root then playerPos = root.Position end
+		end
+		if playerPos then
+			local dist = (piercePos - playerPos).Magnitude
+			if dist > PROJ_MAX_RANGE then return false end
+		end
+
+		-- VoxelDestruction at the pierce point (suppress sounds — these fire on a fast loop)
+		task.spawn(function()
+			local hitbox = Instance.new("Part")
+			hitbox.Size = Vector3.new(12, 12, 12)
+			hitbox.Position = piercePos
+			hitbox.Shape = Enum.PartType.Ball
+			hitbox.Anchored = true
+			hitbox.CanCollide = false
+			hitbox.CanQuery = false
+			hitbox.Transparency = 1
+			hitbox.Parent = workspace
+
+			VoxelDestruction.Destroy(hitbox, nil, 2, 6, nil, true)
+
+			task.delay(2, function()
+				if hitbox and hitbox.Parent then
+					hitbox:Destroy()
+				end
+			end)
+		end)
+
+		return false -- Don't trigger cooldown on pierce
+	end
+
+	-- Kon Projectile Hit (impact — server-authoritative damage)
+	if action == "konProjectileHit" then
+		warn("[Aki Server Proj] === IMPACT RECEIVED ===")
+		local impactPosData = clientData.impactPosition
+		if not impactPosData then
+			warn("[Aki Server Proj] REJECTED: no impactPosition")
 			return true
 		end
 
-		local bitePos = Vector3.new(
-			bitePosData.X or 0,
-			bitePosData.Y or 0,
-			bitePosData.Z or 0
+		local impactPos = Vector3.new(
+			impactPosData.X or 0,
+			impactPosData.Y or 0,
+			impactPosData.Z or 0
 		)
+		warn("[Aki Server Proj] impactPos:", impactPos)
 
-		if hits ~= nil then
-			local valid = validateHitList(hits)
-			if not valid then
+		-- Validate impact distance from player
+		local playerPos = nil
+		local api = getHitDetectionAPI()
+		if api then
+			playerPos = api:GetPositionAtTime(player, workspace:GetServerTimeNow())
+		end
+		if not playerPos then
+			local root = character.PrimaryPart
+				or character:FindFirstChild("Root")
+				or character:FindFirstChild("HumanoidRootPart")
+			if root then playerPos = root.Position end
+		end
+		if playerPos then
+			local dist = (impactPos - playerPos).Magnitude
+			local maxAllowed = PROJ_MAX_RANGE * 1.1 -- 10% tolerance for frame timing overshoot
+			warn("[Aki Server Proj] dist from player:", string.format("%.1f", dist), "| max:", maxAllowed)
+			if dist > maxAllowed then
+				warn("[Aki Server Proj] REJECTED: too far from player")
+				self._pendingProjectile = nil
 				return true
 			end
 		end
 
-		-- Validate bite position
-		if self._pendingSpawn then
-			local spawnDist = (bitePos - self._pendingSpawn.position).Magnitude
-			if spawnDist > 20 then
-				-- Position mismatch, but don't reject
-			end
-		end
-
-		-- Server-authoritative damage check at bite position.
-		local targets = Hitbox.GetCharactersInRadius(bitePos, BITE_RADIUS, player)
-		local appliedHits = 0
-		for _, targetCharacter in ipairs(targets) do
-			if appliedHits >= MAX_HITS_PER_BITE then
-				break
-			end
-
-			if targetCharacter and targetCharacter ~= character then
-				local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
-				if humanoid and humanoid.Health > 0 then
-					applyDamage(self, targetCharacter, BITE_DAMAGE, "Aki_Kon")
-					appliedHits += 1
+		-- Self-launch check: validate server-side that Aki is actually in radius
+		local selfInRange = clientData.selfInRange == true
+		warn("[Aki Server Proj] selfInRange (client):", selfInRange)
+		if selfInRange and character then
+			local akiRoot = character.PrimaryPart
+				or character:FindFirstChild("Root")
+				or character:FindFirstChild("HumanoidRootPart")
+			if akiRoot then
+				local dist = (akiRoot.Position - impactPos).Magnitude
+				warn("[Aki Server Proj] Self-launch server dist:", string.format("%.1f", dist), "| threshold:", PROJ_IMPACT_RADIUS * 1.5)
+				-- Use a generous check (1.5x radius) for latency tolerance
+				if dist <= PROJ_IMPACT_RADIUS * 1.5 then
+					warn("[Aki Server Proj] Self-launch APPROVED — broadcasting selfLaunch VFX")
+					if service then
+						service:BroadcastVFX(player, "Me", "Kon", {
+							position = { X = impactPos.X, Y = impactPos.Y, Z = impactPos.Z },
+						}, "selfLaunch")
+					end
+				else
+					warn("[Aki Server Proj] Self-launch DENIED — too far on server")
 				end
 			end
 		end
 
-		-- Terrain destruction at bite location (server-authoritative VoxelDestruction)
+		-- Server-authoritative damage at impact (enemies + dummies, not Aki)
+		warn("[Aki Server Proj] Searching for targets | radius:", PROJ_IMPACT_RADIUS)
+		local targets = Hitbox.GetCharactersInRadius(impactPos, PROJ_IMPACT_RADIUS, player)
+		local sphereTargets = Hitbox.GetCharactersInSphere(impactPos, PROJ_IMPACT_RADIUS, {})
+		warn("[Aki Server Proj] GetCharactersInRadius found:", #targets, "| GetCharactersInSphere found:", #sphereTargets)
+		local seen = {}
+		local combined = {}
+		for _, t in ipairs(targets) do
+			if not seen[t] then seen[t] = true; table.insert(combined, t) end
+		end
+		for _, t in ipairs(sphereTargets) do
+			if not seen[t] then seen[t] = true; table.insert(combined, t) end
+		end
+		warn("[Aki Server Proj] Combined unique targets:", #combined)
+
+		local appliedHits = 0
+		for _, targetCharacter in ipairs(combined) do
+			if appliedHits >= MAX_HITS_PER_BITE then break end
+			if targetCharacter and targetCharacter ~= character then
+				local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
+				if humanoid and humanoid.Health > 0 then
+					warn("[Aki Server Proj] Damaging:", targetCharacter.Name, "| dmg:", PROJ_IMPACT_DAMAGE)
+					applyDamage(self, targetCharacter, PROJ_IMPACT_DAMAGE, "Aki_KonProjectile")
+					appliedHits += 1
+
+					-- Apply KonSlow to players
+					local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
+					if targetPlayer then
+						local combatService = getCombatService(self)
+						if combatService then
+							combatService:ApplyStatusEffect(targetPlayer, "KonSlow", {
+								duration = PROJ_KONSLOW_DURATION,
+								source = player,
+							})
+						end
+					end
+				end
+			end
+		end
+		warn("[Aki Server Proj] Total hits applied:", appliedHits)
+
+		-- Terrain destruction at impact (VoxelDestruction)
 		local kitData = KitConfig.getKit("Aki")
 		local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
-		
 		if destructionLevel then
 			local radiusMap = {
 				Small = 6,
@@ -636,11 +747,11 @@ function Kit:OnAbility(inputState, clientData)
 				Mega = 22,
 			}
 			local radius = radiusMap[destructionLevel] or 10
-			
+
 			task.spawn(function()
 				local hitbox = Instance.new("Part")
 				hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
-				hitbox.Position = bitePos
+				hitbox.Position = impactPos
 				hitbox.Shape = Enum.PartType.Ball
 				hitbox.Anchored = true
 				hitbox.CanCollide = false
@@ -658,7 +769,7 @@ function Kit:OnAbility(inputState, clientData)
 			end)
 		end
 
-		self._pendingSpawn = nil
+		self._pendingProjectile = nil
 		return true
 	end
 

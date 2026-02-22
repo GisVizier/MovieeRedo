@@ -4,19 +4,19 @@
 	Ability: KON - Two variants:
 	
 	TRAP VARIANT (E while crouching/sliding):
-	- Places a hidden Kon trap at player's feet
-	- Red outline visible to all for 1s, then only to owner
-	- 1 per match, no cooldown
-	- Auto-detects Aki proximity → self-launch away from trap (no damage)
+	- Uses legacy VM animation ("Kon")
+	- Places a hidden Kon trap at aimed position (red hitbox preview)
+	- Server handles ALL detection (enemies + Aki self-launch)
+	- 1 per kit equip, no cooldown
 	
-	MAIN VARIANT (E while standing):
-	- Hold → Aim → Release → Kon spawns at target → Bite
-	- Will be reworked into projectile variant later
-	
-	Animation Events (Main variant):
-	- freeze: Pause animation (Speed = 0)
-	- place: Spawn Kon via VFXRep + hitbox
-	- _finish: Cleanup and restore weapon
+	MAIN VARIANT (E while standing) — PROJECTILE:
+	- Uses new VM animations ("Konstart" → "Konthrow")
+	- Hold E → Kon model spawns, follows camera, plays start anim
+	- During hold: hitbox preview at predicted landing point (down-ray snapped)
+	- Release E → Throw animation plays on both viewmodel AND Kon
+	- Kon flies as a projectile, pierces breakable walls, stops at unbreakable
+	- On impact: hitbox for 35 dmg + KonSlow, self-launch if Aki in radius, VoxelDestruction
+	- Replicated to all clients via VFXRep
 ]]
 
 local Players = game:GetService("Players")
@@ -30,6 +30,7 @@ local TweenService = game:GetService("TweenService")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
+local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
@@ -43,15 +44,45 @@ local LocalPlayer = Players.LocalPlayer
 local MAX_RANGE = 150
 local BITE_RADIUS = 12
 local BITE_KNOCKBACK_PRESET = "Fling"
-local VM_ANIM_NAME = "Kon"
 local RELEASE_ANIM_SPEED = 1.67
 local HITBOX_PREVIEW_FADE_TIME = 0.2
 local HITBOX_PREVIEW_FLOOR_PITCH_DEG = 90
 local GROUND_SNAP_HEIGHT = 12
 local GROUND_SNAP_DISTANCE = 180
 
+-- Viewmodel animation names (instances in Assets/Animations/ViewModel/Kits/Aki/)
+local VM_START_ANIM_NAME = "Konstart"   -- Start animation (effectsplace→effectcharge→effectspawn→freeze→_finish)
+local VM_THROW_ANIM_NAME = "Konthrow"   -- Throw animation (throw→_finish)
+local VM_OLD_ANIM_NAME   = "Kon"        -- Legacy/trap variant animation
+
 -- Trap variant constants
 local TRAP_MAX_RANGE = 35            -- Aiming range for trap placement (studs)
+
+-- Projectile variant constants (Main)
+local PROJ_SPEED = 130               -- Studs/sec (strong arcing projectile)
+local PROJ_DRAG = 0.005              -- Minimal air resistance
+local PROJ_GRAVITY = 80              -- Reduced gravity for nice arc (workspace = 196.2)
+local PROJ_MAX_RANGE = 500           -- Max distance before auto-despawn
+local PROJ_LIFETIME = PROJ_MAX_RANGE / PROJ_SPEED + 2 -- generous lifetime
+local PROJ_IMPACT_RADIUS = 10        -- Damage radius at impact
+local PROJ_IMPACT_DAMAGE = 35        -- Damage at impact
+local PROJ_KON_SCALE = 4             -- Scale factor for flying Kon
+local PROJ_REPLICATION_INTERVAL = 1 / 18 -- How often we replicate position to server
+local PROJ_DESTROY_INTERVAL = 1 / 12    -- How often we send destruction ticks along flight path
+local PROJ_CHAR_HIT_RADIUS = 5          -- Proximity radius for hitting characters during flight
+
+-- Kon model animation IDs (played on the Kon rig itself, not the viewmodel)
+local KON_START_ANIM_ID = "126864813156157"   -- Plays on Kon model during hold phase
+local KON_THROW_ANIM_ID = "78604376351893"   -- Plays on Kon model during throw
+local KON_FLY_ANIM_ID = "138478054902806"    -- Loops on Kon model during flight
+
+-- Projectile physics config
+local PROJ_PHYSICS_CONFIG = {
+	speed = PROJ_SPEED,
+	gravity = PROJ_GRAVITY,
+	drag = PROJ_DRAG,
+	lifetime = PROJ_LIFETIME,
+}
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -229,6 +260,8 @@ Aki._connections = {}
 
 -- Active ability state
 Aki._abilityState = nil
+Aki._projectileInFlight = false  -- True while a Kon projectile is active (blocks new ability use)
+Aki._holding = false             -- True from OnStart, false from OnEnded — used by freeze handler
 
 -- Trap state (static - only one local player per client)
 Aki._trapPlaced = false          -- Has trap been placed this kit equip?
@@ -505,10 +538,780 @@ local function stopHitboxPreview(state, fadeDuration: number?)
 end
 
 --------------------------------------------------------------------------------
+-- Arc Landing Preview (Main Variant — Hitbox model at predicted landing)
+--------------------------------------------------------------------------------
+
+local ARC_SIM_STEP = 1 / 30           -- Simulation time step
+local ARC_SIM_MAX_STEPS = 120         -- Max simulation steps (~4 sec of flight)
+
+-- Raycast params for arc prediction (excludes characters, dummies, effects — only hits world map)
+local function buildArcRayParams(character)
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local filterList = { character }
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then
+			table.insert(filterList, player.Character)
+		end
+	end
+	local dummiesFolder = Workspace:FindFirstChild("Dummies")
+	if dummiesFolder then table.insert(filterList, dummiesFolder) end  -- exclude dummies so ray hits ground, not dummies
+	local effectsFolder = Workspace:FindFirstChild("Effects")
+	if effectsFolder then table.insert(filterList, effectsFolder) end
+	local voxelCache = Workspace:FindFirstChild("VoxelCache")
+	if voxelCache then table.insert(filterList, voxelCache) end
+	local destructionFolder = Workspace:FindFirstChild("__Destruction")
+	if destructionFolder then table.insert(filterList, destructionFolder) end
+	if Workspace.CurrentCamera then table.insert(filterList, Workspace.CurrentCamera) end
+	rayParams.FilterDescendantsInstances = filterList
+	return rayParams
+end
+
+local function startArcPreview(state)
+	if not state then return end
+
+	-- Clean up previous preview
+	if state.arcPreviewConn then
+		state.arcPreviewConn:Disconnect()
+		state.arcPreviewConn = nil
+	end
+
+	-- Create hitbox preview at predicted landing
+	if state.hitboxPreview and state.hitboxPreview.Parent then
+		state.hitboxPreview:Destroy()
+	end
+	local effectsFolder = getEffectsFolder()
+	local template = getHitboxTemplate()
+	local hitboxPreview = nil
+	if template then
+		hitboxPreview = template:Clone()
+		hitboxPreview.Name = "KonArcEndPreview"
+		hitboxPreview.Parent = effectsFolder
+	end
+	state.hitboxPreview = hitboxPreview
+
+	-- Physics simulator for prediction
+	local physics = ProjectilePhysics.new(PROJ_PHYSICS_CONFIG)
+	local arcRayParams = buildArcRayParams(state.character)
+
+	local function updateLanding()
+		if not state.active or state.cancelled or state.released then return end
+
+		local cam = Workspace.CurrentCamera
+		local lookDir = cam.CFrame.LookVector
+		-- Smart offset: reduce when aiming steeply down to avoid spawning below floor
+		local downDot = math.abs(math.min(0, lookDir.Y))
+		local adjustedOffset = 5 * (1 - downDot * 0.9)
+		local startPos = cam.CFrame.Position + lookDir * adjustedOffset
+
+		-- Simulate trajectory to find where it ends up
+		local position = startPos
+		local velocity = lookDir.Unit * PROJ_SPEED
+		local hitPos = nil
+		local hitNormal = nil
+
+		for _ = 1, ARC_SIM_MAX_STEPS do
+			local newPos, newVel, hitResult = physics:Step(position, velocity, ARC_SIM_STEP, arcRayParams)
+
+			if hitResult then
+				hitPos = hitResult.Position
+				hitNormal = hitResult.Normal
+				break
+			end
+
+			position = newPos
+			velocity = newVel
+
+			if velocity.Magnitude < 1 then break end
+		end
+
+		-- Determine the landing point using the same surface projection as the crouch variant
+		local endPos = hitPos or position
+		local surfNormal = hitNormal or Vector3.yAxis
+		local endCF
+
+		if hitNormal and surfNormal.Y <= 0.5 then
+			-- Wall/ceiling: place directly on the surface
+			endCF = CFrame.new(endPos, endPos + surfNormal)
+		else
+			-- Floor-like surface or no direct hit: shoot a down-ray to snap to ground
+			local downResult = Workspace:Raycast(
+				endPos + Vector3.new(0, GROUND_SNAP_HEIGHT, 0),
+				Vector3.new(0, -GROUND_SNAP_DISTANCE, 0),
+				arcRayParams
+			)
+			if downResult then
+				endPos = downResult.Position
+				surfNormal = downResult.Normal
+			end
+
+			-- Build a CFrame facing the camera's horizontal look direction
+			local camCF = cam.CFrame
+			local camPos2d = Vector3.new(camCF.Position.X, endPos.Y, camCF.Position.Z)
+			local dirRelToCam = endPos - camPos2d
+			if dirRelToCam.Magnitude < 0.001 then
+				dirRelToCam = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
+			end
+			if dirRelToCam.Magnitude < 0.001 then
+				dirRelToCam = Vector3.zAxis
+			end
+			endCF = CFrame.lookAt(endPos, endPos + dirRelToCam.Unit)
+		end
+
+		-- Position hitbox preview at landing
+		if hitboxPreview and hitboxPreview.Parent then
+			setPreviewPivot(hitboxPreview, endCF, surfNormal)
+		end
+	end
+
+	updateLanding()
+	state.arcPreviewConn = RunService.RenderStepped:Connect(updateLanding)
+end
+
+local function stopArcPreview(state, fadeDuration: number?)
+	if not state then return end
+
+	if state.arcPreviewConn then
+		state.arcPreviewConn:Disconnect()
+		state.arcPreviewConn = nil
+	end
+
+	-- Fade hitbox preview
+	local preview = state.hitboxPreview
+	state.hitboxPreview = nil
+	if not preview or not preview.Parent then return end
+
+	local duration = tonumber(fadeDuration) or HITBOX_PREVIEW_FADE_TIME
+	if duration <= 0 then
+		preview:Destroy()
+		return
+	end
+
+	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	for _, instance in ipairs({preview, unpack(preview:GetDescendants())}) do
+		if instance:IsA("BasePart") then
+			pcall(function() TweenService:Create(instance, tweenInfo, { Transparency = 1 }):Play() end)
+		elseif instance:IsA("Beam") then
+			fadeBeam(instance, duration)
+		end
+	end
+	task.delay(duration + 0.05, function()
+		if preview and preview.Parent then preview:Destroy() end
+	end)
+end
+
+--------------------------------------------------------------------------------
+-- Kon Model Helpers (Projectile Variant)
+--------------------------------------------------------------------------------
+
+-- Get the konny template from the Kon VFX module
+local function getKonnyTemplate()
+	local konModule = ReplicatedStorage:FindFirstChild("Game")
+		and ReplicatedStorage.Game:FindFirstChild("Replication")
+		and ReplicatedStorage.Game.Replication:FindFirstChild("ReplicationModules")
+		and ReplicatedStorage.Game.Replication.ReplicationModules:FindFirstChild("Kon")
+	if konModule then
+		return konModule:FindFirstChild("konny")
+	end
+	return nil
+end
+
+-- Play an animation on a Kon model by asset ID
+local function playKonAnimById(konModel, animId, looped)
+	if not konModel then return nil end
+
+	local animController = konModel:FindFirstChildOfClass("AnimationController")
+		or konModel:FindFirstChildOfClass("Humanoid")
+	if not animController then return nil end
+
+	local animator = animController:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = animController
+	end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = "rbxassetid://" .. tostring(animId)
+
+	local track = animator:LoadAnimation(anim)
+	if looped then
+		track.Looped = true
+	end
+	track:Play()
+	return track
+end
+
+-- Preload all Kon animations so there's no hitch on first ability use
+local function preloadKonAnimations()
+	local template = getKonnyTemplate()
+	if not template then return end
+
+	local clone = template:Clone()
+	clone.Parent = getEffectsFolder()
+
+	local animController = clone:FindFirstChildOfClass("AnimationController")
+		or clone:FindFirstChildOfClass("Humanoid")
+	if not animController then
+		clone:Destroy()
+		return
+	end
+
+	local animator = animController:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = animController
+	end
+
+	-- Load each animation so Roblox caches the asset
+	local idsToPreload = { KON_START_ANIM_ID, KON_THROW_ANIM_ID, KON_FLY_ANIM_ID }
+	for _, id in ipairs(idsToPreload) do
+		local anim = Instance.new("Animation")
+		anim.AnimationId = "rbxassetid://" .. tostring(id)
+		local track = animator:LoadAnimation(anim)
+		track:Play()
+		track:Stop()
+		anim:Destroy()
+	end
+
+	clone:Destroy()
+end
+
+-- Spawn Kon model and attach it to follow the camera during hold phase
+local function spawnHeldKon(state)
+	local template = getKonnyTemplate()
+	if not template then return end
+
+	local konModel = template:Clone()
+	konModel.Name = "KonHeld_" .. tostring(LocalPlayer.UserId)
+	konModel.Parent = getEffectsFolder()
+
+	-- Position initially
+	local cam = Workspace.CurrentCamera
+	konModel:PivotTo(cam.CFrame * CFrame.new(0, -1.15, 0) * CFrame.Angles(0, math.pi, 0))
+
+	-- Play start animation and store track for freeze/resume
+	local konAnimTrack = playKonAnimById(konModel, KON_START_ANIM_ID, false)
+	state.heldKonAnimTrack = konAnimTrack
+
+	-- Listen for the Kon animation's own "freeze" event to pause at its designated frame
+	if konAnimTrack then
+		konAnimTrack:GetMarkerReachedSignal("Event"):Connect(function(param)
+			if param == "freeze" and state.active and not state.released then
+				konAnimTrack:AdjustSpeed(0)
+			end
+		end)
+	end
+
+	-- Follow camera every frame using RenderStepped loop
+	local followConn
+	followConn = RunService.RenderStepped:Connect(function()
+		if not konModel or not konModel.Parent then
+			if followConn then followConn:Disconnect() end
+			return
+		end
+		konModel:PivotTo(cam.CFrame * CFrame.new(0, -1.15, 0) * CFrame.Angles(0, math.pi, 0))
+	end)
+
+	state.heldKonModel = konModel
+	state.heldKonFollowConn = followConn
+end
+
+-- Forward declarations for mutually-referencing functions
+local onProjectileImpact -- defined after launchKonProjectile
+
+-- Check if a hit part is breakable (for wall piercing)
+local function isBreakablePart(part)
+	if not part then return false end
+	if part:HasTag("Breakable") or part:HasTag("BreakablePiece") or part:HasTag("Debris") then
+		return true
+	end
+	local ancestor = part:FindFirstAncestorOfClass("Model")
+	if ancestor and (ancestor:HasTag("Breakable") or ancestor:HasTag("BreakablePiece")) then
+		return true
+	end
+	return false
+end
+
+-- Launch Kon as a projectile with physics simulation
+local function launchKonProjectile(state, abilityRequest, character, viewmodelRig, startPos, direction)
+	warn("[Aki Proj] === LAUNCH ===")
+	warn("[Aki Proj] startPos:", startPos, "| direction:", direction, "| speed:", PROJ_SPEED)
+
+	-- Create the flying Kon model
+	local template = getKonnyTemplate()
+	if not template then
+		warn("[Aki Proj] ERROR: konny template not found!")
+		return
+	end
+
+	local flyingKon = template:Clone()
+	flyingKon.Name = "KonProjectile_" .. tostring(LocalPlayer.UserId)
+	flyingKon:ScaleTo(PROJ_KON_SCALE)
+	flyingKon.Parent = getEffectsFolder()
+
+	-- Position at start
+	flyingKon:PivotTo(CFrame.lookAt(startPos, startPos + direction) * CFrame.Angles(0, math.pi, 0))
+
+	-- Play flying/looping animation
+	playKonAnimById(flyingKon, KON_FLY_ANIM_ID, true)
+
+	state.projectileKon = flyingKon
+	state.projectileActive = true
+	Aki._projectileInFlight = true
+
+	-- Broadcast projectile start to other clients
+	VFXRep:Fire("Others", { Module = "Kon", Function = "fireProjectile" }, {
+		startPosition = { X = startPos.X, Y = startPos.Y, Z = startPos.Z },
+		direction = { X = direction.X, Y = direction.Y, Z = direction.Z },
+		ownerId = LocalPlayer.UserId,
+	})
+
+	-- Create projectile physics
+	local physics = ProjectilePhysics.new(PROJ_PHYSICS_CONFIG)
+	local position = startPos
+	local velocity = direction.Unit * PROJ_SPEED
+	local distanceTraveled = 0
+
+	-- Build raycast params (exclude characters, effects, camera, dummies)
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local filterList = { character }
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then
+			table.insert(filterList, player.Character)
+		end
+	end
+	local dummiesFolder = Workspace:FindFirstChild("Dummies")
+	if dummiesFolder then table.insert(filterList, dummiesFolder) end
+	local effectsFolder = Workspace:FindFirstChild("Effects")
+	if effectsFolder then table.insert(filterList, effectsFolder) end
+	local voxelCache = Workspace:FindFirstChild("VoxelCache")
+	if voxelCache then table.insert(filterList, voxelCache) end
+	local destructionFolder = Workspace:FindFirstChild("__Destruction")
+	if destructionFolder then table.insert(filterList, destructionFolder) end
+	if Workspace.CurrentCamera then table.insert(filterList, Workspace.CurrentCamera) end
+
+	rayParams.FilterDescendantsInstances = filterList
+
+	-- Physics loop on Heartbeat (NOT stored in state.connections — must survive finishAbility)
+	local exploded = false
+	local lastReplicationTime = 0
+	local lastDestroyTime = 0
+	local projActive = true  -- independent flag so finishAbility can't kill us
+
+	local projConn
+	projConn = RunService.Heartbeat:Connect(function(dt)
+		if not projActive or state.cancelled then
+			projConn:Disconnect()
+			return
+		end
+
+		-- Safety: if the flying Kon was destroyed externally, treat as impact at current position
+		if not flyingKon or not flyingKon.Parent then
+			warn("[Aki Proj] SAFETY: flyingKon destroyed externally at pos:", position)
+			projConn:Disconnect()
+			projActive = false
+			Aki._projectileInFlight = false
+			-- Still send impact so server can do damage/destruction
+			onProjectileImpact(state, abilityRequest, position, velocity, flyingKon, nil)
+			return
+		end
+
+		-- Check max range
+		if distanceTraveled >= PROJ_MAX_RANGE then
+			warn("[Aki Proj] Max range reached:", string.format("%.0f", distanceTraveled), "/", PROJ_MAX_RANGE)
+			projConn:Disconnect()
+			exploded = true
+			projActive = false
+			onProjectileImpact(state, abilityRequest, position, velocity, flyingKon, nil)
+			return
+		end
+
+		-- Step physics
+		local newPosition, newVelocity, hitResult = physics:Step(position, velocity, dt, rayParams)
+		local moveDistance = (newPosition - position).Magnitude
+		distanceTraveled += moveDistance
+
+		if hitResult then
+			-- Hit something — check if breakable
+			if isBreakablePart(hitResult.Instance) then
+				-- Pierce through breakable wall: add to filter, nudge forward
+				warn("[Aki Proj] Pierced breakable:", hitResult.Instance:GetFullName())
+				local filter = rayParams.FilterDescendantsInstances
+				table.insert(filter, hitResult.Instance)
+				rayParams.FilterDescendantsInstances = filter
+				position = hitResult.Position + velocity.Unit * 0.5
+			else
+				-- Unbreakable wall / ground — impact here
+				warn("[Aki Proj] Hit unbreakable:", hitResult.Instance:GetFullName(), "| dist:", string.format("%.0f", distanceTraveled))
+				position = hitResult.Position
+				projConn:Disconnect()
+				exploded = true
+				projActive = false
+				onProjectileImpact(state, abilityRequest, position, velocity, flyingKon, hitResult)
+				return
+			end
+		else
+			position = newPosition
+		end
+
+		velocity = newVelocity
+
+		-- Proximity check: detect if projectile passes near any character (close-range hits)
+		-- The raycast ignores characters, so without this, close-range shots fly through targets.
+		do
+			local nearbyTargets = Hitbox.GetCharactersInSphere(position, PROJ_CHAR_HIT_RADIUS, {
+				Exclude = LocalPlayer,
+			})
+			if #nearbyTargets > 0 then
+				warn("[Aki Proj] Proximity hit! Targets:", #nearbyTargets, "at pos:", position)
+				projConn:Disconnect()
+				exploded = true
+				projActive = false
+				onProjectileImpact(state, abilityRequest, position, velocity, flyingKon, nil)
+				return
+			end
+		end
+
+		-- Self-proximity check: detect if projectile passes near Aki (for self-launch)
+		-- Only after minimum travel distance to avoid instant self-hit at spawn
+		if distanceTraveled > 8 then
+			local myRoot = character.PrimaryPart
+				or character:FindFirstChild("HumanoidRootPart")
+				or character:FindFirstChild("Root")
+			if myRoot then
+				local distToSelf = (myRoot.Position - position).Magnitude
+				if distToSelf <= PROJ_CHAR_HIT_RADIUS then
+					warn("[Aki Proj] Self proximity hit! dist:", string.format("%.1f", distToSelf), "at pos:", position)
+					projConn:Disconnect()
+					exploded = true
+					projActive = false
+					onProjectileImpact(state, abilityRequest, position, velocity, flyingKon, nil)
+					return
+				end
+			end
+		end
+
+		-- Update visual (face movement direction, flipped for model orientation)
+		if flyingKon and flyingKon.Parent then
+			if velocity.Magnitude > 0.1 then
+				flyingKon:PivotTo(CFrame.lookAt(position, position + velocity.Unit) * CFrame.Angles(0, math.pi, 0))
+			else
+				flyingKon:PivotTo(CFrame.new(position) * flyingKon:GetPivot().Rotation)
+			end
+		end
+
+		local now = os.clock()
+
+		-- Send destruction along flight path on a loop
+		if now - lastDestroyTime >= PROJ_DESTROY_INTERVAL then
+			lastDestroyTime = now
+			abilityRequest.Send({
+				action = "konProjectileDestroy",
+				position = { X = position.X, Y = position.Y, Z = position.Z },
+				allowMultiple = true,
+			})
+		end
+
+		-- Replicate position to server at intervals
+		if now - lastReplicationTime >= PROJ_REPLICATION_INTERVAL then
+			lastReplicationTime = now
+			abilityRequest.Send({
+				action = "konProjectileUpdate",
+				position = { X = position.X, Y = position.Y, Z = position.Z },
+				direction = { X = velocity.Unit.X, Y = velocity.Unit.Y, Z = velocity.Unit.Z },
+				allowMultiple = true,
+			})
+		end
+	end)
+
+	-- NOTE: do NOT put projConn in state.connections — the projectile must fly
+	-- independently even after finishAbility is called (which disconnects all state connections).
+	-- The loop self-terminates on impact, max range, or state.cancelled.
+end
+
+-- Handle projectile impact (damage request to server, cleanup)
+onProjectileImpact = function(state, abilityRequest, impactPos, velocity, flyingKon, hitResult)
+	warn("[Aki Proj] === IMPACT ===")
+	warn("[Aki Proj] impactPos:", impactPos, "| hitInstance:", hitResult and hitResult.Instance or "none")
+
+	-- Destroy the flying Kon
+	if flyingKon and flyingKon.Parent then
+		flyingKon:Destroy()
+	end
+	state.projectileKon = nil
+	state.projectileActive = false
+	Aki._projectileInFlight = false
+
+	-- Kill lingering arc preview immediately on impact
+	if state._arcPreviewLinger and state._arcPreviewLinger.Parent then
+		state._arcPreviewLinger:Destroy()
+	end
+	state._arcPreviewLinger = nil
+
+	-- DEBUG: Show impact hitbox sphere so we can see the damage radius
+	do
+		local debugPart = Instance.new("Part")
+		debugPart.Name = "KonImpactDebug"
+		debugPart.Shape = Enum.PartType.Ball
+		debugPart.Size = Vector3.one * (PROJ_IMPACT_RADIUS * 2)
+		debugPart.Position = impactPos
+		debugPart.Anchored = true
+		debugPart.CanCollide = false
+		debugPart.CanQuery = false
+		debugPart.CanTouch = false
+		debugPart.Transparency = 0.6
+		debugPart.Color = Color3.fromRGB(255, 0, 0)
+		debugPart.Material = Enum.Material.ForceField
+		debugPart.Parent = getEffectsFolder()
+		Debris:AddItem(debugPart, 3)
+		warn("[Aki Proj] DEBUG sphere spawned | radius:", PROJ_IMPACT_RADIUS, "| pos:", impactPos)
+	end
+
+	-- Broadcast impact to all clients (destroys spectator Kon, VFX at impact)
+	VFXRep:Fire("All", { Module = "Kon", Function = "projectileImpact" }, {
+		position = { X = impactPos.X, Y = impactPos.Y, Z = impactPos.Z },
+		ownerId = LocalPlayer.UserId,
+	})
+
+	-- Check if Aki (self) is in impact radius for self-launch
+	local selfInRange = false
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local root = myChar.PrimaryPart or myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Root")
+		if root then
+			local distToSelf = (root.Position - impactPos).Magnitude
+			warn("[Aki Proj] Self-range check | rootPos:", root.Position, "| dist:", string.format("%.1f", distToSelf), "| radius:", PROJ_IMPACT_RADIUS, "| inRange:", distToSelf <= PROJ_IMPACT_RADIUS)
+			if distToSelf <= PROJ_IMPACT_RADIUS then
+				selfInRange = true
+			end
+		else
+			warn("[Aki Proj] Self-range check: no root part found")
+		end
+	end
+
+	-- CLIENT-SIDE self-launch (immediate, no server round-trip delay)
+	if selfInRange then
+		warn("[Aki Proj] Self-launch triggered on CLIENT")
+
+		-- Force uncrouch / unslide
+		LocalPlayer:SetAttribute("ForceUncrouch", true)
+		LocalPlayer:SetAttribute("BlockCrouchWhileAbility", true)
+		LocalPlayer:SetAttribute("BlockSlideWhileAbility", true)
+
+		if MovementStateManager:IsSliding() or MovementStateManager:IsCrouching() then
+			MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+		end
+
+		task.delay(1.5, function()
+			if LocalPlayer and LocalPlayer.Parent then
+				LocalPlayer:SetAttribute("ForceUncrouch", nil)
+				LocalPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+				LocalPlayer:SetAttribute("BlockSlideWhileAbility", nil)
+			end
+		end)
+
+		-- Launch straight up
+		local SELF_LAUNCH_VERTICAL = 130
+		local root = myChar.PrimaryPart or myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Root")
+		if root then
+			root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1) -- Clear vertical velocity
+			local movementController = ServiceRegistry:GetController("Movement")
+				or ServiceRegistry:GetController("MovementController")
+			if movementController and movementController.BeginExternalLaunch then
+				movementController:BeginExternalLaunch(Vector3.new(0, SELF_LAUNCH_VERTICAL, 0), 0.28)
+			else
+				root.AssemblyLinearVelocity = Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
+			end
+			warn("[Aki Proj] Self-launched! velocity:", SELF_LAUNCH_VERTICAL)
+		end
+	end
+
+	-- Find OTHER characters hit in impact radius
+	warn("[Aki Proj] Searching for targets in sphere | pos:", impactPos, "| radius:", PROJ_IMPACT_RADIUS)
+	local targets = Hitbox.GetCharactersInSphere(impactPos, PROJ_IMPACT_RADIUS, {
+		Exclude = LocalPlayer,
+	})
+	warn("[Aki Proj] Targets found:", #targets)
+
+	local hitList = {}
+	local hitAnyPlayer = false
+	for _, targetChar in ipairs(targets) do
+		local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+		if targetPlayer then hitAnyPlayer = true end
+		warn("[Aki Proj] Hit target:", targetChar.Name, "| isPlayer:", targetPlayer ~= nil, "| isDummy:", targetPlayer == nil)
+		table.insert(hitList, {
+			characterName = targetChar.Name,
+			playerId = targetPlayer and targetPlayer.UserId or nil,
+			isDummy = targetPlayer == nil,
+		})
+	end
+
+	if hitAnyPlayer then
+		task.delay(0.1, playHitVoice)
+	end
+
+	warn("[Aki Proj] Sending konProjectileHit | selfInRange:", selfInRange, "| hits:", #hitList)
+
+	-- Send impact data to server for authoritative damage + destruction + self-launch
+	-- MUST include allowMultiple because konProjectile already started the cooldown
+	abilityRequest.Send({
+		action = "konProjectileHit",
+		impactPosition = { X = impactPos.X, Y = impactPos.Y, Z = impactPos.Z },
+		hits = hitList,
+		selfInRange = selfInRange,
+		allowMultiple = true,
+	})
+end
+
+--------------------------------------------------------------------------------
+-- Shared Ability Helpers
+--------------------------------------------------------------------------------
+
+-- Clean up ability state and restore weapon (used by both start and throw phases)
+local function finishAbility(state, kitController)
+	if not state or not state.active then return end
+
+	state.active = false
+	Aki._abilityState = nil
+
+	-- Cleanup connections
+	for _, conn in ipairs(state.connections) do
+		if typeof(conn) == "RBXScriptConnection" then
+			conn:Disconnect()
+		end
+	end
+	stopHitboxPreview(state, 0)
+	stopArcPreview(state, 0)
+	-- Note: do NOT destroy _arcPreviewLinger here — it lingers intentionally for 1s after throw
+
+	-- Cleanup held Kon
+	if state.heldKonFollowConn then
+		state.heldKonFollowConn:Disconnect()
+		state.heldKonFollowConn = nil
+	end
+	if state.heldKonModel and state.heldKonModel.Parent then
+		state.heldKonModel:Destroy()
+	end
+	state.heldKonModel = nil
+
+	-- Note: do NOT destroy the projectile Kon — it flies independently.
+
+	-- Restore weapon
+	if state.unlock then state.unlock() end
+	if kitController then kitController:_unholsterWeapon() end
+end
+
+-- Chain from start animation → throw animation → projectile launch
+local function startThrowPhase(state, abilityRequest, character, viewmodelRig, viewmodelAnimator, kitController)
+	state.throwPhaseStarted = true
+
+	-- Keep Kon following the camera during throw — it stays locked until the
+	-- "throw" event fires and the held Kon is destroyed (which auto-disconnects the loop).
+
+	-- Resume Kon anim so the throw transition looks right
+	if state.heldKonAnimTrack then
+		state.heldKonAnimTrack:AdjustSpeed(1)
+	end
+
+	-- Play throw animation on viewmodel
+	local throwTrack = viewmodelAnimator:PlayKitAnimation(VM_THROW_ANIM_NAME, {
+		priority = Enum.AnimationPriority.Action4,
+	})
+
+	-- Play throw animation on held Kon model simultaneously
+	if state.heldKonModel and state.heldKonModel.Parent then
+		playKonAnimById(state.heldKonModel, KON_THROW_ANIM_ID, false)
+	end
+
+	if not throwTrack then
+		-- Fallback: launch immediately if throw animation failed to play
+		local cam = Workspace.CurrentCamera
+		local lookDir = cam.CFrame.LookVector
+		local downDot = math.abs(math.min(0, lookDir.Y))
+		local adjustedOffset = 5 * (1 - downDot * 0.9)
+		local startPos = cam.CFrame.Position + lookDir * adjustedOffset
+
+		abilityRequest.Send({
+			action = "konProjectile",
+			startPosition = { X = startPos.X, Y = startPos.Y, Z = startPos.Z },
+			direction = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
+			allowMultiple = true,
+		})
+		if state.heldKonFollowConn then
+			state.heldKonFollowConn:Disconnect()
+			state.heldKonFollowConn = nil
+		end
+		if state.heldKonModel and state.heldKonModel.Parent then
+			state.heldKonModel:Destroy()
+		end
+		state.heldKonModel = nil
+		launchKonProjectile(state, abilityRequest, character, viewmodelRig, startPos, lookDir)
+		task.delay(0.5, function()
+			finishAbility(state, kitController)
+		end)
+		return
+	end
+
+	state.throwTrack = throwTrack
+
+	-- Throw animation events
+	local throwConn = throwTrack:GetMarkerReachedSignal("Event"):Connect(function(event)
+		if event == "throw" then
+			if state.cancelled or not state.active then return end
+
+			-- Capture camera NOW (not earlier) so the aim is fresh
+			local cam = Workspace.CurrentCamera
+			local lookDir = cam.CFrame.LookVector
+			-- Smart offset: reduce when aiming steeply down to avoid spawning below floor
+			local downDot = math.abs(math.min(0, lookDir.Y)) -- 0=horizontal, 1=straight down
+			local adjustedOffset = 5 * (1 - downDot * 0.9)   -- ~0.5 when aiming straight down
+			local startPos = cam.CFrame.Position + lookDir * adjustedOffset
+
+			-- Notify server
+			abilityRequest.Send({
+				action = "konProjectile",
+				startPosition = { X = startPos.X, Y = startPos.Y, Z = startPos.Z },
+				direction = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
+				allowMultiple = true,
+			})
+
+			-- Stop following camera and destroy held Kon (replaced by projectile Kon)
+			if state.heldKonFollowConn then
+				state.heldKonFollowConn:Disconnect()
+				state.heldKonFollowConn = nil
+			end
+			if state.heldKonModel and state.heldKonModel.Parent then
+				state.heldKonModel:Destroy()
+			end
+			state.heldKonModel = nil
+
+			-- Launch projectile
+			launchKonProjectile(state, abilityRequest, character, viewmodelRig, startPos, lookDir)
+
+		elseif event == "_finish" then
+			finishAbility(state, kitController)
+		end
+	end)
+	table.insert(state.connections, throwConn)
+
+	-- Safety: if throw animation stops without hitting _finish event
+	local stoppedConn = throwTrack.Stopped:Once(function()
+		if state.active then
+			finishAbility(state, kitController)
+		end
+	end)
+	table.insert(state.connections, stoppedConn)
+end
+
+--------------------------------------------------------------------------------
 -- Ability: Kon
 --------------------------------------------------------------------------------
 
 function Aki.Ability:OnStart(abilityRequest)
+	Aki._holding = true
+
 	local hrp = abilityRequest.humanoidRootPart
 	local character = abilityRequest.character
 	if not hrp or not character then return end
@@ -529,6 +1332,7 @@ function Aki.Ability:OnStart(abilityRequest)
 
 	-- Common guards
 	if kitController:IsAbilityActive() then return end
+	if Aki._projectileInFlight then return end -- Can't use ability while a Kon projectile is in flight
 	if not isTrapVariant and abilityRequest.IsOnCooldown() then return end
 
 	------------------------------------------------------------------------
@@ -537,12 +1341,13 @@ function Aki.Ability:OnStart(abilityRequest)
 	local ctx = abilityRequest.StartAbility()
 	local unlock = kitController:LockWeaponSwitch()
 
-	-- Play viewmodel animation
+	-- Play viewmodel animation (legacy "Kon" for trap, new "Konstart" for main)
 	local viewmodelAnimator = ctx.viewmodelAnimator
 	local viewmodelController = abilityRequest.viewmodelController
 	local viewmodelRig = viewmodelController and viewmodelController:GetActiveRig()
 	
-	local animation = viewmodelAnimator:PlayKitAnimation(VM_ANIM_NAME, {
+	local vmAnimName = isTrapVariant and VM_OLD_ANIM_NAME or VM_START_ANIM_NAME
+	local animation = viewmodelAnimator:PlayKitAnimation(vmAnimName, {
 		priority = Enum.AnimationPriority.Action4,
 		stopOthers = true,
 	})
@@ -565,6 +1370,7 @@ function Aki.Ability:OnStart(abilityRequest)
 		active = true,
 		released = false,
 		cancelled = false,
+		frozen = false,          -- true once the freeze event fires and actually pauses
 		animation = animation,
 		unlock = unlock,
 		abilityRequest = abilityRequest,
@@ -576,46 +1382,135 @@ function Aki.Ability:OnStart(abilityRequest)
 	}
 	Aki._abilityState = state
 
-	-- Animation event handlers
-	animation:AdjustSpeed(1.3)
-	local Events = {
-		["freeze"] = function()
-			-- Pause animation until released (both variants show preview here)
-			if state.active and not state.released then
-				animation:AdjustSpeed(0)
-				replicateTrackSpeed(VM_ANIM_NAME, 0)
-				startHitboxPreview(state)
-			end
-		end,
+	-- MAIN VARIANT: Spawn Kon immediately so its start anim plays in sync with the viewmodel
+	if not isTrapVariant then
+		spawnHeldKon(state)
+	end
 
-		["shake"] = function()
-			-- Caster viewmodel effects
+	-- ====================================================================
+	-- Start Animation Events (effectsplace → effectcharge → effectspawn → freeze → _finish)
+	-- ====================================================================
+	local StartEvents  -- forward-declare so freeze handler can reference _finish
+	StartEvents = {
+		["effectsplace"] = function()
+			-- VFX: arm/hand effects on viewmodel
 			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
 				ViewModel = viewmodelRig,
 				forceAction = "start",
 			})
 		end,
 
-		["place"] = function()
-			if not state.active or state.cancelled then return end
-			if viewmodelController:GetActiveSlot() ~= "Fists" then return end
+		["effectcharge"] = function()
+			-- Additional charge VFX on viewmodel
+			VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
+				ViewModel = viewmodelRig,
+				forceAction = "start",
+			})
+		end,
 
-			-- Get target location at moment of placement (prefer held preview target)
-			local targetCFrame = state.previewTargetCFrame
-			local surfaceNormal = state.previewSurfaceNormal
-			if not targetCFrame then
-				targetCFrame, surfaceNormal = getTargetLocation(character, abilityRange)
+		["effectspawn"] = function()
+			-- Kon already spawned at ability start (in sync with viewmodel anim)
+		end,
+
+		["freeze"] = function()
+			if not Aki._holding then
+				-- Quick tap — player already let go, just let the animation
+				-- keep playing at normal speed. _finish will fire naturally.
+				state.released = true
+				return
 			end
-			if not targetCFrame then return end
-			
-			surfaceNormal = surfaceNormal or Vector3.yAxis
-			state.targetCFrame = targetCFrame
+
+			-- Still holding: pause viewmodel animation until released
+			if state.active then
+				state.frozen = true
+				animation:AdjustSpeed(0)
+				replicateTrackSpeed(vmAnimName, 0)
+				if state.isTrapPlacement then
+					startHitboxPreview(state)
+				else
+					startArcPreview(state)
+				end
+
+				-- Poll for release, then resume animation
+				task.spawn(function()
+					while Aki._holding and state.active and not state.cancelled do
+						task.wait()
+					end
+					if not state.active or state.cancelled then return end
+
+					state.released = true
+
+					if state.isTrapPlacement then
+						stopHitboxPreview(state, HITBOX_PREVIEW_FADE_TIME)
+					else
+						stopArcPreview(state, HITBOX_PREVIEW_FADE_TIME)
+					end
+
+					local aName = state.isTrapPlacement and VM_OLD_ANIM_NAME or VM_START_ANIM_NAME
+					if state.animation and state.animation.IsPlaying then
+						state.animation:AdjustSpeed(RELEASE_ANIM_SPEED)
+						replicateTrackSpeed(aName, RELEASE_ANIM_SPEED)
+					end
+					if state.heldKonAnimTrack then
+						state.heldKonAnimTrack:AdjustSpeed(1)
+					end
+				end)
+			end
+		end,
+
+		["_finish"] = function()
+			if not state.active or state.cancelled then return end
+
+			-- Stop preview
+			if state.isTrapPlacement then
+				stopHitboxPreview(state, 0)
+			else
+				-- Main variant: stop the live update, keep hitbox for 1s
+				-- (projectile impact will destroy it early via state._arcPreviewLinger)
+				if state.arcPreviewConn then
+					state.arcPreviewConn:Disconnect()
+					state.arcPreviewConn = nil
+				end
+
+				-- Move hitbox preview off of state so stopArcPreview won't grab it
+				local lingerPreview = state.hitboxPreview
+				state.hitboxPreview = nil
+				if lingerPreview and lingerPreview.Parent then
+					state._arcPreviewLinger = lingerPreview
+					task.delay(1.0, function()
+						-- Auto-cleanup after 1 second if not already destroyed
+						if lingerPreview and lingerPreview.Parent then
+							lingerPreview:Destroy()
+						end
+						if state._arcPreviewLinger == lingerPreview then
+							state._arcPreviewLinger = nil
+						end
+					end)
+				end
+			end
 
 			if state.isTrapPlacement then
 				----------------------------------------------------------------
 				-- TRAP VARIANT: Place trap at aimed position
 				-- Server handles ALL detection (enemies + Aki self-launch)
 				----------------------------------------------------------------
+				if viewmodelController:GetActiveSlot() ~= "Fists" then
+					finishAbility(state, kitController)
+					return
+				end
+
+				local targetCFrame = state.previewTargetCFrame
+				local surfaceNormal = state.previewSurfaceNormal
+				if not targetCFrame then
+					targetCFrame, surfaceNormal = getTargetLocation(character, abilityRange)
+				end
+				if not targetCFrame then
+					finishAbility(state, kitController)
+					return
+				end
+
+				surfaceNormal = surfaceNormal or Vector3.yAxis
+				state.targetCFrame = targetCFrame
 				local pos = targetCFrame.Position
 
 				-- Send to server for validation + detection
@@ -633,170 +1528,44 @@ function Aki.Ability:OnStart(abilityRequest)
 
 				-- Mark as used (one per kit equip)
 				Aki._trapPlaced = true
+
+				-- Done — clean up
+				finishAbility(state, kitController)
+
 			else
 				----------------------------------------------------------------
-				-- MAIN VARIANT: Spawn Kon at aimed position
+				-- MAIN VARIANT: Chain to throw animation
+				-- startThrowPhase plays the throw anim → on "throw" event
+				-- the projectile is actually launched.
 				----------------------------------------------------------------
-
-				-- Send to server for validation
-				abilityRequest.Send({
-					action = "requestKonSpawn",
-					targetPosition = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
-					targetLookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
-				})
-
-				-- Spawn Kon for ALL clients via VFXRep
-				VFXRep:Fire("All", { Module = "Kon", Function = "createKon" }, {
-					position = { X = targetCFrame.Position.X, Y = targetCFrame.Position.Y, Z = targetCFrame.Position.Z },
-					lookVector = { X = targetCFrame.LookVector.X, Y = targetCFrame.LookVector.Y, Z = targetCFrame.LookVector.Z },
-					surfaceNormal = { X = surfaceNormal.X, Y = surfaceNormal.Y, Z = surfaceNormal.Z },
-				})
-
-				local targets = Hitbox.GetCharactersInSphere(targetCFrame.Position, BITE_RADIUS, {
-					Exclude = abilityRequest.player,
-				})
-
-				-- Knockback
-				local knockbackController = ServiceRegistry:GetController("Knockback")
-				local hitList = {}
-				local hitAnyPlayer = false
-				
-				for _, targetChar in ipairs(targets) do
-					if knockbackController then
-						local direction = (targetChar.PrimaryPart.Position - targetCFrame.Position).Unit
-
-						knockbackController:ApplyKnockback(targetChar, direction, {
-							upwardVelocity = 60,
-							outwardVelocity = 30,
-							preserveMomentum = -1.0,
-						})
-					end
-
-					local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-					if targetPlayer then
-						hitAnyPlayer = true
-					end
-					
-					table.insert(hitList, {
-						characterName = targetChar.Name,
-						playerId = targetPlayer and targetPlayer.UserId or nil,
-						isDummy = targetPlayer == nil,
-					})
-				end
-				
-				-- Play hit voice if we hit any player
-				if hitAnyPlayer then
-					task.delay(0.3, playHitVoice)
-				end
-				
-				task.spawn(function()
-					task.wait(.6)
-					
-					if not state.active or state.cancelled then return end
-					if viewmodelController:GetActiveSlot() ~= "Fists" then return end
-					if not state.targetCFrame then return end
-
-					local bitePosition = state.targetCFrame.Position
-
-					-- Hitbox
-					local targets = Hitbox.GetCharactersInSphere(bitePosition, BITE_RADIUS, {
-						Exclude = abilityRequest.player,
-					})
-
-					-- Knockback
-					local knockbackController = ServiceRegistry:GetController("Knockback")
-					local hitList = {}
-
-					for _, targetChar in ipairs(targets) do
-						if knockbackController then
-							local direction = (targetChar.PrimaryPart.Position - bitePosition).Unit
-							
-							knockbackController:ApplyKnockback(targetChar, direction, {
-								upwardVelocity = 150,
-								outwardVelocity = 180,
-								preserveMomentum = 0.25,
-							})
-						end
-
-						local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
-						table.insert(hitList, {
-							characterName = targetChar.Name,
-							playerId = targetPlayer and targetPlayer.UserId or nil,
-							isDummy = targetPlayer == nil,
-						})
-					end
-
-					-- Send hits to server
-					abilityRequest.Send({
-						action = "konBite",
-						hits = hitList,
-						bitePosition = { X = bitePosition.X, Y = bitePosition.Y, Z = bitePosition.Z },
-					})
-
-					-- Caster bite effects
-					VFXRep:Fire("Me", { Module = "Kon", Function = "User" }, {
-						ViewModel = viewmodelRig,
-						forceAction = "bite",
-					})
-				end)
+				startThrowPhase(state, abilityRequest, character, viewmodelRig, viewmodelAnimator, kitController)
 			end
-		end,
-
-		["_finish"] = function()
-			if not state.active then return end
-			
-			state.active = false
-			Aki._abilityState = nil
-
-			-- Cleanup connections
-			for _, conn in ipairs(state.connections) do
-				if typeof(conn) == "RBXScriptConnection" then
-					conn:Disconnect()
-				end
-			end
-			stopHitboxPreview(state, 0)
-
-			-- Restore weapon
-			state.unlock()
-			kitController:_unholsterWeapon()
 		end,
 	}
 
-	-- Connect to animation events
+	-- Connect start animation events
 	state.connections[#state.connections + 1] = animation:GetMarkerReachedSignal("Event"):Connect(function(event)
-		if Events[event] then
-			Events[event]()
+		if StartEvents[event] then
+			StartEvents[event]()
 		end
 	end)
 
-	-- Handle animation end (safety cleanup)
+	-- Safety: if start animation stops without hitting _finish
 	state.connections[#state.connections + 1] = animation.Stopped:Once(function()
-		if state.active then
-			Events["_finish"]()
+		if state.active and not state.throwPhaseStarted then
+			finishAbility(state, kitController)
 		end
 	end)
 
 	state.connections[#state.connections + 1] = animation.Ended:Once(function()
-		if state.active then
-			Events["_finish"]()
+		if state.active and not state.throwPhaseStarted then
+			finishAbility(state, kitController)
 		end
 	end)
 end
 
 function Aki.Ability:OnEnded(abilityRequest)
-	local state = Aki._abilityState
-	if not state or not state.active then return end
-
-	-- Mark as released
-	state.released = true
-
-	stopHitboxPreview(state, HITBOX_PREVIEW_FADE_TIME)
-
-	-- Resume animation from freeze
-	if state.animation and state.animation.IsPlaying then
-		state.animation:AdjustSpeed(RELEASE_ANIM_SPEED)
-		replicateTrackSpeed(VM_ANIM_NAME, RELEASE_ANIM_SPEED)
-	end
+	Aki._holding = false
 end
 
 function Aki.Ability:OnInterrupt(abilityRequest, reason)
@@ -805,19 +1574,47 @@ function Aki.Ability:OnInterrupt(abilityRequest, reason)
 
 	state.cancelled = true
 	state.active = false
+	state.projectileActive = false
+	Aki._projectileInFlight = false
 	Aki._abilityState = nil
 
 	-- Cleanup active sounds
 	cleanupSounds()
 
-	-- Stop animation
+	-- Stop animations
 	if state.animation and state.animation.IsPlaying then
 		state.animation:Stop(0.1)
 	end
+	if state.throwTrack and state.throwTrack.IsPlaying then
+		state.throwTrack:Stop(0.1)
+	end
 
 	stopHitboxPreview(state, HITBOX_PREVIEW_FADE_TIME)
+	stopArcPreview(state, HITBOX_PREVIEW_FADE_TIME)
 
-	-- Destroy Kon if spawned
+	-- Destroy lingering arc preview on interrupt
+	if state._arcPreviewLinger and state._arcPreviewLinger.Parent then
+		state._arcPreviewLinger:Destroy()
+	end
+	state._arcPreviewLinger = nil
+
+	-- Destroy held Kon model
+	if state.heldKonFollowConn then
+		state.heldKonFollowConn:Disconnect()
+		state.heldKonFollowConn = nil
+	end
+	if state.heldKonModel and state.heldKonModel.Parent then
+		state.heldKonModel:Destroy()
+	end
+	state.heldKonModel = nil
+
+	-- Destroy flying projectile Kon
+	if state.projectileKon and state.projectileKon.Parent then
+		state.projectileKon:Destroy()
+	end
+	state.projectileKon = nil
+
+	-- Destroy any remaining Kon (legacy cleanup)
 	VFXRep:Fire("All", { Module = "Kon", Function = "destroyKon" }, {})
 
 	-- Cleanup connections
@@ -869,8 +1666,12 @@ function Aki:OnEquip(ctx)
 		VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
 	end
 
-	-- Reset trap state on re-equip
+	-- Reset state on re-equip
 	Aki._trapPlaced = false
+	Aki._projectileInFlight = false
+
+	-- Preload Kon animations so there's no hitch on first ability use
+	task.spawn(preloadKonAnimations)
 end
 
 function Aki:OnUnequip(reason)
@@ -892,8 +1693,9 @@ function Aki:OnUnequip(reason)
 		VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
 	end
 
-	-- Reset trap state
+	-- Reset state
 	Aki._trapPlaced = false
+	Aki._projectileInFlight = false
 end
 
 function Aki:Destroy()

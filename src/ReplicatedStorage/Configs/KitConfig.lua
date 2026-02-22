@@ -222,12 +222,12 @@ KitConfig.Kits = {
 
 		Ability = {
 			Name = "KON",
-			Description = "Crouch + E: Place a hidden trap (1 per match) that bites enemies for 75 dmg. Stand + E: Hurl Kon as an arcing projectile for 30 dmg. Both apply a crippling slow.",
+			Description = "Crouch + E: Place a hidden trap (1 per equip) that bites enemies for 75 dmg. Stand + E: Hurl Kon as an arcing projectile for 30 dmg. Both apply a crippling slow.",
 			Video = "",
-			Damage = 75,
+			Damage = 32.5,
 			DamageType = "AOE",
 			Destruction = "Big",
-			Cooldown = 7,
+			Cooldown = 1, -- Short for testing (was 7)
 		},
 
 		Passive = {
