@@ -125,7 +125,6 @@ function module.start(export, ui)
 	self._notifTemplates = {}
 	self._activeNotif = nil
 	self._notifTimerThread = nil
-	self._canvasRefreshThread = nil
 
 	self:_bindUi()
 	self:_bindInput()
@@ -165,6 +164,10 @@ function module:_bindUi()
 	self._scrollingFrame = panelGroup and panelGroup:FindFirstChild("ScrollingFrame")
 	self._scrollingLayout = self._scrollingFrame and self._scrollingFrame:FindFirstChild("UIListLayout")
 	self._userFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("User")
+
+	if self._scrollingFrame then
+		self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	end
 
 	local assetsGui = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("Gui")
 	self._rowTemplate = assetsGui and assetsGui:FindFirstChild("PlayerlistTemp")
@@ -426,11 +429,6 @@ function module:_bindInput()
 		end, "tabs")
 	end
 
-	if self._scrollingLayout then
-		self._connections:add(self._scrollingLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			self:_refreshCanvasSize()
-		end), "layout")
-	end
 end
 
 function module:_bindEvents()
@@ -1019,35 +1017,6 @@ function module:_applyFilters()
 end
 
 function module:_refreshCanvasSize()
-	if not self._scrollingFrame or not self._scrollingLayout then
-		return
-	end
-
-	self._scrollingFrame.CanvasSize = UDim2.new(
-		0, 0, 0, self._scrollingLayout.AbsoluteContentSize.Y + 8
-	)
-
-	if self._canvasRefreshThread then
-		pcall(task.cancel, self._canvasRefreshThread)
-		self._canvasRefreshThread = nil
-	end
-
-	self._canvasRefreshThread = task.spawn(function()
-		local lastY = -1
-		for _ = 1, 6 do
-			task.wait()
-			if not self._scrollingFrame or not self._scrollingLayout then
-				break
-			end
-			local curY = self._scrollingLayout.AbsoluteContentSize.Y
-			self._scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, curY + 8)
-			if curY == lastY then
-				break
-			end
-			lastY = curY
-		end
-		self._canvasRefreshThread = nil
-	end)
 end
 
 function module:_toggleSection(sectionId)
@@ -2125,10 +2094,6 @@ end
 --------------------------------------------------------------------------------
 
 function module:_cleanup()
-	if self._canvasRefreshThread then
-		pcall(task.cancel, self._canvasRefreshThread)
-		self._canvasRefreshThread = nil
-	end
 	for _, row in pairs(self._rows) do
 		self:_destroyRow(row)
 	end
