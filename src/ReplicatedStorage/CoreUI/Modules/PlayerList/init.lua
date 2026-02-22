@@ -117,12 +117,14 @@ function module.start(export, ui)
 	self._isPanelVisible = true
 
 	self._playerShowFrame = nil
-	self._inviteFrame = nil
 	self._partyState = nil
-	self._pendingInvite = nil
-	self._inviteTimerThread = nil
 	self._userLeaveTemplate = nil
 	self._userLeaveInstance = nil
+
+	self._notifScreenGui = nil
+	self._notifTemplates = {}
+	self._activeNotif = nil
+	self._notifTimerThread = nil
 
 	self:_bindUi()
 	self:_bindInput()
@@ -207,9 +209,29 @@ function module:_bindUi()
 		self._playerShowFrame.Visible = false
 	end
 
-	self._inviteFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("Invite")
-	if self._inviteFrame then
-		self._inviteFrame.Visible = false
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		local playerGui = localPlayer:FindFirstChild("PlayerGui")
+		if playerGui then
+			local notifGui = playerGui:FindFirstChild("PartyNotification")
+			if notifGui then
+				self._notifScreenGui = notifGui
+				local folder = notifGui:FindFirstChild("Folder")
+				if folder then
+					for _, child in folder:GetChildren() do
+						if child:IsA("Frame") then
+							self._notifTemplates[child.Name] = child
+							child.Visible = false
+						end
+					end
+				end
+			end
+		end
+	end
+
+	local oldInviteFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild("Invite")
+	if oldInviteFrame then
+		oldInviteFrame.Visible = false
 	end
 end
 
@@ -1634,193 +1656,137 @@ function module:_sendPartyInvite(targetUserId)
 	print("[PlayerList] _sendPartyInvite: inviting userId", targetUserId)
 	self._export:emit("PartyInviteSend", { targetUserId = targetUserId })
 
-	local frame = self._playerShowFrame
-	if frame then
-		local contentFrame = frame:FindFirstChild("Frame")
-		local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")
-		if inviteButton then
-			local statusLabel = inviteButton:FindFirstChild("Status")
-			if statusLabel and statusLabel:IsA("TextLabel") then
-				statusLabel.Text = "INVITED..."
-			end
-			inviteButton.Active = false
-		end
-	end
-
-	local targetPlayer = Players:GetPlayerByUserId(targetUserId)
-	local displayName = targetPlayer and targetPlayer.DisplayName or ("Player " .. tostring(targetUserId))
-	self:_showInviteBanner({
-		fromDisplayName = displayName,
-		fromUserId = targetUserId,
-		timeout = 3,
-		sentNotification = true,
-	})
+	self:_hidePlayerShow()
+	self:_clearSelection()
 end
 
 --------------------------------------------------------------------------------
--- INVITE BANNER
+-- PARTY NOTIFICATIONS  (uses PartyNotification.Folder templates)
 --------------------------------------------------------------------------------
 
-function module:_showInviteBanner(data)
-	local frame = self._inviteFrame
-	if not frame then
+function module:_showPartyNotification(templateName, opts)
+	opts = opts or {}
+	self:_hidePartyNotification()
+
+	local template = self._notifTemplates[templateName]
+	if not template or not self._notifScreenGui then
 		return
 	end
 
-	if self._inviteTimerThread then
-		pcall(task.cancel, self._inviteTimerThread)
-		self._inviteTimerThread = nil
+	local clone = template:Clone()
+	clone.Name = templateName .. "_Active"
+	clone.Visible = true
+	clone.Parent = self._notifScreenGui
+
+	self._activeNotif = clone
+	self._connections:cleanupGroup("partyNotif")
+
+	local function findDescendantByNameAndClass(parent, name, class)
+		for _, desc in parent:GetDescendants() do
+			if desc.Name == name and desc:IsA(class) then
+				return desc
+			end
+		end
+		return nil
 	end
 
-	self._pendingInvite = data
-	self._connections:cleanupGroup("inviteBanner")
-
-	local isKicked = data.kicked == true
-	local isSent = data.sentNotification == true
-	local isInfoOnly = isKicked or isSent
-
-	local inviteHolder = frame:FindFirstChild("InviteHolder")
-	if inviteHolder then
-		local username = inviteHolder:FindFirstChild("Username")
-		if username and username:IsA("TextLabel") then
-			if isSent then
-				username.Text = data.fromDisplayName or "Unknown"
-			elseif isKicked then
-				username.Text = "PARTY"
-			else
-				username.Text = data.fromDisplayName or data.fromUsername or "Unknown"
+	if opts.headerText then
+		local headers = {}
+		for _, desc in clone:GetDescendants() do
+			if desc.Name == "Username" and desc:IsA("TextLabel") then
+				table.insert(headers, desc)
 			end
 		end
-		local invited = inviteHolder:FindFirstChild("Invited")
-		if invited and invited:IsA("TextLabel") then
-			if isSent then
-				invited.Text = "INVITE SENT!"
-			elseif isKicked then
-				invited.Text = "YOU WERE KICKED!"
-			else
-				invited.Text = "HAS INVITED YOU!"
+		if headers[1] then
+			headers[1].Text = opts.headerText
+		end
+	end
+
+	if opts.bodyText then
+		local bodies = {}
+		for _, desc in clone:GetDescendants() do
+			if desc.Name == "Username" and desc:IsA("TextLabel") then
+				table.insert(bodies, desc)
 			end
 		end
-		local playerImage = inviteHolder:FindFirstChild("PlayerImage")
-		if playerImage and playerImage:IsA("ImageLabel") then
-			if data.fromUserId and data.fromUserId ~= 0 then
-				task.spawn(function()
-					local ok, content = pcall(function()
-						return Players:GetUserThumbnailAsync(
-							data.fromUserId,
-							Enum.ThumbnailType.HeadShot,
-							Enum.ThumbnailSize.Size420x420
-						)
-					end)
-					if ok and content and self._pendingInvite == data then
-						playerImage.Image = content
+		if bodies[2] then
+			bodies[2].Text = opts.bodyText
+		end
+	end
+
+	if opts.userId and opts.userId ~= 0 then
+		local capturedClone = clone
+		task.spawn(function()
+			local ok, content = pcall(function()
+				return Players:GetUserThumbnailAsync(
+					opts.userId,
+					Enum.ThumbnailType.HeadShot,
+					Enum.ThumbnailSize.Size420x420
+				)
+			end)
+			if ok and content and self._activeNotif == capturedClone then
+				local directImage = capturedClone:FindFirstChild("ImageLabel")
+				if directImage and directImage:IsA("ImageLabel") then
+					directImage.Image = content
+				end
+				for _, desc in capturedClone:GetDescendants() do
+					if desc.Name == "PlayerImage" and desc:IsA("ImageLabel") then
+						desc.Image = content
 					end
-				end)
-			else
-				playerImage.Image = ""
-			end
-		end
-	end
-
-	local loadingHolder = frame:FindFirstChild("LoadingHolder")
-	if loadingHolder then
-		if isInfoOnly then
-			loadingHolder.Visible = false
-		else
-			loadingHolder.Visible = true
-			local buttons = {}
-			for _, child in loadingHolder:GetChildren() do
-				if child:IsA("GuiButton") then
-					table.insert(buttons, child)
 				end
 			end
-
-			for _, btn in ipairs(buttons) do
-				local label = btn:FindFirstChild("Invited") or btn:FindFirstChild("TextLabel")
-				local text = label and label:IsA("TextLabel") and label.Text or btn.Name
-				local isAccept = string.find(string.upper(text), "ACCEPT") ~= nil
-
-				if isAccept then
-					self._connections:track(btn, "Activated", function()
-						self:_respondToInvite(true)
-					end, "inviteBanner")
-				else
-					self._connections:track(btn, "Activated", function()
-						self:_respondToInvite(false)
-					end, "inviteBanner")
-				end
-			end
-		end
+		end)
 	end
 
-	frame.Visible = true
-	frame.LayoutOrder = -999
+	if opts.onAccept or opts.onDecline then
+		local acceptBtn = findDescendantByNameAndClass(clone, "Accept", "ImageButton")
+		local declineBtn = findDescendantByNameAndClass(clone, "Decline", "ImageButton")
+		local loadingHolder = findDescendantByNameAndClass(clone, "LoadingHolder", "Frame")
 
-	local timeout = data.timeout or 5
-	self._inviteTimerThread = task.delay(timeout, function()
-		if self._pendingInvite == data then
-			if isInfoOnly then
-				self:_hideInviteBanner()
-			else
-				self:_respondToInvite(false)
-			end
-		end
-	end)
-
-	local progressBar = nil
-	for _, child in frame:GetChildren() do
-		if child.Name == "LoadingHolder" and child:IsA("Frame") then
-			local canvas = child:FindFirstChildWhichIsA("CanvasGroup")
-			if canvas then
-				progressBar = canvas:FindFirstChild("Frame")
-				break
-			end
-		end
-	end
-	if progressBar then
-		progressBar.Size = UDim2.new(1, 0, 1, 0)
-		local tween = TweenService:Create(progressBar, TweenInfo.new(timeout, Enum.EasingStyle.Linear), {
-			Size = UDim2.new(0, 0, 1, 0),
-		})
-		tween:Play()
-	end
-end
-
-function module:_hideInviteBanner()
-	if self._inviteTimerThread then
-		pcall(task.cancel, self._inviteTimerThread)
-		self._inviteTimerThread = nil
-	end
-	self._pendingInvite = nil
-	self._connections:cleanupGroup("inviteBanner")
-
-	if self._inviteFrame then
-		self._inviteFrame.Visible = false
-		local loadingHolder = self._inviteFrame:FindFirstChild("LoadingHolder")
 		if loadingHolder then
 			loadingHolder.Visible = true
 		end
-		for _, child in self._inviteFrame:GetChildren() do
-			if child.Name == "LoadingHolder" and child:IsA("Frame") then
-				local canvas = child:FindFirstChildWhichIsA("CanvasGroup")
-				if canvas then
-					local bar = canvas:FindFirstChild("Frame")
-					if bar then
-						bar.Size = UDim2.new(1, 0, 1, 0)
-					end
-				end
-			end
+
+		if acceptBtn and opts.onAccept then
+			self._connections:track(acceptBtn, "Activated", function()
+				opts.onAccept()
+				self:_hidePartyNotification()
+			end, "partyNotif")
+		end
+		if declineBtn and opts.onDecline then
+			self._connections:track(declineBtn, "Activated", function()
+				opts.onDecline()
+				self:_hidePartyNotification()
+			end, "partyNotif")
+		end
+	else
+		local loadingHolder = findDescendantByNameAndClass(clone, "LoadingHolder", "Frame")
+		if loadingHolder then
+			loadingHolder.Visible = false
 		end
 	end
+
+	local timeout = opts.timeout or 5
+	self._notifTimerThread = task.delay(timeout, function()
+		if self._activeNotif == clone then
+			if opts.onTimeout then
+				opts.onTimeout()
+			end
+			self:_hidePartyNotification()
+		end
+	end)
 end
 
-function module:_respondToInvite(accept)
-	if not self._pendingInvite then
-		return
+function module:_hidePartyNotification()
+	if self._notifTimerThread then
+		pcall(task.cancel, self._notifTimerThread)
+		self._notifTimerThread = nil
 	end
-
-	self._export:emit("PartyInviteResponse", { accept = accept })
-	self:_hideInviteBanner()
+	self._connections:cleanupGroup("partyNotif")
+	if self._activeNotif then
+		self._activeNotif:Destroy()
+		self._activeNotif = nil
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -1829,9 +1795,25 @@ end
 
 function module:_bindPartyEvents()
 	self._connections:add(self._export:on("PartyInviteReceived", function(data)
-		if data and type(data) == "table" then
-			self:_showInviteBanner(data)
+		if not data or type(data) ~= "table" then
+			return
 		end
+		local fromName = data.fromDisplayName or data.fromUsername or "Unknown"
+		self:_showPartyNotification("PartyInvite", {
+			headerText = "PARTY INVITE",
+			bodyText = "party invite from " .. fromName,
+			userId = data.fromUserId,
+			timeout = data.timeout or 15,
+			onAccept = function()
+				self._export:emit("PartyInviteResponse", { accept = true })
+			end,
+			onDecline = function()
+				self._export:emit("PartyInviteResponse", { accept = false })
+			end,
+			onTimeout = function()
+				self._export:emit("PartyInviteResponse", { accept = false })
+			end,
+		})
 	end), "partyEvents")
 
 	self._connections:add(self._export:on("PartyUpdate", function(data)
@@ -1849,48 +1831,13 @@ function module:_bindPartyEvents()
 	end), "partyEvents")
 
 	self._connections:add(self._export:on("PartyInviteBusy", function(data)
-		self:_hideInviteBanner()
-
-		if self._playerShowFrame and data then
-			local contentFrame = self._playerShowFrame:FindFirstChild("Frame")
-			local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")
-			if inviteButton then
-				local statusLabel = inviteButton:FindFirstChild("Status")
-				if statusLabel and statusLabel:IsA("TextLabel") then
-					statusLabel.Text = "BUSY"
-				end
-				task.delay(1.5, function()
-					if self._selectedUserId == data.targetUserId then
-						if statusLabel and statusLabel:IsA("TextLabel") then
-							statusLabel.Text = "PARTY INVITE"
-						end
-						inviteButton.Active = true
-					end
-				end)
-			end
-		end
+		self:_hidePartyNotification()
 	end), "partyEvents")
 
 	self._connections:add(self._export:on("PartyInviteDeclined", function(data)
-		if self._playerShowFrame and data then
-			local contentFrame = self._playerShowFrame:FindFirstChild("Frame")
-			local inviteButton = contentFrame and contentFrame:FindFirstChild("PartyInvite")
-			if inviteButton then
-				local statusLabel = inviteButton:FindFirstChild("Status")
-				if statusLabel and statusLabel:IsA("TextLabel") then
-					statusLabel.Text = "DECLINED"
-				end
-				task.delay(1.5, function()
-					if self._selectedUserId == data.targetUserId then
-						if statusLabel and statusLabel:IsA("TextLabel") then
-							statusLabel.Text = "PARTY INVITE"
-						end
-						inviteButton.Active = true
-					end
-				end)
-			end
-		end
+		self:_hidePartyNotification()
 	end), "partyEvents")
+
 end
 
 function module:_reconcilePartySections()
@@ -1938,6 +1885,10 @@ end
 function module:_onPartyUpdate(data)
 	local members = data.members or {}
 	print("[PlayerList] _onPartyUpdate: partyId", data.partyId, "leader", data.leaderId, "members:", table.concat(members, ","))
+
+	local oldMembers = self._partyState and self._partyState.members or {}
+	local localPlayer = Players.LocalPlayer
+
 	self._partyState = {
 		partyId = data.partyId,
 		leaderId = data.leaderId,
@@ -1945,9 +1896,30 @@ function module:_onPartyUpdate(data)
 		maxSize = data.maxSize or 5,
 	}
 	self:_reconcilePartySections()
+
+	if #oldMembers > 0 and localPlayer then
+		local newSet = {}
+		for _, uid in ipairs(members) do
+			newSet[uid] = true
+		end
+		for _, uid in ipairs(oldMembers) do
+			if not newSet[uid] and uid ~= localPlayer.UserId then
+				local leftPlayer = Players:GetPlayerByUserId(uid)
+				local displayName = leftPlayer and leftPlayer.DisplayName or ("Player " .. tostring(uid))
+				self:_showPartyNotification("Left", {
+					headerText = "PLAYER LEFT PARTY",
+					bodyText = displayName .. " has left the party",
+					userId = uid,
+					timeout = 3,
+				})
+				break
+			end
+		end
+	end
 end
 
-function module:_onPartyDisbanded()
+function module:_onPartyDisbanded(data)
+	local leaderId = self._partyState and self._partyState.leaderId
 	local oldMembers = self._partyState and self._partyState.members or {}
 	print("[PlayerList] _onPartyDisbanded: clearing party, old members:", table.concat(oldMembers, ","))
 	self._partyState = nil
@@ -1962,9 +1934,24 @@ function module:_onPartyDisbanded()
 			self:_clearSelection()
 		end
 	end
+
+	local leaderName = "The leader"
+	if leaderId then
+		local leaderPlayer = Players:GetPlayerByUserId(leaderId)
+		if leaderPlayer then
+			leaderName = leaderPlayer.DisplayName
+		end
+	end
+	self:_showPartyNotification("Disband", {
+		headerText = "PARTY DISBAND",
+		bodyText = leaderName .. " has disbanded the party",
+		userId = leaderId or 0,
+		timeout = 3,
+	})
 end
 
-function module:_onPartyKicked()
+function module:_onPartyKicked(data)
+	local leaderId = self._partyState and self._partyState.leaderId
 	local oldMembers = self._partyState and self._partyState.members or {}
 	print("[PlayerList] _onPartyKicked: YOU WERE KICKED, clearing party, old members:", table.concat(oldMembers, ","))
 	self._partyState = nil
@@ -1973,12 +1960,18 @@ function module:_onPartyKicked()
 	self:_hidePlayerShow()
 	self:_clearSelection()
 
-	self:_showInviteBanner({
-		fromDisplayName = "PARTY",
-		fromUsername = "System",
-		fromUserId = 0,
+	local leaderName = "The leader"
+	if leaderId then
+		local leaderPlayer = Players:GetPlayerByUserId(leaderId)
+		if leaderPlayer then
+			leaderName = leaderPlayer.DisplayName
+		end
+	end
+	self:_showPartyNotification("Kicked", {
+		headerText = "KICKED FROM PARTY",
+		bodyText = "kicked from party by " .. leaderName,
+		userId = leaderId or 0,
 		timeout = 3,
-		kicked = true,
 	})
 end
 
@@ -2125,7 +2118,7 @@ function module:_cleanup()
 	self._currentUserRow = nil
 	self:_destroyLocalMirrorRow()
 	self:_hidePlayerShow()
-	self:_hideInviteBanner()
+	self:_hidePartyNotification()
 	self._partyState = nil
 	self._connections:cleanupGroup("partyEvents")
 	self._connections:cleanupGroup("userLeaveAction")
