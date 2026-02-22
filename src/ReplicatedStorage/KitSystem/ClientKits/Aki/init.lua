@@ -566,7 +566,8 @@ local function performSelfLaunch()
 	-- Destroy trap VFX locally (immediate feedback)
 	VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
 
-	-- Clean up local trap state
+	-- Clean up local trap state (allow re-placement)
+	Aki._trapPlaced = false
 	Aki._trapPosition = nil
 	Aki._trapPlayerLeftRadius = false
 	cleanupTrapProximity()
@@ -582,6 +583,20 @@ local function startSelfLaunchProximity()
 	Aki._trapProximityConn = RunService.Heartbeat:Connect(function()
 		-- Guard: if trap was destroyed, stop checking
 		if not Aki._trapPosition then
+			Aki._trapPlaced = false
+			cleanupTrapProximity()
+			return
+		end
+
+		-- Check if the VFX trap marker still exists (server may have triggered/destroyed it)
+		local effectsFolder = Workspace:FindFirstChild("Effects")
+		local markerName = "KonTrap_" .. tostring(LocalPlayer.UserId)
+		local marker = effectsFolder and effectsFolder:FindFirstChild(markerName)
+		if not marker then
+			-- Trap was destroyed externally (triggered by enemy or server cleanup)
+			Aki._trapPlaced = false
+			Aki._trapPosition = nil
+			Aki._trapPlayerLeftRadius = false
 			cleanupTrapProximity()
 			return
 		end

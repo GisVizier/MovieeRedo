@@ -487,11 +487,13 @@ end
 	triggerTrap - Trap has been triggered by a nearby character
 	
 	- Removes the trap marker
-	- Spawns Kon at the trap position using the konny model
-	- Plays full Kon lifecycle (spawn VFX, bite VFX, smoke VFX, despawn)
+	- Spawns Kon at the trap position (same flow as createKon: rise from ground, bite, smoke)
+	- Uses buildSurfaceCFrame for proper ground orientation
 	
 	data:
 	- position: { X, Y, Z } (trap position)
+	- lookVector: { X, Y, Z } (direction Kon faces — toward the trigger target)
+	- surfaceNormal: { X, Y, Z } (ground normal, typically 0,1,0)
 ]]
 function Kon:triggerTrap(originUserId, data)
 	if not data then return end
@@ -506,8 +508,10 @@ function Kon:triggerTrap(originUserId, data)
 	end
 	self._activeTraps[originUserId] = nil
 	
-	-- Build a CFrame for the Kon spawn (facing world forward, on ground)
-	local targetCFrame = CFrame.new(position) * CFrame.Angles(math.rad(90), 0, 0)
+	-- Build a proper surface-aligned CFrame (same as createKon)
+	local lookVector = parseLookVector(data.lookVector)
+	local surfaceNormal = parseNormal(data.surfaceNormal)
+	local targetCFrame = buildSurfaceCFrame(position, lookVector, surfaceNormal)
 	
 	-- Spawn the Kon model (use konny template for trap variant)
 	local konModel = spawnKonModel(targetCFrame, originUserId, true)
@@ -517,7 +521,7 @@ function Kon:triggerTrap(originUserId, data)
 	end
 	if not konModel then return end
 	
-	-- Run the full Kon lifecycle (animation, bite VFX, smoke VFX, despawn)
+	-- Run the full Kon lifecycle (spawn VFX, bite VFX, smoke VFX, despawn)
 	runKonLifecycle(self, konModel, targetCFrame, originUserId)
 end
 
