@@ -54,7 +54,7 @@ local GROUND_SNAP_DISTANCE = 180
 local TRAP_MAX_RANGE = 35            -- Aiming range for trap placement (studs)
 local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Auto-detect proximity for self-launch
 local SELF_LAUNCH_HORIZONTAL = 80    -- Horizontal force away from trap pivot
-local SELF_LAUNCH_VERTICAL = 120     -- Upward force for self-launch
+local SELF_LAUNCH_VERTICAL = 180     -- Upward force for self-launch
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -265,6 +265,19 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 
 	local camCF = Workspace.CurrentCamera.CFrame
 	local result = Workspace:Raycast(camCF.Position, camCF.LookVector * maxDistance, TargetParams)
+
+	-- If we directly hit a wall/ceiling (non-floor surface), place there immediately
+	if result and result.Instance and result.Instance.Transparency ~= 1 then
+		local hitPosition = result.Position
+		local normal = result.Normal
+
+		if normal.Y <= 0.5 then
+			-- Wall/ceiling: place directly on the surface, facing outward
+			return CFrame.new(hitPosition, hitPosition + normal), normal
+		end
+	end
+
+	-- Otherwise, snap to the ground below the aimed point
 	local desiredPoint = result and result.Position or (camCF.Position + camCF.LookVector * maxDistance)
 
 	local downResult = Workspace:Raycast(
@@ -285,25 +298,20 @@ local function getTargetLocation(character: Model, maxDistance: number): (CFrame
 		return CFrame.lookAt(floorPos, floorPos + dirRelToCam.Unit), downResult.Normal
 	end
 
+	-- Direct hit on a floor-like surface but no ground snap found
 	if result and result.Instance and result.Instance.Transparency ~= 1 then
 		local hitPosition = result.Position
 		local normal = result.Normal
-		
-		if normal.Y > 0.5 then
-			-- Floor: Kon stands upright, faces direction from camera
-			local camPos = Vector3.new(camCF.Position.X, hitPosition.Y, camCF.Position.Z)
-			local dirRelToCam = CFrame.lookAt(camPos, hitPosition).LookVector
-			return CFrame.lookAt(hitPosition, hitPosition + dirRelToCam), normal
-		else
-			-- Wall/ceiling: Kon faces outward from surface
-			return CFrame.new(hitPosition, hitPosition + normal), normal
-		end
-	else
-		local hitPos = camCF.Position + camCF.LookVector * maxDistance
-		result = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -GROUND_SNAP_DISTANCE, TargetParams)
-		if result then
-			return CFrame.lookAt(result.Position, result.Position + camCF.LookVector), result.Normal
-		end
+		local camPos = Vector3.new(camCF.Position.X, hitPosition.Y, camCF.Position.Z)
+		local dirRelToCam = CFrame.lookAt(camPos, hitPosition).LookVector
+		return CFrame.lookAt(hitPosition, hitPosition + dirRelToCam), normal
+	end
+
+	-- Nothing hit: try one more ground snap at max range
+	local hitPos = camCF.Position + camCF.LookVector * maxDistance
+	local fallback = Workspace:Raycast(hitPos + Vector3.new(0, 5, 0), Vector3.yAxis * -GROUND_SNAP_DISTANCE, TargetParams)
+	if fallback then
+		return CFrame.lookAt(fallback.Position, fallback.Position + camCF.LookVector), fallback.Normal
 	end
 
 	return nil, nil
@@ -749,8 +757,19 @@ function Aki.Ability:OnStart(abilityRequest)
 				Aki._trapPlaced = true
 				Aki._trapPosition = pos
 
-				-- Start self-launch proximity detection
-				startSelfLaunchProximity()
+				-- Immediate release check: if Aki is already in radius, self-launch now
+				local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+				if root and (root.Position - pos).Magnitude <= TRAP_SELF_LAUNCH_RADIUS then
+					-- Slight delay so VFX marker has time to appear before self-launch consumes it
+					task.delay(0.05, function()
+						if Aki._trapPlaced and Aki._trapPosition then
+							performSelfLaunch()
+						end
+					end)
+				else
+					-- Start self-launch proximity detection (leave-and-return cycle)
+					startSelfLaunchProximity()
+				end
 			else
 				----------------------------------------------------------------
 				-- MAIN VARIANT: Spawn Kon at aimed position

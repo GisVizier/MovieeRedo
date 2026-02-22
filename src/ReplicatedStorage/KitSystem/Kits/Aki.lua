@@ -96,7 +96,7 @@ local KONSLOW_SPEED_MULT = 0.7       -- 30% reduction
 local SELF_LAUNCH_VELOCITY = 120     -- Strong upward + outward force
 
 -- Trap trigger upward launch force (applied to targets on bite)
-local TRAP_LAUNCH_UPWARD = 120       -- Strong upward velocity on trap bite
+local TRAP_LAUNCH_UPWARD = 180       -- Strong upward velocity on trap bite
 
 -- Trap bite timing (must match VFX BITE_DELAY so damage aligns with visual bite)
 local TRAP_BITE_DELAY = 0.6
