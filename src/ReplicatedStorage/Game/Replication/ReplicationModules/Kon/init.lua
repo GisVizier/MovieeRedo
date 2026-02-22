@@ -744,4 +744,12 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 end)
 
+--------------------------------------------------------------------------------
+-- Cleanup when spectating ends (Kon User "shake" is one-shot; no-op for now)
+--------------------------------------------------------------------------------
+
+function Kon:CleanupSpectateEffects()
+	-- Kon's spectate effects (User "start" shake) are one-shot; nothing to clean
+end
+
 return Kon

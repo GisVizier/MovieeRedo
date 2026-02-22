@@ -40,6 +40,7 @@ local _lastLogByKey = {}
 
 HonoredOne._activeBlue = {}      -- { [userId] = { ... } }
 HonoredOne._activeRed = {}       -- { [userId] = { ... } }
+HonoredOne._spectateCleanups = {} -- { { cleanup = fn, connection = Connection } } for CleanupSpectateEffects
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -174,14 +175,22 @@ function HonoredOne:User(originUserId, data)
 				end
 			end)
 		elseif isSpectate then
-			-- For spectators, clean up when the spectated player clears the attribute
+			-- For spectators, clean up when the spectated player clears the attribute OR when spectating ends
 			if originPlayer then
 				local connection; connection = originPlayer:GetAttributeChangedSignal(`red_charge`):Connect(function()
 					if not originPlayer:GetAttribute(`red_charge`) then
 						chargingFXcleanup()
 						connection:Disconnect()
+						-- Remove from spectate cleanups so we don't double-clean
+						for i, entry in ipairs(HonoredOne._spectateCleanups) do
+							if entry.connection == connection then
+								table.remove(HonoredOne._spectateCleanups, i)
+								break
+							end
+						end
 					end
 				end)
+				table.insert(HonoredOne._spectateCleanups, { cleanup = chargingFXcleanup, connection = connection })
 			end
 		end
 
@@ -318,5 +327,23 @@ Players.PlayerRemoving:Connect(function(player)
 	cleanupUserVFX(player.UserId, "red")
 	cleanupUserVFX(player.UserId, "blue")
 end)
+
+--------------------------------------------------------------------------------
+-- Cleanup when spectating ends (ability effects must stop)
+--------------------------------------------------------------------------------
+
+function HonoredOne:CleanupSpectateEffects()
+	for _, entry in ipairs(self._spectateCleanups) do
+		pcall(function()
+			if type(entry.cleanup) == "function" then
+				entry.cleanup()
+			end
+			if entry.connection and typeof(entry.connection) == "RBXScriptConnection" then
+				entry.connection:Disconnect()
+			end
+		end)
+	end
+	table.clear(self._spectateCleanups)
+end
 
 return HonoredOne
