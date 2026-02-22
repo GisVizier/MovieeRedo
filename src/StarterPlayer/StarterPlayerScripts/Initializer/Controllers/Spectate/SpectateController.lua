@@ -12,8 +12,18 @@ local ViewmodelAnimator = require(Locations.Game:WaitForChild("Viewmodel"):WaitF
 local Spring = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("Spring"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 local CameraConfig = require(ReplicatedStorage:WaitForChild("Global"):WaitForChild("Camera"))
+local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local FOVController = require(Locations.Shared:WaitForChild("Util"):WaitForChild("FOVController"))
 
 local LocalPlayer = Players.LocalPlayer
+
+local function lerp(a, b, t)
+	return a + (b - a) * t
+end
+
+local function clamp(value, minVal, maxVal)
+	return math.max(minVal, math.min(maxVal, value))
+end
 
 local SpectateController = {}
 
@@ -43,6 +53,8 @@ SpectateController._prevSpecCamCF = nil
 SpectateController._vmBobT = 0
 SpectateController._lastSpecTargetPos = nil
 SpectateController._spectateStartTime = 0
+SpectateController._specCurrentCrouchOffset = 0
+SpectateController._specWasSliding = false
 
 local FP_OFFSET = CameraConfig.FirstPerson and CameraConfig.FirstPerson.Offset or Vector3.new(0, 0.4, 0)
 local RESPAWN_CHECK_DELAY = 0.5
@@ -58,6 +70,15 @@ local BOB_AMP_Y = 0.03
 
 local MOVE_START_SPEED = 1.25
 local MOVE_STOP_SPEED = 0.75
+
+-- Slide viewmodel constants (match ViewmodelController)
+local SLIDE_SPEED_THRESHOLD = 15 -- Crouch walk ~8, slide typically 30+
+local SLIDE_ROLL = math.rad(30)
+local SLIDE_PITCH = math.rad(6)
+local SLIDE_YAW = math.rad(0)
+local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
+local TILT_SPRING_SPEED = 12
+local TILT_SPRING_DAMPER = 0.9
 
 local function getRemoteReplicator()
 	local game_rep = Locations.Game:FindFirstChild("Replication")
@@ -228,11 +249,18 @@ function SpectateController:EndSpectate()
 
 	self._active = false
 
+	-- Clear slide FOV effect so spectator returns to normal FOV
+	pcall(function()
+		FOVController:RemoveEffect("Slide")
+	end)
+
 	self:_unbindRenderLoop()
 	self:_showTargetRig()
 	self:_destroySpectateViewmodel()
 
 	self._targetUserId = nil
+	self._specWasSliding = false
+	self._specCurrentCrouchOffset = 0
 	self._targetList = {}
 	self._targetIndex = 0
 
@@ -377,11 +405,17 @@ function SpectateController:_buildSpectateViewmodel()
 	self._vmSprings = {
 		rotation = Spring.new(Vector3.zero),
 		bob = Spring.new(Vector3.zero),
+		tiltRot = Spring.new(Vector3.zero),
+		tiltPos = Spring.new(Vector3.zero),
 	}
 	self._vmSprings.rotation.Speed = ROTATION_SPRING_SPEED
 	self._vmSprings.rotation.Damper = ROTATION_SPRING_DAMPER
 	self._vmSprings.bob.Speed = BOB_SPRING_SPEED
 	self._vmSprings.bob.Damper = BOB_SPRING_DAMPER
+	self._vmSprings.tiltRot.Speed = TILT_SPRING_SPEED
+	self._vmSprings.tiltRot.Damper = TILT_SPRING_DAMPER
+	self._vmSprings.tiltPos.Speed = TILT_SPRING_SPEED
+	self._vmSprings.tiltPos.Damper = TILT_SPRING_DAMPER
 	self._prevSpecCamCF = nil
 	self._vmBobT = 0
 	self._lastSpecTargetPos = nil
@@ -721,6 +755,22 @@ function SpectateController:_renderCamera(dt)
 	local remoteData = getRemoteData(self._targetUserId)
 	if not remoteData then return end
 
+	-- Compute speed for slide detection (FOV); _lastSpecTargetPos updated in _renderViewmodel
+	local speed = 0
+	if remoteData.SimulatedPosition and self._lastSpecTargetPos then
+		local delta = remoteData.SimulatedPosition - self._lastSpecTargetPos
+		speed = Vector3.new(delta.X, 0, delta.Z).Magnitude / math.max(dt, 0.001)
+	end
+
+	-- Slide FOV boost (match SlidingSystem: FOVController:AddEffect("Slide") when sliding)
+	local isSliding = remoteData.IsCrouching and speed > SLIDE_SPEED_THRESHOLD
+	if isSliding and not self._specWasSliding then
+		FOVController:AddEffect("Slide")
+	elseif not isSliding and self._specWasSliding then
+		FOVController:RemoveEffect("Slide")
+	end
+	self._specWasSliding = isSliding
+
 	-- Replicate CameraController:UpdateFirstPersonCamera pipeline:
 	-- Position at Head + FirstPerson.Offset, face character's horizontal direction, apply aim pitch
 	local aimPitch = remoteData.LastAimPitch or 0
@@ -732,8 +782,26 @@ function SpectateController:_renderCamera(dt)
 	end
 	flatForward = flatForward.Unit
 
+	-- Crouch/slide offset (match CameraController) with optional smoothing
+	local crouchReduction = Config.Gameplay.Character.CrouchHeightReduction or 2
+	local targetCrouchOffset = remoteData.IsCrouching and -crouchReduction or 0
+	local cameraConfig = Config.Camera
+	if cameraConfig.Smoothing and cameraConfig.Smoothing.EnableCrouchTransition then
+		local speedVal = cameraConfig.Smoothing.CrouchTransitionSpeed or 12
+		self._specCurrentCrouchOffset = lerp(
+			self._specCurrentCrouchOffset,
+			targetCrouchOffset,
+			clamp(speedVal * dt, 0, 1)
+		)
+		if math.abs(self._specCurrentCrouchOffset - targetCrouchOffset) < 0.05 then
+			self._specCurrentCrouchOffset = targetCrouchOffset
+		end
+	else
+		self._specCurrentCrouchOffset = targetCrouchOffset
+	end
+
 	-- FP_OFFSET is purely vertical so world-space addition is identical to yaw-local-space
-	local eyePos = head.Position + FP_OFFSET
+	local eyePos = head.Position + FP_OFFSET + Vector3.new(0, self._specCurrentCrouchOffset, 0)
 	local cameraCF = CFrame.lookAt(eyePos, eyePos + flatForward)
 		* CFrame.Angles(math.rad(aimPitch), 0, 0)
 
@@ -771,14 +839,19 @@ function SpectateController:_renderViewmodel(dt)
 	local cfg = ViewmodelConfig.Weapons[weaponId] or ViewmodelConfig.Weapons.Fists
 	local configOffset = (cfg and cfg.Offset) or CFrame.new()
 
-	-- Compute remote player speed from position delta
+	-- Compute remote player speed and velocity direction from position delta
 	local remoteData = getRemoteData(self._targetUserId)
 	local speed = 0
+	local velocityDir = Vector3.new(0, 0, -1)
 	if remoteData and remoteData.SimulatedPosition then
 		local currentPos = remoteData.SimulatedPosition
 		if self._lastSpecTargetPos then
 			local delta = currentPos - self._lastSpecTargetPos
-			speed = Vector3.new(delta.X, 0, delta.Z).Magnitude / math.max(dt, 0.001)
+			local horizontal = Vector3.new(delta.X, 0, delta.Z)
+			speed = horizontal.Magnitude / math.max(dt, 0.001)
+			if horizontal.Magnitude > 0.01 then
+				velocityDir = horizontal.Unit
+			end
 		end
 		self._lastSpecTargetPos = currentPos
 	end
@@ -828,21 +901,45 @@ function SpectateController:_renderViewmodel(dt)
 			springs.bob.Target = Vector3.zero
 		end
 
+		-- Slide tilt/tuck (match ViewmodelController when target is sliding)
+		local isSliding = remoteData and remoteData.IsCrouching and speed > SLIDE_SPEED_THRESHOLD
+		if isSliding then
+			local localDir = cam.CFrame:VectorToObjectSpace(velocityDir)
+			local roll = -SLIDE_ROLL
+			local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
+			springs.tiltRot.Target = Vector3.new(pitch, SLIDE_YAW, roll)
+			springs.tiltPos.Target = SLIDE_TUCK
+		else
+			springs.tiltRot.Target = Vector3.zero
+			springs.tiltPos.Target = Vector3.zero
+		end
+
 		springs.rotation:TimeSkip(dt)
 		springs.bob:TimeSkip(dt)
+		springs.tiltRot:TimeSkip(dt)
+		springs.tiltPos:TimeSkip(dt)
 	end
 
 	-- ViewmodelController applies rotation X and Z only (no Y), matching its pipeline
 	local rotPos = springs and springs.rotation.Position or Vector3.zero
 	local rotationCF = CFrame.Angles(rotPos.X, 0, rotPos.Z)
 	local bobOffset = springs and springs.bob.Position or Vector3.zero
+	local tiltRotPos = springs and springs.tiltRot and springs.tiltRot.Position or Vector3.zero
+	local tiltPosPos = springs and springs.tiltPos and springs.tiltPos.Position or Vector3.zero
+	local tiltRotOffset = CFrame.Angles(
+		math.clamp(tiltRotPos.X, -SLIDE_PITCH, SLIDE_PITCH),
+		math.clamp(tiltRotPos.Y, -math.abs(SLIDE_YAW), math.abs(SLIDE_YAW)),
+		math.clamp(tiltRotPos.Z, -SLIDE_ROLL, SLIDE_ROLL)
+	)
+	local tiltPosOffset = tiltPosPos
 
-	-- Final positioning: exact same order as ViewmodelController._render
+	-- Final positioning: exact same order as ViewmodelController._render (with slide tilt/tuck)
 	local target = cam.CFrame
 		* normalAlign
 		* configOffset
 		* rotationCF
-		* CFrame.new(bobOffset)
+		* tiltRotOffset
+		* CFrame.new(bobOffset + tiltPosOffset)
 
 	rig.Model:PivotTo(target)
 end

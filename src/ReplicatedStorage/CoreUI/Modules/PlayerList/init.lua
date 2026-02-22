@@ -1779,11 +1779,10 @@ function module:_showPartyNotification(templateName, opts)
 	end
 
 	local timeout = opts.timeout or 5
-	local bar = findDescendantByNameAndClass(clone, "Bar", "Frame")
-		or findDescendantByNameAndClass(clone, "Bar", "CanvasGroup")
-	if bar then
-		local fill = bar:FindFirstChild("Frame")
-		local gradient = bar:FindFirstChildOfClass("UIGradient") or fill and fill:FindFirstChildOfClass("UIGradient")
+	local loadingBar = findDescendantByNameAndClass(clone, "LoadingBar", "Frame")
+	if loadingBar and loadingBar:IsA("GuiObject") then
+		local fill = loadingBar:FindFirstChild("Frame")
+		local gradient = loadingBar:FindFirstChildOfClass("UIGradient") or fill and fill:FindFirstChildOfClass("UIGradient")
 		if fill and fill:IsA("GuiObject") then
 			fill.Size = UDim2.new(1, 0, 1, 0)
 			local tween = TweenService:Create(
@@ -1798,6 +1797,14 @@ function module:_showPartyNotification(templateName, opts)
 				gradient,
 				TweenInfo.new(timeout, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
 				{ Offset = Vector2.new(0, 0) }
+			)
+			tween:Play()
+		else
+			loadingBar.Size = UDim2.new(1, 0, loadingBar.Size.Y.Scale, loadingBar.Size.Y.Offset)
+			local tween = TweenService:Create(
+				loadingBar,
+				TweenInfo.new(timeout, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+				{ Size = UDim2.new(0, 0, loadingBar.Size.Y.Scale, loadingBar.Size.Y.Offset) }
 			)
 			tween:Play()
 		end
