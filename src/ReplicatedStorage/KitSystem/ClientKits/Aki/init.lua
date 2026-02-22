@@ -530,6 +530,23 @@ local function performSelfLaunch()
 
 	local trapPos = Aki._trapPosition
 
+	-- Force uncrouch / unslide before launching (same pattern as HonoredOne)
+	LocalPlayer:SetAttribute("ForceUncrouch", true)
+	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", true)
+	LocalPlayer:SetAttribute("BlockSlideWhileAbility", true)
+
+	-- Stop sliding if active
+	if MovementStateManager:IsSliding() or MovementStateManager:IsCrouching() then
+		MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+	end
+
+	-- Clear the gate after a short delay so player can crouch/slide again after landing
+	task.delay(1.5, function()
+		LocalPlayer:SetAttribute("ForceUncrouch", nil)
+		LocalPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+		LocalPlayer:SetAttribute("BlockSlideWhileAbility", nil)
+	end)
+
 	-- Launch straight up
 	local launchVelocity = Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
 

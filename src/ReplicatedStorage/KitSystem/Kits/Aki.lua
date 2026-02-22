@@ -146,36 +146,26 @@ end
 
 local function applyDamage(self, targetCharacter, damage, weaponId)
 	local player = self._ctx.player
-	local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
 	
-	-- For player characters, use WeaponService for proper tracking/events
-	if targetPlayer then
-		local weaponService = getWeaponService(self)
-		if weaponService then
-			local root = self._ctx.character and self._ctx.character.PrimaryPart
-			local sourcePos = root and root.Position or nil
-			local hitPos = targetCharacter.PrimaryPart and targetCharacter.PrimaryPart.Position or nil
-			
-			weaponService:ApplyDamageToCharacter(
-				targetCharacter,
-				damage,
-				player,
-				false, -- not headshot
-				weaponId or "Aki_Kon",
-				sourcePos,
-				hitPos
-			)
-			return
-		end
-	end
-	
-	-- Fallback / Dummies: direct humanoid damage
-	local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
-	if humanoid and humanoid.Health > 0 then
-		humanoid:TakeDamage(damage)
-		if targetCharacter then
-			targetCharacter:SetAttribute("LastDamageDealer", player.UserId)
-		end
+	-- Always use WeaponService:ApplyDamageToCharacter — it handles both players
+	-- AND dummies via CombatService:GetPlayerByCharacter internally.
+	local weaponService = getWeaponService(self)
+	if weaponService then
+		local root = self._ctx.character and self._ctx.character.PrimaryPart
+		local sourcePos = root and root.Position or nil
+		local hitPos = (targetCharacter.PrimaryPart and targetCharacter.PrimaryPart.Position)
+			or (targetCharacter:FindFirstChild("Root") and targetCharacter.Root.Position)
+			or nil
+		
+		weaponService:ApplyDamageToCharacter(
+			targetCharacter,
+			damage,
+			player,
+			false, -- not headshot
+			weaponId or "Aki_Kon",
+			sourcePos,
+			hitPos
+		)
 	end
 end
 
@@ -331,6 +321,21 @@ function Kit:_triggerTrap(triggerCharacter)
 				
 				-- Apply KonSlow status effect (players only)
 				applyKonSlow(self, targetChar)
+				
+				-- Force uncrouch/unslide hit players
+				local targetPlayer = Players:GetPlayerFromCharacter(targetChar)
+				if targetPlayer then
+					targetPlayer:SetAttribute("ForceUncrouch", true)
+					targetPlayer:SetAttribute("BlockCrouchWhileAbility", true)
+					targetPlayer:SetAttribute("BlockSlideWhileAbility", true)
+					task.delay(1.5, function()
+						if targetPlayer and targetPlayer.Parent then
+							targetPlayer:SetAttribute("ForceUncrouch", nil)
+							targetPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+							targetPlayer:SetAttribute("BlockSlideWhileAbility", nil)
+						end
+					end)
+				end
 			end
 		end
 	end)
@@ -575,7 +580,7 @@ function Kit:OnAbility(inputState, clientData)
 			if targetCharacter and targetCharacter ~= character then
 				local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 				if humanoid and humanoid.Health > 0 then
-					humanoid:TakeDamage(BITE_DAMAGE)
+					applyDamage(self, targetCharacter, BITE_DAMAGE, "Aki_Kon")
 					appliedHits += 1
 				end
 			end
