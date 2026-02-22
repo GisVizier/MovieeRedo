@@ -1023,23 +1023,13 @@ function module:_applyFilters()
 end
 
 function module:_refreshCanvasSize()
-	if not self._scrollingFrame or not self._scrollingLayout then
+	if not self._panelGroup then
 		return
 	end
-	for _, sectionId in ipairs(SECTION_IDS) do
-		local sec = self._sections[sectionId]
-		if sec and sec.holder and sec.holder:IsA("GuiObject") then
-			sec.holder.AutomaticSize = Enum.AutomaticSize.None
-			sec.holder.AutomaticSize = Enum.AutomaticSize.Y
-		end
-		if sec and sec.frame and sec.frame:IsA("GuiObject") then
-			sec.frame.AutomaticSize = Enum.AutomaticSize.None
-			sec.frame.AutomaticSize = Enum.AutomaticSize.Y
-		end
-	end
-	self._scrollingFrame.CanvasSize = UDim2.new(
-		0, 0, 0, self._scrollingLayout.AbsoluteContentSize.Y + 8
-	)
+	self._panelGroup.AutomaticSize = Enum.AutomaticSize.Y
+	self._panelGroup.AutomaticSize = Enum.AutomaticSize.None
+	task.wait()
+	self._panelGroup.AutomaticSize = Enum.AutomaticSize.Y
 end
 
 function module:_toggleSection(sectionId)
