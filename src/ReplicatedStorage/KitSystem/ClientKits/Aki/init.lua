@@ -510,7 +510,7 @@ local function cleanupTrapProximity()
 	end
 end
 
---[[ Perform the self-launch from the trap: launch away from trap pivot, destroy trap ]]
+--[[ Perform the self-launch from the trap: launch straight up, show Kon VFX ]]
 local function performSelfLaunch()
 	if not Aki._trapPosition then return end
 
@@ -522,30 +522,13 @@ local function performSelfLaunch()
 
 	local trapPos = Aki._trapPosition
 
-	-- Calculate direction AWAY from trap
-	local awayDir = (root.Position - trapPos)
-	if awayDir.Magnitude < 0.001 then
-		awayDir = root.CFrame.LookVector
-	end
-	awayDir = awayDir.Unit
-
-	-- Build launch velocity: strong horizontal away + strong upward
-	local horizontalDir = Vector3.new(awayDir.X, 0, awayDir.Z)
-	if horizontalDir.Magnitude < 0.001 then
-		horizontalDir = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-	end
-	if horizontalDir.Magnitude > 0.001 then
-		horizontalDir = horizontalDir.Unit
-	else
-		horizontalDir = Vector3.zAxis
-	end
-
-	local launchVelocity = horizontalDir * SELF_LAUNCH_HORIZONTAL + Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
+	-- Launch straight up
+	local launchVelocity = Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
 
 	-- Clear vertical velocity for a clean launch
 	root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1)
 
-	-- Apply launch via MovementController (same pattern as Shorty)
+	-- Apply launch via MovementController
 	local movementController = ServiceRegistry:GetController("Movement")
 		or ServiceRegistry:GetController("MovementController")
 	if movementController and movementController.BeginExternalLaunch then
@@ -563,8 +546,14 @@ local function performSelfLaunch()
 		})
 	end
 
-	-- Destroy trap VFX locally (immediate feedback)
-	VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
+	-- Show Kon rising from ground at trap position (same visual as normal Kon)
+	local lookDir = root.CFrame.LookVector
+	VFXRep:Fire("All", { Module = "Kon", Function = "triggerTrap" }, {
+		position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
+		lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
+		surfaceNormal = { X = 0, Y = 1, Z = 0 },
+		ownerId = LocalPlayer.UserId,
+	})
 
 	-- Clean up local trap state (allow re-placement)
 	Aki._trapPlaced = false

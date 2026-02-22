@@ -477,8 +477,14 @@ function Kit:OnAbility(inputState, clientData)
 			return false
 		end
 		
-		-- Destroy the trap (no damage to Aki)
-		self:_destroyTrap("selfLaunch")
+		-- Clean up trap state (no damage to Aki, VFX handled client-side)
+		if self._trapProximityConn then
+			self._trapProximityConn:Disconnect()
+			self._trapProximityConn = nil
+		end
+		self._trapActive = false
+		self._trapPosition = nil
+		self._trapPlaced = false
 		
 		-- Don't start cooldown for self-launch
 		return false
