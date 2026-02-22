@@ -51,10 +51,10 @@ local GROUND_SNAP_HEIGHT = 12
 local GROUND_SNAP_DISTANCE = 180
 
 -- Trap variant constants
-local TRAP_MAX_RANGE = 20            -- Aiming range for trap placement (studs)
+local TRAP_MAX_RANGE = 35            -- Aiming range for trap placement (studs)
 local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Auto-detect proximity for self-launch
 local SELF_LAUNCH_HORIZONTAL = 80    -- Horizontal force away from trap pivot
-local SELF_LAUNCH_VERTICAL = 60      -- Upward force for self-launch
+local SELF_LAUNCH_VERTICAL = 120     -- Upward force for self-launch
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -546,14 +546,19 @@ local function performSelfLaunch()
 		})
 	end
 
-	-- Show Kon rising from ground at trap position (same visual as normal Kon)
+	-- Destroy trap marker (instant local + relay to others)
+	VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
+	VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
+
+	-- Spawn Kon at trap position (same proven createKon visual as normal ability)
 	local lookDir = root.CFrame.LookVector
-	VFXRep:Fire("All", { Module = "Kon", Function = "triggerTrap" }, {
+	local konVfxData = {
 		position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
 		lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
 		surfaceNormal = { X = 0, Y = 1, Z = 0 },
-		ownerId = LocalPlayer.UserId,
-	})
+	}
+	VFXRep:Fire("Me", { Module = "Kon", Function = "createKon" }, konVfxData)
+	VFXRep:Fire("Others", { Module = "Kon", Function = "createKon" }, konVfxData)
 
 	-- Clean up local trap state (allow re-placement)
 	Aki._trapPlaced = false

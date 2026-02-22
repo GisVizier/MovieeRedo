@@ -88,7 +88,7 @@ local MAX_HITS_PER_BITE = 5
 local TRAP_DAMAGE = 75
 local TRAP_TRIGGER_RADIUS = 9.5
 local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Same radius for self-launch auto-detect
-local TRAP_PLACEMENT_MAX_DIST = 25   -- Max distance from player for placement validation (20 stud aim range + tolerance)
+local TRAP_PLACEMENT_MAX_DIST = 40   -- Max distance from player for placement validation (35 stud aim range + tolerance)
 local KONSLOW_DURATION = 5
 local KONSLOW_SPEED_MULT = 0.7       -- 30% reduction
 
@@ -277,13 +277,18 @@ function Kit:_triggerTrap(triggerCharacter)
 		end
 	end
 	
-	-- Broadcast trigger VFX immediately — Kon rises from the ground
+	-- Destroy the trap marker on all clients
+	if service then
+		service:BroadcastVFX(player, "All", "Kon", {}, "destroyTrap")
+	end
+
+	-- Spawn Kon at trap position (same proven createKon visual as normal ability)
 	if service then
 		service:BroadcastVFX(player, "All", "Kon", {
 			position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
 			lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
 			surfaceNormal = { X = 0, Y = 1, Z = 0 },
-		}, "triggerTrap")
+		}, "createKon")
 	end
 	
 	-- Terrain destruction at trap location
@@ -454,7 +459,20 @@ function Kit:OnAbility(inputState, clientData)
 		-- VFX is handled client-side via VFXRep:Fire("All") for responsiveness.
 		-- Server only manages state and proximity detection.
 		
-		-- Start proximity detection loop
+		-- Immediately check if any enemy is already in range
+		local character = self._ctx.character or player.Character
+		local immediateTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		for _, targetChar in ipairs(immediateTargets) do
+			if targetChar == character then continue end
+			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid and humanoid.Health > 0 then
+				-- Enemy already in range — trigger the trap now
+				self:_triggerTrap(targetChar)
+				return false
+			end
+		end
+		
+		-- No enemy in range — start proximity detection loop
 		self:_startTrapProximityLoop()
 		
 		return false -- Don't end ability, no cooldown
