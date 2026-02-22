@@ -491,16 +491,28 @@ function Kit:OnAbility(inputState, clientData)
 		warn("[Aki Trap] trapPos:", trapPos)
 		
 		-- Validate placement position (must be near player)
-		local root = character.PrimaryPart
-			or character:FindFirstChild("Root")
-			or character:FindFirstChild("HumanoidRootPart")
-		if not root then
-			warn("[Aki Trap] REJECTED: no root part")
+		-- Use replicated position (same as validateTargetPosition) — raw root.Position is stale on server
+		local playerPos = nil
+		local api = getHitDetectionAPI()
+		if api then
+			local currentTime = workspace:GetServerTimeNow()
+			playerPos = api:GetPositionAtTime(player, currentTime)
+		end
+		if not playerPos then
+			local root = character.PrimaryPart
+				or character:FindFirstChild("Root")
+				or character:FindFirstChild("HumanoidRootPart")
+			if root then
+				playerPos = root.Position
+			end
+		end
+		if not playerPos then
+			warn("[Aki Trap] REJECTED: no player position")
 			return false
 		end
 		
-		local distFromPlayer = (trapPos - root.Position).Magnitude
-		warn("[Aki Trap] distFromPlayer:", distFromPlayer, "| max:", TRAP_PLACEMENT_MAX_DIST)
+		local distFromPlayer = (trapPos - playerPos).Magnitude
+		warn("[Aki Trap] distFromPlayer:", distFromPlayer, "| max:", TRAP_PLACEMENT_MAX_DIST, "| playerPos:", playerPos)
 		if distFromPlayer > TRAP_PLACEMENT_MAX_DIST then
 			warn("[Aki Trap] REJECTED: too far from player")
 			return false
