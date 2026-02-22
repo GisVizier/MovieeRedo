@@ -1017,6 +1017,11 @@ function module:_applyFilters()
 end
 
 function module:_refreshCanvasSize()
+	if not self._scrollingFrame then
+		return
+	end
+	self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.None
+	self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 end
 
 function module:_toggleSection(sectionId)
