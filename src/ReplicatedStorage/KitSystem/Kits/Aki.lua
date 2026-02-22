@@ -146,10 +146,12 @@ end
 
 local function applyDamage(self, targetCharacter, damage, weaponId)
 	local player = self._ctx.player
+	warn("[Aki Trap] applyDamage:", targetCharacter and targetCharacter.Name or "nil", "damage:", damage, "weaponId:", weaponId)
 	
 	-- Always use WeaponService:ApplyDamageToCharacter — it handles both players
 	-- AND dummies via CombatService:GetPlayerByCharacter internally.
 	local weaponService = getWeaponService(self)
+	warn("[Aki Trap] weaponService:", weaponService ~= nil)
 	if weaponService then
 		local root = self._ctx.character and self._ctx.character.PrimaryPart
 		local sourcePos = root and root.Position or nil
@@ -222,10 +224,8 @@ function Kit:_startTrapProximityLoop()
 			return
 		end
 		
-		-- Check for characters in range (server-authoritative, uses physical overlap to detect dummies too)
-		local targets = Hitbox.GetCharactersInSphere(self._trapPosition, TRAP_TRIGGER_RADIUS, {
-			Exclude = player,
-		})
+		-- Check for characters in range (server-authoritative, magnitude-based — works for both players AND dummies)
+		local targets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS, player)
 		
 		for _, targetCharacter in ipairs(targets) do
 			-- Skip the Aki player's own character
@@ -246,6 +246,7 @@ function Kit:_startTrapProximityLoop()
 end
 
 function Kit:_triggerTrap(triggerCharacter)
+	warn("[Aki Trap] _triggerTrap called | active:", self._trapActive, "| trigger:", triggerCharacter and triggerCharacter.Name or "nil")
 	if not self._trapActive then return end
 	
 	local trapPos = self._trapPosition
@@ -310,10 +311,10 @@ function Kit:_triggerTrap(triggerCharacter)
 	-- BITE: delayed to match Kon bite animation timing
 	-- Only targets still in radius at bite time get hit
 	task.delay(TRAP_BITE_DELAY, function()
+		warn("[Aki Trap] Bite delay fired at", trapPos)
 		local character = self._ctx.character or (player and player.Character)
-		local biteTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
-			Exclude = player,
-		})
+		local biteTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		warn("[Aki Trap] Bite targets found:", #biteTargets)
 		
 		for _, targetChar in ipairs(biteTargets) do
 			if targetChar == character then continue end -- Skip Aki
@@ -458,16 +459,20 @@ function Kit:OnAbility(inputState, clientData)
 		-- VFX is handled client-side via VFXRep:Fire("All") for responsiveness.
 		-- Server only manages state and proximity detection.
 		
-		-- Immediately check if any enemy/dummy is already in range (physical overlap)
+		-- Immediately check if any enemy/dummy is already in range (magnitude-based — works for dummies too)
 		local character = self._ctx.character or player.Character
-		local immediateTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
-			Exclude = player,
-		})
+		local immediateTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
+		warn("[Aki Trap] Immediate check at", trapPos, "| radius:", TRAP_TRIGGER_RADIUS, "| found:", #immediateTargets)
+		for i, t in ipairs(immediateTargets) do
+			warn("[Aki Trap]   target", i, ":", t.Name, "== myChar?", t == character)
+		end
 		for _, targetChar in ipairs(immediateTargets) do
 			if targetChar == character then continue end
 			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
+			warn("[Aki Trap]   checking:", targetChar.Name, "humanoid:", humanoid ~= nil, "health:", humanoid and humanoid.Health or "N/A")
 			if humanoid and humanoid.Health > 0 then
 				-- Enemy/dummy already in range — trigger the trap now
+				warn("[Aki Trap] TRIGGERING on", targetChar.Name)
 				self:_triggerTrap(targetChar)
 				return false
 			end
