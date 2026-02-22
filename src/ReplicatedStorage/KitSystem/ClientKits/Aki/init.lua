@@ -110,7 +110,7 @@ end
 
 local function playVoiceLine(voiceData: { soundId: string, text: string }, parent: Instance?)
 	local character = LocalPlayer.Character
-	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
+	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart or character:FindFirstChild("Root"))
 	if not root then return end
 	
 	-- Play sound
@@ -244,7 +244,7 @@ Aki._trapPlayerLeftRadius = false -- Has the player left trap radius since place
 --------------------------------------------------------------------------------
 
 local function getTargetLocation(character: Model, maxDistance: number): (CFrame?, Vector3?)
-	local root = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+	local root = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart or character:FindFirstChild("Root")
 	if not root then return nil, nil end
 
 	local filterList = { character }
@@ -525,7 +525,7 @@ local function performSelfLaunch()
 	local character = LocalPlayer.Character
 	if not character then return end
 
-	local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+	local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
 	if not root then return end
 
 	local trapPos = Aki._trapPosition
@@ -623,7 +623,7 @@ local function startSelfLaunchProximity()
 		local character = LocalPlayer.Character
 		if not character then return end
 
-		local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+		local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
 		if not root then return end
 
 		local distance = (root.Position - Aki._trapPosition).Magnitude
@@ -775,7 +775,7 @@ function Aki.Ability:OnStart(abilityRequest)
 				Aki._trapPosition = pos
 
 				-- Immediate release check: if Aki is already in radius, self-launch now
-				local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+				local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
 				if root and (root.Position - pos).Magnitude <= TRAP_SELF_LAUNCH_RADIUS then
 					-- Slight delay so VFX marker has time to appear before self-launch consumes it
 					task.delay(0.05, function()

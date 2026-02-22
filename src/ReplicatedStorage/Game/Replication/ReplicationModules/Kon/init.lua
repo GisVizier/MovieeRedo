@@ -567,10 +567,12 @@ function Kon:placeTrap(originUserId, data)
 		return
 	end
 	
-	-- Clone and position the model
+	-- Clone and position the model, preserving the template's rotation
+	-- (The template is oriented so the Center part faces upward — flat on the ground)
 	local trapModel = placedTemplate:Clone()
 	trapModel.Name = "KonTrap_" .. tostring(originUserId)
-	trapModel:PivotTo(CFrame.new(position))
+	local templateRotation = placedTemplate:GetPivot() - placedTemplate:GetPivot().Position
+	trapModel:PivotTo(CFrame.new(position) * templateRotation)
 	
 	-- Collect all visual elements and hide them for fade-in
 	local elements = collectVisualElements(trapModel)
