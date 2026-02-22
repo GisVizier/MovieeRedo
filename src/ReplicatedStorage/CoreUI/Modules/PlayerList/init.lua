@@ -1018,10 +1018,23 @@ end
 
 function module:_refreshCanvasSize()
 	if not self._scrollingFrame then
+		warn("[PlayerList] _refreshCanvasSize: no scrollingFrame")
 		return
 	end
+	local layout = self._scrollingLayout
+	local beforeY = layout and layout.AbsoluteContentSize.Y or "N/A"
+	local beforeCanvas = self._scrollingFrame.CanvasSize
+
 	self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.None
 	self._scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+	local afterY = layout and layout.AbsoluteContentSize.Y or "N/A"
+	local afterCanvas = self._scrollingFrame.CanvasSize
+	print(string.format(
+		"[PlayerList] _refreshCanvasSize | ContentY: %s -> %s | CanvasSize: %s -> %s",
+		tostring(beforeY), tostring(afterY),
+		tostring(beforeCanvas), tostring(afterCanvas)
+	))
 end
 
 function module:_toggleSection(sectionId)
