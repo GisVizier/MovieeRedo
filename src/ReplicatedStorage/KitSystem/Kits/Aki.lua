@@ -31,7 +31,7 @@ local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
-local VoxManager = require(ReplicatedStorage.Shared.Modules.VoxManager)
+local VoxelDestruction = require(ReplicatedStorage.Shared.Modules.VoxelDestruction)
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 
@@ -134,6 +134,14 @@ function Kit:Destroy()
 end
 
 function Kit:OnEquipped()
+	-- Reset trap state so the ability is available again on re-equip / area transition
+	self._trapPlaced = false
+	self._trapActive = false
+	self._trapPosition = nil
+	if self._trapProximityConn then
+		self._trapProximityConn:Disconnect()
+		self._trapProximityConn = nil
+	end
 end
 
 function Kit:OnUnequipped()
@@ -315,13 +323,25 @@ function Kit:_triggerTrap(triggerCharacter)
 		}, "createKon")
 	end
 	
-	-- Terrain destruction at trap location (smaller than normal Kon — trap is a minor ability)
+	-- Terrain destruction at trap location (server-authoritative VoxelDestruction)
 	task.spawn(function()
-		VoxManager:explode(trapPos, 5, {
-			voxelSize = 4,
-			debris = true,
-			debrisAmount = 4,
-		})
+		local hitbox = Instance.new("Part")
+		hitbox.Size = Vector3.new(10, 10, 10) -- 5 stud radius
+		hitbox.Position = trapPos
+		hitbox.Shape = Enum.PartType.Ball
+		hitbox.Anchored = true
+		hitbox.CanCollide = false
+		hitbox.CanQuery = false
+		hitbox.Transparency = 1
+		hitbox.Parent = workspace
+
+		VoxelDestruction.Destroy(hitbox, nil, 4, 4, nil)
+
+		task.delay(2, function()
+			if hitbox and hitbox.Parent then
+				hitbox:Destroy()
+			end
+		end)
 	end)
 	
 	-- BITE: delayed to match Kon bite animation timing
@@ -722,7 +742,7 @@ function Kit:OnAbility(inputState, clientData)
 			end
 		end
 
-		-- Terrain destruction at bite location
+		-- Terrain destruction at bite location (server-authoritative VoxelDestruction)
 		local kitData = KitConfig.getKit("Aki")
 		local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
 		
@@ -736,11 +756,23 @@ function Kit:OnAbility(inputState, clientData)
 			local radius = radiusMap[destructionLevel] or 10
 			
 			task.spawn(function()
-				local success = VoxManager:explode(bitePos, radius, {
-					voxelSize = 2,
-					debris = true,
-					debrisAmount = 8,
-				})
+				local hitbox = Instance.new("Part")
+				hitbox.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
+				hitbox.Position = bitePos
+				hitbox.Shape = Enum.PartType.Ball
+				hitbox.Anchored = true
+				hitbox.CanCollide = false
+				hitbox.CanQuery = false
+				hitbox.Transparency = 1
+				hitbox.Parent = workspace
+
+				VoxelDestruction.Destroy(hitbox, nil, 2, 8, nil)
+
+				task.delay(2, function()
+					if hitbox and hitbox.Parent then
+						hitbox:Destroy()
+					end
+				end)
 			end)
 		end
 
