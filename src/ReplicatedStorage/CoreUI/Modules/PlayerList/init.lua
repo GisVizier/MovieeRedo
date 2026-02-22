@@ -125,6 +125,7 @@ function module.start(export, ui)
 	self._notifTemplates = {}
 	self._activeNotif = nil
 	self._notifTimerThread = nil
+	self._canvasRefreshThread = nil
 
 	self:_bindUi()
 	self:_bindInput()
@@ -1021,14 +1022,32 @@ function module:_refreshCanvasSize()
 	if not self._scrollingFrame or not self._scrollingLayout then
 		return
 	end
-	local function apply()
-		if self._scrollingFrame and self._scrollingLayout then
-			local sizeY = self._scrollingLayout.AbsoluteContentSize.Y + 8
-			self._scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, sizeY)
-		end
+
+	self._scrollingFrame.CanvasSize = UDim2.new(
+		0, 0, 0, self._scrollingLayout.AbsoluteContentSize.Y + 8
+	)
+
+	if self._canvasRefreshThread then
+		pcall(task.cancel, self._canvasRefreshThread)
+		self._canvasRefreshThread = nil
 	end
-	apply()
-	task.defer(apply)
+
+	self._canvasRefreshThread = task.spawn(function()
+		local lastY = -1
+		for _ = 1, 6 do
+			task.wait()
+			if not self._scrollingFrame or not self._scrollingLayout then
+				break
+			end
+			local curY = self._scrollingLayout.AbsoluteContentSize.Y
+			self._scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, curY + 8)
+			if curY == lastY then
+				break
+			end
+			lastY = curY
+		end
+		self._canvasRefreshThread = nil
+	end)
 end
 
 function module:_toggleSection(sectionId)
@@ -2106,6 +2125,10 @@ end
 --------------------------------------------------------------------------------
 
 function module:_cleanup()
+	if self._canvasRefreshThread then
+		pcall(task.cancel, self._canvasRefreshThread)
+		self._canvasRefreshThread = nil
+	end
 	for _, row in pairs(self._rows) do
 		self:_destroyRow(row)
 	end
