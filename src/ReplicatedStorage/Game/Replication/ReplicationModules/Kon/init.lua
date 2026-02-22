@@ -8,6 +8,7 @@
 	- createKon(originUserId, data) - Spawns Kon, animation, bite VFX, smoke, despawn (ALL clients)
 	- destroyKon(originUserId, data) - Early cleanup
 	- placeTrap(originUserId, data) - Clones the "Placed" model visual with fade in/out
+	- selfLaunch(originUserId, data) - Server-triggered self-launch (uncrouch + launch up, ME only)
 	- triggerTrap(originUserId, data) - Triggers trap: spawns Kon, plays VFX, despawns
 	- destroyTrap(originUserId, data) - Cleans up trap marker
 	
@@ -645,10 +646,67 @@ function Kon:triggerTrap(originUserId, data)
 end
 
 --[[
+	selfLaunch - Server-triggered self-launch for Aki
+	
+	Called via BroadcastVFX("Me") when the unified _triggerTrap detects Aki in the trap radius.
+	Handles uncrouch/unslide + upward launch on the client.
+	
+	data:
+	- position: { X, Y, Z } (trap position, for reference)
+]]
+function Kon:selfLaunch(originUserId, data)
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer or localPlayer.UserId ~= originUserId then return end
+	
+	local character = localPlayer.Character
+	if not character then return end
+	
+	local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
+	if not root then return end
+	
+	-- Force uncrouch / unslide before launching
+	localPlayer:SetAttribute("ForceUncrouch", true)
+	localPlayer:SetAttribute("BlockCrouchWhileAbility", true)
+	localPlayer:SetAttribute("BlockSlideWhileAbility", true)
+	
+	-- Lazy-require MovementStateManager to avoid circular deps
+	local okMSM, MSM = pcall(function()
+		return require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+	end)
+	if okMSM and MSM then
+		if MSM:IsSliding() or MSM:IsCrouching() then
+			MSM:TransitionTo(MSM.States.Walking)
+		end
+	end
+	
+	-- Clear gate after delay so player can crouch/slide again after landing
+	task.delay(1.5, function()
+		if localPlayer and localPlayer.Parent then
+			localPlayer:SetAttribute("ForceUncrouch", nil)
+			localPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
+			localPlayer:SetAttribute("BlockSlideWhileAbility", nil)
+		end
+	end)
+	
+	-- Launch straight up
+	local SELF_LAUNCH_VERTICAL = 130
+	local launchVelocity = Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
+	root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1) -- Clear vertical velocity
+	
+	local movementController = ServiceRegistry:GetController("Movement")
+		or ServiceRegistry:GetController("MovementController")
+	if movementController and movementController.BeginExternalLaunch then
+		movementController:BeginExternalLaunch(launchVelocity, 0.28)
+	else
+		root.AssemblyLinearVelocity = launchVelocity
+	end
+end
+
+--[[
 	destroyTrap - Clean up trap marker and any active Kon model
 	
 	Called when:
-	- Aki uses self-launch
+	- Trap triggers (server calls destroyTrap before createKon)
 	- Kit is destroyed (death/round end)
 	- Kit is unequipped
 ]]

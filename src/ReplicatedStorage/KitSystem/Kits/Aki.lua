@@ -4,31 +4,31 @@
 	Ability: KON - Two variants:
 	
 	TRAP VARIANT (E while crouching/sliding):
-	- Places a hidden Kon trap at player's feet
-	- Triggers when enemy enters 9.5 stud radius
-	- Deals 75 damage + KonSlow (30% speed, sprint disabled, 5s)
-	- 1 per match, no cooldown on placement
-	- Self-launch: Aki can reactivate near trap to launch away (no damage)
-	- Trap destroyed when kit is destroyed
+	- Places a hidden Kon trap at aimed position (35 stud range)
+	- Triggers when ANY character enters 9.5 stud radius (enemies, dummies, or Aki)
+	- Unified _triggerTrap handles everything:
+	  • Broadcasts createKon VFX for all clients
+	  • If Aki is in range → broadcasts selfLaunch VFX to Aki (uncrouch + launch up)
+	  • After bite delay → damages enemies + KonSlow (Aki NOT damaged)
+	- 1 per kit equip, no cooldown on placement
+	- Trap destroyed when kit is destroyed/unequipped
 	
-	MAIN VARIANT (E while standing - placeholder for future implementation):
-	- Existing Kon behavior remains for now
+	MAIN VARIANT (E while standing):
+	- Existing Kon behavior (requestKonSpawn → konBite)
 	
 	Server responsibilities:
 	1. Validate trap placement position
 	2. Manage trap state (_trapPlaced, _trapPosition, _trapActive)
-	3. Run proximity detection loop for trap trigger
-	4. Apply damage + KonSlow on trap trigger
-	5. Handle self-launch request
-	6. Destroy trap on kit destroy
-	7. Validate konBite hits for main variant
+	3. Run proximity detection loop (includes Aki)
+	4. Unified _triggerTrap: VFX + self-launch + damage + KonSlow + VoxelDestruction
+	5. Destroy trap on kit destroy/unequip
+	6. Validate konBite hits for main variant
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local RunService = game:GetService("RunService")
-local CollectionService = game:GetService("CollectionService")
 
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 local VoxelDestruction = require(ReplicatedStorage.Shared.Modules.VoxelDestruction)
@@ -88,16 +88,8 @@ local MAX_HITS_PER_BITE = 5
 -- Trap variant constants
 local TRAP_DAMAGE = 75
 local TRAP_TRIGGER_RADIUS = 9.5
-local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Same radius for self-launch auto-detect
 local TRAP_PLACEMENT_MAX_DIST = 40   -- Max distance from player for placement validation (35 stud aim range + tolerance)
 local KONSLOW_DURATION = 5
-local KONSLOW_SPEED_MULT = 0.7       -- 30% reduction
-
--- Self-launch force
-local SELF_LAUNCH_VELOCITY = 120     -- Strong upward + outward force
-
--- Trap trigger upward launch force (applied to targets on bite)
-local TRAP_LAUNCH_UPWARD = 180       -- Strong upward velocity on trap bite
 
 -- Trap bite timing (must match VFX BITE_DELAY so damage aligns with visual bite)
 local TRAP_BITE_DELAY = 0.6
@@ -155,12 +147,10 @@ end
 
 local function applyDamage(self, targetCharacter, damage, weaponId)
 	local player = self._ctx.player
-	warn("[Aki Trap] applyDamage:", targetCharacter and targetCharacter.Name or "nil", "damage:", damage, "weaponId:", weaponId)
 	
 	-- Always use WeaponService:ApplyDamageToCharacter — it handles both players
 	-- AND dummies via CombatService:GetPlayerByCharacter internally.
 	local weaponService = getWeaponService(self)
-	warn("[Aki Trap] weaponService:", weaponService ~= nil)
 	if weaponService then
 		local root = self._ctx.character and self._ctx.character.PrimaryPart
 		local sourcePos = root and root.Position or nil
@@ -224,9 +214,6 @@ function Kit:_startTrapProximityLoop()
 	local trapPos = self._trapPosition
 	if not trapPos then return end
 	
-	warn("[Aki Trap] Proximity loop STARTED at", trapPos)
-	local loopTick = 0
-	
 	self._trapProximityConn = RunService.Heartbeat:Connect(function()
 		if not self._trapActive or not self._trapPosition then
 			if self._trapProximityConn then
@@ -236,25 +223,9 @@ function Kit:_startTrapProximityLoop()
 			return
 		end
 		
-		loopTick += 1
-		
-		-- Use both detection methods for robustness
-		local radiusTargets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS, player)
-		local sphereTargets = Hitbox.GetCharactersInSphere(self._trapPosition, TRAP_TRIGGER_RADIUS, {
-			Exclude = player,
-		})
-		
-		-- Log every 60 ticks (~1 second) so we don't spam
-		if loopTick % 60 == 1 then
-			-- Include Aki player's position for debugging
-			local akiChar = self._ctx.character or player.Character
-			local akiRoot = akiChar and (akiChar.PrimaryPart or akiChar:FindFirstChild("Root") or akiChar:FindFirstChild("HumanoidRootPart"))
-			local akiDist = akiRoot and string.format("%.1f", (akiRoot.Position - self._trapPosition).Magnitude) or "NO_ROOT"
-			warn("[Aki Trap] Loop tick", loopTick,
-				"| radius:", #radiusTargets, "| sphere:", #sphereTargets,
-				"| akiDist:", akiDist,
-				"| trapPos:", self._trapPosition)
-		end
+		-- Detect ALL characters in radius — including Aki (no exclusion)
+		local radiusTargets = Hitbox.GetCharactersInRadius(self._trapPosition, TRAP_TRIGGER_RADIUS)
+		local sphereTargets = Hitbox.GetCharactersInSphere(self._trapPosition, TRAP_TRIGGER_RADIUS, {})
 		
 		-- Union both results
 		local seen = {}
@@ -267,28 +238,29 @@ function Kit:_startTrapProximityLoop()
 		end
 		
 		for _, targetCharacter in ipairs(targets) do
-			-- Skip the Aki player's own character
-			local character = self._ctx.character or player.Character
-			if targetCharacter == character then continue end
-			
 			local humanoid = targetCharacter:FindFirstChildWhichIsA("Humanoid", true)
 			if humanoid and humanoid.Health > 0 then
-				warn("[Aki Trap] Loop TRIGGERED on", targetCharacter.Name, "at tick", loopTick)
-				self:_triggerTrap(targetCharacter)
+				self:_triggerTrap()
 				return -- Only triggers once
 			end
 		end
 	end)
 end
 
-function Kit:_triggerTrap(triggerCharacter)
-	warn("[Aki Trap] _triggerTrap called | active:", self._trapActive, "| trigger:", triggerCharacter and triggerCharacter.Name or "nil")
+--[[ Unified trap trigger — handles BOTH enemy damage AND Aki self-launch.
+     Called by the proximity loop when ANY character enters the trap radius.
+     - Broadcasts createKon VFX for all clients
+     - If Aki is in radius → broadcasts selfLaunch VFX to Aki's client
+     - After bite delay → damages enemies + KonSlow (Aki is NOT damaged)
+     - VoxelDestruction at trap position ]]
+function Kit:_triggerTrap()
 	if not self._trapActive then return end
 	
 	local trapPos = self._trapPosition
 	if not trapPos then return end
 	
 	local player = self._ctx.player
+	local myChar = self._ctx.character or player.Character
 	local service = self._ctx.service
 	
 	-- Stop proximity loop
@@ -299,28 +271,57 @@ function Kit:_triggerTrap(triggerCharacter)
 	
 	self._trapActive = false
 	
-	-- Determine look direction for triggered Kon VFX (face toward trigger character)
+	-- Find ALL characters in radius (including Aki) for look direction + self-launch check
+	local allInRange = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS)
+	local sphereInRange = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {})
+	local seen = {}
+	local targets = {}
+	for _, t in ipairs(allInRange) do
+		if not seen[t] then seen[t] = true; table.insert(targets, t) end
+	end
+	for _, t in ipairs(sphereInRange) do
+		if not seen[t] then seen[t] = true; table.insert(targets, t) end
+	end
+	
+	-- Determine look direction (face toward first non-Aki target, fallback to Aki direction)
 	local lookDir = Vector3.new(0, 0, 1)
-	if triggerCharacter and triggerCharacter.PrimaryPart then
-		local dirToTarget = (triggerCharacter.PrimaryPart.Position - trapPos)
-		dirToTarget = Vector3.new(dirToTarget.X, 0, dirToTarget.Z) -- Flatten Y
-		if dirToTarget.Magnitude > 0.1 then
-			lookDir = dirToTarget.Unit
+	local akiInRange = false
+	for _, char in ipairs(targets) do
+		if char == myChar then
+			akiInRange = true
+		elseif char.PrimaryPart or char:FindFirstChild("Root") then
+			local part = char.PrimaryPart or char:FindFirstChild("Root")
+			local dirToTarget = (part.Position - trapPos)
+			dirToTarget = Vector3.new(dirToTarget.X, 0, dirToTarget.Z)
+			if dirToTarget.Magnitude > 0.1 then
+				lookDir = dirToTarget.Unit
+			end
 		end
 	end
 	
-	-- Destroy the trap marker on all clients
+	-- Also check Aki via direct distance (in case hitbox missed due to timing)
+	if not akiInRange and myChar then
+		local akiRoot = myChar.PrimaryPart or myChar:FindFirstChild("Root") or myChar:FindFirstChild("HumanoidRootPart")
+		if akiRoot and (akiRoot.Position - trapPos).Magnitude <= TRAP_TRIGGER_RADIUS * 1.5 then
+			akiInRange = true
+		end
+	end
+	
+	-- Broadcast VFX: destroy trap marker + spawn Kon
 	if service then
 		service:BroadcastVFX(player, "All", "Kon", {}, "destroyTrap")
-	end
-
-	-- Spawn Kon at trap position (same proven createKon visual as normal ability)
-	if service then
 		service:BroadcastVFX(player, "All", "Kon", {
 			position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
 			lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
 			surfaceNormal = { X = 0, Y = 1, Z = 0 },
 		}, "createKon")
+	end
+	
+	-- Self-launch Aki IMMEDIATELY if in range (no delay — launch happens on trigger)
+	if akiInRange and service then
+		service:BroadcastVFX(player, "Me", "Kon", {
+			position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
+		}, "selfLaunch")
 	end
 	
 	-- Terrain destruction at trap location (server-authoritative VoxelDestruction)
@@ -345,40 +346,30 @@ function Kit:_triggerTrap(triggerCharacter)
 	end)
 	
 	-- BITE: delayed to match Kon bite animation timing
-	-- Only targets still in radius at bite time get hit
+	-- Damage enemies only (Aki gets self-launched, not damaged)
 	task.delay(TRAP_BITE_DELAY, function()
-		warn("[Aki Trap] Bite delay fired at", trapPos)
-		local character = self._ctx.character or (player and player.Character)
-		
-		-- Use both detection methods
+		-- Exclude Aki from damage detection
 		local radiusBite = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
 		local sphereBite = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
 			Exclude = player,
 		})
-		warn("[Aki Trap] Bite: radius:", #radiusBite, "| sphere:", #sphereBite)
 		
-		-- Union
-		local seen = {}
+		local bSeen = {}
 		local biteTargets = {}
 		for _, t in ipairs(radiusBite) do
-			if not seen[t] then seen[t] = true; table.insert(biteTargets, t) end
+			if not bSeen[t] then bSeen[t] = true; table.insert(biteTargets, t) end
 		end
 		for _, t in ipairs(sphereBite) do
-			if not seen[t] then seen[t] = true; table.insert(biteTargets, t) end
+			if not bSeen[t] then bSeen[t] = true; table.insert(biteTargets, t) end
 		end
-		warn("[Aki Trap] Bite combined targets:", #biteTargets)
 		
+		local character = self._ctx.character or (player and player.Character)
 		for _, targetChar in ipairs(biteTargets) do
-			if targetChar == character then continue end -- Skip Aki
+			if targetChar == character then continue end -- Skip Aki (no self-damage)
 			
 			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
-			warn("[Aki Trap] Bite checking:", targetChar.Name, "| hum:", humanoid ~= nil, "| hp:", humanoid and humanoid.Health or "nil")
 			if humanoid and humanoid.Health > 0 then
-				-- Apply trap damage on bite
-				warn("[Aki Trap] Bite APPLYING DAMAGE to", targetChar.Name)
 				applyDamage(self, targetChar, TRAP_DAMAGE, "Aki_KonTrap")
-				
-				-- Apply KonSlow status effect (players only)
 				applyKonSlow(self, targetChar)
 				
 				-- Force uncrouch/unslide hit players
@@ -459,8 +450,6 @@ end
 --------------------------------------------------------------------------------
 
 function Kit:OnAbility(inputState, clientData)
-	warn("[Aki Server] OnAbility called | inputState:", tostring(inputState), "| clientData:", clientData and tostring(clientData.action) or "nil")
-	
 	if inputState ~= Enum.UserInputState.Begin then
 		return false
 	end
@@ -470,13 +459,11 @@ function Kit:OnAbility(inputState, clientData)
 	local service = self._ctx.service
 
 	if not character then
-		warn("[Aki Server] REJECTED: no character")
 		return false
 	end
 
 	clientData = clientData or {}
 	local action = clientData.action
-	warn("[Aki Server] action =", action or "nil", "| trapPlaced:", self._trapPlaced, "| trapActive:", self._trapActive)
 
 	------------------------------------------------------------------------
 	-- TRAP VARIANT ACTIONS
@@ -484,147 +471,19 @@ function Kit:OnAbility(inputState, clientData)
 
 	-- Place Trap
 	if action == "placeTrap" then
-		warn("[Aki Trap] === PLACE TRAP START ===")
-		
-		-- Validate: can only place one trap per match
-		if self._trapPlaced then
-			warn("[Aki Trap] REJECTED: _trapPlaced is already true")
-			return false
-		end
+		-- Validate: can only place one trap per kit equip
+		if self._trapPlaced then return false end
 		
 		local posData = clientData.position
-		if not posData then
-			warn("[Aki Trap] REJECTED: no position data")
-			return false
-		end
+		if not posData then return false end
 		
 		local trapPos = Vector3.new(
 			posData.X or 0,
 			posData.Y or 0,
 			posData.Z or 0
 		)
-		warn("[Aki Trap] trapPos:", trapPos)
 		
 		-- Validate placement position (must be near player)
-		-- Use replicated position (same as validateTargetPosition) — raw root.Position is stale on server
-		local playerPos = nil
-		local api = getHitDetectionAPI()
-		if api then
-			local currentTime = workspace:GetServerTimeNow()
-			playerPos = api:GetPositionAtTime(player, currentTime)
-		end
-		if not playerPos then
-			local root = character.PrimaryPart
-				or character:FindFirstChild("Root")
-				or character:FindFirstChild("HumanoidRootPart")
-			if root then
-				playerPos = root.Position
-			end
-		end
-		if not playerPos then
-			warn("[Aki Trap] REJECTED: no player position")
-			return false
-		end
-		
-		local distFromPlayer = (trapPos - playerPos).Magnitude
-		warn("[Aki Trap] distFromPlayer:", distFromPlayer, "| max:", TRAP_PLACEMENT_MAX_DIST, "| playerPos:", playerPos)
-		if distFromPlayer > TRAP_PLACEMENT_MAX_DIST then
-			warn("[Aki Trap] REJECTED: too far from player")
-			return false
-		end
-		
-		-- Place the trap (no cooldown!)
-		self._trapPlaced = true
-		self._trapActive = true
-		self._trapPosition = trapPos
-		warn("[Aki Trap] Trap state set. Now running detection...")
-		
-		-- ============================================================
-		-- IMMEDIATE DETECTION: check if anyone is already in range
-		-- ============================================================
-		local myChar = self._ctx.character or player.Character
-		
-		-- LOG: What does CollectionService see?
-		local allTagged = CollectionService:GetTagged("AimAssistTarget")
-		warn("[Aki Trap] AimAssistTarget tagged count:", #allTagged)
-		for i, tagged in ipairs(allTagged) do
-			if tagged:IsA("Model") then
-				local hum = tagged:FindFirstChildWhichIsA("Humanoid", true)
-				local dRoot = tagged:FindFirstChild("Root") or tagged.PrimaryPart
-				local dist = dRoot and (dRoot.Position - trapPos).Magnitude or "NO_ROOT"
-				warn("[Aki Trap]   tagged[" .. i .. "]:", tagged.Name,
-					"| isModel:", true,
-					"| humanoid:", hum ~= nil,
-					"| health:", hum and hum.Health or "nil",
-					"| root:", dRoot ~= nil,
-					"| dist:", dist,
-					"| inRange:", type(dist) == "number" and dist <= TRAP_TRIGGER_RADIUS)
-			else
-				warn("[Aki Trap]   tagged[" .. i .. "]:", tagged.Name, "| NOT a Model, class:", tagged.ClassName)
-			end
-		end
-		
-		-- LOG: What does GetCharactersInRadius return?
-		local radiusTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS, player)
-		warn("[Aki Trap] GetCharactersInRadius found:", #radiusTargets)
-		for i, t in ipairs(radiusTargets) do
-			warn("[Aki Trap]   radius[" .. i .. "]:", t.Name, "| isMyChar:", t == myChar)
-		end
-		
-		-- LOG: What does GetCharactersInSphere return?
-		local sphereTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {
-			Exclude = player,
-		})
-		warn("[Aki Trap] GetCharactersInSphere found:", #sphereTargets)
-		for i, t in ipairs(sphereTargets) do
-			warn("[Aki Trap]   sphere[" .. i .. "]:", t.Name, "| isMyChar:", t == myChar)
-		end
-		
-		-- Use BOTH results (union) — whichever catches more
-		local seen = {}
-		local immediateTargets = {}
-		for _, t in ipairs(radiusTargets) do
-			if not seen[t] then
-				seen[t] = true
-				table.insert(immediateTargets, t)
-			end
-		end
-		for _, t in ipairs(sphereTargets) do
-			if not seen[t] then
-				seen[t] = true
-				table.insert(immediateTargets, t)
-			end
-		end
-		warn("[Aki Trap] Combined unique targets:", #immediateTargets)
-		
-		for _, targetChar in ipairs(immediateTargets) do
-			if targetChar == myChar then
-				warn("[Aki Trap] Skipping self:", targetChar.Name)
-				continue
-			end
-			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
-			warn("[Aki Trap] Checking:", targetChar.Name, "| humanoid:", humanoid ~= nil, "| health:", humanoid and humanoid.Health or "N/A")
-			if humanoid and humanoid.Health > 0 then
-				warn("[Aki Trap] >>> TRIGGERING trap on", targetChar.Name, "<<<")
-				self:_triggerTrap(targetChar)
-				return false
-			end
-		end
-		
-		warn("[Aki Trap] No targets found — starting proximity loop")
-		-- No enemy in range — start proximity detection loop
-		self:_startTrapProximityLoop()
-		
-		return false -- Don't end ability, no cooldown
-	end
-
-	-- Self-Launch from trap
-	if action == "selfLaunch" then
-		if not self._trapActive or not self._trapPosition then
-			return false
-		end
-		
-		-- Validate Aki is near the trap (use replicated position, same as placeTrap)
 		local playerPos = nil
 		local api = getHitDetectionAPI()
 		if api then
@@ -641,21 +500,38 @@ function Kit:OnAbility(inputState, clientData)
 		end
 		if not playerPos then return false end
 		
-		local distToTrap = (playerPos - self._trapPosition).Magnitude
-		if distToTrap > TRAP_SELF_LAUNCH_RADIUS * 1.5 then -- Allow some buffer
-			return false
+		local distFromPlayer = (trapPos - playerPos).Magnitude
+		if distFromPlayer > TRAP_PLACEMENT_MAX_DIST then return false end
+		
+		-- Place the trap
+		self._trapPlaced = true
+		self._trapActive = true
+		self._trapPosition = trapPos
+		
+		-- Immediate detection: check ALL characters including Aki (no exclusion)
+		local radiusTargets = Hitbox.GetCharactersInRadius(trapPos, TRAP_TRIGGER_RADIUS)
+		local sphereTargets = Hitbox.GetCharactersInSphere(trapPos, TRAP_TRIGGER_RADIUS, {})
+		
+		local seen = {}
+		local immediateTargets = {}
+		for _, t in ipairs(radiusTargets) do
+			if not seen[t] then seen[t] = true; table.insert(immediateTargets, t) end
+		end
+		for _, t in ipairs(sphereTargets) do
+			if not seen[t] then seen[t] = true; table.insert(immediateTargets, t) end
 		end
 		
-		-- Clean up trap state (no damage to Aki, VFX handled client-side)
-		if self._trapProximityConn then
-			self._trapProximityConn:Disconnect()
-			self._trapProximityConn = nil
+		for _, targetChar in ipairs(immediateTargets) do
+			local humanoid = targetChar:FindFirstChildWhichIsA("Humanoid", true)
+			if humanoid and humanoid.Health > 0 then
+				-- Someone is already in range — trigger immediately
+				self:_triggerTrap()
+				return false
+			end
 		end
-		self._trapActive = false
-		self._trapPosition = nil
-		-- NOTE: _trapPlaced stays TRUE — one-time ability per kit equip
 		
-		-- Don't start cooldown for self-launch
+		-- No one in range — start proximity detection loop
+		self:_startTrapProximityLoop()
 		return false
 	end
 

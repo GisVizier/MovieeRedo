@@ -52,9 +52,6 @@ local GROUND_SNAP_DISTANCE = 180
 
 -- Trap variant constants
 local TRAP_MAX_RANGE = 35            -- Aiming range for trap placement (studs)
-local TRAP_SELF_LAUNCH_RADIUS = 9.5  -- Auto-detect proximity for self-launch
-local SELF_LAUNCH_HORIZONTAL = 80    -- Horizontal force away from trap pivot
-local SELF_LAUNCH_VERTICAL = 130     -- Upward force for self-launch
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
@@ -234,10 +231,7 @@ Aki._connections = {}
 Aki._abilityState = nil
 
 -- Trap state (static - only one local player per client)
-Aki._trapPlaced = false          -- Has trap been placed this match?
-Aki._trapPosition = nil          -- Vector3 position of the placed trap
-Aki._trapProximityConn = nil     -- Heartbeat connection for self-launch proximity
-Aki._trapPlayerLeftRadius = false -- Has the player left trap radius since placement?
+Aki._trapPlaced = false          -- Has trap been placed this kit equip?
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -507,165 +501,6 @@ local function stopHitboxPreview(state, fadeDuration: number?)
 end
 
 --------------------------------------------------------------------------------
--- Trap Variant Helpers
---------------------------------------------------------------------------------
-
---[[ Clean up trap proximity detection loop ]]
-local function cleanupTrapProximity()
-	if Aki._trapProximityConn then
-		Aki._trapProximityConn:Disconnect()
-		Aki._trapProximityConn = nil
-	end
-end
-
---[[ Perform the self-launch from the trap: launch straight up, show Kon VFX ]]
-local function performSelfLaunch()
-	if not Aki._trapPosition then return end
-
-	local character = LocalPlayer.Character
-	if not character then return end
-
-	local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
-	if not root then return end
-
-	local trapPos = Aki._trapPosition
-
-	-- Force uncrouch / unslide before launching (same pattern as HonoredOne)
-	LocalPlayer:SetAttribute("ForceUncrouch", true)
-	LocalPlayer:SetAttribute("BlockCrouchWhileAbility", true)
-	LocalPlayer:SetAttribute("BlockSlideWhileAbility", true)
-
-	-- Stop sliding if active
-	if MovementStateManager:IsSliding() or MovementStateManager:IsCrouching() then
-		MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
-	end
-
-	-- Clear the gate after a short delay so player can crouch/slide again after landing
-	task.delay(1.5, function()
-		LocalPlayer:SetAttribute("ForceUncrouch", nil)
-		LocalPlayer:SetAttribute("BlockCrouchWhileAbility", nil)
-		LocalPlayer:SetAttribute("BlockSlideWhileAbility", nil)
-	end)
-
-	-- Launch straight up
-	local launchVelocity = Vector3.new(0, SELF_LAUNCH_VERTICAL, 0)
-
-	-- Clear vertical velocity for a clean launch
-	root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1)
-
-	-- Apply launch via MovementController
-	local movementController = ServiceRegistry:GetController("Movement")
-		or ServiceRegistry:GetController("MovementController")
-	if movementController and movementController.BeginExternalLaunch then
-		movementController:BeginExternalLaunch(launchVelocity, 0.28)
-	else
-		root.AssemblyLinearVelocity = launchVelocity
-	end
-
-	-- Send to server for validation
-	local kitController = ServiceRegistry:GetController("Kit")
-	if kitController then
-		kitController:requestActivateAbility("Ability", Enum.UserInputState.Begin, {
-			action = "selfLaunch",
-			allowMultiple = true,
-		})
-	end
-
-	-- Destroy trap marker (instant local + relay to others)
-	VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
-	VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
-
-	-- Spawn Kon at trap position (same proven createKon visual as normal ability)
-	local lookDir = root.CFrame.LookVector
-	local konVfxData = {
-		position = { X = trapPos.X, Y = trapPos.Y, Z = trapPos.Z },
-		lookVector = { X = lookDir.X, Y = lookDir.Y, Z = lookDir.Z },
-		surfaceNormal = { X = 0, Y = 1, Z = 0 },
-	}
-	VFXRep:Fire("Me", { Module = "Kon", Function = "createKon" }, konVfxData)
-	VFXRep:Fire("Others", { Module = "Kon", Function = "createKon" }, konVfxData)
-
-	-- Clean up local trap state (trap consumed — stays used, one-time per kit equip)
-	-- Aki._trapPlaced stays TRUE — cannot re-place
-	Aki._trapPosition = nil
-	Aki._trapPlayerLeftRadius = false
-	cleanupTrapProximity()
-end
-
---[[ Start proximity detection loop for self-launch.
-     Only triggers once the player has LEFT the trap radius and returned. ]]
-local function startSelfLaunchProximity()
-	cleanupTrapProximity()
-
-	Aki._trapPlayerLeftRadius = false -- Must leave radius first before self-launch activates
-	local loopFrame = 0
-	local MARKER_GRACE_FRAMES = 90 -- ~1.5 seconds grace before checking marker (VFX may be async)
-
-	warn("[Aki Client] startSelfLaunchProximity STARTED | trapPos:", Aki._trapPosition, "| radius:", TRAP_SELF_LAUNCH_RADIUS)
-
-	Aki._trapProximityConn = RunService.Heartbeat:Connect(function()
-		-- Guard: if trap was destroyed, stop checking
-		if not Aki._trapPosition then
-			warn("[Aki Client] Trap position nil — cleaning up at frame", loopFrame)
-			cleanupTrapProximity()
-			return
-		end
-
-		loopFrame += 1
-
-		-- Check if the VFX trap marker still exists (server may have triggered/destroyed it)
-		-- GRACE PERIOD: skip this check for the first ~1.5s to avoid race condition with async VFX
-		if loopFrame > MARKER_GRACE_FRAMES then
-			local effectsFolder = Workspace:FindFirstChild("Effects")
-			local markerName = "KonTrap_" .. tostring(LocalPlayer.UserId)
-			local marker = effectsFolder and effectsFolder:FindFirstChild(markerName)
-			if not marker then
-				-- Trap was destroyed externally (triggered by enemy or server cleanup)
-				warn("[Aki Client] Trap marker GONE at frame", loopFrame, "— cleaning up")
-				Aki._trapPosition = nil
-				Aki._trapPlayerLeftRadius = false
-				cleanupTrapProximity()
-				return
-			end
-		end
-
-		local character = LocalPlayer.Character
-		if not character then return end
-
-		local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
-		if not root then return end
-
-		local distance = (root.Position - Aki._trapPosition).Magnitude
-
-		-- Debug: log every ~1 second (60 frames)
-		if loopFrame % 60 == 1 then
-			warn("[Aki Client] Proximity tick", loopFrame,
-				"| dist:", string.format("%.1f", distance),
-				"| leftRadius:", Aki._trapPlayerLeftRadius,
-				"| root:", root.Name,
-				"| playerPos:", root.Position,
-				"| trapPos:", Aki._trapPosition)
-		end
-
-		-- Player must leave radius before self-launch can activate
-		if not Aki._trapPlayerLeftRadius then
-			if distance > TRAP_SELF_LAUNCH_RADIUS then
-				Aki._trapPlayerLeftRadius = true
-				warn("[Aki Client] Player LEFT trap radius | dist:", string.format("%.1f", distance))
-			end
-			return
-		end
-
-		-- Auto-detect: if player is within radius and has previously left, trigger self-launch
-		if distance <= TRAP_SELF_LAUNCH_RADIUS then
-			warn("[Aki Client] >>> SELF LAUNCH TRIGGERED <<< | dist:", string.format("%.1f", distance))
-			performSelfLaunch()
-		end
-	end)
-end
-
-
---------------------------------------------------------------------------------
 -- Ability: Kon
 --------------------------------------------------------------------------------
 
@@ -774,11 +609,12 @@ function Aki.Ability:OnStart(abilityRequest)
 
 			if state.isTrapPlacement then
 				----------------------------------------------------------------
-				-- TRAP VARIANT: Place hidden trap at aimed position
+				-- TRAP VARIANT: Place trap at aimed position
+				-- Server handles ALL detection (enemies + Aki self-launch)
 				----------------------------------------------------------------
 				local pos = targetCFrame.Position
 
-				-- Send to server for validation
+				-- Send to server for validation + detection
 				abilityRequest.Send({
 					action = "placeTrap",
 					position = { X = pos.X, Y = pos.Y, Z = pos.Z },
@@ -791,23 +627,8 @@ function Aki.Ability:OnStart(abilityRequest)
 					ownerId = LocalPlayer.UserId,
 				})
 
-				-- Update local trap state
+				-- Mark as used (one per kit equip)
 				Aki._trapPlaced = true
-				Aki._trapPosition = pos
-
-				-- Immediate release check: if Aki is already in radius, self-launch now
-				local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Root")
-				if root and (root.Position - pos).Magnitude <= TRAP_SELF_LAUNCH_RADIUS then
-					-- Slight delay so VFX marker has time to appear before self-launch consumes it
-					task.delay(0.05, function()
-						if Aki._trapPlaced and Aki._trapPosition then
-							performSelfLaunch()
-						end
-					end)
-				else
-					-- Start self-launch proximity detection (leave-and-return cycle)
-					startSelfLaunchProximity()
-				end
 			else
 				----------------------------------------------------------------
 				-- MAIN VARIANT: Spawn Kon at aimed position
@@ -1038,9 +859,6 @@ function Aki:OnEquip(ctx)
 	self._ctx = ctx
 	-- Reset trap state on re-equip (handles round restart where kit is re-used)
 	Aki._trapPlaced = false
-	Aki._trapPosition = nil
-	Aki._trapPlayerLeftRadius = false
-	cleanupTrapProximity()
 end
 
 function Aki:OnUnequip(reason)
@@ -1056,19 +874,14 @@ function Aki:OnUnequip(reason)
 		Aki.Ability:OnInterrupt(nil, "unequip")
 	end
 
-	-- Clean up trap proximity detection
-	cleanupTrapProximity()
-
 	-- Destroy trap visual (Placed model) on all clients if it exists
-	if Aki._trapPlaced or Aki._trapPosition then
+	if Aki._trapPlaced then
 		VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
 		VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
 	end
 
-	-- Reset trap state (kit is destroyed on death/round end, trap resets)
+	-- Reset trap state
 	Aki._trapPlaced = false
-	Aki._trapPosition = nil
-	Aki._trapPlayerLeftRadius = false
 end
 
 function Aki:Destroy()
