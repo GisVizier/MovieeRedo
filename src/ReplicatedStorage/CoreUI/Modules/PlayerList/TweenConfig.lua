@@ -56,6 +56,12 @@ TweenConfig.Elements = {
 			easing = { Style = Enum.EasingStyle.Sine, Direction = Enum.EasingDirection.Out },
 		},
 	},
+	NotificationBar = {
+		drain = {
+			duration = 1,
+			easing = { Style = Enum.EasingStyle.Linear, Direction = Enum.EasingDirection.Out },
+		},
+	},
 }
 
 function TweenConfig.get(elementName, animationType)

@@ -351,13 +351,18 @@ function module:_ensureUserLeaveAction()
 
 	self._userFrame.LayoutOrder = -2
 
+	local inPartyHolder = self._sections["InParty"] and self._sections["InParty"].holder
+	if not inPartyHolder then
+		return
+	end
+
 	local instance = self._userLeaveTemplate:Clone()
 	instance.Name = "UserLeaveAction"
 	instance.Visible = false
 	if instance:IsA("GuiObject") then
-		instance.LayoutOrder = -1
+		instance.LayoutOrder = 9999
 	end
-	instance.Parent = self._scrollingFrame
+	instance.Parent = inPartyHolder
 	self._userLeaveInstance = instance
 end
 
@@ -1736,10 +1741,6 @@ function module:_showPartyNotification(templateName, opts)
 				)
 			end)
 			if ok and content and self._activeNotif == capturedClone then
-				local directImage = capturedClone:FindFirstChild("ImageLabel")
-				if directImage and directImage:IsA("ImageLabel") then
-					directImage.Image = content
-				end
 				for _, desc in capturedClone:GetDescendants() do
 					if desc.Name == "PlayerImage" and desc:IsA("ImageLabel") then
 						desc.Image = content
@@ -1778,6 +1779,29 @@ function module:_showPartyNotification(templateName, opts)
 	end
 
 	local timeout = opts.timeout or 5
+	local bar = findDescendantByNameAndClass(clone, "Bar", "Frame")
+		or findDescendantByNameAndClass(clone, "Bar", "CanvasGroup")
+	if bar then
+		local fill = bar:FindFirstChild("Frame")
+		local gradient = bar:FindFirstChildOfClass("UIGradient") or fill and fill:FindFirstChildOfClass("UIGradient")
+		if fill and fill:IsA("GuiObject") then
+			fill.Size = UDim2.new(1, 0, 1, 0)
+			local tween = TweenService:Create(
+				fill,
+				TweenInfo.new(timeout, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+				{ Size = UDim2.new(0, 0, 1, 0) }
+			)
+			tween:Play()
+		elseif gradient then
+			gradient.Offset = Vector2.new(1, 0)
+			local tween = TweenService:Create(
+				gradient,
+				TweenInfo.new(timeout, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+				{ Offset = Vector2.new(0, 0) }
+			)
+			tween:Play()
+		end
+	end
 	self._notifTimerThread = task.delay(timeout, function()
 		if self._activeNotif == clone then
 			if opts.onTimeout then
