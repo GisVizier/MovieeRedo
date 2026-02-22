@@ -238,7 +238,14 @@ function Kit:_startTrapProximityLoop()
 		
 		-- Log every 60 ticks (~1 second) so we don't spam
 		if loopTick % 60 == 1 then
-			warn("[Aki Trap] Loop tick", loopTick, "| radius:", #radiusTargets, "| sphere:", #sphereTargets)
+			-- Include Aki player's position for debugging
+			local akiChar = self._ctx.character or player.Character
+			local akiRoot = akiChar and (akiChar.PrimaryPart or akiChar:FindFirstChild("Root") or akiChar:FindFirstChild("HumanoidRootPart"))
+			local akiDist = akiRoot and string.format("%.1f", (akiRoot.Position - self._trapPosition).Magnitude) or "NO_ROOT"
+			warn("[Aki Trap] Loop tick", loopTick,
+				"| radius:", #radiusTargets, "| sphere:", #sphereTargets,
+				"| akiDist:", akiDist,
+				"| trapPos:", self._trapPosition)
 		end
 		
 		-- Union both results

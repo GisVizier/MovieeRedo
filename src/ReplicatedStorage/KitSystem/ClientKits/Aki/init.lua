@@ -598,26 +598,35 @@ local function startSelfLaunchProximity()
 	cleanupTrapProximity()
 
 	Aki._trapPlayerLeftRadius = false -- Must leave radius first before self-launch activates
+	local loopFrame = 0
+	local MARKER_GRACE_FRAMES = 90 -- ~1.5 seconds grace before checking marker (VFX may be async)
+
+	warn("[Aki Client] startSelfLaunchProximity STARTED | trapPos:", Aki._trapPosition, "| radius:", TRAP_SELF_LAUNCH_RADIUS)
 
 	Aki._trapProximityConn = RunService.Heartbeat:Connect(function()
 		-- Guard: if trap was destroyed, stop checking
 		if not Aki._trapPosition then
-			-- Trap consumed — _trapPlaced stays true (one-time per kit equip)
+			warn("[Aki Client] Trap position nil — cleaning up at frame", loopFrame)
 			cleanupTrapProximity()
 			return
 		end
 
+		loopFrame += 1
+
 		-- Check if the VFX trap marker still exists (server may have triggered/destroyed it)
-		local effectsFolder = Workspace:FindFirstChild("Effects")
-		local markerName = "KonTrap_" .. tostring(LocalPlayer.UserId)
-		local marker = effectsFolder and effectsFolder:FindFirstChild(markerName)
-		if not marker then
-			-- Trap was destroyed externally (triggered by enemy or server cleanup)
-			-- _trapPlaced stays true (one-time per kit equip)
-			Aki._trapPosition = nil
-			Aki._trapPlayerLeftRadius = false
-			cleanupTrapProximity()
-			return
+		-- GRACE PERIOD: skip this check for the first ~1.5s to avoid race condition with async VFX
+		if loopFrame > MARKER_GRACE_FRAMES then
+			local effectsFolder = Workspace:FindFirstChild("Effects")
+			local markerName = "KonTrap_" .. tostring(LocalPlayer.UserId)
+			local marker = effectsFolder and effectsFolder:FindFirstChild(markerName)
+			if not marker then
+				-- Trap was destroyed externally (triggered by enemy or server cleanup)
+				warn("[Aki Client] Trap marker GONE at frame", loopFrame, "— cleaning up")
+				Aki._trapPosition = nil
+				Aki._trapPlayerLeftRadius = false
+				cleanupTrapProximity()
+				return
+			end
 		end
 
 		local character = LocalPlayer.Character
@@ -628,16 +637,28 @@ local function startSelfLaunchProximity()
 
 		local distance = (root.Position - Aki._trapPosition).Magnitude
 
+		-- Debug: log every ~1 second (60 frames)
+		if loopFrame % 60 == 1 then
+			warn("[Aki Client] Proximity tick", loopFrame,
+				"| dist:", string.format("%.1f", distance),
+				"| leftRadius:", Aki._trapPlayerLeftRadius,
+				"| root:", root.Name,
+				"| playerPos:", root.Position,
+				"| trapPos:", Aki._trapPosition)
+		end
+
 		-- Player must leave radius before self-launch can activate
 		if not Aki._trapPlayerLeftRadius then
 			if distance > TRAP_SELF_LAUNCH_RADIUS then
 				Aki._trapPlayerLeftRadius = true
+				warn("[Aki Client] Player LEFT trap radius | dist:", string.format("%.1f", distance))
 			end
 			return
 		end
 
 		-- Auto-detect: if player is within radius and has previously left, trigger self-launch
 		if distance <= TRAP_SELF_LAUNCH_RADIUS then
+			warn("[Aki Client] >>> SELF LAUNCH TRIGGERED <<< | dist:", string.format("%.1f", distance))
 			performSelfLaunch()
 		end
 	end)
