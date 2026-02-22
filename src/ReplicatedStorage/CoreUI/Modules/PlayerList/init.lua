@@ -223,10 +223,11 @@ function module:_bindUi()
 	if localPlayer then
 		local playerGui = localPlayer:FindFirstChild("PlayerGui")
 		if playerGui then
-			local notifGui = playerGui:FindFirstChild("PartyNotification")
-			if notifGui then
-				self._notifScreenGui = notifGui
-				local folder = notifGui:FindFirstChild("Folder")
+			local mainGui = playerGui:FindFirstChild("Gui")
+			local notiFrame = mainGui and (mainGui:FindFirstChild("Noti") or mainGui:FindFirstChild(" Noti"))
+			if notiFrame then
+				self._notifScreenGui = notiFrame
+				local folder = notiFrame:FindFirstChild("Folder")
 				if folder then
 					for _, child in folder:GetChildren() do
 						if child:IsA("Frame") then
@@ -1026,10 +1027,14 @@ function module:_refreshCanvasSize()
 	if not self._panelGroup then
 		return
 	end
-	self._panelGroup.AutomaticSize = Enum.AutomaticSize.Y
-	self._panelGroup.AutomaticSize = Enum.AutomaticSize.None
-	task.wait()
-	self._panelGroup.AutomaticSize = Enum.AutomaticSize.Y
+	task.spawn(function()
+		self._panelGroup.AutomaticSize = Enum.AutomaticSize.Y
+		self._panelGroup.AutomaticSize = Enum.AutomaticSize.None
+		task.wait()
+		if self._panelGroup then
+			self._panelGroup.AutomaticSize = Enum.AutomaticSize.Y
+		end
+	end)
 end
 
 function module:_toggleSection(sectionId)
