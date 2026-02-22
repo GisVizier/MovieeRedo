@@ -308,26 +308,14 @@ function Kit:_triggerTrap(triggerCharacter)
 		}, "createKon")
 	end
 	
-	-- Terrain destruction at trap location
-	local kitData = KitConfig.getKit("Aki")
-	local destructionLevel = kitData and kitData.Ability and kitData.Ability.Destruction
-	if destructionLevel then
-		local radiusMap = {
-			Small = 6,
-			Big = 10,
-			Huge = 15,
-			Mega = 22,
-		}
-		local radius = radiusMap[destructionLevel] or 10
-		
-		task.spawn(function()
-			VoxManager:explode(trapPos, radius, {
-				voxelSize = 2,
-				debris = true,
-				debrisAmount = 8,
-			})
-		end)
-	end
+	-- Terrain destruction at trap location (smaller than normal Kon — trap is a minor ability)
+	task.spawn(function()
+		VoxManager:explode(trapPos, 5, {
+			voxelSize = 4,
+			debris = true,
+			debrisAmount = 4,
+		})
+	end)
 	
 	-- BITE: delayed to match Kon bite animation timing
 	-- Only targets still in radius at bite time get hit
@@ -384,9 +372,9 @@ function Kit:_triggerTrap(triggerCharacter)
 		end
 	end)
 	
-	-- Reset trap state (trap is consumed — can be placed again)
+	-- Reset trap state (trap consumed — stays used, cannot re-place until kit reset)
 	self._trapPosition = nil
-	self._trapPlaced = false
+	-- NOTE: _trapPlaced stays TRUE — one-time ability per kit equip
 end
 
 --------------------------------------------------------------------------------
@@ -609,13 +597,24 @@ function Kit:OnAbility(inputState, clientData)
 			return false
 		end
 		
-		-- Validate Aki is near the trap
-		local root = character.PrimaryPart
-			or character:FindFirstChild("Root")
-			or character:FindFirstChild("HumanoidRootPart")
-		if not root then return false end
+		-- Validate Aki is near the trap (use replicated position, same as placeTrap)
+		local playerPos = nil
+		local api = getHitDetectionAPI()
+		if api then
+			local currentTime = workspace:GetServerTimeNow()
+			playerPos = api:GetPositionAtTime(player, currentTime)
+		end
+		if not playerPos then
+			local root = character.PrimaryPart
+				or character:FindFirstChild("Root")
+				or character:FindFirstChild("HumanoidRootPart")
+			if root then
+				playerPos = root.Position
+			end
+		end
+		if not playerPos then return false end
 		
-		local distToTrap = (root.Position - self._trapPosition).Magnitude
+		local distToTrap = (playerPos - self._trapPosition).Magnitude
 		if distToTrap > TRAP_SELF_LAUNCH_RADIUS * 1.5 then -- Allow some buffer
 			return false
 		end
@@ -627,7 +626,7 @@ function Kit:OnAbility(inputState, clientData)
 		end
 		self._trapActive = false
 		self._trapPosition = nil
-		self._trapPlaced = false
+		-- NOTE: _trapPlaced stays TRUE — one-time ability per kit equip
 		
 		-- Don't start cooldown for self-launch
 		return false

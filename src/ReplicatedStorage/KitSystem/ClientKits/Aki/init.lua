@@ -585,8 +585,8 @@ local function performSelfLaunch()
 	VFXRep:Fire("Me", { Module = "Kon", Function = "createKon" }, konVfxData)
 	VFXRep:Fire("Others", { Module = "Kon", Function = "createKon" }, konVfxData)
 
-	-- Clean up local trap state (allow re-placement)
-	Aki._trapPlaced = false
+	-- Clean up local trap state (trap consumed — stays used, one-time per kit equip)
+	-- Aki._trapPlaced stays TRUE — cannot re-place
 	Aki._trapPosition = nil
 	Aki._trapPlayerLeftRadius = false
 	cleanupTrapProximity()
@@ -602,7 +602,7 @@ local function startSelfLaunchProximity()
 	Aki._trapProximityConn = RunService.Heartbeat:Connect(function()
 		-- Guard: if trap was destroyed, stop checking
 		if not Aki._trapPosition then
-			Aki._trapPlaced = false
+			-- Trap consumed — _trapPlaced stays true (one-time per kit equip)
 			cleanupTrapProximity()
 			return
 		end
@@ -613,7 +613,7 @@ local function startSelfLaunchProximity()
 		local marker = effectsFolder and effectsFolder:FindFirstChild(markerName)
 		if not marker then
 			-- Trap was destroyed externally (triggered by enemy or server cleanup)
-			Aki._trapPlaced = false
+			-- _trapPlaced stays true (one-time per kit equip)
 			Aki._trapPosition = nil
 			Aki._trapPlayerLeftRadius = false
 			cleanupTrapProximity()
@@ -1037,6 +1037,12 @@ function Aki:OnUnequip(reason)
 
 	-- Clean up trap proximity detection
 	cleanupTrapProximity()
+
+	-- Destroy trap visual (Placed model) on all clients if it exists
+	if Aki._trapPlaced or Aki._trapPosition then
+		VFXRep:Fire("Me", { Module = "Kon", Function = "destroyTrap" }, {})
+		VFXRep:Fire("Others", { Module = "Kon", Function = "destroyTrap" }, {})
+	end
 
 	-- Reset trap state (kit is destroyed on death/round end, trap resets)
 	Aki._trapPlaced = false

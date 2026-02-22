@@ -7,7 +7,7 @@
 	- User(originUserId, data) - Viewmodel/screen effects for caster only
 	- createKon(originUserId, data) - Spawns Kon, animation, bite VFX, smoke, despawn (ALL clients)
 	- destroyKon(originUserId, data) - Early cleanup
-	- placeTrap(originUserId, data) - Creates invisible trap marker with red highlight
+	- placeTrap(originUserId, data) - Clones the "Placed" model visual with fade in/out
 	- triggerTrap(originUserId, data) - Triggers trap: spawns Kon, plays VFX, despawns
 	- destroyTrap(originUserId, data) - Cleans up trap marker
 	
@@ -413,13 +413,129 @@ end
 -- TRAP VARIANT VFX
 --------------------------------------------------------------------------------
 
+-- Helper: get the "Placed" template model from the Aki ClientKit module
+local function getPlacedTemplate()
+	local kitSystem = ReplicatedStorage:FindFirstChild("KitSystem")
+	if not kitSystem then return nil end
+	local clientKits = kitSystem:FindFirstChild("ClientKits")
+	if not clientKits then return nil end
+	local akiModule = clientKits:FindFirstChild("Aki")
+	if not akiModule then return nil end
+	return akiModule:FindFirstChild("Placed")
+end
+
+-- Helper: fade all visual elements in a Placed model clone
+-- Returns { parts = {{part, originalTransparency}}, beams = {}, lights = {}, guis = {} }
+local function collectVisualElements(model)
+	local elements = { parts = {}, beams = {}, lights = {}, guis = {} }
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			table.insert(elements.parts, { part = desc, original = desc.Transparency })
+		elseif desc:IsA("Beam") then
+			table.insert(elements.beams, desc)
+		elseif desc:IsA("Light") then
+			table.insert(elements.lights, { light = desc, originalBrightness = desc.Brightness })
+		elseif desc:IsA("SurfaceGui") or desc:IsA("BillboardGui") then
+			table.insert(elements.guis, desc)
+		end
+	end
+	-- Check top-level if model itself is a BasePart
+	if model:IsA("BasePart") then
+		table.insert(elements.parts, { part = model, original = model.Transparency })
+	end
+	return elements
+end
+
+-- Helper: set all visual elements to invisible (pre-fade-in state)
+local function hideAllElements(elements)
+	for _, pd in ipairs(elements.parts) do
+		pd.part.Transparency = 1
+		pd.part.CanCollide = false
+		pd.part.CanQuery = false
+		pd.part.Anchored = true
+	end
+	for _, beam in ipairs(elements.beams) do
+		beam.Enabled = false
+	end
+	for _, ld in ipairs(elements.lights) do
+		ld.light.Brightness = 0
+	end
+	for _, gui in ipairs(elements.guis) do
+		gui.Enabled = false
+	end
+end
+
+-- Helper: fade in all visual elements
+local function fadeInElements(elements, duration)
+	-- Tween parts to their original transparency
+	for _, pd in ipairs(elements.parts) do
+		TweenService:Create(pd.part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = pd.original,
+		}):Play()
+	end
+	-- Enable beams after a small delay (looks better when parts are partially faded in)
+	task.delay(duration * 0.3, function()
+		for _, beam in ipairs(elements.beams) do
+			if beam and beam.Parent then
+				beam.Enabled = true
+			end
+		end
+	end)
+	-- Tween lights to their original brightness
+	for _, ld in ipairs(elements.lights) do
+		TweenService:Create(ld.light, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Brightness = ld.originalBrightness,
+		}):Play()
+	end
+	-- Enable GUIs
+	task.delay(duration * 0.3, function()
+		for _, gui in ipairs(elements.guis) do
+			if gui and gui.Parent then
+				gui.Enabled = true
+			end
+		end
+	end)
+end
+
+-- Helper: fade out all visual elements (for non-owner clients)
+local function fadeOutElements(elements, duration)
+	-- Tween parts to fully transparent
+	for _, pd in ipairs(elements.parts) do
+		if pd.part and pd.part.Parent then
+			TweenService:Create(pd.part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Transparency = 1,
+			}):Play()
+		end
+	end
+	-- Disable beams
+	for _, beam in ipairs(elements.beams) do
+		if beam and beam.Parent then
+			beam.Enabled = false
+		end
+	end
+	-- Fade out lights
+	for _, ld in ipairs(elements.lights) do
+		if ld.light and ld.light.Parent then
+			TweenService:Create(ld.light, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Brightness = 0,
+			}):Play()
+		end
+	end
+	-- Disable GUIs
+	for _, gui in ipairs(elements.guis) do
+		if gui and gui.Parent then
+			gui.Enabled = false
+		end
+	end
+end
+
 --[[
-	placeTrap - Creates invisible trap marker with red Highlight indicator
+	placeTrap - Creates the trap visual using the "Placed" model from the Aki module
 	
-	- An invisible Part is placed at the trap position
-	- A Highlight with red OutlineColor is added
-	- For the first TRAP_INDICATOR_TIME seconds, the highlight is visible to ALL clients
-	- After that, only the Aki player (owner) can see it
+	- Clones the Placed model and positions it at the trap location
+	- Fades in all parts (BaseParts, Beams, Lights, GUIs) for ALL clients
+	- After 1.5 seconds, fades out for non-owner clients (only Aki can still see it)
+	- Destroyed when trap triggers, self-launch, or kit destroy
 	
 	data:
 	- position: { X, Y, Z } (trap placement position)
@@ -435,7 +551,7 @@ function Kon:placeTrap(originUserId, data)
 	local localPlayer = Players.LocalPlayer
 	if not localPlayer then return end
 	
-	-- Clean up any existing trap marker for this player
+	-- Clean up any existing trap visual for this player
 	if self._activeTraps[originUserId] then
 		local oldMarker = self._activeTraps[originUserId]
 		if oldMarker and oldMarker.Parent then
@@ -444,41 +560,42 @@ function Kon:placeTrap(originUserId, data)
 		self._activeTraps[originUserId] = nil
 	end
 	
-	-- Create invisible trap marker Part
-	local trapMarker = Instance.new("Part")
-	trapMarker.Name = "KonTrap_" .. tostring(originUserId)
-	trapMarker.Size = Vector3.new(3, 3, 3) -- Visible enough for highlight outline
-	trapMarker.Position = position
-	trapMarker.Anchored = true
-	trapMarker.CanCollide = false
-	trapMarker.CanQuery = false
-	trapMarker.Transparency = 1
-	trapMarker.Parent = getEffectsFolder()
+	-- Get the "Placed" template model from the Aki ClientKit module
+	local placedTemplate = getPlacedTemplate()
+	if not placedTemplate then
+		warn("[Kon VFX] placeTrap: 'Placed' model not found under Aki module")
+		return
+	end
 	
-	-- Add red Highlight indicator
-	local highlight = Instance.new("Highlight")
-	highlight.Name = "TrapHighlight"
-	highlight.Adornee = trapMarker
-	highlight.FillTransparency = 1          -- No fill, outline only
-	highlight.OutlineTransparency = 0       -- Fully visible outline
-	highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Red
-	highlight.FillColor = Color3.fromRGB(255, 0, 0)
-	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.Parent = trapMarker
+	-- Clone and position the model
+	local trapModel = placedTemplate:Clone()
+	trapModel.Name = "KonTrap_" .. tostring(originUserId)
+	trapModel:PivotTo(CFrame.new(position))
 	
-	-- Store the trap marker
-	self._activeTraps[originUserId] = trapMarker
+	-- Collect all visual elements and hide them for fade-in
+	local elements = collectVisualElements(trapModel)
+	hideAllElements(elements)
 	
-	-- After TRAP_INDICATOR_TIME, hide highlight for non-owners
-	task.delay(TIMING.TRAP_INDICATOR_TIME, function()
-		if not trapMarker or not trapMarker.Parent then return end
-		if self._activeTraps[originUserId] ~= trapMarker then return end
+	-- Parent to Effects folder
+	trapModel.Parent = getEffectsFolder()
+	
+	-- Store the trap model
+	self._activeTraps[originUserId] = trapModel
+	
+	-- Fade IN all visual elements (0.4s)
+	local FADE_IN_TIME = 0.4
+	fadeInElements(elements, FADE_IN_TIME)
+	
+	-- After 1.5 seconds, fade out for non-owner clients
+	local FADE_OUT_DELAY = 1.5
+	local FADE_OUT_TIME = 0.5
+	task.delay(FADE_OUT_DELAY, function()
+		if not trapModel or not trapModel.Parent then return end
+		if self._activeTraps[originUserId] ~= trapModel then return end
 		
-		-- If this client is NOT the owner, hide the highlight entirely
+		-- If this client is NOT the owner, fade out the entire visual
 		if localPlayer.UserId ~= ownerId then
-			if highlight and highlight.Parent then
-				highlight.OutlineTransparency = 1
-			end
+			fadeOutElements(elements, FADE_OUT_TIME)
 		end
 	end)
 end
