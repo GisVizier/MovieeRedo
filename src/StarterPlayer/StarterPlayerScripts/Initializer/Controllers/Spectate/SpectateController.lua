@@ -172,6 +172,38 @@ function SpectateController:GetSpectateViewmodelRig()
 	return self._spectateVmLoadout.Rigs[self._spectateActiveSlot]
 end
 
+--[[
+	Play a kit animation on the spectate viewmodel.
+	Called by VFX modules (e.g. Cloudskip) when SpectateVFXForward arrives,
+	so spectators see the animation sooner if ViewmodelActionReplicated is delayed.
+	Kit abilities use the Fists viewmodel, so we switch to that slot first.
+]]
+function SpectateController:PlayKitAnimation(trackName)
+	if not self._active or not self._spectateVmLoadout then return end
+	if not trackName or type(trackName) ~= "string" then return end
+
+	-- Kit animations use Fists viewmodel; switch slot if needed
+	if self._spectateActiveSlot ~= "Fists" then
+		local fistsRig = self._spectateVmLoadout.Rigs.Fists
+		if not fistsRig then return end
+
+		if self._spectateActiveSlot then
+			local oldRig = self._spectateVmLoadout.Rigs[self._spectateActiveSlot]
+			if oldRig and oldRig.Model then
+				oldRig.Model.Parent = nil
+			end
+		end
+
+		self._spectateActiveSlot = "Fists"
+		if fistsRig.Model then
+			fistsRig.Model.Parent = workspace.CurrentCamera
+		end
+		self:_bindAnimator(fistsRig, "Fists")
+	end
+
+	self:_playSpectateKitAnim(trackName)
+end
+
 function SpectateController:_onMatchStart(matchData)
 	self:EndSpectate()
 

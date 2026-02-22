@@ -1,60 +1,36 @@
 --[[
 	Cloudskip VFX Module (Airborne kit)
-	
-	Handles visual effects for Airborne's Cloudskip (horizontal dash) and Updraft (vertical burst).
-	
-	Functions:
-	- User(originUserId, data) - Viewmodel/position effects for caster and spectators
-	
-	Data:
-	- position: Vector3 or { X, Y, Z }
-	- ViewModel: ViewmodelRig
+
+	Receives SpectateVFXForward when a spectated player uses Cloudskip or Updraft,
+	and ensures the kit animation plays on the spectate viewmodel.
+
+	The caster's animation is already replicated via ViewmodelActionReplicated (reliable).
+	This module acts as a fallback: SpectateVFXForward (unreliable) may arrive first,
+	letting the spectator see the animation sooner.
+
+	Data from Airborne ClientKit:
 	- Action: "cloudSkip" | "upDraft"
-	- Animation: string (animation name)
-	
-	Spectate: When _spectate is true, effects are shown for the spectated player.
-	CleanupSpectateEffects() is called when spectating ends.
+	- Animation: string (animation name, e.g. "CloudskipDash" or "Updraft")
+	- position: Vector3
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
+local ACTION_TO_TRACK = {
+	upDraft = "Updraft",
+	cloudSkip = "CloudskipDash",
+}
+
 local Cloudskip = {}
-
--- Track spectate effects for cleanup (e.g. particles, trails that persist)
 Cloudskip._spectateCleanups = {}
-
---------------------------------------------------------------------------------
--- Helpers
---------------------------------------------------------------------------------
-
-local function ReplicateFX(module, action, fxData)
-	local clientsFolder = script:FindFirstChild("Clients")
-	if not clientsFolder then return nil end
-	local nmodule = clientsFolder:FindFirstChild(module)
-	if nmodule then
-		local mod = require(nmodule)
-		if mod[action] then
-			return mod[action](nil, fxData)
-		end
-	end
-	return nil
-end
-
---------------------------------------------------------------------------------
--- Validation
---------------------------------------------------------------------------------
 
 function Cloudskip:Validate(_player, data)
 	return typeof(data) == "table"
 end
-
---------------------------------------------------------------------------------
--- User - Cloudskip/Updraft VFX for caster and spectators
---------------------------------------------------------------------------------
 
 function Cloudskip:User(originUserId, data)
 	if not data then return end
@@ -64,41 +40,29 @@ function Cloudskip:User(originUserId, data)
 
 	local isLocal = localPlayer.UserId == originUserId
 	local isSpectate = data._spectate == true
-	if not isLocal and not isSpectate then
-		return
-	end
+	if not isLocal and not isSpectate then return end
 
-	local character = data.Character or (Players:GetPlayerByUserId(originUserId) and Players:GetPlayerByUserId(originUserId).Character) or localPlayer.Character
-	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
-	local ViewModel = data.ViewModel or (viewmodelController and viewmodelController:GetActiveRig())
-
-	local action = data.Action -- "cloudSkip" or "upDraft"
+	local action = data.Action
 	if not action then return end
 
-	-- Play VFX via Clients submodule when it exists
-	local fxCleanup = ReplicateFX("cloudskip", action, {
-		Character = character,
-		ViewModel = ViewModel,
-		position = data.position,
-		Animation = data.Animation,
-	})
-
-	if fxCleanup and type(fxCleanup) == "function" and isSpectate then
-		table.insert(Cloudskip._spectateCleanups, { cleanup = fxCleanup })
+	if isSpectate then
+		local trackName = ACTION_TO_TRACK[action]
+		if trackName then
+			local spectateController = ServiceRegistry:GetController("Spectate")
+			if spectateController and spectateController.PlayKitAnimation then
+				spectateController:PlayKitAnimation(trackName)
+			end
+		end
 	end
 end
 
---------------------------------------------------------------------------------
--- Cleanup when spectating ends (Airborne Cloudskip/Updraft effects)
---------------------------------------------------------------------------------
-
 function Cloudskip:CleanupSpectateEffects()
-	for _, entry in ipairs(Cloudskip._spectateCleanups) do
-		if entry.cleanup and type(entry.cleanup) == "function" then
+	for _, entry in ipairs(self._spectateCleanups) do
+		if type(entry.cleanup) == "function" then
 			pcall(entry.cleanup)
 		end
 	end
-	Cloudskip._spectateCleanups = {}
+	self._spectateCleanups = {}
 end
 
 return Cloudskip

@@ -21,11 +21,10 @@ local SERVER_THROTTLE_INTERVAL_BY_MODULE = {
 
 local function loadModules()
 	for _, child in ipairs(script:GetChildren()) do
-		if child.Name ~= "init" and child.Name ~= "Util" then
+		if child:IsA("ModuleScript") and child.Name ~= "init" and child.Name ~= "Util" then
 			if not VFXRep.Modules[child.Name] then
-				-- Support both ModuleScripts and Folders (Folder returns default init)
 				local ok, mod = pcall(require, child)
-				if ok and mod then
+				if ok then
 					VFXRep.Modules[child.Name] = mod
 				end
 			end
@@ -35,11 +34,10 @@ end
 
 local function getModule(name)
 	if not VFXRep.Modules[name] then
-		local child = script:FindFirstChild(name)
-		if child then
-			-- Support both ModuleScripts and Folders (Folder returns default init)
-			local ok, mod = pcall(require, child)
-			if ok and mod then
+		local moduleScript = script:FindFirstChild(name)
+		if moduleScript and moduleScript:IsA("ModuleScript") then
+			local ok, mod = pcall(require, moduleScript)
+			if ok then
 				VFXRep.Modules[name] = mod
 			end
 		end
@@ -325,8 +323,6 @@ function VFXRep:Init(net, isServer, registry)
 
 			waitForLocalPlayerLoaded()
 			loadModules()
-			-- Preload Cloudskip so CleanupSpectateEffects runs for Airborne when spectating ends
-			getModule("Cloudskip")
 
 			-- Register spectate-ended cleanup so ability effects stop when spectating ends
 			task.defer(function()
