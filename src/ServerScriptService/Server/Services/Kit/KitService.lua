@@ -45,5 +45,39 @@ function KitService:ResetPlayerForTraining(player)
 	end
 end
 
+--[[
+	Destroys the player's active kit instance, resets server-side kit state
+	(equippedKitId, cooldowns, ultimate), pushes zeroed attributes to the player,
+	and fires the cleared state to the client.
+	Called by MatchManager._returnPlayersToLobby and _resetRound.
+]]
+function KitService:ClearKit(player)
+	if not self._impl then return end
+	local impl = self._impl
+
+	-- Destroy the active kit instance (calls OnUnequipped + Destroy)
+	if impl._destroyKit then
+		pcall(function() impl:_destroyKit(player, "ReturnToLobby") end)
+	end
+
+	-- Zero out the server-side data record
+	local info = impl._data and impl._data[player]
+	if info then
+		info.equippedKitId = nil
+		info.abilityCooldownEndsAt = 0
+		info.ultimate = 0
+
+		-- Push zeroed attributes to the player
+		if impl._applyAttributes then
+			pcall(function() impl:_applyAttributes(player, info) end)
+		end
+
+		-- Tell the client the kit is cleared
+		if impl._fireState then
+			pcall(function() impl:_fireState(player, info, { lastAction = "ReturnToLobby" }) end)
+		end
+	end
+end
+
 return KitService
 

@@ -403,6 +403,7 @@ function module:_updateUserLeaveAction()
 end
 
 function module:_bindInput()
+	-- HOLD to show: Tab pressed → show scoreboard, Tab released → hide it
 	self._connections:track(UserInputService, "InputBegan", function(input, gameProcessed)
 		if gameProcessed then
 			return
@@ -413,12 +414,17 @@ function module:_bindInput()
 		if UserInputService:GetFocusedTextBox() then
 			return
 		end
-		-- Don't allow player list toggle during match
-		if self._matchStatus == "InGame" then
+		-- Show on press (allowed even during InGame so it works as a live scoreboard)
+		self:_setPanelVisible(true, true)
+	end, "input")
+
+	self._connections:track(UserInputService, "InputEnded", function(input)
+		if input.KeyCode ~= TOGGLE_KEY then
 			return
 		end
-		self:toggleVisibility()
-	end, "input")
+		-- Hide when Tab is released
+		self:_setPanelVisible(false, true)
+	end, "input_release")
 
 	if self._searchBox then
 		self._connections:add(self._searchBox:GetPropertyChangedSignal("Text"):Connect(function()

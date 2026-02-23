@@ -1247,6 +1247,15 @@ function MatchManager:_resetRound(match)
 		end)
 	end
 
+	-- DESTROY kit instances + clear server-side kit state (ability, cooldowns, ultimate)
+	-- so players start the between-round picker with a completely clean slate
+	local kitService = self._registry:TryGet("KitService")
+	if kitService and kitService.ClearKit then
+		for _, player in self:_getMatchPlayers(match) do
+			pcall(function() kitService:ClearKit(player) end)
+		end
+	end
+
 	-- CRITICAL: Enter loadout_selection state so SubmitLoadout/LoadoutReady handlers work
 	match.state = "loadout_selection"
 	match._readyPlayers = {}
@@ -1498,36 +1507,9 @@ function MatchManager:_returnPlayersToLobby(match)
 	for i, userId in ipairs(userIds) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
-			-- DESTROY KIT and clear kit data when returning to lobby
-			if kitService then
-				-- Destroy the kit instance
-				if kitService._destroyKit then
-					pcall(function()
-						kitService:_destroyKit(player, "ReturnToLobby")
-					end)
-				end
-				
-				-- Also clear the kit data state and send update to client
-				local info = kitService._data and kitService._data[player]
-				if info then
-					info.equippedKitId = nil
-					info.abilityCooldownEndsAt = 0
-					info.ultimate = 0
-					
-					-- Apply attributes (clears KitData attribute)
-					if kitService._applyAttributes then
-						pcall(function()
-							kitService:_applyAttributes(player, info)
-						end)
-					end
-					
-					-- Send state to client so it knows kit is cleared
-					if kitService._fireState then
-						pcall(function()
-							kitService:_fireState(player, info, { lastAction = "ReturnToLobby" })
-						end)
-					end
-				end
+			-- DESTROY KIT and clear all server-side kit state when returning to lobby
+			if kitService and kitService.ClearKit then
+				pcall(function() kitService:ClearKit(player) end)
 			end
 			
 			-- Clear all match/loadout related attributes

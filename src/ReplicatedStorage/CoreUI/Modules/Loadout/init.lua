@@ -299,6 +299,10 @@ function module.start(export, ui)
 	self._itemScroller = ui:FindFirstChild("ItemScroller")
 	self._currentItems = ui:FindFirstChild("CurrentItems")
 
+	-- Between-round swap button (may be nil if not yet added to Studio)
+	self._swapButton = ui:FindFirstChild("SwapButton") or ui:FindFirstChild("SwapButton", true)
+	self._swapConfirmed = false
+
 	self._slotTemplates = {}
 	self._itemTemplates = {}
 	self._gradientSpin = {}
@@ -1358,9 +1362,19 @@ function module:_checkLoadoutComplete()
 
 	log("loadoutCount", filledCount)
 	
-	-- In between-round mode: no ready checks, player can freely change loadout
-	-- The loadout is only submitted when the timer expires and round starts
+	-- In between-round mode:
+	--   • If swap was confirmed and all 4 slots filled → auto-finish and close
+	--   • If swap was NOT confirmed → nothing to do; timer expiry calls finishLoadout
 	if self._isBetweenRound then
+		if self._swapConfirmed then
+			local filledCount = 0
+			for _, weaponId in pairs(self._currentLoadout) do
+				if weaponId then filledCount += 1 end
+			end
+			if filledCount >= 4 then
+				self:finishLoadout()
+			end
+		end
 		return
 	end
 	
@@ -1421,6 +1435,65 @@ function module:_animateShow()
 	end)
 
 	currentTweens["show"] = tweens
+end
+
+--[[
+	Between-round entry point: show ONLY the animated countdown timer and the
+	"Swap Loadout" button.  MapName, Preview, slot row, and item scroller stay
+	at their reset (transparent) state until the player presses the swap button.
+]]
+function module:_animateBetweenRound()
+	self:_cancelTweens("show")
+	self:_cancelTweens("hide")
+
+	-- Show the swap button if it exists in the UI tree
+	if self._swapButton then
+		self._swapButton.Visible = true
+	end
+
+	-- Animate the timer in (it always stays visible throughout between-round)
+	local tweens = {}
+	task.delay(TweenConfig.getDelay("Timer"), function()
+		self:_showTimer(tweens)
+	end)
+	currentTweens["show"] = tweens
+end
+
+--[[
+	Called when the player presses the "Swap Loadout" button (or M key) during
+	the between-round phase.  Hides the swap button, animates in the full picker,
+	and emits SwapLoadoutOpened so UIController can switch to Orbit camera.
+]]
+function module:confirmSwap()
+	if self._swapConfirmed then return end
+	self._swapConfirmed = true
+
+	-- Hide the swap button
+	if self._swapButton then
+		self._swapButton.Visible = false
+	end
+	self._connections:cleanupGroup("between_round_swap")
+
+	-- Animate in all remaining sections (timer is already running and visible)
+	local tweens = {}
+	self:_cancelTweens("show")
+
+	task.delay(TweenConfig.getDelay("MapName"), function()
+		self:_showMapName(tweens)
+	end)
+	task.delay(TweenConfig.getDelay("Preview"), function()
+		self:_showPreview(tweens)
+	end)
+	task.delay(TweenConfig.getDelay("CurrentItems"), function()
+		self:_showCurrentItems(tweens)
+	end)
+	task.delay(TweenConfig.getDelay("ItemScroller"), function()
+		self:_showItemScroller(tweens)
+	end)
+	currentTweens["show"] = tweens
+
+	-- Let UIController switch to Orbit camera and unlock the mouse for picking
+	self._export:emit("SwapLoadoutOpened")
 end
 
 function module:_showMapName(tweens)
@@ -1874,7 +1947,6 @@ function module:finishLoadout()
 	local loadoutData = PlayerDataTable.getEquippedLoadout()
 
 	self:fireLoadoutFinished(loadoutData)
-	self:_showLoadoutReview()
 
 	self._export:emit("LoadoutComplete", {
 		loadout = loadoutData,
@@ -1882,8 +1954,14 @@ function module:finishLoadout()
 		gamemodeId = RoundData.gamemodeId,
 	})
 
-	-- Loadout stays visible until the server fires RoundStart (UIController._onRoundStart hides it).
-	-- No auto-hide here so the player can see their selections while waiting.
+	if self._isBetweenRound then
+		-- Between-round: auto-hide the UI (timer + any open picker) so the
+		-- player sees the HUD score overlay while waiting for the round to start.
+		self:hide()
+	else
+		-- Round 1: keep UI open with "READY" text; server RoundStart hides it.
+		self:_showLoadoutReview()
+	end
 end
 
 function module:setRoundData(data)
@@ -1985,8 +2063,18 @@ function module:show(options)
 	-- Between-round mode: no ready checks, full timer, no locking
 	-- Round 1 mode: ready checks enabled, timer can jump to 5s when all ready
 	self._isBetweenRound = (type(options) == "table" and options.isBetweenRound == true) or false
-	
-	self:_animateShow()
+
+	if self._isBetweenRound then
+		-- Wire the swap button before animating so it's ready on first frame
+		if self._swapButton then
+			self._connections:track(self._swapButton, "Activated", function()
+				self:confirmSwap()
+			end, "between_round_swap")
+		end
+		self:_animateBetweenRound()
+	else
+		self:_animateShow()
+	end
 	self:_init()
 	self:_setUINavActive(isGamepadInputType(UserInputService:GetLastInputType()))
 	self:startTimer()
@@ -2104,6 +2192,13 @@ function module:_cleanup()
 	self._notifiedReady = false
 	self._loadoutLocked = false
 	self._isBetweenRound = false
+	self._swapConfirmed = false
+
+	-- Hide swap button and disconnect its click handler
+	if self._swapButton then
+		self._swapButton.Visible = false
+	end
+	self._connections:cleanupGroup("between_round_swap")
 
 	-- Bump timer generation so any running timer loop exits on next wake.
 	self._timerGeneration = (self._timerGeneration or 0) + 1

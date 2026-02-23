@@ -453,7 +453,8 @@ function UIController:Init(registry, net)
 		self:_onStormUpdate(data)
 	end)
 
-	-- M key to open/close loadout during between-round phase
+	-- M key shortcut: confirm swap during between-round phase
+	-- (same as clicking the swap button — opens the full loadout picker)
 	self._betweenRounds = false
 	self._betweenRoundEndTime = 0
 	self._betweenRoundDuration = 10
@@ -462,40 +463,10 @@ function UIController:Init(registry, net)
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.M and self._betweenRounds and self._coreUi then
-			-- Toggle: if loadout is currently open, close it and go back to first person
-			if self._coreUi:isOpen("Loadout") then
-				safeCall(function()
-					self._coreUi:hide("Loadout")
-				end)
-				local cameraController = self._registry and self._registry:TryGet("Camera")
-				if cameraController and type(cameraController.SetCameraMode) == "function" then
-					cameraController:SetCameraMode("FirstPerson")
-				end
-				return
-			end
-
-			-- Calculate remaining time in the between-round phase
-			local remaining = math.max(1, self._betweenRoundEndTime - os.clock())
 			local loadoutModule = self._coreUi:getModule("Loadout")
-			if loadoutModule and loadoutModule.setRoundData then
-				pcall(function()
-					loadoutModule:setRoundData({
-						players = { Players.LocalPlayer.UserId },
-						mapId = self._currentMapId or "ApexArena",
-						gamemodeId = "Duel",
-						timeStarted = os.clock(),
-						duration = remaining,
-					})
-				end)
+			if loadoutModule and loadoutModule.confirmSwap then
+				pcall(function() loadoutModule:confirmSwap() end)
 			end
-			-- Switch to Orbit camera for loadout picking
-			local cameraController = self._registry and self._registry:TryGet("Camera")
-			if cameraController and type(cameraController.SetCameraMode) == "function" then
-				cameraController:SetCameraMode("Orbit")
-			end
-			safeCall(function()
-				self._coreUi:show("Loadout", true)
-			end)
 		end
 	end)
 
@@ -766,6 +737,17 @@ function UIController:_bootstrapUi()
 
 	ui:on("LoadoutComplete", function(data)
 		self:_onLoadoutComplete(data)
+	end)
+
+	-- Between-round: player pressed the swap button inside the Loadout module
+	-- → switch to Orbit camera so they can see their character while picking
+	ui:on("SwapLoadoutOpened", function()
+		local cameraController = self._registry and self._registry:TryGet("Camera")
+		if cameraController and type(cameraController.SetCameraMode) == "function" then
+			cameraController:SetCameraMode("Orbit")
+		end
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
 	end)
 
 	-- Player has filled all 4 slots - notify server they're ready
@@ -1202,7 +1184,7 @@ function UIController:_onBetweenRoundFreeze(data)
 	self._betweenRoundDuration = duration
 	self._betweenRoundEndTime = os.clock() + duration
 
-	-- CLEAR HUD loadout slots (weapons, icons, etc.) BEFORE showing loadout UI
+	-- CLEAR HUD loadout slots (weapons, icons, etc.)
 	local hudModule = self._coreUi:getModule("HUD")
 	if hudModule and hudModule.ClearLoadoutSlots then
 		pcall(function()
@@ -1218,38 +1200,41 @@ function UIController:_onBetweenRoundFreeze(data)
 		end)
 	end
 
-	-- Notify HUD FIRST that loadout is opening (sets flag to skip animating player/health/items)
+	-- Tell HUD loadout is "open" (hides health/item bars, keeps score visible)
 	pcall(function()
 		self._coreUi:emit("LoadoutOpened")
 	end)
 
-	-- Now show HUD (score counter will show, but player/health/items will stay hidden due to flag)
+	-- Show HUD so the score counter is visible during the between-round wait
 	safeCall(function()
 		self._coreUi:show("HUD", true)
 	end)
 
-	-- Emit score update
+	-- Push score update to HUD
 	pcall(function()
 		self._coreUi:emit("BetweenRoundFreeze", data)
 	end)
 
-	-- Open loadout UI directly with previous loadout pre-selected
+	-- ----------------------------------------------------------------
+	-- NEW BETWEEN-ROUND FLOW
+	-- Show ONLY the countdown timer + "Swap Loadout" button.
+	-- The full picker opens only when the player presses the swap button
+	-- (or M key).  Camera stays at FirstPerson until confirmSwap fires
+	-- SwapLoadoutOpened, which switches it to Orbit.
+	-- ----------------------------------------------------------------
 	local loadoutModule = self._coreUi:getModule("Loadout")
 	if loadoutModule then
-		-- Get the player's previous loadout from SelectedLoadout attribute
-		-- Note: Server clears SelectedLoadout on BetweenRoundFreeze, so this will be nil
-		-- We need to use the cached loadout from PlayerDataTable instead
 		local player = Players.LocalPlayer
-		local previousLoadout = nil
 
-		-- Try PlayerDataTable first (cached from previous round)
+		-- Cache the previous round's loadout so we can pre-populate slots
+		local previousLoadout = nil
 		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 		local equipped = PlayerDataTable.getEquippedLoadout()
 		if equipped and equipped.Kit then
 			previousLoadout = equipped
 		end
 
-		-- Set round data with the between-round duration
+		-- Provide round data (duration, map, etc.) to the module
 		pcall(function()
 			loadoutModule:setRoundData({
 				players = { player and player.UserId or 0 },
@@ -1260,12 +1245,13 @@ function UIController:_onBetweenRoundFreeze(data)
 			})
 		end)
 
-		-- Show loadout UI in BETWEEN-ROUND mode (no ready checks, full timer)
+		-- Show in between-round mode: only timer + swap button are revealed
 		pcall(function()
 			loadoutModule:show({ isBetweenRound = true })
 		end)
 
-		-- Pre-populate with previous loadout after UI is shown
+		-- Silently pre-populate slot state with the previous loadout so if the
+		-- player never swaps, finishLoadout() re-submits the correct loadout.
 		if previousLoadout and loadoutModule.prepopulateLoadout then
 			task.defer(function()
 				pcall(function()
@@ -1275,12 +1261,8 @@ function UIController:_onBetweenRoundFreeze(data)
 		end
 	end
 
-	-- Switch to Orbit camera for loadout picking
-	local cameraController = self._registry and self._registry:TryGet("Camera")
-	if cameraController and type(cameraController.SetCameraMode) == "function" then
-		cameraController:SetCameraMode("Orbit")
-	end
-	-- Unlock mouse for between-round loadout selection
+	-- Unlock mouse so the player can click the swap button
+	-- Camera stays at current mode (FirstPerson); Orbit happens on swap confirmation
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
 	-- Note: Server clears SelectedLoadout attribute on BetweenRoundFreeze,
