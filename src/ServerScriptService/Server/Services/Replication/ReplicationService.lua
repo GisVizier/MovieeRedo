@@ -89,6 +89,14 @@ function ReplicationService:Init(registry, net)
 		self.ReadyPlayers[player] = nil
 		self.PlayerViewmodelActionSeq[player] = nil
 		self.PlayerActiveViewmodelActions[player] = nil
+		local tracks = self._rigAnimTracks[player]
+		if tracks then
+			for _, track in pairs(tracks) do
+				if track.IsPlaying then
+					track:Stop(0)
+				end
+			end
+		end
 		self._rigAnimators[player] = nil
 		self._rigAnimTracks[player] = nil
 		self._rigLastAnimId[player] = nil
@@ -132,6 +140,19 @@ function ReplicationService:UnregisterPlayer(player)
 	self.PlayerStances[player] = nil
 	self.PlayerViewmodelActionSeq[player] = nil
 	self.PlayerActiveViewmodelActions[player] = nil
+
+	local tracks = self._rigAnimTracks[player]
+	if tracks then
+		for _, track in pairs(tracks) do
+			if track.IsPlaying then
+				track:Stop(0)
+			end
+		end
+	end
+	self._rigAnimTracks[player] = nil
+	self._rigAnimators[player] = nil
+	self._rigLastAnimId[player] = nil
+	self._rigPlayerWeaponMode[player] = nil
 end
 
 function ReplicationService:_updateActiveViewmodelState(

@@ -122,6 +122,12 @@ function RigManager:CreateRig(player, character)
 
 	self:Init()
 
+	local oldRig = self.ActiveRigs[player]
+	if oldRig then
+		self.ActiveRigs[player] = nil
+		self:DestroyRig(oldRig)
+	end
+
 	local template = ReplicatedStorage:FindFirstChild("CharacterTemplate")
 	if not template then
 		return nil

@@ -160,7 +160,26 @@ end
 
 -- Called by CharacterService when a character is removed.
 function RigAnimationService:OnCharacterRemoving(player)
+	local rig = RigManager:GetActiveRig(player)
+	if rig then
+		local humanoid = rig:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			local animator = humanoid:FindFirstChildOfClass("Animator")
+			if animator then
+				for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+					track:Stop(0)
+				end
+			end
+		end
+	end
+
 	self._activeAnimations[player] = nil
+
+	self:_broadcastToAll(player, {
+		action = "StopAll",
+		userId = player.UserId,
+		fadeOut = 0,
+	})
 end
 
 -- Send active looped animations to a late-joining client so they see current state.
