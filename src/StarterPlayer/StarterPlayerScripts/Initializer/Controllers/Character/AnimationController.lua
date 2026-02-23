@@ -288,6 +288,7 @@ end
 
 function AnimationController:Start()
 	self:PreloadCharacterAnimations()
+	self:_initRigAnimationListener()
 end
 
 function AnimationController:_loadAnimationInstances()
@@ -526,11 +527,18 @@ function AnimationController:StopAllCustomAnimations(fadeOutTime: number?)
 end
 
 --------------------------------------------------------------------------------
--- Server-Owned Rig Animation API
--- The server owns the rig Animator. Client just sends requests — the server
--- plays/stops the animation and Roblox replicates it to ALL clients (including
--- the requester) automatically. No local playback needed.
+-- Server-Authoritative Rig Animation API
+-- Client sends requests via reliable remote → server validates and broadcasts
+-- to ALL clients (including requester) via reliable remote → each client plays
+-- the animation on their local copy of the rig Animator.
+--
+-- Rig parts are anchored and CFrame-driven, so Roblox built-in Animator
+-- replication doesn't work. Instead the server acts as a reliable relay that
+-- guarantees delivery (fixing the old unreliable VFXRep looped-stop bug).
+-- The server also tracks active looped animations for late joiners.
 --------------------------------------------------------------------------------
+
+AnimationController._rigAnimTracks = {} -- [userId] = { [animName] = AnimationTrack }
 
 function AnimationController:PlayRigAnimation(animName: string, settings: { [string]: any }?)
 	Net:FireServer("RigAnimationRequest", {
@@ -557,6 +565,150 @@ function AnimationController:StopAllRigAnimations(fadeOut: number?)
 		action = "StopAll",
 		fadeOut = fadeOut or 0.15,
 	})
+end
+
+function AnimationController:_getAnimatorForUserId(userId)
+	local player = Players:GetPlayerByUserId(userId)
+	if not player then
+		return nil
+	end
+
+	-- Local player: use LocalAnimator
+	if player == LocalPlayer then
+		return self.LocalAnimator
+	end
+
+	-- Remote player: use OtherCharacterAnimators
+	local character = player.Character
+	if character then
+		return self.OtherCharacterAnimators[character]
+	end
+
+	return nil
+end
+
+function AnimationController:_onRigAnimationBroadcast(data)
+	if type(data) ~= "table" then
+		return
+	end
+
+	local action = data.action
+	local userId = data.userId
+	if not userId then
+		return
+	end
+
+	if action == "Play" then
+		local animName = data.animName
+		if type(animName) ~= "string" or animName == "" then
+			return
+		end
+
+		local animator = self:_getAnimatorForUserId(userId)
+		if not animator then
+			return
+		end
+
+		local animation = self.PreloadedAnimations[animName]
+		if not animation then
+			return
+		end
+
+		if not self._rigAnimTracks[userId] then
+			self._rigAnimTracks[userId] = {}
+		end
+		local tracks = self._rigAnimTracks[userId]
+
+		-- Stop others if requested
+		if data.StopOthers ~= false then
+			for name, track in pairs(tracks) do
+				if name ~= animName and track and track.IsPlaying then
+					track:Stop(0.1)
+				end
+			end
+			local kept = {}
+			if tracks[animName] then
+				kept[animName] = tracks[animName]
+			end
+			tracks = kept
+			self._rigAnimTracks[userId] = tracks
+		end
+
+		-- Stop existing track for this name
+		local existing = tracks[animName]
+		if existing and existing.IsPlaying then
+			existing:Stop(0)
+		end
+
+		local track = animator:LoadAnimation(animation)
+		if not track then
+			return
+		end
+
+		local priority = data.Priority
+		if type(priority) == "string" and priority ~= "" then
+			local ok, val = pcall(function()
+				return Enum.AnimationPriority[priority]
+			end)
+			if ok and val then
+				priority = val
+			else
+				priority = Enum.AnimationPriority.Action4
+			end
+		else
+			priority = Enum.AnimationPriority.Action4
+		end
+
+		track.Priority = priority
+		track.Looped = data.Looped == true
+		track:Play(tonumber(data.FadeInTime) or 0.15, 1, tonumber(data.Speed) or 1)
+
+		tracks[animName] = track
+
+		track.Stopped:Once(function()
+			local t = self._rigAnimTracks[userId]
+			if t and t[animName] == track then
+				t[animName] = nil
+			end
+		end)
+
+	elseif action == "Stop" then
+		local animName = data.animName
+		if type(animName) ~= "string" then
+			return
+		end
+
+		local tracks = self._rigAnimTracks[userId]
+		if not tracks then
+			return
+		end
+
+		local track = tracks[animName]
+		if track and track.IsPlaying then
+			track:Stop(tonumber(data.fadeOut) or 0.1)
+		end
+		tracks[animName] = nil
+
+	elseif action == "StopAll" then
+		local tracks = self._rigAnimTracks[userId]
+		if not tracks then
+			return
+		end
+
+		local fadeOut = tonumber(data.fadeOut) or 0.15
+		for _, track in pairs(tracks) do
+			if track and track.IsPlaying then
+				track:Stop(fadeOut)
+			end
+		end
+		self._rigAnimTracks[userId] = {}
+	end
+end
+
+function AnimationController:_initRigAnimationListener()
+	Net:ConnectClient("RigAnimationBroadcast", function(data)
+		self:_onRigAnimationBroadcast(data)
+	end)
 end
 
 function AnimationController:_loadTrack(animator, animation, name)
@@ -840,6 +992,12 @@ function AnimationController:OnOtherCharacterRemoving(character)
 	self.OtherCharacterTracks[character] = nil
 	self.OtherCharacterCurrentAnimations[character] = nil
 	self.OtherCharacterWeaponMode[character] = nil
+
+	-- Cleanup rig animation tracks for this player
+	local player = Players:GetPlayerFromCharacter(character)
+	if player then
+		self._rigAnimTracks[player.UserId] = nil
+	end
 
 	-- Cleanup weapon tracks for this character
 	local weaponTracks = self.OtherCharacterWeaponTracks[character]

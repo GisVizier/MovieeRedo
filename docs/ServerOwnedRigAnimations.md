@@ -1,8 +1,8 @@
-# Server-Owned Rig Animations
+# Server-Authoritative Rig Animations
 
 ## Overview
 
-Rig animations (kit/ability animations on the 3rd-person character rig) are now **server-authoritative**. The server creates rigs, owns the `Animator`, and plays animations directly. Roblox's built-in animation replication handles delivery to all clients — no custom replication code needed.
+Rig animations (kit/ability animations on the 3rd-person character rig) are now **server-authoritative**. The server creates rigs, validates animation requests, tracks active looped animations for late joiners, and **reliably broadcasts** play/stop commands to all clients. Each client plays the animation on their local copy of the rig's Animator.
 
 This replaces the previous system where rig animations were relayed through the unreliable `VFXRep` remote with a JSON attribute fallback for reconciliation.
 
@@ -15,6 +15,10 @@ The old system had a fundamental reliability problem:
 3. Two unreliable hops meant looped animation stop requests could be silently dropped
 4. A dropped stop packet caused looped animations to play forever on the remote client
 5. The `RigAnimationState` player attribute was added as a patch, but only reconciled on specific triggers (character spawn, `ApplyDescription`), leaving windows where animations got stuck
+
+## Why Not Pure Server-Side Animator Playback?
+
+Rig parts are **anchored** and positioned every frame by the client via `BulkMoveTo`. Roblox's built-in Animator replication doesn't work properly on anchored rigs — the client's CFrame writes stomp the animation transforms. So animation playback must happen on each client's local Animator. The server's role is to **reliably relay** commands and **track state** for late joiners.
 
 ## Architecture
 
@@ -32,11 +36,12 @@ Client B (loads track, plays on local Animator)
 ### After (New)
 
 ```
-Client A (sends request only — no local playback)
+Client A (sends request)
     ↓ Net:FireServer("RigAnimationRequest", ...) [RELIABLE]
-Server (RigAnimationService plays on server-owned Animator)
-    ↓ Roblox built-in animation replication [automatic, reliable]
-All Clients including A (see animation via Roblox replication)
+Server (validates, tracks state, broadcasts)
+    ↓ Net:FireClient("RigAnimationBroadcast", ...) [RELIABLE] to ALL clients
+All Clients including A (play animation on local rig Animator)
+    + Late joiners get active looped animations on ClientReplicationReady
 ```
 
 ## File Changes
@@ -51,12 +56,13 @@ All Clients including A (see animation via Roblox replication)
 
 | File | Change |
 |------|--------|
-| `ReplicatedStorage/Shared/Net/Remotes.lua` | Added reliable `RigAnimationRequest` remote |
+| `ReplicatedStorage/Shared/Net/Remotes.lua` | Added reliable `RigAnimationRequest` and `RigAnimationBroadcast` remotes |
 | `ServerScriptService/Server/Initializer.server.lua` | Registered `RigAnimationService` (loads before `CharacterService`) |
 | `ServerScriptService/Server/Services/Character/CharacterService.lua` | Calls `RigAnimationService:OnCharacterSpawned()` and `OnCharacterRemoving()` |
+| `ServerScriptService/Server/Services/Replication/ReplicationService.lua` | Sends active rig animations to late joiners on `ClientReplicationReady` |
 | `ReplicatedStorage/Game/Character/Rig/RigManager.lua` | `GetActiveRig()` now falls back to searching `workspace.Rigs` by `OwnerUserId` attribute (finds server-created rigs on clients) |
 | `ReplicatedStorage/Game/Replication/RemoteReplicator.lua` | No longer calls `RigManager:CreateRig()` — waits for server-created rig to replicate |
-| `StarterPlayer/.../AnimationController.lua` | `PlayRigAnimation`/`StopRigAnimation`/`StopAllRigAnimations` now fire reliable `RigAnimationRequest` instead of unreliable VFXRep. Removed ~200 lines of VFXRep relay, attribute reconciliation, and remote receiver code |
+| `StarterPlayer/.../AnimationController.lua` | `PlayRigAnimation`/`StopRigAnimation`/`StopAllRigAnimations` now fire reliable `RigAnimationRequest`. Listens for `RigAnimationBroadcast` to play/stop on local Animators. Removed ~200 lines of old VFXRep relay and attribute reconciliation code |
 | `ReplicatedStorage/Game/Replication/ReplicationModules/RigAnimation.lua` | Kept as no-op stub with deprecation notice |
 
 ### Removed Code (from AnimationController)
@@ -85,31 +91,28 @@ All Clients including A (see animation via Roblox replication)
 ### Playing Animations
 
 1. Client calls `AnimationController:PlayRigAnimation("Blue", { Looped = true })`
-2. Client fires `Net:FireServer("RigAnimationRequest", { action = "Play", animName = "Blue", Looped = true })` — reliable delivery guaranteed
-3. Server's `RigAnimationService` receives the request
-4. Server loads the animation on the rig's `Animator` and calls `track:Play()`
-5. Roblox replicates the animation to **all** clients (including the requester) automatically
-6. No local playback on the client — the server-owned Animator is the single source of truth
+2. Client fires `Net:FireServer("RigAnimationRequest", ...)` — **reliable** delivery guaranteed
+3. Server's `RigAnimationService` validates the request and tracks the animation state
+4. Server broadcasts `RigAnimationBroadcast` to **all** clients in the match — **reliable**
+5. Each client (including the requester) receives the broadcast and plays the animation on their local copy of the rig's Animator
 
 ### Stopping Animations
 
 1. Client calls `AnimationController:StopRigAnimation("Blue")`
-2. Client fires `Net:FireServer("RigAnimationRequest", { action = "Stop", animName = "Blue" })` — reliable delivery guaranteed
-3. Server stops the track on the rig's `Animator`
-4. Stop replicates to all clients automatically
+2. Client fires `Net:FireServer("RigAnimationRequest", ...)` — **reliable**
+3. Server removes the animation from its state tracking
+4. Server broadcasts stop to all clients — **reliable**
+5. Each client stops the track locally — **guaranteed delivery, no more stuck loops**
 
-### ApplyDescription Recovery
+### Late Joiners
 
-When `HumanoidDescription` is applied to a rig (for avatar appearance), it can destroy and recreate the `Animator`, invalidating all `AnimationTrack`s. The server handles this:
-
-1. `RigAnimationService` listens for `DescriptionApplied` attribute changes on each rig
-2. When triggered, it re-acquires the `Animator` and re-plays all active looped animations
-3. Clients see the re-played animations via Roblox's built-in replication
+When a client fires `ClientReplicationReady`, the server sends all active looped rig animations via `RigAnimationBroadcast`. The joining client plays them on the local Animators, so they see the correct animation state immediately.
 
 ### Cleanup
 
-- `CharacterService:RemoveCharacter()` calls `RigAnimationService:OnCharacterRemoving(player)` which stops all active tracks and cleans up state
-- `Players.PlayerRemoving` in `RigAnimationService` does the same cleanup
+- `CharacterService:RemoveCharacter()` calls `RigAnimationService:OnCharacterRemoving(player)` which clears server-side state
+- `Players.PlayerRemoving` in `RigAnimationService` clears state
+- `AnimationController:OnOtherCharacterRemoving()` cleans up `_rigAnimTracks` for the leaving player
 
 ## What Didn't Change
 

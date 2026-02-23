@@ -33,8 +33,9 @@ local Remotes = {
 	-- VFX replication (generic)
 	{ name = "VFXRep", description = "VFX replication", unreliable = true },
 
-	-- Server-owned rig animation system (reliable — guarantees looped stop delivery)
-	{ name = "RigAnimationRequest", description = "Client requests rig animation play/stop on server-owned rig" },
+	-- Server-authoritative rig animation system (reliable — guarantees looped stop delivery)
+	{ name = "RigAnimationRequest", description = "Client requests rig animation play/stop" },
+	{ name = "RigAnimationBroadcast", description = "Server broadcasts rig animation play/stop to all clients" },
 
 	-- Kit system
 	{ name = "KitRequest", description = "Client requests kit actions (purchase/equip/ability)" },

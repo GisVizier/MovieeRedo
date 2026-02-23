@@ -562,7 +562,7 @@ function module:_resetCounterHolderVisuals(holder)
 	if playerImage and playerImage:IsA("ImageLabel") then
 		local defaultImageColor = holder:GetAttribute("CounterDefaultImageColor")
 		if typeof(defaultImageColor) ~= "Color3" then
-			defaultImageColor = playerImage.ImageColor3
+			defaultImageColor = Color3.new(1, 1, 1)
 			holder:SetAttribute("CounterDefaultImageColor", defaultImageColor)
 		end
 		playerImage.ImageColor3 = defaultImageColor
@@ -589,10 +589,12 @@ function module:_setCounterChatText(chatContainer, chatText)
 		return
 	end
 
+	local sanitized = string.sub(chatText, 1, 200)
+
 	local setAny = false
 	for _, descendant in ipairs(chatContainer:GetDescendants()) do
 		if descendant:IsA("TextLabel") and descendant.Name == "Temp" then
-			descendant.Text = chatText
+			descendant.Text = sanitized
 			setAny = true
 		end
 	end
@@ -600,7 +602,7 @@ function module:_setCounterChatText(chatContainer, chatText)
 	if not setAny then
 		local fallbackLabel = chatContainer:FindFirstChildWhichIsA("TextLabel", true)
 		if fallbackLabel then
-			fallbackLabel.Text = chatText
+			fallbackLabel.Text = sanitized
 		end
 	end
 end
@@ -616,7 +618,7 @@ function module:_applyCounterPlayerState(userId)
 	if playerImage and playerImage:IsA("ImageLabel") then
 		local defaultImageColor = holder:GetAttribute("CounterDefaultImageColor")
 		if typeof(defaultImageColor) ~= "Color3" then
-			defaultImageColor = playerImage.ImageColor3
+			defaultImageColor = Color3.new(1, 1, 1)
 			holder:SetAttribute("CounterDefaultImageColor", defaultImageColor)
 		end
 
@@ -1288,6 +1290,7 @@ function module:_clearTeamSlots(slotCache)
 		return
 	end
 	for i = #slotCache, 1, -1 do
+		self:_resetCounterHolderVisuals(slotCache[i])
 		self:_untrackCounterHolder(slotCache[i])
 		slotCache[i]:Destroy()
 		table.remove(slotCache, i)
@@ -1397,6 +1400,18 @@ function module:SetCounterPlayerChatting(userId, isChatting, chatText)
 	end
 
 	self:_applyCounterPlayerState(resolvedUserId)
+
+	if state.chatting then
+		local generation = (state._chatGeneration or 0) + 1
+		state._chatGeneration = generation
+		task.delay(5, function()
+			if state._chatGeneration == generation and state.chatting then
+				state.chatting = false
+				state.chatText = nil
+				self:_applyCounterPlayerState(resolvedUserId)
+			end
+		end)
+	end
 end
 
 function module:RefreshCounterPlayer(userId)
@@ -1410,6 +1425,12 @@ function module:RefreshCounterPlayer(userId)
 	state.dead = false
 	state.chatting = false
 	state.chatText = nil
+	state.imageColor = nil
+
+	local holder = self:_getCounterHolder(resolvedUserId)
+	if holder then
+		self:_resetCounterHolderVisuals(holder)
+	end
 
 	self:_applyCounterPlayerState(resolvedUserId)
 end

@@ -68,6 +68,12 @@ function ReplicationService:Init(registry, net)
 	self._net:ConnectServer("ClientReplicationReady", function(player)
 		self.ReadyPlayers[player] = true
 		self:SendViewmodelActionSnapshotToPlayer(player)
+
+		-- Send active looped rig animations so late joiners see current state
+		local rigAnimService = self._registry and self._registry:TryGet("RigAnimationService")
+		if rigAnimService and rigAnimService.SendActiveAnimationsToPlayer then
+			rigAnimService:SendActiveAnimationsToPlayer(player)
+		end
 	end)
 
 	-- Cleanup on player leaving
