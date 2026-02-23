@@ -10,8 +10,6 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local CompressionUtils = require(Locations.Shared.Util:WaitForChild("CompressionUtils"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
 local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
-local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
-local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local ThirdPersonWeaponManager =
@@ -21,7 +19,6 @@ local function vmLog(...) end
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
 RemoteReplicator._net = nil
-RemoteReplicator.AnimationController = nil
 
 RemoteReplicator.StatesReceived = 0
 RemoteReplicator.PacketsLost = 0
@@ -280,16 +277,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			local rig = nil
 			if Config.Gameplay.Character.EnableRig then
-				-- Rig is created server-side and replicates automatically.
-				-- GetActiveRig checks the Rigs container by OwnerUserId attribute.
 				rig = RigManager:GetActiveRig(player)
-				if not rig then
-					local waitStart = tick()
-					while not rig and (tick() - waitStart) < 5 do
-						task.wait(0.15)
-						rig = RigManager:GetActiveRig(player)
-					end
-				end
 			end
 
 			local headOffset, rigBaseOffset = self:CalculateOffsets()
@@ -319,10 +307,8 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				LastPacketTime = currentTime,
 				SimulatedPosition = state.Position,
 				LastSequenceNumber = state.SequenceNumber,
-				LastAnimationId = 0, -- Sentinel: force initial animation play for late joiners
 				LastAimPitch = state.AimPitch or 0,
 				Head = character:FindFirstChild("Head"),
-				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
 				WeaponManager = weaponManager,
 				CurrentLoadout = nil,
 				CurrentSkins = nil,
@@ -353,12 +339,6 @@ function RemoteReplicator:OnStatesReplicated(batch)
 					self:_applyReplicatedViewmodelAction(remoteData, pendingPayload)
 				end
 				self.PendingViewmodelActions[userId] = nil
-			end
-
-			-- Force-play initial animation so late joiners see the correct state immediately
-			local initialAnimId = state.AnimationId or 1
-			if self:PlayRemoteAnimation(remoteData.Player, initialAnimId) then
-				remoteData.LastAnimationId = initialAnimId
 			end
 
 			local primaryPart = remoteData.PrimaryPart
@@ -426,26 +406,6 @@ function RemoteReplicator:CalculateOffsets()
 	end
 
 	return headOffset, rigBaseOffset
-end
-
-function RemoteReplicator:_calculateRigPartOffsets(rig)
-	if not rig then
-		return nil
-	end
-
-	local rigRoot = rig:FindFirstChild("HumanoidRootPart") or rig.PrimaryPart
-	if not rigRoot then
-		return nil
-	end
-
-	local offsets = {}
-	for _, part in ipairs(rig:GetDescendants()) do
-		if part:IsA("BasePart") then
-			offsets[part] = rigRoot.CFrame:ToObjectSpace(part.CFrame)
-		end
-	end
-
-	return offsets
 end
 
 function RemoteReplicator:AddSnapshotToBuffer(remoteData, state, receiveTime)
@@ -589,32 +549,8 @@ function RemoteReplicator:ReplicatePlayers(dt)
 			remoteData.Head.CFrame = cf * remoteData.HeadOffset
 		end
 
-		-- Movement animations are played server-side on the rig; Roblox replicates
-		-- Animator playback to all clients automatically. No client-side play needed.
-		remoteData.LastAnimationId = targetAnimationId
-
 		self.Interpolations = self.Interpolations + 1
 	end
-end
-
-function RemoteReplicator:PlayRemoteAnimation(player, animationId)
-	local animationName = AnimationIds:GetName(animationId)
-	if not animationName then
-		return false
-	end
-
-	self.AnimationController = self.AnimationController or ServiceRegistry:GetController("AnimationController")
-	if not self.AnimationController then
-		return false
-	end
-
-	local variantIndex = nil
-	if animationName:match("^JumpCancel%d$") then
-		variantIndex = tonumber(animationName:match("%d$"))
-		animationName = "JumpCancel"
-	end
-
-	return self.AnimationController:PlayAnimationForOtherPlayer(player, animationName, nil, variantIndex) == true
 end
 
 function RemoteReplicator:GetStateAtTime(buffer, renderTime)
@@ -672,29 +608,7 @@ function RemoteReplicator:ApplyReplicatedRigRotation(remoteData, rigTilt)
 	local rigOffset = remoteData.RigBaseOffset * tiltRotation
 	local targetCFrame = remoteData.PrimaryPart.CFrame * rigOffset
 
-	local parts = {}
-	local cframes = {}
-	local offsets = remoteData.RigPartOffsets
-
-	if offsets then
-		for part, offset in pairs(offsets) do
-			if part:IsA("BasePart") then
-				table.insert(parts, part)
-				table.insert(cframes, targetCFrame * offset)
-			end
-		end
-	else
-		for _, part in pairs(rig:GetDescendants()) do
-			if part:IsA("BasePart") then
-				table.insert(parts, part)
-				table.insert(cframes, targetCFrame)
-			end
-		end
-	end
-
-	if #parts > 0 then
-		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
-	end
+	rig:PivotTo(targetCFrame)
 end
 
 function RemoteReplicator:SetPlayerRagdolled(player, isRagdolled)

@@ -99,6 +99,10 @@ function RigManager:CreateRig(player, character)
 		return nil
 	end
 
+	if not RunService:IsServer() then
+		return nil
+	end
+
 	self:Init()
 
 	local template = ReplicatedStorage:FindFirstChild("CharacterTemplate")

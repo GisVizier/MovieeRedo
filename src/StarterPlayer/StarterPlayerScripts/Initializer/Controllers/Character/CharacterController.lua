@@ -372,10 +372,9 @@ function CharacterController:_setupLocalCharacter(player, character)
 
 	if Config.Gameplay.Character.EnableRig then
 		local rig = RigManager:GetActiveRig(player)
-		if not rig then
-			RigManager:CreateRig(player, character)
+		if rig then
+			self:_applyRigCollisionFilters(character)
 		end
-		self:_applyRigCollisionFilters(character)
 	end
 
 	CrouchUtils:SetupLegacyWelds(character)
@@ -483,12 +482,6 @@ function CharacterController:_setupRemoteCharacter(player, character)
 		rig = RigManager:GetActiveRig(player)
 		if rig then
 			self:_applyRigCollisionFilters(character)
-		else
-			rig = RigManager:CreateRig(player, character)
-			if not rig or not character.PrimaryPart then
-				return
-			end
-			self:_applyRigCollisionFilters(character)
 		end
 	end
 
@@ -505,26 +498,18 @@ function CharacterController:_setupRemoteCharacter(player, character)
 	-- Clone Collider for remote character hit detection
 	self:_setupRemoteCollider(character, characterTemplate)
 
-	local rigOffset = CFrame.new()
-	local templateRoot = characterTemplate:FindFirstChild("Root")
-	local templateRig = characterTemplate:FindFirstChild("Rig")
-	local templateRigHRP = templateRig and templateRig:FindFirstChild("HumanoidRootPart")
-	if templateRoot and templateRigHRP then
-		rigOffset = templateRoot.CFrame:Inverse() * templateRigHRP.CFrame
-	end
-
-	-- Use Root if available, fallback to PrimaryPart for remote characters
-	local rootPart = character:FindFirstChild("Root") or character.PrimaryPart
-	if not rootPart then
-		return
-	end
-
 	if rig then
-		local targetCFrame = rootPart.CFrame * rigOffset
-		for _, part in ipairs(rig:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.CFrame = targetCFrame
-			end
+		local rigOffset = CFrame.new()
+		local templateRoot = characterTemplate:FindFirstChild("Root")
+		local templateRig = characterTemplate:FindFirstChild("Rig")
+		local templateRigHRP = templateRig and templateRig:FindFirstChild("HumanoidRootPart")
+		if templateRoot and templateRigHRP then
+			rigOffset = templateRoot.CFrame:Inverse() * templateRigHRP.CFrame
+		end
+
+		local rootPart = character:FindFirstChild("Root") or character.PrimaryPart
+		if rootPart then
+			rig:PivotTo(rootPart.CFrame * rigOffset)
 		end
 	end
 end

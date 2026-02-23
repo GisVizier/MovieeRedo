@@ -27,7 +27,6 @@ ClientReplicator.Rig = nil
 ClientReplicator.RigOffset = CFrame.new()
 ClientReplicator.HumanoidOffset = CFrame.new()
 ClientReplicator.HeadOffset = CFrame.new()
-ClientReplicator.RigPartOffsets = nil
 ClientReplicator.IsActive = false
 ClientReplicator.LastUpdateTime = 0
 ClientReplicator.LastSentState = nil
@@ -73,7 +72,6 @@ function ClientReplicator:Start(character)
 	self._activeViewmodelActionTracks = {}
 
 	self:CalculateOffsets()
-	self:_cacheRigOffsets()
 
 	-- Initialize third-person weapon manager
 	if self.Rig then
@@ -194,7 +192,6 @@ function ClientReplicator:Stop()
 	self.RigOffset = CFrame.new()
 	self.HumanoidOffset = CFrame.new()
 	self.HeadOffset = CFrame.new()
-	self.RigPartOffsets = nil
 	self.SequenceNumber = 0
 	self.CurrentLoadout = nil
 	self.CurrentEquippedSlot = nil
@@ -338,27 +335,6 @@ function ClientReplicator:CalculateOffsets()
 	end
 end
 
-function ClientReplicator:_cacheRigOffsets()
-	self.RigPartOffsets = nil
-	if not self.Rig then
-		return
-	end
-
-	local rigRoot = self.Rig:FindFirstChild("HumanoidRootPart") or self.Rig.PrimaryPart
-	if not rigRoot then
-		return
-	end
-
-	local offsets = {}
-	for _, part in ipairs(self.Rig:GetDescendants()) do
-		if part:IsA("BasePart") then
-			offsets[part] = rigRoot.CFrame:ToObjectSpace(part.CFrame)
-		end
-	end
-
-	self.RigPartOffsets = offsets
-end
-
 function ClientReplicator:CollectHumanoidParts(parts, cframes, rootCFrame)
 	local humanoidRootPart = self.Character and self.Character:FindFirstChild("HumanoidRootPart")
 	local humanoidHead = self.Character and CharacterLocations:GetHumanoidHead(self.Character)
@@ -385,31 +361,15 @@ function ClientReplicator:SyncParts(dt)
 		return
 	end
 
-	local parts, cframes = {}, {}
 	local rootCFrame = self.PrimaryPart.CFrame
 
 	local isRagdolled = self.Character:GetAttribute("RagdollActive")
 	if self.Rig and not isRagdolled then
 		local rigTargetCFrame = rootCFrame * self.RigOffset
-		local offsets = self.RigPartOffsets
-
-		if offsets then
-			for part, offset in pairs(offsets) do
-				if part:IsA("BasePart") then
-					table.insert(parts, part)
-					table.insert(cframes, rigTargetCFrame * offset)
-				end
-			end
-		else
-			for _, part in pairs(self.Rig:GetDescendants()) do
-				if part:IsA("BasePart") then
-					table.insert(parts, part)
-					table.insert(cframes, rigTargetCFrame)
-				end
-			end
-		end
+		self.Rig:PivotTo(rigTargetCFrame)
 	end
 
+	local parts, cframes = {}, {}
 	self:CollectHumanoidParts(parts, cframes, rootCFrame)
 
 	if #parts > 0 then

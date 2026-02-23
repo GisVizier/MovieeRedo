@@ -800,17 +800,7 @@ end
 function AnimationController:OnLocalCharacterReady(character)
 	self.LocalCharacter = character
 
-	local rig = nil
-	local maxWaitTime = 10
-	local startTime = tick()
-
-	while not rig and (tick() - startTime) < maxWaitTime do
-		rig = CharacterLocations:GetRig(character)
-		if not rig then
-			task.wait(0.1)
-		end
-	end
-
+	local rig = CharacterLocations:GetRig(character)
 	if not rig then
 		LogService:Warn("ANIMATION", "Rig not found for local character")
 		return
@@ -908,17 +898,7 @@ function AnimationController:OnOtherCharacterSpawned(character)
 		return
 	end
 
-	local rig = nil
-	local maxWaitTime = 10
-	local startTime = tick()
-
-	while not rig and (tick() - startTime) < maxWaitTime do
-		rig = CharacterLocations:GetRig(character)
-		if not rig then
-			task.wait(0.1)
-		end
-	end
-
+	local rig = CharacterLocations:GetRig(character)
 	if not rig then
 		return
 	end
