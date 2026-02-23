@@ -4,6 +4,8 @@
 
 The Pressure Destruction System allows weapons to break through breakable walls and surfaces, similar to Rainbow Six Siege's soft destruction mechanics. The system accumulates "pressure" from bullet impacts and triggers destruction when thresholds are met.
 
+Glass exception: breakable parts with `Enum.Material.Glass` bypass pressure accumulation and voxel instantly on hit.
+
 ## How It Works
 
 ### Flow

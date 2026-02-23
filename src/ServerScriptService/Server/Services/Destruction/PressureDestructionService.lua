@@ -574,6 +574,18 @@ end
 local function handleSingleImpact(position, normal, pressure, impactDistance, weaponRange)
 	pressure = pressure or DEFAULT_PRESSURE
 	log("handleSingleImpact. Pressure:", pressure)
+
+	local impactedPart = findBreakablePartAtImpact(position)
+	if impactedPart and impactedPart.Material == Enum.Material.Glass then
+		local instantRadius = pressure * CONFIG.PRESSURE_TO_SIZE
+		instantRadius = math.clamp(instantRadius, CONFIG.MIN_HOLE_SIZE, CONFIG.MAX_HOLE_SIZE)
+		log("Glass impact detected - triggering immediate destruction.")
+		triggerDestruction(position, normal, instantRadius, {
+			impactDistance = impactDistance,
+			weaponRange = weaponRange,
+		})
+		return
+	end
 	
 	-- Find nearby existing zone
 	local nearestZone = nil
