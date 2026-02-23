@@ -280,9 +280,15 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			local rig = nil
 			if Config.Gameplay.Character.EnableRig then
+				-- Rig is created server-side and replicates automatically.
+				-- GetActiveRig checks the Rigs container by OwnerUserId attribute.
 				rig = RigManager:GetActiveRig(player)
 				if not rig then
-					rig = RigManager:CreateRig(player, character)
+					local waitStart = tick()
+					while not rig and (tick() - waitStart) < 5 do
+						task.wait(0.15)
+						rig = RigManager:GetActiveRig(player)
+					end
 				end
 			end
 

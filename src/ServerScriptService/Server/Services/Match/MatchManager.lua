@@ -371,18 +371,51 @@ end
 --------------------------------------------------------------------------------
 
 function MatchManager:_teleportToWaitingRoom(match)
-	-- Find waiting room spawn
+	-- Find waiting room spawn - check multiple locations
+	local waitingRoomSpawn = nil
+
+	-- 1. workspace.World.WaitingRoom.Spawn
 	local world = workspace:FindFirstChild("World")
-	local waitingRoomSpawn = world and world:FindFirstChild("WaitingRoomSpawn")
-	
+	if world then
+		local waitingRoom = world:FindFirstChild("WaitingRoom")
+		waitingRoomSpawn = waitingRoom and waitingRoom:FindFirstChild("Spawn")
+	end
+
+	-- 2. workspace.World.WaitingRoomSpawn (legacy)
+	if not waitingRoomSpawn and world then
+		waitingRoomSpawn = world:FindFirstChild("WaitingRoomSpawn")
+	end
+
+	-- 3. workspace["Waiting Room"] - Model/Folder with Spawn, SpawnLocation, or PrimaryPart
 	if not waitingRoomSpawn then
-		-- Fallback: use lobby spawn
+		local waitingRoom = workspace:FindFirstChild("Waiting Room")
+		if waitingRoom then
+			waitingRoomSpawn = waitingRoom:FindFirstChild("Spawn")
+				or waitingRoom:FindFirstChildOfClass("SpawnLocation")
+				or (waitingRoom:IsA("Model") and waitingRoom.PrimaryPart)
+				or waitingRoom:FindFirstChildWhichIsA("BasePart")
+		end
+	end
+
+	-- 4. workspace.World["Waiting Room"]
+	if not waitingRoomSpawn and world then
+		local waitingRoom = world:FindFirstChild("Waiting Room")
+		if waitingRoom then
+			waitingRoomSpawn = waitingRoom:FindFirstChild("Spawn")
+				or waitingRoom:FindFirstChildOfClass("SpawnLocation")
+				or (waitingRoom:IsA("Model") and waitingRoom.PrimaryPart)
+				or waitingRoom:FindFirstChildWhichIsA("BasePart")
+		end
+	end
+
+	-- 5. Fallback: lobby spawn
+	if not waitingRoomSpawn then
 		local lobby = workspace:FindFirstChild("Lobby")
 		waitingRoomSpawn = lobby and lobby:FindFirstChild("Spawn")
 	end
-	
+
 	if not waitingRoomSpawn then
-		warn("[MATCHMANAGER] No WaitingRoomSpawn found, skipping waiting room teleport")
+		warn("[MATCHMANAGER] No Waiting Room or WaitingRoomSpawn found, skipping waiting room teleport")
 		return
 	end
 	

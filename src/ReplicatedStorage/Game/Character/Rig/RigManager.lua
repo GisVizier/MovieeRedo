@@ -179,7 +179,24 @@ function RigManager:CreateRig(player, character)
 end
 
 function RigManager:GetActiveRig(player)
-	return self.ActiveRigs[player]
+	local cached = self.ActiveRigs[player]
+	if cached and cached.Parent then
+		return cached
+	end
+
+	-- Rig is created server-side and replicates to clients. Look it up by attribute
+	-- in the Rigs container so the client can find it without calling CreateRig.
+	local container = self:GetRigContainer()
+	if container and player then
+		for _, child in ipairs(container:GetChildren()) do
+			if child:GetAttribute("OwnerUserId") == player.UserId and child:GetAttribute("IsActive") == true then
+				self.ActiveRigs[player] = child
+				return child
+			end
+		end
+	end
+
+	return nil
 end
 
 function RigManager:GetRigForCharacter(character)

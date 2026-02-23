@@ -40,6 +40,10 @@ local entries = {
 		module = servicesFolder:WaitForChild("Combat"):WaitForChild("CombatService"),
 	},
 	{
+		name = "RigAnimationService",
+		module = servicesFolder:WaitForChild("RigAnimation"):WaitForChild("RigAnimationService"),
+	},
+	{
 		name = "CharacterService",
 		module = servicesFolder:WaitForChild("Character"):WaitForChild("CharacterService"),
 	},

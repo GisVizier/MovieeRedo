@@ -225,6 +225,13 @@ function CharacterService:SpawnCharacter(player, options)
 		replicationService:RegisterPlayer(player)
 	end
 
+	-- Create the server-owned rig via RigAnimationService so it replicates to all clients.
+	-- Animations played on this rig's Animator by the server replicate automatically.
+	local rigAnimService = self._registry and self._registry:TryGet("RigAnimationService")
+	if rigAnimService and rigAnimService.OnCharacterSpawned then
+		rigAnimService:OnCharacterSpawned(player, character)
+	end
+
 	-- CharacterSpawned MUST be global - clients need this to setup Collider for hit detection
 	self._net:FireAllClients("CharacterSpawned", character)
 
@@ -244,6 +251,11 @@ function CharacterService:RemoveCharacter(player)
 	local replicationService = self._registry and self._registry:TryGet("ReplicationService")
 	if replicationService and replicationService.UnregisterPlayer then
 		replicationService:UnregisterPlayer(player)
+	end
+
+	local rigAnimService = self._registry and self._registry:TryGet("RigAnimationService")
+	if rigAnimService and rigAnimService.OnCharacterRemoving then
+		rigAnimService:OnCharacterRemoving(player)
 	end
 
 	if player.Character == character then
