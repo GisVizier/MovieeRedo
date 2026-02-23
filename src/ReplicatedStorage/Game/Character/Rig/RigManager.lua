@@ -221,13 +221,15 @@ function RigManager:WaitForActiveRig(player, timeout)
 	end
 
 	timeout = timeout or 10
+	local startTime = tick()
 	local container = self:WaitForRigContainer(timeout)
 	if not container or not player then
 		return nil
 	end
 
+	local remaining = math.max(timeout - (tick() - startTime), 1)
 	local rigName = player.Name .. "_Rig"
-	local rig = container:WaitForChild(rigName, timeout)
+	local rig = container:WaitForChild(rigName, remaining)
 	if rig then
 		self.ActiveRigs[player] = rig
 	end
