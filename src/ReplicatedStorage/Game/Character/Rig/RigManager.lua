@@ -121,50 +121,21 @@ function RigManager:CreateRig(player, character)
 	configureRigDefault(rig)
 	self:_bindRigDescendantAdded(rig)
 	self.ActiveRigs[player] = rig
-	
-	-- BULLETPROOF: Use CollisionUtils to ensure rig NEVER has collision enabled.
-	-- This runs a heartbeat loop that re-applies every 0.25s, catching any changes
-	-- from ApplyDescription or other sources that might reset collision properties.
+
 	CollisionUtils:EnsureNonCollideable(rig, {
 		CanCollide = false,
 		CanQuery = false,
 		CanTouch = false,
 		Massless = true,
 		UseHeartbeat = true,
-		HeartbeatInterval = 0.25, -- Check 4 times per second
+		HeartbeatInterval = 0.25,
 	})
 
-	-- Apply player appearance to the rig (v1 behavior via HumanoidDescription).
-	-- This is done async because GetHumanoidDescriptionFromUserId can yield.
-	do
-		local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
-		if rigHumanoid and player and player.UserId and player.UserId > 0 then
-			-- Ensure Animator exists (helps animation replication consistency)
-			if not rigHumanoid:FindFirstChildOfClass("Animator") then
-				local animator = Instance.new("Animator")
-				animator.Parent = rigHumanoid
-			end
-
-			task.spawn(function()
-				local ok, desc = pcall(function()
-					return Players:GetHumanoidDescriptionFromUserId(player.UserId)
-				end)
-
-				if ok and desc and rigHumanoid.Parent then
-					pcall(function()
-						rigHumanoid:ApplyDescription(desc)
-					end)
-					-- Re-apply collision rules immediately after ApplyDescription
-					configureRigDefault(rig)
-
-					-- Signal that ApplyDescription finished. Other systems (e.g.
-					-- AnimationController) listen for this to re-acquire the Animator
-					-- and reload animation tracks, because ApplyDescription can
-					-- destroy/recreate the Animator and invalidate all AnimationTracks.
-					rig:SetAttribute("DescriptionApplied", tick())
-				end
-			end)
-		end
+	-- Ensure Animator exists for animation playback
+	local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
+	if rigHumanoid and not rigHumanoid:FindFirstChildOfClass("Animator") then
+		local animator = Instance.new("Animator")
+		animator.Parent = rigHumanoid
 	end
 
 	-- Setup ragdoll system for this rig (client-only)

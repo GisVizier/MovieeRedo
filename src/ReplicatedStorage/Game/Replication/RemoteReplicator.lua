@@ -379,6 +379,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			local lastSeq = tonumber(remoteData.LastSequenceNumber) or 0
 			local currentSeq = tonumber(state.SequenceNumber) or 0
 			local sequenceGap = (currentSeq - lastSeq) % MAX_SEQUENCE
+			local incomingAnimId = state.AnimationId or 1
 
 			self.PlayerLossStats[userId] = self.PlayerLossStats[userId]
 				or { LossRate = 0, PacketsLost = 0, PacketsReceived = 0 }
@@ -393,7 +394,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			-- unreliable transport drops the original animation-change packet, the
 			-- server's periodic dormant resend still corrects the late joiner's state.
 			if sequenceGap == 0 then
-				local currentAnimId = state.AnimationId or 1
+				local currentAnimId = incomingAnimId
 				if currentAnimId == remoteData.LastAnimationId then
 					continue
 				end

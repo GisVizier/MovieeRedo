@@ -116,9 +116,7 @@ AnimationController.PreloadedAnimations = {}
 AnimationController.ZiplineActive = false
 AnimationController.CurrentZiplineAnimationName = nil
 
--- Connection for re-acquiring Animator after ApplyDescription invalidates it
 AnimationController._descriptionAppliedConn = nil
-AnimationController._otherDescriptionAppliedConns = {} -- [character] = RBXScriptConnection
 
 local STATE_ANIMATIONS = {
 	Walking = "WalkingForward",
@@ -939,54 +937,9 @@ function AnimationController:OnOtherCharacterSpawned(character)
 	self.OtherCharacterAnimators[character] = animator
 	self.OtherCharacterTracks[character] = {}
 	self.OtherCharacterCurrentAnimations[character] = {}
-
-	-- Listen for ApplyDescription completion on this remote rig.
-	-- Re-acquire the Animator and clear cached tracks so new ones are loaded fresh.
-	local oldConn = self._otherDescriptionAppliedConns[character]
-	if oldConn then
-		oldConn:Disconnect()
-	end
-	self._otherDescriptionAppliedConns[character] = rig:GetAttributeChangedSignal("DescriptionApplied"):Connect(function()
-		local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
-		if not rigHumanoid then
-			return
-		end
-		local newAnimator = rigHumanoid:FindFirstChildOfClass("Animator")
-		if not newAnimator then
-			newAnimator = Instance.new("Animator")
-			newAnimator.Parent = rigHumanoid
-		end
-		self.OtherCharacterAnimators[character] = newAnimator
-
-		-- Invalidate cached tracks so they are reloaded on the new Animator
-		self.OtherCharacterTracks[character] = {}
-		self.OtherCharacterWeaponTracks[character] = {}
-		self.OtherCharacterCurrentAnimations[character] = {}
-
-		-- Reset RemoteReplicator LastAnimationId so the next ReplicatePlayers tick
-		-- re-plays the current animation on the fresh Animator.
-		local ownerPlayer = Players:GetPlayerFromCharacter(character)
-		if not ownerPlayer then
-			ownerPlayer = Players:FindFirstChild(character.Name)
-		end
-		if ownerPlayer then
-			local RemoteReplicator = require(Locations.Game:WaitForChild("Replication"):WaitForChild("RemoteReplicator"))
-			local remoteData = RemoteReplicator.RemotePlayers and RemoteReplicator.RemotePlayers[ownerPlayer.UserId]
-			if remoteData then
-				remoteData.LastAnimationId = 0
-			end
-		end
-	end)
 end
 
 function AnimationController:OnOtherCharacterRemoving(character)
-	-- Disconnect ApplyDescription listener for this character
-	local descConn = self._otherDescriptionAppliedConns[character]
-	if descConn then
-		descConn:Disconnect()
-		self._otherDescriptionAppliedConns[character] = nil
-	end
-
 	local tracks = self.OtherCharacterTracks[character]
 	if tracks then
 		for _, track in pairs(tracks) do
