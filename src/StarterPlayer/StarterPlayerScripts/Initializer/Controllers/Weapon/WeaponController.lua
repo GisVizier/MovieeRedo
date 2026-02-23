@@ -1715,9 +1715,11 @@ end
 function WeaponController:_onFirePressed()
 	local currentTime = workspace:GetServerTimeNow()
 
-	-- Block firing when match-frozen (loadout / between rounds) - prevents race with server state
+	-- During loadout (MatchFrozen): only allow firing when in first person
 	if LocalPlayer and LocalPlayer:GetAttribute("MatchFrozen") then
-		return
+		if not self:_isFirstPerson() then
+			return
+		end
 	end
 
 	if not self:_isActiveWeaponEquipped() then
@@ -2225,6 +2227,11 @@ function WeaponController:Reload()
 	end
 
 	if not self._weaponInstance then
+		return
+	end
+
+	-- During loadout (MatchFrozen): only allow reload when in first person
+	if LocalPlayer and LocalPlayer:GetAttribute("MatchFrozen") and not self:_isFirstPerson() then
 		return
 	end
 

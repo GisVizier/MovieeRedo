@@ -368,6 +368,14 @@ function QueueController:_onPadFullUpdate(data)
 
 	-- Update board display with full state
 	self:_updateBoardDisplayFromState(padName, team1Ids, team2Ids)
+
+	-- Update team zone visuals: red when full, green when occupied, gray when empty
+	local modeId = MatchmakingConfig.getModeFromPadName(padName)
+	local playersPerTeam = MatchmakingConfig.getPlayersPerTeam(modeId)
+	local team1State = (#team1Ids >= playersPerTeam) and "full" or (#team1Ids > 0 and "occupied" or "empty")
+	local team2State = (#team2Ids >= playersPerTeam) and "full" or (#team2Ids > 0 and "occupied" or "empty")
+	self:_updateTeamZoneVisual(padName, "Team1", team1State)
+	self:_updateTeamZoneVisual(padName, "Team2", team2State)
 end
 
 function QueueController:_updatePadVisual(padName, state)
@@ -432,6 +440,8 @@ function QueueController:_getColorForState(state)
 		return colors.CountdownColor
 	elseif state == "ready" then
 		return colors.ReadyColor
+	elseif state == "full" then
+		return colors.FullColor
 	else
 		return colors.EmptyColor
 	end

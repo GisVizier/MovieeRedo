@@ -391,7 +391,9 @@ function UIController:Init(registry, net)
 
 	self._net:ConnectClient("MatchStatsUpdate", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("MatchStatsUpdate", data) end)
+			pcall(function()
+				self._coreUi:emit("MatchStatsUpdate", data)
+			end)
 		end
 	end)
 
@@ -500,37 +502,49 @@ function UIController:Init(registry, net)
 	-- Party system events
 	self._net:ConnectClient("PartyInviteReceived", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PartyInviteReceived", data) end)
+			pcall(function()
+				self._coreUi:emit("PartyInviteReceived", data)
+			end)
 		end
 	end)
 
 	self._net:ConnectClient("PartyUpdate", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PartyUpdate", data) end)
+			pcall(function()
+				self._coreUi:emit("PartyUpdate", data)
+			end)
 		end
 	end)
 
 	self._net:ConnectClient("PartyInviteBusy", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PartyInviteBusy", data) end)
+			pcall(function()
+				self._coreUi:emit("PartyInviteBusy", data)
+			end)
 		end
 	end)
 
 	self._net:ConnectClient("PartyInviteDeclined", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PartyInviteDeclined", data) end)
+			pcall(function()
+				self._coreUi:emit("PartyInviteDeclined", data)
+			end)
 		end
 	end)
 
 	self._net:ConnectClient("PartyDisbanded", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PartyDisbanded", data) end)
+			pcall(function()
+				self._coreUi:emit("PartyDisbanded", data)
+			end)
 		end
 	end)
 
 	self._net:ConnectClient("PartyKicked", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PartyKicked", data) end)
+			pcall(function()
+				self._coreUi:emit("PartyKicked", data)
+			end)
 		end
 	end)
 
@@ -545,7 +559,9 @@ function UIController:Init(registry, net)
 
 	self._net:ConnectClient("PlayerLeftMatch", function(data)
 		if self._coreUi and data then
-			pcall(function() self._coreUi:emit("PlayerLeftMatch", data) end)
+			pcall(function()
+				self._coreUi:emit("PlayerLeftMatch", data)
+			end)
 		end
 	end)
 
@@ -560,7 +576,9 @@ function UIController:Init(registry, net)
 				local pg = player:FindFirstChild("PlayerGui")
 				if pg then
 					-- Resolve victim display name
-					local victimDisplay = (data.victimData and (data.victimData.displayName or data.victimData.userName))
+					local victimDisplay = (
+						data.victimData and (data.victimData.displayName or data.victimData.userName)
+					)
 						or (data.victimUserId and (function()
 							local vp = Players:GetPlayerByUserId(data.victimUserId)
 							return vp and (vp.DisplayName or vp.Name)
@@ -1708,12 +1726,16 @@ end
 
 function UIController:_onSpecCycle(direction)
 	local spectateController = self._registry and self._registry:TryGet("Spectate")
-	if not spectateController or not spectateController:IsSpectating() then return end
+	if not spectateController or not spectateController:IsSpectating() then
+		return
+	end
 
 	spectateController:CycleTarget(direction)
 
 	local specModule = self._coreUi and self._coreUi:getModule("Spec")
-	if not specModule then return end
+	if not specModule then
+		return
+	end
 
 	local info = spectateController:GetTargetInfo()
 	if info then

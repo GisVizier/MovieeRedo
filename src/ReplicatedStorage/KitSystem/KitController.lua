@@ -250,6 +250,14 @@ function KitController:_onAbilityInput(abilityType: string, inputState)
 		return
 	end
 
+	-- During loadout (MatchFrozen): only allow abilities when in first person
+	if self._player:GetAttribute("MatchFrozen") then
+		local cameraController = ServiceRegistry:GetController("CameraController")
+		if not cameraController or cameraController:GetCurrentMode() ~= "FirstPerson" then
+			return
+		end
+	end
+
 	-- Safety: if _abilityActive is stuck true but we're no longer on Fists,
 	-- a previous ability was interrupted without proper cleanup — reset the state.
 	if self._abilityActive then

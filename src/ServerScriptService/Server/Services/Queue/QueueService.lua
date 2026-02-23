@@ -578,6 +578,13 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 	local padName = zoneData.padName
 	local team = zoneData.team
 
+	local queue = self._queues[padName]
+	local modeId = MatchmakingConfig.getModeFromPadName(padName)
+	local playersPerTeam = MatchmakingConfig.getPlayersPerTeam(modeId)
+	if queue and #queue[team] >= playersPerTeam then
+		return
+	end
+
 	local partyService = self._registry:TryGet("PartyService")
 	if partyService and partyService:IsInParty(player) then
 		local partyMembers = partyService:GetPartyMembers(player)
@@ -640,7 +647,8 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 				if queue then
 					table.insert(queue[team], player)
 				end
-				self:_updatePadVisual(zoneData.zonePart, "occupied")
+				local state = (queue and #queue[team] >= playersPerTeam) and "full" or "occupied"
+				self:_updatePadVisual(zoneData.zonePart, state)
 				self._net:FireAllClients("QueuePadUpdate", {
 					padName = padName,
 					team = team,
@@ -652,18 +660,24 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 			end
 
 			-- Add all party members to the zone's team (Team1 or Team2)
+			local queue = self._queues[padName]
+			if queue and #queue[team] + #partyMembers > playersPerTeam then
+				return
+			end
 			for _, uid in ipairs(partyMembers) do
 				local memberPlayer = Players:GetPlayerByUserId(uid)
 				if memberPlayer then
 					self:_removePlayerFromAllQueues(memberPlayer)
-					local queue = self._queues[padName]
-					if queue and not table.find(queue[team], memberPlayer) then
-						table.insert(queue[team], memberPlayer)
+					local q = self._queues[padName]
+					if q and not table.find(q[team], memberPlayer) then
+						table.insert(q[team], memberPlayer)
 					end
 				end
 			end
 
-			self:_updatePadVisual(zoneData.zonePart, "occupied")
+			queue = self._queues[padName]
+			local state = (queue and #queue[team] >= playersPerTeam) and "full" or "occupied"
+			self:_updatePadVisual(zoneData.zonePart, state)
 			self._net:FireAllClients("QueuePadUpdate", {
 				padName = padName,
 				team = team,
@@ -683,7 +697,8 @@ function QueueService:_onPlayerEnterZone(zoneData, player)
 		table.insert(queue[team], player)
 	end
 
-	self:_updatePadVisual(zoneData.zonePart, "occupied")
+	local state = (queue and #queue[team] >= playersPerTeam) and "full" or "occupied"
+	self:_updatePadVisual(zoneData.zonePart, state)
 
 	self._net:FireAllClients("QueuePadUpdate", {
 		padName = padName,
@@ -708,14 +723,11 @@ function QueueService:_onPlayerExitZone(zoneData, player)
 		end
 	end
 
-	-- Only show empty if no players left in this zone
-	local remainingInZone = 0
-	for _, p in ipairs(zoneData.currentPlayers or {}) do
-		if p ~= player then remainingInZone = remainingInZone + 1 end
-	end
-	if remainingInZone == 0 then
-		self:_updatePadVisual(zoneData.zonePart, "empty")
-	end
+	local playersPerTeam = MatchmakingConfig.getPlayersPerTeam(MatchmakingConfig.getModeFromPadName(padName))
+	queue = self._queues[padName]
+	local count = queue and #queue[team] or 0
+	local state = (count >= playersPerTeam) and "full" or (count > 0 and "occupied" or "empty")
+	self:_updatePadVisual(zoneData.zonePart, state)
 
 	self._net:FireAllClients("QueuePadUpdate", {
 		padName = padName,
@@ -746,10 +758,11 @@ function QueueService:_removePlayerFromAllQueues(player)
 							table.remove(currentPlayers, idx)
 							zoneData.currentPlayers = currentPlayers
 						end
-						-- Only show empty if no players left in zone
-						if #(zoneData.currentPlayers or {}) == 0 then
-							self:_updatePadVisual(zonePart, "empty")
-						end
+						local playersPerTeam = MatchmakingConfig.getPlayersPerTeam(MatchmakingConfig.getModeFromPadName(padName))
+						local q = self._queues[padName]
+						local count = q and #q[teamName] or 0
+						local state = (count >= playersPerTeam) and "full" or (count > 0 and "occupied" or "empty")
+						self:_updatePadVisual(zonePart, state)
 
 						self._net:FireAllClients("QueuePadUpdate", {
 							padName = padName,
@@ -976,6 +989,8 @@ function QueueService:_updatePadVisual(zonePart, state)
 		color = colors.CountdownColor
 	elseif state == "ready" then
 		color = colors.ReadyColor
+	elseif state == "full" then
+		color = colors.FullColor
 	else
 		color = colors.EmptyColor
 	end

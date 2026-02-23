@@ -23,21 +23,21 @@ local RunService = game:GetService("RunService")
 
 -- Configuration
 local CONFIG = {
-	PingIntervalSeconds = 1.0,      -- How often to ping each player
-	SampleCount = 10,               -- Rolling average sample count
-	MaxPingMs = 500,                -- Cap ping at 500ms (reject higher)
-	MinPingMs = 5,                  -- Minimum realistic ping
-	DefaultPingMs = 80,             -- Assumed ping before first measurement
-	DefaultJitterMs = 20,           -- Default jitter assumption
-	JitterSamples = 5,              -- Recent samples for jitter calculation
-	ProcessingBufferMs = 16,        -- ~1 frame at 60fps
+	PingIntervalSeconds = 1.0, -- How often to ping each player
+	SampleCount = 10, -- Rolling average sample count
+	MaxPingMs = 500, -- Cap ping at 500ms (reject higher)
+	MinPingMs = 5, -- Minimum realistic ping
+	DefaultPingMs = 80, -- Assumed ping before first measurement
+	DefaultJitterMs = 20, -- Default jitter assumption
+	JitterSamples = 5, -- Recent samples for jitter calculation
+	ProcessingBufferMs = 16, -- ~1 frame at 60fps
 }
 
 -- Base tolerances (scaled by ping)
 local BASE_TOLERANCES = {
-	PositionTolerance = 8,          -- studs (includes body-surface-to-root offset)
-	HeadTolerance = 5,              -- studs (head is smaller but still offset from root)
-	TimestampTolerance = 0.5,       -- seconds
+	PositionTolerance = 8, -- studs (includes body-surface-to-root offset)
+	HeadTolerance = 5, -- studs (head is smaller but still offset from root)
+	TimestampTolerance = 0.5, -- seconds
 }
 
 -- Per-player data
@@ -53,7 +53,7 @@ LatencyTracker._ready = {}
 
 function LatencyTracker:Init(net)
 	self._net = net
-	
+
 	-- Listen for ping responses
 	net:ConnectServer("PingResponse", function(player, token)
 		self:_onPingResponse(player, token)
@@ -63,22 +63,22 @@ function LatencyTracker:Init(net)
 	net:ConnectServer("PingReady", function(player)
 		self._ready[player] = true
 	end)
-	
+
 	-- Initialize existing players
 	for _, player in ipairs(game.Players:GetPlayers()) do
 		self:_initPlayer(player)
 	end
-	
+
 	-- Initialize new players
 	game.Players.PlayerAdded:Connect(function(player)
 		self:_initPlayer(player)
 	end)
-	
+
 	-- Cleanup on player removal
 	game.Players.PlayerRemoving:Connect(function(player)
 		self:_removePlayer(player)
 	end)
-	
+
 	-- Start ping loop
 	self._heartbeatConnection = RunService.Heartbeat:Connect(function()
 		self:_pingLoop()
@@ -89,9 +89,9 @@ function LatencyTracker:_initPlayer(player)
 	if self.Players[player] then
 		return
 	end
-	
+
 	local sampleBufferSize = CONFIG.SampleCount * 4 -- f32 = 4 bytes
-	
+
 	self.Players[player] = {
 		PingSamples = buffer.create(sampleBufferSize),
 		WriteIndex = 0,
@@ -116,7 +116,7 @@ end
 
 function LatencyTracker:_pingLoop()
 	local now = os.clock()
-	
+
 	for player, data in pairs(self.Players) do
 		if player.Parent then -- Player still in game
 			if not self._ready[player] then
@@ -131,18 +131,20 @@ end
 
 function LatencyTracker:_sendPing(player, now)
 	local data = self.Players[player]
-	if not data then return end
-	
+	if not data then
+		return
+	end
+
 	-- Generate unique token for this ping
 	local token = math.random(1, 2147483647)
-	
+
 	self._pendingPings[player] = {
 		Token = token,
 		SentTime = now,
 	}
-	
+
 	data.LastPingTime = now
-	
+
 	-- Send ping request to client
 	if self._net then
 		self._net:FireClient("PingRequest", player, token)
@@ -154,44 +156,48 @@ function LatencyTracker:_onPingResponse(player, token)
 	if not pending or pending.Token ~= token then
 		return -- Stale or invalid response
 	end
-	
+
 	local now = os.clock()
 	local rttSeconds = now - pending.SentTime
 	local rttMs = rttSeconds * 1000
-	
+
 	self._pendingPings[player] = nil
-	
+
 	-- Validate ping range
 	if rttMs < CONFIG.MinPingMs or rttMs > CONFIG.MaxPingMs then
 		return -- Reject outliers
 	end
-	
+
 	-- Store sample
 	self:_storePingSample(player, rttMs)
 end
 
 function LatencyTracker:_storePingSample(player, pingMs)
 	local data = self.Players[player]
-	if not data then return end
-	
+	if not data then
+		return
+	end
+
 	-- Write to ring buffer
 	local offset = (data.WriteIndex % CONFIG.SampleCount) * 4
 	buffer.writef32(data.PingSamples, offset, pingMs)
-	
+
 	data.WriteIndex = data.WriteIndex + 1
 	data.SampleCount = math.min(data.SampleCount + 1, CONFIG.SampleCount)
-	
+
 	-- Recalculate statistics
 	self:_recalculateStats(player)
 end
 
 function LatencyTracker:_recalculateStats(player)
 	local data = self.Players[player]
-	if not data or data.SampleCount == 0 then return end
-	
+	if not data or data.SampleCount == 0 then
+		return
+	end
+
 	local sum = 0
 	local samples = {}
-	
+
 	-- Read all samples
 	for i = 0, data.SampleCount - 1 do
 		local offset = i * 4
@@ -199,23 +205,23 @@ function LatencyTracker:_recalculateStats(player)
 		sum = sum + sample
 		table.insert(samples, sample)
 	end
-	
+
 	-- Calculate average
 	local avg = sum / data.SampleCount
 	data.AveragePing = avg
 	data.OneWayLatency = avg / 2
-	
+
 	-- Calculate jitter (standard deviation of recent samples)
 	if data.SampleCount >= CONFIG.JitterSamples then
 		local variance = 0
 		local recentStart = math.max(1, #samples - CONFIG.JitterSamples + 1)
 		local recentCount = #samples - recentStart + 1
-		
+
 		for i = recentStart, #samples do
 			local diff = samples[i] - avg
 			variance = variance + (diff * diff)
 		end
-		
+
 		data.Jitter = math.sqrt(variance / recentCount)
 	end
 end
@@ -275,11 +281,11 @@ function LatencyTracker:GetRollbackTime(player)
 	if not data then
 		return (CONFIG.DefaultPingMs / 2000) + 0.05 -- Default + buffer
 	end
-	
+
 	local oneWayLatency = data.OneWayLatency / 1000
 	local jitterBuffer = (data.Jitter / 1000) * 2 -- 2x jitter as safety margin
 	local processingBuffer = CONFIG.ProcessingBufferMs / 1000
-	
+
 	return oneWayLatency + jitterBuffer + processingBuffer
 end
 
@@ -293,18 +299,18 @@ end
 function LatencyTracker:GetAdaptiveTolerances(player)
 	local ping = self:GetPing(player)
 	local jitter = self:GetJitter(player)
-	
+
 	-- Scale based on ping (higher ping = more tolerance)
 	-- At 50ms ping: 1x tolerance
 	-- At 150ms ping: 1.5x tolerance
 	-- At 300ms ping: 2x tolerance
 	local pingFactor = math.clamp(ping / 100, 0.5, 3.0)
-	
+
 	-- Add extra tolerance for high jitter
 	local jitterFactor = 1 + (jitter / 100)
-	
+
 	local combinedFactor = pingFactor * jitterFactor
-	
+
 	return {
 		PositionTolerance = BASE_TOLERANCES.PositionTolerance * combinedFactor,
 		HeadTolerance = BASE_TOLERANCES.HeadTolerance * combinedFactor,
@@ -322,18 +328,18 @@ end
 function LatencyTracker:GetCombinedTolerances(shooter, target)
 	local shooterPing = self:GetPing(shooter)
 	local targetPing = self:GetPing(target)
-	
+
 	-- Combined ping factor considers both players' latency
 	local combinedPing = (shooterPing + targetPing) / 2
 	local pingFactor = math.clamp(combinedPing / 100, 0.5, 3.0)
-	
+
 	local shooterJitter = self:GetJitter(shooter)
 	local targetJitter = self:GetJitter(target)
 	local avgJitter = (shooterJitter + targetJitter) / 2
 	local jitterFactor = 1 + (avgJitter / 100)
-	
+
 	local combinedFactor = pingFactor * jitterFactor
-	
+
 	return {
 		PositionTolerance = BASE_TOLERANCES.PositionTolerance * combinedFactor,
 		HeadTolerance = BASE_TOLERANCES.HeadTolerance * combinedFactor,
@@ -353,8 +359,10 @@ end
 ]]
 function LatencyTracker:GetDebugInfo(player)
 	local data = self.Players[player]
-	if not data then return nil end
-	
+	if not data then
+		return nil
+	end
+
 	return {
 		Ping = data.AveragePing,
 		OneWayLatency = data.OneWayLatency,

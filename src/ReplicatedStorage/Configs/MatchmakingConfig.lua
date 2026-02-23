@@ -51,6 +51,9 @@ MatchmakingConfig.PadVisuals = {
 
 	-- Pad color when match is about to start
 	ReadyColor = Color3.fromRGB(50, 150, 255),
+
+	-- Pad color when team is full (no more slots)
+	FullColor = Color3.fromRGB(200, 50, 50),
 }
 
 --------------------------------------------------------------------------------
