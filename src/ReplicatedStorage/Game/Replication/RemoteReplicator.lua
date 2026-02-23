@@ -277,7 +277,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			local rig = nil
 			if Config.Gameplay.Character.EnableRig then
-				rig = RigManager:GetActiveRig(player)
+				rig = RigManager:WaitForActiveRig(player, 10)
 			end
 
 			local headOffset, rigBaseOffset = self:CalculateOffsets()

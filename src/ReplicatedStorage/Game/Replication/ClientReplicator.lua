@@ -9,6 +9,7 @@ local HttpService = game:GetService("HttpService")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CompressionUtils = require(Locations.Shared.Util:WaitForChild("CompressionUtils"))
 local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
+local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
 local RigRotationUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("RigRotationUtils"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -61,7 +62,7 @@ function ClientReplicator:Start(character)
 
 	self.Character = character
 	self.PrimaryPart = character and character.PrimaryPart or nil
-	self.Rig = CharacterLocations:GetRig(character)
+	self.Rig = RigManager:WaitForActiveRig(Players.LocalPlayer, 10)
 	self.IsActive = true
 	self.LastUpdateTime = 0
 	self.LastSentState = nil

@@ -117,6 +117,12 @@ function RigManager:CreateRig(player, character)
 
 	local rig = templateRig:Clone()
 	rig.Name = player.Name .. "_Rig"
+
+	local rigHRP = rig:FindFirstChild("HumanoidRootPart")
+	if rigHRP then
+		rig.PrimaryPart = rigHRP
+	end
+
 	rig:SetAttribute("OwnerUserId", player.UserId)
 	rig:SetAttribute("OwnerName", player.Name)
 	rig:SetAttribute("IsActive", true)
@@ -189,6 +195,26 @@ function RigManager:GetActiveRig(player)
 	end
 
 	return nil
+end
+
+function RigManager:WaitForActiveRig(player, timeout)
+	local cached = self:GetActiveRig(player)
+	if cached then
+		return cached
+	end
+
+	timeout = timeout or 10
+	local container = self:GetRigContainer()
+	if not container or not player then
+		return nil
+	end
+
+	local rigName = player.Name .. "_Rig"
+	local rig = container:WaitForChild(rigName, timeout)
+	if rig then
+		self.ActiveRigs[player] = rig
+	end
+	return rig
 end
 
 function RigManager:GetRigForCharacter(character)

@@ -800,7 +800,8 @@ end
 function AnimationController:OnLocalCharacterReady(character)
 	self.LocalCharacter = character
 
-	local rig = CharacterLocations:GetRig(character)
+	local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
+	local rig = RigManager:WaitForActiveRig(LocalPlayer, 10)
 	if not rig then
 		LogService:Warn("ANIMATION", "Rig not found for local character")
 		return
@@ -898,7 +899,13 @@ function AnimationController:OnOtherCharacterSpawned(character)
 		return
 	end
 
-	local rig = CharacterLocations:GetRig(character)
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player then
+		return
+	end
+
+	local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
+	local rig = RigManager:WaitForActiveRig(player, 10)
 	if not rig then
 		return
 	end

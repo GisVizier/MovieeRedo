@@ -195,20 +195,22 @@ function ReplicationService:_loadAnimInstances()
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	local animFolder = assets and assets:FindFirstChild("Animations")
 	local charFolder = animFolder and animFolder:FindFirstChild("Character")
-	if not charFolder then
+	local baseFolder = charFolder and charFolder:FindFirstChild("Base")
+	if not baseFolder then
 		return anims
 	end
 
-	local function scan(folder)
-		for _, child in ipairs(folder:GetChildren()) do
-			if child:IsA("Animation") then
-				anims[child.Name] = child
-			elseif child:IsA("Folder") then
-				scan(child)
+	for _, child in ipairs(baseFolder:GetChildren()) do
+		if child:IsA("Animation") then
+			anims[child.Name] = child
+		elseif child:IsA("Folder") and child.Name == "Zipline" then
+			for _, zipAnim in ipairs(child:GetChildren()) do
+				if zipAnim:IsA("Animation") then
+					anims[zipAnim.Name] = zipAnim
+				end
 			end
 		end
 	end
-	scan(charFolder)
 
 	self._rigAnimInstances = anims
 	return anims

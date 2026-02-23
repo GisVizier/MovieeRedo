@@ -371,7 +371,7 @@ function CharacterController:_setupLocalCharacter(player, character)
 	end
 
 	if Config.Gameplay.Character.EnableRig then
-		local rig = RigManager:GetActiveRig(player)
+		local rig = RigManager:WaitForActiveRig(player, 10)
 		if rig then
 			self:_applyRigCollisionFilters(character)
 		end
@@ -479,7 +479,7 @@ function CharacterController:_setupRemoteCharacter(player, character)
 
 	local rig = nil
 	if Config.Gameplay.Character.EnableRig then
-		rig = RigManager:GetActiveRig(player)
+		rig = RigManager:WaitForActiveRig(player, 10)
 		if rig then
 			self:_applyRigCollisionFilters(character)
 		end
