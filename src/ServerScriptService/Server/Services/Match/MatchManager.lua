@@ -1620,6 +1620,14 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 
 	local userId = player.UserId
 
+	-- Determine which team the leaver was on BEFORE removing them
+	local leaverTeam = nil
+	if table.find(match.team1, userId) then
+		leaverTeam = "Team1"
+	elseif table.find(match.team2, userId) then
+		leaverTeam = "Team2"
+	end
+
 	self:_fireMatchClients(match, "PlayerLeftMatch", {
 		matchId = matchId,
 		playerId = userId,
@@ -1632,18 +1640,76 @@ function MatchManager:_handlePlayerLeft(matchId, player)
 	local idx2 = table.find(match.team2, userId)
 	if idx2 then table.remove(match.team2, idx2) end
 
+	-- Mark leaver as dead this round so _isTeamWiped accounts for them being gone
+	match._deadThisRound[userId] = true
+
 	local partyService = self._registry:TryGet("PartyService")
 	if partyService and partyService:IsInParty(player) then
 		partyService:RemoveFromParty(player)
 	end
 
-	if match.state == "playing" or match.state == "resetting" or match.state == "storm" then
+	-- Both teams empty in any state — silent cleanup
+	if #match.team1 == 0 and #match.team2 == 0 then
+		self:_cleanupMatch(matchId)
+		return
+	end
+
+	local isActiveGameplay = (match.state == "playing" or match.state == "storm")
+	local isBetweenRound = (match.state == "loadout_selection" and match._isBetweenRoundLoadout == true)
+	local isPreGame = (match.state == "map_selection" or match.state == "starting"
+		or (match.state == "loadout_selection" and not match._isBetweenRoundLoadout))
+
+	if isActiveGameplay or isBetweenRound then
+		-- ACTIVE GAMEPLAY: check if the leaver's team is now effectively wiped
+		-- (all remaining members are dead this round, or team is empty)
+		if leaverTeam and match.modeConfig.elimination then
+			local otherTeam = (leaverTeam == "Team1") and "Team2" or "Team1"
+			local leaverTeamWiped = self:_isTeamWiped(match, leaverTeam)
+
+			if leaverTeamWiped then
+				local winnerTeam = otherTeam
+				match.scores[winnerTeam] = match.scores[winnerTeam] + 1
+
+				self:_fireMatchClients(match, "ScoreUpdate", {
+					matchId = match.id,
+					team1Score = match.scores.Team1,
+					team2Score = match.scores.Team2,
+				})
+
+				self:_fireRoundOutcome(match, winnerTeam)
+
+				local postKillDelay = match.modeConfig.postKillDelay or 5
+				task.delay(postKillDelay, function()
+					if not self._matches[match.id] then return end
+					if self:_checkWinCondition(match) then
+						self:EndMatch(match.id, winnerTeam)
+					else
+						self:_resetRound(match)
+					end
+				end)
+				return
+			end
+		end
+
+		-- Team not wiped — check if an entire team is now empty (all members left)
 		if #match.team1 == 0 and #match.team2 > 0 then
 			self:EndMatch(matchId, "Team2")
 		elseif #match.team2 == 0 and #match.team1 > 0 then
 			self:EndMatch(matchId, "Team1")
-		elseif #match.team1 == 0 and #match.team2 == 0 then
+		end
+
+	elseif isPreGame then
+		-- PRE-GAME: 1v1 forfeit or team-mode validity check
+		local isDuel = (match.modeConfig.playersPerTeam == 1)
+
+		if isDuel then
+			-- 1v1: any leave during pre-game = silent forfeit, no winner
 			self:_cleanupMatch(matchId)
+		else
+			-- Team modes: match is still valid if each team has at least 1 player
+			if #match.team1 == 0 or #match.team2 == 0 then
+				self:_cleanupMatch(matchId)
+			end
 		end
 	end
 end
