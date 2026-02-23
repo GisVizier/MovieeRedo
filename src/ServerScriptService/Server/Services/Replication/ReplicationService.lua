@@ -30,7 +30,9 @@ ReplicationService._matchManager = nil -- cached reference for match-scoped fano
 ReplicationService._rigAnimators = {} -- [player] = Animator
 ReplicationService._rigAnimTracks = {} -- [player] = { [animName] = AnimationTrack }
 ReplicationService._rigLastAnimId = {} -- [player] = number
-ReplicationService._rigAnimInstances = nil -- cached Animation instances from folder
+ReplicationService._rigBaseAnims = nil -- Base/ full-body animations
+ReplicationService._rigWeaponAnims = nil -- Base/Weapon/ legs-only animations
+ReplicationService._rigPlayerWeaponMode = {} -- [player] = true when using weapon anims
 
 local function isStatefulViewmodelAction(actionName: string): boolean
 	return actionName == "ADS"
@@ -90,6 +92,7 @@ function ReplicationService:Init(registry, net)
 		self._rigAnimators[player] = nil
 		self._rigAnimTracks[player] = nil
 		self._rigLastAnimId[player] = nil
+		self._rigPlayerWeaponMode[player] = nil
 	end)
 
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
@@ -187,33 +190,71 @@ function ReplicationService:OnCrouchStateChanged(player, isCrouching)
 end
 
 function ReplicationService:_loadAnimInstances()
-	if self._rigAnimInstances then
-		return self._rigAnimInstances
+	if self._rigBaseAnims then
+		return
 	end
 
-	local anims = {}
+	local baseAnims = {}
+	local weaponAnims = {}
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	local animFolder = assets and assets:FindFirstChild("Animations")
 	local charFolder = animFolder and animFolder:FindFirstChild("Character")
 	local baseFolder = charFolder and charFolder:FindFirstChild("Base")
 	if not baseFolder then
-		return anims
+		self._rigBaseAnims = baseAnims
+		self._rigWeaponAnims = weaponAnims
+		return
 	end
 
 	for _, child in ipairs(baseFolder:GetChildren()) do
 		if child:IsA("Animation") then
-			anims[child.Name] = child
+			baseAnims[child.Name] = child
 		elseif child:IsA("Folder") and child.Name == "Zipline" then
 			for _, zipAnim in ipairs(child:GetChildren()) do
 				if zipAnim:IsA("Animation") then
-					anims[zipAnim.Name] = zipAnim
+					baseAnims[zipAnim.Name] = zipAnim
 				end
 			end
 		end
 	end
 
-	self._rigAnimInstances = anims
-	return anims
+	local weaponFolder = baseFolder:FindFirstChild("Weapon")
+	if weaponFolder then
+		for _, child in ipairs(weaponFolder:GetChildren()) do
+			if child:IsA("Animation") then
+				weaponAnims[child.Name] = child
+			elseif child:IsA("Folder") and child.Name == "Zipline" then
+				for _, zipAnim in ipairs(child:GetChildren()) do
+					if zipAnim:IsA("Animation") then
+						weaponAnims[zipAnim.Name] = zipAnim
+					end
+				end
+			end
+		end
+	end
+
+	self._rigBaseAnims = baseAnims
+	self._rigWeaponAnims = weaponAnims
+end
+
+function ReplicationService:_getAnimInstanceForPlayer(player, animName)
+	self:_loadAnimInstances()
+	local inLobby = player:GetAttribute("InLobby") == true
+	local hasWeapon = not inLobby and player:GetAttribute("EquippedSlot") ~= nil
+		and player:GetAttribute("EquippedSlot") ~= ""
+
+	local useWeapon = hasWeapon and self._rigWeaponAnims[animName] ~= nil
+	local newMode = useWeapon
+
+	if self._rigPlayerWeaponMode[player] ~= newMode then
+		self._rigPlayerWeaponMode[player] = newMode
+		self._rigAnimTracks[player] = nil
+	end
+
+	if useWeapon then
+		return self._rigWeaponAnims[animName] or self._rigBaseAnims[animName]
+	end
+	return self._rigBaseAnims[animName]
 end
 
 function ReplicationService:_getAnimatorForPlayer(player)
@@ -259,7 +300,6 @@ function ReplicationService:_playRigAnimation(player, animId)
 		return
 	end
 
-	local anims = self:_loadAnimInstances()
 	local tracks = self._rigAnimTracks[player]
 	if not tracks then
 		tracks = {}
@@ -268,15 +308,19 @@ function ReplicationService:_playRigAnimation(player, animId)
 
 	local track = tracks[animName]
 	if not track then
-		local animInstance = anims[animName]
+		local animInstance = self:_getAnimInstanceForPlayer(player, animName)
 		if not animInstance then
 			return
+		end
+		tracks = self._rigAnimTracks[player]
+		if not tracks then
+			tracks = {}
+			self._rigAnimTracks[player] = tracks
 		end
 		track = animator:LoadAnimation(animInstance)
 		tracks[animName] = track
 	end
 
-	-- Stop all other movement tracks, then play this one
 	for name, t in pairs(tracks) do
 		if name ~= animName and t.IsPlaying then
 			t:Stop(0.15)

@@ -277,12 +277,11 @@ function RemoteReplicator:OnStatesReplicated(batch)
 
 			local rig = nil
 			if Config.Gameplay.Character.EnableRig then
-				rig = RigManager:WaitForActiveRig(player, 10)
+				rig = RigManager:GetActiveRig(player)
 			end
 
 			local headOffset, rigBaseOffset = self:CalculateOffsets()
 
-			-- Initialize weapon manager for third-person
 			local weaponManager = rig and ThirdPersonWeaponManager.new(rig) or nil
 			vmLog(
 				"Created remoteData",
@@ -328,6 +327,16 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				self:_updateRemoteEquippedSlot(remoteData, player)
 			end
 			self.RemotePlayers[userId] = remoteData
+
+			if Config.Gameplay.Character.EnableRig and not rig then
+				task.spawn(function()
+					local deferredRig = RigManager:WaitForActiveRig(player, 10)
+					if deferredRig and self.RemotePlayers[userId] == remoteData then
+						remoteData.Rig = deferredRig
+						remoteData.WeaponManager = ThirdPersonWeaponManager.new(deferredRig)
+					end
+				end)
+			end
 
 			-- Add initial state to buffer so ReplicatePlayers processes updates (fixes stuck animation for late joiners)
 			self:AddSnapshotToBuffer(remoteData, state, currentTime)

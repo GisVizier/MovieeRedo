@@ -447,6 +447,12 @@ function CharacterController:OnLocalCharacterReady(character)
 		self.LastCameraAngles = cameraAngles
 	end
 
+	if self.PrimaryPart then
+		self.PrimaryPart.AssemblyLinearVelocity = Vector3.zero
+		self.PrimaryPart.AssemblyAngularVelocity = Vector3.zero
+		self.PrimaryPart.Anchored = false
+	end
+
 	self:StartMovementLoop()
 
 	-- Pre-create looped sounds so they play instantly

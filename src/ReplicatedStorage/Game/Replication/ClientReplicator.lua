@@ -62,7 +62,7 @@ function ClientReplicator:Start(character)
 
 	self.Character = character
 	self.PrimaryPart = character and character.PrimaryPart or nil
-	self.Rig = RigManager:WaitForActiveRig(Players.LocalPlayer, 10)
+	self.Rig = nil
 	self.IsActive = true
 	self.LastUpdateTime = 0
 	self.LastSentState = nil
@@ -74,10 +74,13 @@ function ClientReplicator:Start(character)
 
 	self:CalculateOffsets()
 
-	-- Initialize third-person weapon manager
-	if self.Rig then
-		self.WeaponManager = ThirdPersonWeaponManager.new(self.Rig)
-	end
+	task.spawn(function()
+		local rig = RigManager:WaitForActiveRig(Players.LocalPlayer, 10)
+		if rig and self.IsActive and self.Character == character then
+			self.Rig = rig
+			self.WeaponManager = ThirdPersonWeaponManager.new(rig)
+		end
+	end)
 
 	-- Listen for loadout and equipped slot changes
 	local localPlayer = Players.LocalPlayer

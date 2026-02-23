@@ -33,7 +33,6 @@ local function applyV1RigPartRules(rig, part)
 		return
 	end
 
-	-- v1 rules: rig is cosmetic; never collide/query/touch; always massless.
 	part.Massless = true
 	part.CanCollide = false
 	part.CanQuery = false

@@ -800,74 +800,71 @@ end
 function AnimationController:OnLocalCharacterReady(character)
 	self.LocalCharacter = character
 
-	local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
-	local rig = RigManager:WaitForActiveRig(LocalPlayer, 10)
-	if not rig then
-		LogService:Warn("ANIMATION", "Rig not found for local character")
-		return
-	end
-
-	local humanoid = rig:WaitForChild("Humanoid", 10)
-	if not humanoid then
-		LogService:Warn("ANIMATION", "Humanoid not found in rig")
-		return
-	end
-
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if not animator then
-		animator = Instance.new("Animator")
-		animator.Parent = humanoid
-	end
-
-	self.LocalAnimator = animator
-	self:PreloadAnimations()
-	self:PlayIdleAnimation("IdleStanding")
-	self:StartAnimationSpeedUpdates()
-
-	-- Listen for ApplyDescription completion. When it fires, the Animator and all
-	-- AnimationTracks may have been destroyed/recreated, so we must re-acquire
-	-- the Animator and reload every track.
-	if self._descriptionAppliedConn then
-		self._descriptionAppliedConn:Disconnect()
-		self._descriptionAppliedConn = nil
-	end
-	self._descriptionAppliedConn = rig:GetAttributeChangedSignal("DescriptionApplied"):Connect(function()
-		if not self.LocalCharacter or self.LocalCharacter ~= character then
+	task.spawn(function()
+		local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
+		local rig = RigManager:WaitForActiveRig(LocalPlayer, 10)
+		if not rig then
+			LogService:Warn("ANIMATION", "Rig not found for local character")
 			return
 		end
-		local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
-		if not rigHumanoid then
+		if self.LocalCharacter ~= character then
 			return
 		end
-		local newAnimator = rigHumanoid:FindFirstChildOfClass("Animator")
-		if not newAnimator then
-			newAnimator = Instance.new("Animator")
-			newAnimator.Parent = rigHumanoid
-		end
-		self.LocalAnimator = newAnimator
 
-		-- Reload all animation tracks on the fresh Animator
+		local humanoid = rig:WaitForChild("Humanoid", 10)
+		if not humanoid then
+			LogService:Warn("ANIMATION", "Humanoid not found in rig")
+			return
+		end
+
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		if not animator then
+			animator = Instance.new("Animator")
+			animator.Parent = humanoid
+		end
+
+		self.LocalAnimator = animator
 		self:PreloadAnimations()
+		self:PlayIdleAnimation("IdleStanding")
+		self:StartAnimationSpeedUpdates()
 
-		-- Re-play the appropriate animation for the current movement state
-		local isGrounded = MovementStateManager:GetIsGrounded()
-		local isMoving = MovementStateManager:GetIsMoving()
-		if isGrounded then
-			if isMoving then
-				local currentState = MovementStateManager:GetCurrentState()
-				local animName = self:_getStateAnimationName(currentState)
-				if animName then
-					self:PlayStateAnimation(animName)
+		if self._descriptionAppliedConn then
+			self._descriptionAppliedConn:Disconnect()
+			self._descriptionAppliedConn = nil
+		end
+		self._descriptionAppliedConn = rig:GetAttributeChangedSignal("DescriptionApplied"):Connect(function()
+			if not self.LocalCharacter or self.LocalCharacter ~= character then
+				return
+			end
+			local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
+			if not rigHumanoid then
+				return
+			end
+			local newAnimator = rigHumanoid:FindFirstChildOfClass("Animator")
+			if not newAnimator then
+				newAnimator = Instance.new("Animator")
+				newAnimator.Parent = rigHumanoid
+			end
+			self.LocalAnimator = newAnimator
+
+			self:PreloadAnimations()
+
+			local isGrounded = MovementStateManager:GetIsGrounded()
+			local isMoving = MovementStateManager:GetIsMoving()
+			if isGrounded then
+				if isMoving then
+					local currentState = MovementStateManager:GetCurrentState()
+					local animName = self:_getStateAnimationName(currentState)
+					if animName then
+						self:PlayStateAnimation(animName)
+					end
+				else
+					self:PlayIdleAnimation("IdleStanding")
 				end
 			else
-				self:PlayIdleAnimation("IdleStanding")
+				self:PlayFallingAnimation()
 			end
-		else
-			self:PlayFallingAnimation()
-		end
-
-		-- Rig (kit) animations are now replayed by the server-side RigAnimationService
-		-- when it detects the DescriptionApplied attribute change on the rig.
+		end)
 	end)
 end
 

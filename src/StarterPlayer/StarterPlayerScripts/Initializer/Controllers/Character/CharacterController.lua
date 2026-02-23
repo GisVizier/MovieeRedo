@@ -366,15 +366,17 @@ function CharacterController:_setupLocalCharacter(player, character)
 
 	local root = character:FindFirstChild("Root")
 	if root and root:IsA("BasePart") then
-		root.Anchored = false
+		root.Anchored = true
 		MovementUtils:SetupPhysicsConstraints(root)
 	end
 
 	if Config.Gameplay.Character.EnableRig then
-		local rig = RigManager:WaitForActiveRig(player, 10)
-		if rig then
-			self:_applyRigCollisionFilters(character)
-		end
+		task.spawn(function()
+			local rig = RigManager:WaitForActiveRig(player, 10)
+			if rig and character.Parent then
+				self:_applyRigCollisionFilters(character)
+			end
+		end)
 	end
 
 	CrouchUtils:SetupLegacyWelds(character)
@@ -477,41 +479,39 @@ function CharacterController:_setupRemoteCharacter(player, character)
 		character:GetPropertyChangedSignal("PrimaryPart"):Wait()
 	end
 
-	local rig = nil
-	if Config.Gameplay.Character.EnableRig then
-		rig = RigManager:WaitForActiveRig(player, 10)
-		if rig then
-			self:_applyRigCollisionFilters(character)
-		end
-	end
-
-	local animationController = self._registry and self._registry:TryGet("AnimationController")
-	if animationController and animationController.OnOtherCharacterSpawned then
-		animationController:OnOtherCharacterSpawned(character)
-	end
-
 	local characterTemplate = ReplicatedStorage:FindFirstChild("CharacterTemplate")
-	if not characterTemplate then
-		return
+	if characterTemplate then
+		self:_setupRemoteCollider(character, characterTemplate)
 	end
 
-	-- Clone Collider for remote character hit detection
-	self:_setupRemoteCollider(character, characterTemplate)
+	task.spawn(function()
+		if Config.Gameplay.Character.EnableRig then
+			local rig = RigManager:WaitForActiveRig(player, 10)
+			if rig and character.Parent then
+				self:_applyRigCollisionFilters(character)
 
-	if rig then
-		local rigOffset = CFrame.new()
-		local templateRoot = characterTemplate:FindFirstChild("Root")
-		local templateRig = characterTemplate:FindFirstChild("Rig")
-		local templateRigHRP = templateRig and templateRig:FindFirstChild("HumanoidRootPart")
-		if templateRoot and templateRigHRP then
-			rigOffset = templateRoot.CFrame:Inverse() * templateRigHRP.CFrame
+				if characterTemplate then
+					local rigOffset = CFrame.new()
+					local templateRoot = characterTemplate:FindFirstChild("Root")
+					local templateRig = characterTemplate:FindFirstChild("Rig")
+					local templateRigHRP = templateRig and templateRig:FindFirstChild("HumanoidRootPart")
+					if templateRoot and templateRigHRP then
+						rigOffset = templateRoot.CFrame:Inverse() * templateRigHRP.CFrame
+					end
+
+					local rootPart = character:FindFirstChild("Root") or character.PrimaryPart
+					if rootPart then
+						rig:PivotTo(rootPart.CFrame * rigOffset)
+					end
+				end
+			end
 		end
 
-		local rootPart = character:FindFirstChild("Root") or character.PrimaryPart
-		if rootPart then
-			rig:PivotTo(rootPart.CFrame * rigOffset)
+		local animationController = self._registry and self._registry:TryGet("AnimationController")
+		if animationController and animationController.OnOtherCharacterSpawned then
+			animationController:OnOtherCharacterSpawned(character)
 		end
-	end
+	end)
 end
 
 -- Setup hit detection collider for remote characters
