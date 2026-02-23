@@ -825,7 +825,7 @@ function AnimationController:OnLocalCharacterReady(character)
 
 		self.LocalAnimator = animator
 		self:PreloadAnimations()
-		self:PlayIdleAnimation("IdleStanding")
+		self:_syncToCurrentMovementState()
 		self:StartAnimationSpeedUpdates()
 
 		if self._descriptionAppliedConn then
@@ -848,22 +848,7 @@ function AnimationController:OnLocalCharacterReady(character)
 			self.LocalAnimator = newAnimator
 
 			self:PreloadAnimations()
-
-			local isGrounded = MovementStateManager:GetIsGrounded()
-			local isMoving = MovementStateManager:GetIsMoving()
-			if isGrounded then
-				if isMoving then
-					local currentState = MovementStateManager:GetCurrentState()
-					local animName = self:_getStateAnimationName(currentState)
-					if animName then
-						self:PlayStateAnimation(animName)
-					end
-				else
-					self:PlayIdleAnimation("IdleStanding")
-				end
-			else
-				self:PlayFallingAnimation()
-			end
+			self:_syncToCurrentMovementState()
 		end)
 	end)
 end
@@ -1275,6 +1260,51 @@ function AnimationController:_getStateAnimationName(stateName: string): string?
 		return "WalkingForward"
 	end
 	return STATE_ANIMATIONS[stateName]
+end
+
+function AnimationController:_syncToCurrentMovementState()
+	if not self.LocalAnimator then
+		return
+	end
+
+	local currentState = MovementStateManager:GetCurrentState()
+	local isGrounded = MovementStateManager:GetIsGrounded()
+	local isMoving = MovementStateManager:GetIsMoving()
+
+	if currentState == "Sliding" then
+		self:StartSlideAnimationUpdates()
+		return
+	end
+
+	if not isGrounded then
+		self:PlayFallingAnimation()
+		return
+	end
+
+	if isMoving then
+		if currentState == "Walking" then
+			self:StartWalkAnimationUpdates()
+		elseif currentState == "Sprinting" then
+			if self:_shouldUseWalkAnimationsForSprint() then
+				self:StartWalkAnimationUpdates()
+			else
+				self:StartRunAnimationUpdates()
+			end
+		elseif currentState == "Crouching" then
+			self:StartCrouchAnimationUpdates()
+		else
+			local animName = self:_getStateAnimationName(currentState)
+			if animName then
+				self:PlayStateAnimation(animName)
+			end
+		end
+	else
+		if currentState == "IdleCrouching" then
+			self:PlayIdleAnimation("IdleCrouching")
+		else
+			self:PlayIdleAnimation("IdleStanding")
+		end
+	end
 end
 
 --- Returns the correct track lookup table for the local player.

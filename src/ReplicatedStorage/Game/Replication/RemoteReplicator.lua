@@ -539,10 +539,25 @@ function RemoteReplicator:ReplicatePlayers(dt)
 		remoteData.PrimaryPart.CFrame = cf
 		remoteData.LastAimPitch = targetAimPitch or 0
 
-		if remoteData.Rig then
+		local rig = remoteData.Rig
+		if rig and not rig.Parent then
+			local newRig = RigManager:GetActiveRig(remoteData.Player)
+			if newRig then
+				remoteData.Rig = newRig
+				if remoteData.WeaponManager then
+					remoteData.WeaponManager:Destroy()
+				end
+				remoteData.WeaponManager = ThirdPersonWeaponManager.new(newRig)
+				rig = newRig
+			else
+				remoteData.Rig = nil
+				rig = nil
+			end
+		end
+
+		if rig then
 			self:ApplyReplicatedRigRotation(remoteData, targetRigTilt)
 
-			-- Check for loadout/slot changes on the remote player (skip when in lobby)
 			if not self._localInLobby then
 				self:_updateRemoteLoadout(remoteData, remoteData.Player)
 				self:_updateRemoteEquippedSlot(remoteData, remoteData.Player)
@@ -608,8 +623,8 @@ function RemoteReplicator:GetStateAtTime(buffer, renderTime)
 end
 
 function RemoteReplicator:ApplyReplicatedRigRotation(remoteData, rigTilt)
-	local rig = remoteData.Rig or CharacterLocations:GetRig(remoteData.Character)
-	if not rig or not remoteData.RigBaseOffset then
+	local rig = remoteData.Rig
+	if not rig or not rig.Parent or not remoteData.RigBaseOffset then
 		return
 	end
 

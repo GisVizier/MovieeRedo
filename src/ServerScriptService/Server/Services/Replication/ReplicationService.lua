@@ -269,6 +269,12 @@ function ReplicationService:_getAnimInstanceForPlayer(player, animName)
 
 	if self._rigPlayerWeaponMode[player] ~= newMode then
 		self._rigPlayerWeaponMode[player] = newMode
+		local animator = self._rigAnimators[player]
+		if animator and animator.Parent then
+			for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+				track:Stop(0.15)
+			end
+		end
 		self._rigAnimTracks[player] = nil
 	end
 
@@ -300,8 +306,12 @@ function ReplicationService:_getAnimatorForPlayer(player)
 		animator.Parent = humanoid
 	end
 
-	-- Animator changed (e.g. after ApplyDescription), clear cached tracks
 	if cached ~= animator then
+		if cached and cached.Parent then
+			for _, track in ipairs(cached:GetPlayingAnimationTracks()) do
+				track:Stop(0)
+			end
+		end
 		self._rigAnimTracks[player] = nil
 		self._rigLastAnimId[player] = nil
 	end
@@ -342,8 +352,8 @@ function ReplicationService:_playRigAnimation(player, animId)
 		tracks[animName] = track
 	end
 
-	for name, t in pairs(tracks) do
-		if name ~= animName and t.IsPlaying then
+	for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+		if t ~= track and t.IsPlaying then
 			t:Stop(0.15)
 		end
 	end
