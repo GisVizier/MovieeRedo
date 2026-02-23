@@ -1269,14 +1269,32 @@ function MatchManager:_resetRound(match)
 		end
 	end
 
+	-- CLEAR SelectedLoadout + EquippedSlot BEFORE revive.
+	-- OnPlayerRespawn (called inside _reviveAllPlayers) schedules a task.defer
+	-- that re-sets SelectedLoadout to the old value. Clearing first ensures that
+	-- deferred callback finds nil and skips the re-set, preventing the client
+	-- ViewmodelController from re-creating weapons during the between-round phase.
+	for _, player in self:_getMatchPlayers(match) do
+		pcall(function()
+			player:SetAttribute("SelectedLoadout", nil)
+			player:SetAttribute("EquippedSlot", nil)
+		end)
+	end
+
 	-- Revive and teleport to spawn positions
 	self:_reviveAllPlayers(match)
 	self:_teleportMatchPlayersDirect(match)
 
-	-- Clear SelectedLoadout to remove weapons/viewmodels during between-round phase
+	-- Safety: re-clear SelectedLoadout AFTER revive in a deferred callback to
+	-- guarantee it runs after any task.defer scheduled inside OnPlayerRespawn.
 	for _, player in self:_getMatchPlayers(match) do
-		pcall(function()
-			player:SetAttribute("SelectedLoadout", nil)
+		task.defer(function()
+			if player.Parent then
+				pcall(function()
+					player:SetAttribute("SelectedLoadout", nil)
+					player:SetAttribute("EquippedSlot", nil)
+				end)
+			end
 		end)
 	end
 

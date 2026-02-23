@@ -358,7 +358,6 @@ function UIController:Init(registry, net)
 	self._matchMode = nil
 
 	self._net:ConnectClient("MatchStart", function(matchData)
-		print("[UICONTROLLER] Received MatchStart from server:", matchData)
 		self:_onStartMatch(matchData)
 	end)
 
@@ -730,6 +729,12 @@ function UIController:_bootstrapUi()
 
 	-- UI event wiring
 	ui:on("EquipKitRequest", function(kitId)
+		-- During between-rounds, don't equip the kit on the server
+		-- (it would create the kit model on the character while waiting)
+		-- The kit will be equipped when RoundStart fires via SubmitLoadout
+		if self._betweenRounds then
+			return
+		end
 		if self._kitController then
 			self._kitController:requestEquipKit(kitId)
 		end
@@ -820,6 +825,13 @@ function UIController:_onLoadoutComplete(data)
 		return
 	end
 
+	-- During between-rounds, DON'T submit yet — _onRoundStart will submit
+	-- the cached PlayerDataTable loadout.  Submitting now would set
+	-- SelectedLoadout on the server, causing weapons to be created early.
+	if self._betweenRounds then
+		return
+	end
+
 	local payload = {
 		mapId = data.mapId or "ApexArena",
 		gamemodeId = data.gamemodeId,
@@ -833,6 +845,11 @@ function UIController:_onLoadoutComplete(data)
 end
 
 function UIController:_onLoadoutReady(data)
+	-- During between-rounds, don't submit — _onRoundStart handles it
+	if self._betweenRounds then
+		return
+	end
+
 	-- Player has filled all 4 slots - notify server they're ready AND submit loadout
 	-- This ensures SelectedLoadout is set even if timer expires before LoadoutComplete
 	if typeof(data) ~= "table" then
@@ -856,6 +873,11 @@ function UIController:_onLoadoutReady(data)
 end
 
 function UIController:_onLoadoutChanged(data)
+	-- During between-rounds, don't submit — _onRoundStart handles it
+	if self._betweenRounds then
+		return
+	end
+
 	-- Player changed weapons after already having 4 slots filled - re-submit loadout
 	if typeof(data) ~= "table" then
 		return
@@ -973,7 +995,6 @@ function UIController:_onStartMatch(matchData)
 	end
 
 	-- Core module: match start (team data)
-	print("[UICONTROLLER] _onStartMatch - emitting MatchStart to CoreUI with data:", matchData)
 	pcall(function()
 		self._coreUi:emit("MatchStart", matchData)
 	end)
@@ -1192,12 +1213,36 @@ function UIController:_onBetweenRoundFreeze(data)
 		end)
 	end
 
-	-- CLEAR Viewmodel weapons
+	-- ===== DESTROY ALL WEAPONS (viewmodel + weapon controller + third-person) =====
+	-- 1) Viewmodel (first-person arms/weapon rigs)
 	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
 	if viewmodelController and viewmodelController.ClearLoadout then
 		pcall(function()
 			viewmodelController:ClearLoadout()
 		end)
+	end
+
+	-- 2) WeaponController (weapon logic, crosshair, aim-assist, actions)
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController then
+		if type(weaponController._unequipCurrentWeapon) == "function" then
+			pcall(function() weaponController:_unequipCurrentWeapon() end)
+		end
+		if type(weaponController.HideCrosshair) == "function" then
+			pcall(function() weaponController:HideCrosshair() end)
+		end
+	end
+
+	-- 3) Third-person weapon model on the local player's rig
+	local replicationController = self._registry and self._registry:TryGet("Replication")
+	if replicationController and type(replicationController.ClearWeapons) == "function" then
+		pcall(function() replicationController:ClearWeapons() end)
+	end
+
+	-- 4) Clear EquippedSlot attribute so nothing re-equips from listeners
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		localPlayer:SetAttribute("EquippedSlot", nil)
 	end
 
 	-- Tell HUD loadout is "open" (hides health/item bars, keeps score visible)
@@ -1261,12 +1306,44 @@ function UIController:_onBetweenRoundFreeze(data)
 		end
 	end
 
-	-- Unlock mouse so the player can click the swap button
-	-- Camera stays at current mode (FirstPerson); Orbit happens on swap confirmation
+	-- Unlock mouse immediately so the swap button is clickable
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
-	-- Note: Server clears SelectedLoadout attribute on BetweenRoundFreeze,
-	-- which triggers ViewmodelController to clear weapons automatically
+
+	-- Deferred re-application: character/weapon controllers that process
+	-- MatchFrozen on the same frame may re-lock the mouse.  We override them
+	-- one frame later to guarantee the cursor is visible for the swap button.
+	-- Also re-clear weapons: OnPlayerRespawn's task.defer may have re-set
+	-- SelectedLoadout after the server cleared it, causing CreateLoadout to fire.
+	task.defer(function()
+		if self._betweenRounds then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			UserInputService.MouseIconEnabled = true
+
+			-- Re-destroy weapons in case OnPlayerRespawn's deferred SelectedLoadout
+			-- re-set triggered CreateLoadout between our initial clear and now.
+			local vm = self._registry and self._registry:TryGet("Viewmodel")
+			if vm and vm.ClearLoadout then
+				pcall(function() vm:ClearLoadout() end)
+			end
+			local wp = self._registry and self._registry:TryGet("Weapon")
+			if wp and type(wp._unequipCurrentWeapon) == "function" then
+				pcall(function() wp:_unequipCurrentWeapon() end)
+			end
+			if wp and type(wp.HideCrosshair) == "function" then
+				pcall(function() wp:HideCrosshair() end)
+			end
+			local rep = self._registry and self._registry:TryGet("Replication")
+			if rep and type(rep.ClearWeapons) == "function" then
+				pcall(function() rep:ClearWeapons() end)
+			end
+
+			local lp = Players.LocalPlayer
+			if lp then
+				lp:SetAttribute("EquippedSlot", nil)
+			end
+		end
+	end)
 end
 
 function UIController:_onLoadoutTimerHalved(data)
@@ -1337,11 +1414,27 @@ function UIController:_onRoundStart(data)
 		player:SetAttribute("PlayerState", "InMatch")
 	end
 
-	-- In between-round mode, submit the current loadout NOW (timer just expired)
-	-- The server will set SelectedLoadout attribute so weapons can be created
+	-- In between-round mode: make sure finishLoadout ran (fills empty slots),
+	-- then submit the authoritative loadout to the server.
 	if wasBetweenRound then
-		local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
-		local loadoutData = PlayerDataTable.getEquippedLoadout()
+		local loadoutModule = self._coreUi:getModule("Loadout")
+
+		-- If the timer already fired finishLoadout(), this is a no-op.
+		-- If the player was still picking, this fills remaining empty slots.
+		if loadoutModule and loadoutModule.finishLoadout then
+			pcall(function()
+				loadoutModule:finishLoadout()
+			end)
+		end
+
+		-- Read the authoritative loadout built from _currentLoadout (not Replica)
+		local loadoutData = loadoutModule and loadoutModule._finalLoadout
+		if not loadoutData then
+			-- Fallback: read from PlayerDataTable
+			local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
+			loadoutData = PlayerDataTable.getEquippedLoadout()
+		end
+
 		if loadoutData then
 			local payload = {
 				mapId = self._currentMapId or "ApexArena",
@@ -1370,15 +1463,18 @@ function UIController:_onRoundStart(data)
 		self._coreUi:emit("LoadoutClosed")
 	end)
 
-	-- Get the loadout to apply
-	local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
-	local loadoutData = PlayerDataTable.getEquippedLoadout()
+	-- Get the loadout to apply (prefer module's _finalLoadout over Replica)
+	local hudLoadoutData = loadoutModule and loadoutModule._finalLoadout
+	if not hudLoadoutData then
+		local PlayerDataTable2 = require(ReplicatedStorage.PlayerDataTable)
+		hudLoadoutData = PlayerDataTable2.getEquippedLoadout()
+	end
 
 	-- REBUILD HUD with fresh loadout (resets ult if kit changed)
 	local hudModule = self._coreUi:getModule("HUD")
 	if hudModule and hudModule.RebuildLoadoutSlots then
 		pcall(function()
-			hudModule:RebuildLoadoutSlots(loadoutData)
+			hudModule:RebuildLoadoutSlots(hudLoadoutData)
 		end)
 	end
 
@@ -1504,8 +1600,6 @@ end
 --------------------------------------------------------------------------------
 
 function UIController:_onStormStart(data)
-	print("[UICONTROLLER] Storm phase started for match:", data.matchId)
-
 	-- Emit to CoreUI for any listeners
 	if self._coreUi then
 		pcall(function()
@@ -1547,13 +1641,11 @@ end
 function UIController:_onStormEnter(data)
 	-- Character-based enter event is server-authoritative for damage only.
 	-- Visuals are now camera-driven in _syncStormVisualFromCamera.
-	print("[UICONTROLLER] Character entered storm zone (damage active)")
 end
 
 function UIController:_onStormLeave(data)
 	-- Character-based leave event is server-authoritative for damage only.
 	-- Visuals are now camera-driven in _syncStormVisualFromCamera.
-	print("[UICONTROLLER] Character left storm zone (safe from damage)")
 end
 
 function UIController:_onStormSound(data)
@@ -1658,26 +1750,19 @@ function UIController:_showKillScreen(data)
 end
 
 function UIController:_startSpectate(killerUserId)
-	print("[SPECTATE-UI] _startSpectate called, killerUserId:", killerUserId)
-
 	local spectateController = self._registry and self._registry:TryGet("Spectate")
 	if not spectateController then
-		warn("[SPECTATE-UI] SpectateController not found in registry!")
 		return
 	end
 
 	spectateController:BeginSpectate(killerUserId)
 
 	if not spectateController:IsSpectating() then
-		warn("[SPECTATE-UI] BeginSpectate did not activate spectating")
 		return
 	end
 
-	print("[SPECTATE-UI] Spectating active, target:", spectateController:GetTargetUserId())
-
 	local specModule = self._coreUi and self._coreUi:getModule("Spec")
 	if not specModule then
-		warn("[SPECTATE-UI] Spec CoreUI module not found (spectating still active without UI)")
 	else
 		local info = spectateController:GetTargetInfo()
 		if info then
@@ -1726,9 +1811,6 @@ function UIController:_onSpecCycle(direction)
 end
 
 function UIController:_onReturnToLobby(data)
-	print("[UICONTROLLER] === _onReturnToLobby called ===")
-	print("[UICONTROLLER]   data:", data)
-
 	if not self._coreUi then
 		return
 	end

@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(move \"c:\\\\Users\\\\ph4tb\\\\Documents\\\\GitHub\\\\MovieeRedo\\\\src\\\\ReplicatedStorage\\\\KitSystem\\\\Kits\\\\Mob.lua\" \"c:\\\\Users\\\\ph4tb\\\\Documents\\\\GitHub\\\\MovieeRedo\\\\src\\\\ReplicatedStorage\\\\KitSystem\\\\Kits\\\\Mob\\\\init.lua\")",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python3:*)",
+      "Bash(python3.exe:*)",
+      "Bash(py:*)",
+      "Bash(node --version:*)",
+      "Bash(node:*)"
     ]
   }
 }

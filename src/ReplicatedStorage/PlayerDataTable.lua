@@ -40,21 +40,8 @@ local function ensureReplicaClient()
 			Replica.OnNew("PlayerData", function(replica)
 				if replica.Tags and replica.Tags.UserId == game:GetService("Players").LocalPlayer.UserId then
 					replicaData = replica.Data
-					local d = replicaData
-					print(
-						"[PlayerDataTable] Replica connected! GEMS:",
-						d.GEMS,
-						"WINS:",
-						d.WINS,
-						"STREAK:",
-						d.STREAK,
-						"| Loadout:",
-						d.EQUIPPED and d.EQUIPPED.Primary or "?"
-					)
-					replica:OnChange(function(action, path, param1, param2)
+					replica:OnChange(function()
 						_updateCount += 1
-						local pathStr = type(path) == "table" and table.concat(path, ".") or tostring(path)
-						print("[PlayerDataTable] <- Update #" .. _updateCount, action, pathStr)
 					end)
 				end
 			end)
@@ -136,10 +123,6 @@ function PlayerDataTable.init()
 			mockData.Settings[category][key] = deepClone(value)
 		end
 	end
-	print(
-		"[PlayerDataTable] Init #" .. _initCount,
-		replicaData and "Replica ready" or "Using mock (waiting for replica)"
-	)
 end
 
 function PlayerDataTable.getData(key: string): any

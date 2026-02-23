@@ -299,9 +299,21 @@ function module.start(export, ui)
 	self._itemScroller = ui:FindFirstChild("ItemScroller")
 	self._currentItems = ui:FindFirstChild("CurrentItems")
 
-	-- Between-round swap button (may be nil if not yet added to Studio)
-	self._swapButton = ui:FindFirstChild("SwapButton") or ui:FindFirstChild("SwapButton", true)
+	-- Between-round swap container ("ConfrirmSwap" in Studio; fallback to "SwapButton")
+	self._swapButton = ui:FindFirstChild("ConfrirmSwap")
+		or ui:FindFirstChild("SwapButton")
+		or ui:FindFirstChild("SwapButton", true)
 	self._swapConfirmed = false
+
+	-- Resolve the actual clickable button inside the container (ImageButton)
+	self._swapClickable = self._swapButton
+		and (self._swapButton:FindFirstChild("Button", true)
+			or self._swapButton:FindFirstChildWhichIsA("GuiButton", true))
+
+	-- Always start hidden — it only appears during the between-round phase
+	if self._swapButton then
+		self._swapButton.Visible = false
+	end
 
 	self._slotTemplates = {}
 	self._itemTemplates = {}
@@ -1362,19 +1374,11 @@ function module:_checkLoadoutComplete()
 
 	log("loadoutCount", filledCount)
 	
-	-- In between-round mode:
-	--   • If swap was confirmed and all 4 slots filled → auto-finish and close
-	--   • If swap was NOT confirmed → nothing to do; timer expiry calls finishLoadout
+	-- In between-round mode the player can freely swap items until the timer
+	-- expires.  finishLoadout() is called by the timer (or by _onRoundStart).
+	-- We intentionally do NOT auto-finish here so the player isn't kicked out
+	-- of the picker the moment they have 4 items selected.
 	if self._isBetweenRound then
-		if self._swapConfirmed then
-			local filledCount = 0
-			for _, weaponId in pairs(self._currentLoadout) do
-				if weaponId then filledCount += 1 end
-			end
-			if filledCount >= 4 then
-				self:finishLoadout()
-			end
-		end
 		return
 	end
 	
@@ -1409,6 +1413,11 @@ function module:_animateShow()
 	self:_cancelTweens("show")
 	self:_cancelTweens("hide")
 
+	-- Round 1 loadout: swap button must never appear here
+	if self._swapButton then
+		self._swapButton.Visible = false
+	end
+
 	local tweens = {}
 
 	self._export:show("Black")
@@ -1439,19 +1448,54 @@ end
 
 --[[
 	Between-round entry point: show ONLY the animated countdown timer and the
-	"Swap Loadout" button.  MapName, Preview, slot row, and item scroller stay
-	at their reset (transparent) state until the player presses the swap button.
+	"Swap Loadout" button.  MapName, Preview, slot row, and item scroller are
+	forced to their hidden state immediately so they never flash on screen before
+	the player clicks the swap button.
 ]]
 function module:_animateBetweenRound()
 	self:_cancelTweens("show")
 	self:_cancelTweens("hide")
 
-	-- Show the swap button if it exists in the UI tree
-	if self._swapButton then
-		self._swapButton.Visible = true
+	-- ── Force all picker sections INVISIBLE until the player clicks "Swap" ──
+	if self._mapName then
+		self._mapName.Visible = false
+		local canvas = getCanvasGroup(self._mapName)
+		self._mapName.Position = TweenConfig.getPosition("MapName", "hidden")
+		if canvas then canvas.GroupTransparency = 1 end
+	end
+	if self._preview then
+		self._preview.Visible = false
+		local canvas = getCanvasGroup(self._preview)
+		self._preview.Position = TweenConfig.getPosition("Preview", "hidden")
+		if canvas then canvas.GroupTransparency = 1 end
+	end
+	if self._currentItems then
+		self._currentItems.Visible = false
+	end
+	if self._itemScroller then
+		self._itemScroller.Visible = false
+		local canvas = getCanvasGroup(self._itemScroller)
+		if canvas then canvas.GroupTransparency = 1 end
 	end
 
-	-- Animate the timer in (it always stays visible throughout between-round)
+	-- ── Animated fade-in for the swap button ─────────────────────────────────
+	if self._swapButton then
+		local canvas = getCanvasGroup(self._swapButton)
+		if canvas then
+			canvas.GroupTransparency = 1
+		end
+		self._swapButton.Visible = true
+		if canvas then
+			local fadeTween = TweenService:Create(
+				canvas,
+				TweenConfig.get("SwapButton", "show"),
+				{ GroupTransparency = 0 }
+			)
+			fadeTween:Play()
+		end
+	end
+
+	-- ── Animate the countdown timer in (always visible throughout between-round)
 	local tweens = {}
 	task.delay(TweenConfig.getDelay("Timer"), function()
 		self:_showTimer(tweens)
@@ -1461,18 +1505,55 @@ end
 
 --[[
 	Called when the player presses the "Swap Loadout" button (or M key) during
-	the between-round phase.  Hides the swap button, animates in the full picker,
-	and emits SwapLoadoutOpened so UIController can switch to Orbit camera.
+	the between-round phase.  Fades out the swap button, animates in the full
+	picker, and emits SwapLoadoutOpened so UIController can switch to Orbit camera.
 ]]
 function module:confirmSwap()
 	if self._swapConfirmed then return end
 	self._swapConfirmed = true
 
-	-- Hide the swap button
-	if self._swapButton then
-		self._swapButton.Visible = false
-	end
+	-- Disconnect the button click first so it can't fire again during the tween
 	self._connections:cleanupGroup("between_round_swap")
+
+	-- Animated fade-out for the swap button
+	if self._swapButton then
+		local canvas = getCanvasGroup(self._swapButton)
+		if canvas then
+			local fadeTween = TweenService:Create(
+				canvas,
+				TweenConfig.get("SwapButton", "hide"),
+				{ GroupTransparency = 1 }
+			)
+			fadeTween.Completed:Connect(function()
+				if self._swapButton then
+					self._swapButton.Visible = false
+				end
+			end)
+			fadeTween:Play()
+		else
+			-- No CanvasGroup fallback: just hide instantly
+			self._swapButton.Visible = false
+		end
+	end
+
+	-- ── Keep the previous loadout intact — player can swap individual items ──
+	-- Reset ready/finish flags so the timer can call finishLoadout() later
+	self._notifiedReady = false
+	self._loadoutFinished = false
+
+	-- Make sure CurrentItems and ItemScroller are visible now
+	if self._currentItems then
+		self._currentItems.Visible = true
+	end
+	if self._itemScroller then
+		self._itemScroller.Visible = true
+	end
+	if self._mapName then
+		self._mapName.Visible = true
+	end
+	if self._preview then
+		self._preview.Visible = true
+	end
 
 	-- Animate in all remaining sections (timer is already running and visible)
 	local tweens = {}
@@ -1492,6 +1573,9 @@ function module:confirmSwap()
 	end)
 	currentTweens["show"] = tweens
 
+	-- Select the first slot and populate the item scroller for it
+	self:_selectSlot(self._selectedSlot or SLOT_TYPES[1], true)
+
 	-- Let UIController switch to Orbit camera and unlock the mouse for picking
 	self._export:emit("SwapLoadoutOpened")
 end
@@ -1501,6 +1585,9 @@ function module:_showMapName(tweens)
 		log("showMapName", "missing")
 		return
 	end
+
+	-- Ensure the container is visible (may have been hidden during between-round)
+	self._mapName.Visible = true
 
 	local hiddenPos = TweenConfig.getPosition("MapName", "hidden")
 	local shownPos = TweenConfig.getPosition("MapName", "shown")
@@ -1528,6 +1615,9 @@ function module:_showPreview(tweens)
 		log("showPreview", "missing")
 		return
 	end
+
+	-- Ensure the container is visible (may have been hidden during between-round)
+	self._preview.Visible = true
 
 	local canvas = getCanvasGroup(self._preview)
 
@@ -1562,6 +1652,9 @@ function module:_showCurrentItems(tweens)
 		log("showCurrentItems", "missing")
 		return
 	end
+
+	-- Ensure the container is visible (may have been hidden during between-round)
+	self._currentItems.Visible = true
 
 	for i, slotType in ipairs(SLOT_TYPES) do
 		local slotData = self._slotTemplates[slotType]
@@ -1633,6 +1726,9 @@ function module:_showItemScroller(tweens)
 		log("itemScroller", "missing")
 		return
 	end
+
+	-- Ensure the container is visible (may have been hidden during between-round)
+	self._itemScroller.Visible = true
 
 	local canvas = getCanvasGroup(self._itemScroller)
 	if not canvas then
@@ -1944,7 +2040,16 @@ function module:finishLoadout()
 
 	self:_fillEmptySlots()
 
-	local loadoutData = PlayerDataTable.getEquippedLoadout()
+	-- Build the authoritative loadout from _currentLoadout (always up-to-date
+	-- locally) rather than PlayerDataTable which may lag behind due to the
+	-- Replica round-trip when the server is the data authority.
+	local loadoutData = {}
+	for _, slotType in ipairs(SLOT_TYPES) do
+		loadoutData[slotType] = self._currentLoadout[slotType]
+	end
+
+	-- Store for UIController to read during _onRoundStart
+	self._finalLoadout = loadoutData
 
 	self:fireLoadoutFinished(loadoutData)
 
@@ -2065,9 +2170,10 @@ function module:show(options)
 	self._isBetweenRound = (type(options) == "table" and options.isBetweenRound == true) or false
 
 	if self._isBetweenRound then
-		-- Wire the swap button before animating so it's ready on first frame
-		if self._swapButton then
-			self._connections:track(self._swapButton, "Activated", function()
+		-- Wire the actual clickable button (ImageButton inside ConfrirmSwap)
+		local clickTarget = self._swapClickable or self._swapButton
+		if clickTarget and clickTarget:IsA("GuiButton") then
+			self._connections:track(clickTarget, "Activated", function()
 				self:confirmSwap()
 			end, "between_round_swap")
 		end
@@ -2076,6 +2182,15 @@ function module:show(options)
 		self:_animateShow()
 	end
 	self:_init()
+
+	-- In between-round mode, _init may have toggled Visible back on for some
+	-- elements — force them hidden again until the player clicks "Swap Loadout".
+	if self._isBetweenRound and not self._swapConfirmed then
+		if self._currentItems then self._currentItems.Visible = false end
+		if self._itemScroller then self._itemScroller.Visible = false end
+		if self._mapName then self._mapName.Visible = false end
+		if self._preview then self._preview.Visible = false end
+	end
 	self:_setUINavActive(isGamepadInputType(UserInputService:GetLastInputType()))
 	self:startTimer()
 	return true
@@ -2193,6 +2308,7 @@ function module:_cleanup()
 	self._loadoutLocked = false
 	self._isBetweenRound = false
 	self._swapConfirmed = false
+	self._finalLoadout = nil
 
 	-- Hide swap button and disconnect its click handler
 	if self._swapButton then

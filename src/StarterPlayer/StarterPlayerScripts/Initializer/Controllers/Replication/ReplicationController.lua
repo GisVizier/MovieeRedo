@@ -37,6 +37,16 @@ function ReplicationController:ForceLoadoutRefresh()
 	ClientReplicator:ForceLoadoutRefresh()
 end
 
+-- Clear the local player's third-person weapon and cached loadout.
+-- Called during between-round phase to fully strip all weapon visuals.
+function ReplicationController:ClearWeapons()
+	if ClientReplicator.WeaponManager then
+		pcall(function() ClientReplicator.WeaponManager:UnequipWeapon() end)
+	end
+	ClientReplicator.CurrentLoadout = nil
+	ClientReplicator.CurrentEquippedSlot = nil
+end
+
 function ReplicationController:ReplicateViewmodelAction(weaponId, skinId, actionName, trackName, isActive)
 	ClientReplicator:ReplicateViewmodelAction(weaponId, skinId, actionName, trackName, isActive)
 end

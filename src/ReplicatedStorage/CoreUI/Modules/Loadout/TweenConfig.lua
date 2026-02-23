@@ -121,6 +121,17 @@ TweenConfig.Elements = {
 		},
 	},
 
+	SwapButton = {
+		show = {
+			duration = 0.4,
+			easing = {Style = Enum.EasingStyle.Quint, Direction = Enum.EasingDirection.Out},
+		},
+		hide = {
+			duration = 0.25,
+			easing = {Style = Enum.EasingStyle.Quad, Direction = Enum.EasingDirection.In},
+		},
+	},
+
 	ItemTemplate = {
 		show = {
 			duration = 0.35,

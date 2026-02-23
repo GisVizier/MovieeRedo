@@ -70,26 +70,11 @@ local function quickMeleeLog(message, data)
 	LogService:Info("WEAPON_QM", message, data)
 end
 
-local function emitWeaponSoundDebug(message, data)
-	local parts = {}
-	if type(data) == "table" then
-		for k, v in pairs(data) do
-			table.insert(parts, tostring(k) .. "=" .. tostring(v))
-		end
-		table.sort(parts)
-	end
-	local line = "[WEAPON_SOUND_DEBUG] " .. tostring(message)
-	if #parts > 0 then
-		line = line .. " | " .. table.concat(parts, ", ")
-	end
-	warn(line)
-end
 
 local function hitmarkerDebug(message, data)
 	if not DEBUG_HITMARKER then
 		return
 	end
-	warn("[WeaponHitmarker]", message, data)
 end
 
 local function normalizeSoundId(soundRef)
@@ -727,10 +712,6 @@ end
 -- =============================================================================
 
 function WeaponController:_equipWeapon(weaponId, slot)
-	emitWeaponSoundDebug("Equip weapon requested", {
-		weaponId = weaponId,
-		slot = slot,
-	})
 
 	-- Unequip old weapon first
 	self:_unequipCurrentWeapon()
@@ -741,22 +722,8 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	end)
 
 	if not success then
-		emitWeaponSoundDebug("Load actions failed", {
-			weaponId = weaponId,
-			slot = slot,
-			errorMessage = actions,
-		})
 		return
 	end
-	emitWeaponSoundDebug("Load actions success", {
-		weaponId = weaponId,
-		slot = slot,
-		hasMain = actions and actions.Main ~= nil,
-		hasAttack = actions and actions.Attack ~= nil,
-		hasReload = actions and actions.Reload ~= nil,
-		hasInspect = actions and actions.Inspect ~= nil,
-		hasSpecial = actions and actions.Special ~= nil,
-	})
 
 	self._currentActions = actions
 	self._isADS = false
@@ -792,11 +759,6 @@ function WeaponController:_equipWeapon(weaponId, slot)
 				self._currentActions.Main.OnEquip(self._weaponInstance)
 			end)
 			if not ok then
-				emitWeaponSoundDebug("Main.OnEquip failed (non-fatal)", {
-					weaponId = weaponId,
-					slot = slot,
-					errorMessage = err,
-				})
 			end
 		end
 
@@ -804,11 +766,6 @@ function WeaponController:_equipWeapon(weaponId, slot)
 
 	-- Fallback equip cue: guarantees equip audio even if Main module is missing.
 	if self._weaponInstance and self._weaponInstance.PlayActionSound then
-		emitWeaponSoundDebug("Equip fallback PlayActionSound call", {
-			weaponId = weaponId,
-			slot = slot,
-			hasMain = self._currentActions and self._currentActions.Main ~= nil,
-		})
 		LogService:Info("WEAPON_SOUND", "Equip fallback sound requested", {
 			weaponId = weaponId,
 			slot = slot,
@@ -817,11 +774,6 @@ function WeaponController:_equipWeapon(weaponId, slot)
 			self._weaponInstance.PlayActionSound("Equip")
 		end)
 		if not ok then
-			emitWeaponSoundDebug("Equip fallback PlayActionSound failed (non-fatal)", {
-				weaponId = weaponId,
-				slot = slot,
-				errorMessage = err,
-			})
 		end
 	end
 
@@ -1255,11 +1207,6 @@ end
 
 function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pitch, _options)
 	if actionName == "Equip" then
-		emitWeaponSoundDebug("Equip sound requested", {
-			weaponId = weaponId,
-			slot = slot,
-			action = actionName,
-		})
 		LogService:Info("WEAPON_SOUND", "Equip sound requested", {
 			weaponId = weaponId,
 			slot = slot,
@@ -1272,12 +1219,6 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 	soundDef, skinId = self:_resolveWeaponActionSoundId(weaponId, slot, actionName)
 	if not soundDef then
 		if actionName == "Equip" then
-			emitWeaponSoundDebug("Equip sound not resolved", {
-				weaponId = weaponId,
-				slot = slot,
-				action = actionName,
-				skinId = skinId,
-			})
 			LogService:Warn("WEAPON_SOUND", "Equip sound not resolved", {
 				weaponId = weaponId,
 				slot = slot,
@@ -1302,11 +1243,6 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 			if not soundKey and soundDef.Template then
 				soundKey = soundDef.Template.Name
 			end
-			emitWeaponSoundDebug("Equip sound skipped by dedupe", {
-				weaponId = weaponId,
-				slot = slot,
-				soundId = soundKey,
-			})
 			LogService:Info("WEAPON_SOUND", "Equip sound skipped by dedupe", {
 				weaponId = weaponId,
 				slot = slot,
@@ -1329,14 +1265,6 @@ function WeaponController:_playWeaponActionSound(weaponId, slot, actionName, pit
 		if not soundKey and soundDef.Template then
 			soundKey = soundDef.Template:GetFullName()
 		end
-		emitWeaponSoundDebug("Equip sound play attempt", {
-			weaponId = weaponId,
-			slot = slot,
-			soundId = soundKey,
-			hasLocalSound = localSound ~= nil,
-			source = soundDef.Source,
-			parentedToViewmodel = self._viewmodelController ~= nil,
-		})
 		LogService:Info("WEAPON_SOUND", "Equip sound play attempt", {
 			weaponId = weaponId,
 			slot = slot,
@@ -1477,12 +1405,6 @@ function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionNam
 		if not soundKey and soundDef.Template then
 			soundKey = soundDef.Template:GetFullName()
 		end
-		emitWeaponSoundDebug("Equip sound instance played", {
-			soundId = soundKey,
-			parent = sound.Parent and sound.Parent:GetFullName() or "nil",
-			isPlaying = sound.IsPlaying,
-			source = soundDef.Source,
-		})
 		LogService:Info("WEAPON_SOUND", "Equip sound instance played", {
 			soundId = soundKey,
 			parent = sound.Parent and sound.Parent:GetFullName() or "nil",

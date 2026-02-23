@@ -17,8 +17,9 @@ module.__index = module
 
 local currentTweens = {}
 
--- Storm mesh lerp settings for smooth shrinking
-local STORM_LERP_SPEED = 8 -- Higher = faster interpolation toward target
+-- Continuous storm mesh shrink settings
+local STORM_MIN_SHRINK_DURATION = 0.05
+local STORM_RADIUS_RECONCILE_SPEED = 8
 
 -- Cloud settings for storm atmosphere (client-side only)
 local STORM_CLOUD_START_COVER = 0.669
@@ -448,16 +449,23 @@ function module:createStormMesh(data)
 	self._stormData = {
 		center = data.center,
 		initialRadius = data.initialRadius,
-		targetRadius = data.targetRadius,
+		targetRadius = data.targetRadius or 0,
 		originalSizeX = originalSize.X,
 		originalSizeZ = originalSize.Z,
 		scaleFactor = scaleFactor,
 	}
+
+	-- Run a local timeline so shrink is continuous instead of step-updated by network ticks.
+	self._stormVisualState = {
+		startTime = os.clock(),
+		duration = math.max(STORM_MIN_SHRINK_DURATION, tonumber(data.shrinkDuration) or 0),
+		startRadius = data.initialRadius,
+		targetRadius = data.targetRadius or 0,
+		serverRadius = data.initialRadius,
+		visualRadius = data.initialRadius,
+	}
 	
-	-- Initialize target size for lerping (start at current size)
-	self._stormTargetSize = stormMesh.Size
-	
-	-- Start the continuous lerp loop for smooth shrinking
+	-- Start the continuous visual update loop.
 	self:_startStormLerpLoop()
 	
 	-- Fade in the mesh
@@ -469,8 +477,27 @@ function module:createStormMesh(data)
 end
 
 --[[
-	Starts a continuous lerp loop that smoothly interpolates storm mesh size.
-	Runs every frame for butter-smooth animation.
+	Applies a radius value directly to the local storm mesh scale.
+]]
+function module:_applyStormMeshRadius(radius)
+	if not self._stormMesh or not self._stormMesh.Parent then return end
+	if not self._stormData then return end
+
+	local data = self._stormData
+	local initialRadius = math.max(data.initialRadius or 0, 0.001)
+	local clampedRadius = math.max(data.targetRadius or 0, radius or 0)
+	local radiusRatio = clampedRadius / initialRadius
+	local newScaleFactor = data.scaleFactor * radiusRatio
+
+	self._stormMesh.Size = Vector3.new(
+		data.originalSizeX * newScaleFactor,
+		self._stormMesh.Size.Y,
+		data.originalSizeZ * newScaleFactor
+	)
+end
+
+--[[
+	Starts a continuous loop that animates the storm radius every frame.
 ]]
 function module:_startStormLerpLoop()
 	-- Clean up existing loop if any
@@ -489,40 +516,35 @@ function module:_startStormLerpLoop()
 			return
 		end
 		
-		if not self._stormTargetSize then return end
-		
-		local currentSize = self._stormMesh.Size
-		local targetSize = self._stormTargetSize
-		
-		-- Lerp toward target size (exponential smoothing for natural motion)
-		local lerpFactor = 1 - math.exp(-STORM_LERP_SPEED * deltaTime)
-		local newSize = currentSize:Lerp(targetSize, lerpFactor)
-		
-		-- Only update if there's meaningful difference (prevents micro-jitter)
-		if (newSize - currentSize).Magnitude > 0.001 then
-			self._stormMesh.Size = newSize
+		local state = self._stormVisualState
+		if not state then return end
+
+		local elapsed = os.clock() - state.startTime
+		local alpha = math.clamp(elapsed / state.duration, 0, 1)
+		local timelineRadius = state.startRadius + ((state.targetRadius - state.startRadius) * alpha)
+
+		-- Follow the local timeline, then softly reconcile toward server-authoritative radius.
+		local reconcileFactor = math.clamp(deltaTime * STORM_RADIUS_RECONCILE_SPEED, 0, 1)
+		local desiredRadius = timelineRadius
+		if type(state.serverRadius) == "number" then
+			desiredRadius = desiredRadius + ((state.serverRadius - desiredRadius) * reconcileFactor)
 		end
+
+		state.visualRadius = state.visualRadius + ((desiredRadius - state.visualRadius) * reconcileFactor)
+		self:_applyStormMeshRadius(state.visualRadius)
 	end)
 end
 
 --[[
-	Updates the local storm mesh target size based on current radius.
-	The lerp loop will smoothly interpolate toward this target.
+	Receives server radius updates and uses them only for correction.
 ]]
 function module:updateStormMesh(currentRadius)
-	if not self._stormMesh or not self._stormMesh.Parent then return end
-	if not self._stormData then return end
-	
-	local data = self._stormData
-	local radiusRatio = currentRadius / data.initialRadius
-	local newScaleFactor = data.scaleFactor * radiusRatio
-	
-	-- Set target size - the lerp loop will smoothly interpolate toward this
-	self._stormTargetSize = Vector3.new(
-		data.originalSizeX * newScaleFactor,
-		self._stormMesh.Size.Y,
-		data.originalSizeZ * newScaleFactor
-	)
+	if not self._stormVisualState then
+		self:_applyStormMeshRadius(currentRadius)
+		return
+	end
+
+	self._stormVisualState.serverRadius = currentRadius
 end
 
 --[[
@@ -534,7 +556,7 @@ function module:destroyStormMesh()
 		self._stormLerpConnection:Disconnect()
 		self._stormLerpConnection = nil
 	end
-	self._stormTargetSize = nil
+	self._stormVisualState = nil
 	
 	if self._stormModel and self._stormModel.Parent then
 		self._stormModel:Destroy()
@@ -581,7 +603,7 @@ function module:_cleanup()
 		self._stormLerpConnection:Disconnect()
 		self._stormLerpConnection = nil
 	end
-	self._stormTargetSize = nil
+	self._stormVisualState = nil
 	
 	-- Cancel all tweens
 	cancelTweens("main")
