@@ -526,16 +526,13 @@ function AnimationController:StopAllCustomAnimations(fadeOutTime: number?)
 end
 
 --------------------------------------------------------------------------------
--- Replicated Rig Animation API
--- Play/stop animations on the local rig for instant feedback, then send a
--- reliable request to the server. The server plays the animation on the
--- server-owned rig Animator, which Roblox replicates to all other clients
--- automatically. No VFXRep, no attribute reconciliation needed.
+-- Server-Owned Rig Animation API
+-- The server owns the rig Animator. Client just sends requests — the server
+-- plays/stops the animation and Roblox replicates it to ALL clients (including
+-- the requester) automatically. No local playback needed.
 --------------------------------------------------------------------------------
 
 function AnimationController:PlayRigAnimation(animName: string, settings: { [string]: any }?)
-	local track = self:PlayAnimation(animName, settings)
-
 	Net:FireServer("RigAnimationRequest", {
 		action = "Play",
 		animName = animName,
@@ -545,13 +542,9 @@ function AnimationController:PlayRigAnimation(animName: string, settings: { [str
 		Speed = settings and settings.Speed,
 		StopOthers = settings and settings.StopOthers,
 	})
-
-	return track
 end
 
 function AnimationController:StopRigAnimation(animName: string, fadeOut: number?)
-	self:StopAnimation(animName, fadeOut)
-
 	Net:FireServer("RigAnimationRequest", {
 		action = "Stop",
 		animName = animName,
@@ -560,8 +553,6 @@ function AnimationController:StopRigAnimation(animName: string, fadeOut: number?
 end
 
 function AnimationController:StopAllRigAnimations(fadeOut: number?)
-	self:StopAllCustomAnimations(fadeOut)
-
 	Net:FireServer("RigAnimationRequest", {
 		action = "StopAll",
 		fadeOut = fadeOut or 0.15,

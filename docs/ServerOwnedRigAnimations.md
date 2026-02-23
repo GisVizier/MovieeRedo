@@ -32,11 +32,11 @@ Client B (loads track, plays on local Animator)
 ### After (New)
 
 ```
-Client A (plays locally for instant feedback)
+Client A (sends request only — no local playback)
     ↓ Net:FireServer("RigAnimationRequest", ...) [RELIABLE]
 Server (RigAnimationService plays on server-owned Animator)
     ↓ Roblox built-in animation replication [automatic, reliable]
-All Clients (see animation via Roblox replication)
+All Clients including A (see animation via Roblox replication)
 ```
 
 ## File Changes
@@ -85,19 +85,18 @@ All Clients (see animation via Roblox replication)
 ### Playing Animations
 
 1. Client calls `AnimationController:PlayRigAnimation("Blue", { Looped = true })`
-2. Animation plays locally immediately (instant feedback, no latency)
-3. Client fires `Net:FireServer("RigAnimationRequest", { action = "Play", animName = "Blue", Looped = true })`
-4. Server's `RigAnimationService` receives the request (reliable delivery guaranteed)
-5. Server loads the animation on the rig's `Animator` and calls `track:Play()`
-6. Roblox replicates the animation to all other clients automatically
+2. Client fires `Net:FireServer("RigAnimationRequest", { action = "Play", animName = "Blue", Looped = true })` — reliable delivery guaranteed
+3. Server's `RigAnimationService` receives the request
+4. Server loads the animation on the rig's `Animator` and calls `track:Play()`
+5. Roblox replicates the animation to **all** clients (including the requester) automatically
+6. No local playback on the client — the server-owned Animator is the single source of truth
 
 ### Stopping Animations
 
 1. Client calls `AnimationController:StopRigAnimation("Blue")`
-2. Animation stops locally immediately
-3. Client fires `Net:FireServer("RigAnimationRequest", { action = "Stop", animName = "Blue" })`
-4. Server stops the track on the rig's `Animator`
-5. Stop replicates to all clients automatically — **guaranteed delivery** (reliable remote)
+2. Client fires `Net:FireServer("RigAnimationRequest", { action = "Stop", animName = "Blue" })` — reliable delivery guaranteed
+3. Server stops the track on the rig's `Animator`
+4. Stop replicates to all clients automatically
 
 ### ApplyDescription Recovery
 
