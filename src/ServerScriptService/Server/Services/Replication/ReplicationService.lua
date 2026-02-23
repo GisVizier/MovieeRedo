@@ -261,10 +261,7 @@ end
 function ReplicationService:_getAnimInstanceForPlayer(player, animName)
 	self:_loadAnimInstances()
 	local inLobby = player:GetAttribute("InLobby") == true
-	local hasWeapon = not inLobby and player:GetAttribute("EquippedSlot") ~= nil
-		and player:GetAttribute("EquippedSlot") ~= ""
-
-	local useWeapon = hasWeapon and self._rigWeaponAnims[animName] ~= nil
+	local useWeapon = not inLobby and self._rigWeaponAnims[animName] ~= nil
 	local newMode = useWeapon
 
 	if self._rigPlayerWeaponMode[player] ~= newMode then

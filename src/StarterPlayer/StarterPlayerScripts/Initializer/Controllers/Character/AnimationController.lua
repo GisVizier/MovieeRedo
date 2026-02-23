@@ -1246,13 +1246,21 @@ function AnimationController:SetWeaponAnimationModeForPlayer(player: Player, ena
 end
 
 function AnimationController:_shouldUseWalkAnimationsForSprint(): boolean
-	-- Run = walk animation sped up (no separate run animation). In lobby, weapons are unequipped
-	-- so weapon mode is off, but we still need to use walk animation for sprint.
 	if self._weaponAnimMode == true then
 		return true
 	end
 	local localPlayer = Players.LocalPlayer
-	return localPlayer and localPlayer:GetAttribute("InLobby") == true
+	if not localPlayer then
+		return false
+	end
+	local inLobby = localPlayer:GetAttribute("InLobby")
+	if inLobby == true then
+		return true
+	end
+	if inLobby == false then
+		return true
+	end
+	return false
 end
 
 function AnimationController:_getStateAnimationName(stateName: string): string?
@@ -1307,10 +1315,13 @@ function AnimationController:_syncToCurrentMovementState()
 	end
 end
 
---- Returns the correct track lookup table for the local player.
---- When weapon mode is active AND a weapon variant exists, use it; otherwise fall back to full-body.
 function AnimationController:_getLocalTrackTable()
-	if self._weaponAnimMode and next(self.WeaponAnimationTracks) then
+	local useWeapon = self._weaponAnimMode
+	if not useWeapon then
+		local localPlayer = Players.LocalPlayer
+		useWeapon = localPlayer and localPlayer:GetAttribute("InLobby") == false
+	end
+	if useWeapon and next(self.WeaponAnimationTracks) then
 		return self.WeaponAnimationTracks, self.LocalAnimationTracks
 	end
 	return self.LocalAnimationTracks, nil
@@ -1717,6 +1728,12 @@ function AnimationController:StopSlideAnimationUpdates()
 	if self.SlideAnimationUpdateConnection then
 		self.SlideAnimationUpdateConnection:Disconnect()
 		self.SlideAnimationUpdateConnection = nil
+	end
+	if self.CurrentSlideAnimationName then
+		if self.CurrentStateAnimation and self.CurrentStateAnimation.IsPlaying then
+			self.CurrentStateAnimation:Stop(0.15)
+			self.CurrentStateAnimation = nil
+		end
 		self.CurrentSlideAnimationName = nil
 	end
 end
