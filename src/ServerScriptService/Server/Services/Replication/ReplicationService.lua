@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local CompressionUtils = require(Locations.Shared.Util:WaitForChild("CompressionUtils"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
+local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
+local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
 local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator)
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 local function vmLog(...) end
@@ -25,6 +27,10 @@ ReplicationService.ReadyPlayers = {} -- [player] = true when client ready to rec
 ReplicationService.LastBroadcastTime = 0
 ReplicationService._net = nil
 ReplicationService._matchManager = nil -- cached reference for match-scoped fanout
+ReplicationService._rigAnimators = {} -- [player] = Animator
+ReplicationService._rigAnimTracks = {} -- [player] = { [animName] = AnimationTrack }
+ReplicationService._rigLastAnimId = {} -- [player] = number
+ReplicationService._rigAnimInstances = nil -- cached Animation instances from folder
 
 local function isStatefulViewmodelAction(actionName: string): boolean
 	return actionName == "ADS"
@@ -81,6 +87,9 @@ function ReplicationService:Init(registry, net)
 		self.ReadyPlayers[player] = nil
 		self.PlayerViewmodelActionSeq[player] = nil
 		self.PlayerActiveViewmodelActions[player] = nil
+		self._rigAnimators[player] = nil
+		self._rigAnimTracks[player] = nil
+		self._rigLastAnimId[player] = nil
 	end)
 
 	local updateRate = ReplicationConfig.UpdateRates.ServerToClients
@@ -177,6 +186,106 @@ function ReplicationService:OnCrouchStateChanged(player, isCrouching)
 	HitValidator:SetPlayerStance(player, newStance)
 end
 
+function ReplicationService:_loadAnimInstances()
+	if self._rigAnimInstances then
+		return self._rigAnimInstances
+	end
+
+	local anims = {}
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local animFolder = assets and assets:FindFirstChild("Animations")
+	local charFolder = animFolder and animFolder:FindFirstChild("Character")
+	if not charFolder then
+		return anims
+	end
+
+	local function scan(folder)
+		for _, child in ipairs(folder:GetChildren()) do
+			if child:IsA("Animation") then
+				anims[child.Name] = child
+			elseif child:IsA("Folder") then
+				scan(child)
+			end
+		end
+	end
+	scan(charFolder)
+
+	self._rigAnimInstances = anims
+	return anims
+end
+
+function ReplicationService:_getAnimatorForPlayer(player)
+	local cached = self._rigAnimators[player]
+	if cached and cached.Parent then
+		return cached
+	end
+
+	local rig = RigManager:GetActiveRig(player)
+	if not rig then
+		return nil
+	end
+
+	local humanoid = rig:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return nil
+	end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	-- Animator changed (e.g. after ApplyDescription), clear cached tracks
+	if cached ~= animator then
+		self._rigAnimTracks[player] = nil
+		self._rigLastAnimId[player] = nil
+	end
+
+	self._rigAnimators[player] = animator
+	return animator
+end
+
+function ReplicationService:_playRigAnimation(player, animId)
+	local animName = AnimationIds:GetName(animId)
+	if not animName then
+		return
+	end
+
+	local animator = self:_getAnimatorForPlayer(player)
+	if not animator then
+		return
+	end
+
+	local anims = self:_loadAnimInstances()
+	local tracks = self._rigAnimTracks[player]
+	if not tracks then
+		tracks = {}
+		self._rigAnimTracks[player] = tracks
+	end
+
+	local track = tracks[animName]
+	if not track then
+		local animInstance = anims[animName]
+		if not animInstance then
+			return
+		end
+		track = animator:LoadAnimation(animInstance)
+		tracks[animName] = track
+	end
+
+	-- Stop all other movement tracks, then play this one
+	for name, t in pairs(tracks) do
+		if name ~= animName and t.IsPlaying then
+			t:Stop(0.15)
+		end
+	end
+
+	if not track.IsPlaying then
+		track:Play(0.15)
+	end
+end
+
 function ReplicationService:OnClientStateUpdate(player, compressedState)
 	local state = CompressionUtils:DecompressState(compressedState)
 	if not state then
@@ -222,6 +331,13 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 	-- Store position for weapon hit lag compensation (with current stance)
 	local currentStance = self.PlayerStances[player] or Stance.Standing
 	HitValidator:StorePosition(player, state.Position, state.Timestamp, currentStance)
+
+	-- Play animation on server rig so Roblox natively replicates it to all clients.
+	local animId = state.AnimationId
+	if animId and animId ~= self._rigLastAnimId[player] then
+		self._rigLastAnimId[player] = animId
+		self:_playRigAnimation(player, animId)
+	end
 end
 
 function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)

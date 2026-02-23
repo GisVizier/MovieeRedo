@@ -379,25 +379,15 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			local lastSeq = tonumber(remoteData.LastSequenceNumber) or 0
 			local currentSeq = tonumber(state.SequenceNumber) or 0
 			local sequenceGap = (currentSeq - lastSeq) % MAX_SEQUENCE
-			local incomingAnimId = state.AnimationId or 1
 
 			self.PlayerLossStats[userId] = self.PlayerLossStats[userId]
 				or { LossRate = 0, PacketsLost = 0, PacketsReceived = 0 }
 
-			-- Drop out-of-order snapshots (sequence wrapped backwards).
-			if sequenceGap > HALF_SEQUENCE then
+			if sequenceGap == 0 then
 				continue
 			end
-
-			-- For same-sequence packets (dormant resends), accept them only if the
-			-- animation ID differs from what we last played. This ensures that when
-			-- unreliable transport drops the original animation-change packet, the
-			-- server's periodic dormant resend still corrects the late joiner's state.
-			if sequenceGap == 0 then
-				local currentAnimId = incomingAnimId
-				if currentAnimId == remoteData.LastAnimationId then
-					continue
-				end
+			if sequenceGap > HALF_SEQUENCE then
+				continue
 			end
 
 			if sequenceGap > 1 then
@@ -481,21 +471,13 @@ function RemoteReplicator:AddSnapshotToBuffer(remoteData, state, receiveTime)
 		SequenceNumber = state.SequenceNumber,
 	}
 
-	local replaced = false
 	for i = #buffer, 1, -1 do
 		if buffer[i] and buffer[i].SequenceNumber == snapshot.SequenceNumber then
-			if buffer[i].AnimationId ~= snapshot.AnimationId then
-				buffer[i] = snapshot
-				replaced = true
-				break
-			end
 			return
 		end
 	end
 
-	if not replaced then
-		table.insert(buffer, snapshot)
-	end
+	table.insert(buffer, snapshot)
 
 	while #buffer > 10 do
 		table.remove(buffer, 1)
@@ -607,11 +589,9 @@ function RemoteReplicator:ReplicatePlayers(dt)
 			remoteData.Head.CFrame = cf * remoteData.HeadOffset
 		end
 
-		if remoteData.LastAnimationId ~= targetAnimationId then
-			if self:PlayRemoteAnimation(remoteData.Player, targetAnimationId) then
-				remoteData.LastAnimationId = targetAnimationId
-			end
-		end
+		-- Movement animations are played server-side on the rig; Roblox replicates
+		-- Animator playback to all clients automatically. No client-side play needed.
+		remoteData.LastAnimationId = targetAnimationId
 
 		self.Interpolations = self.Interpolations + 1
 	end

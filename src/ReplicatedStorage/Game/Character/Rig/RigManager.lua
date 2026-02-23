@@ -138,6 +138,23 @@ function RigManager:CreateRig(player, character)
 		animator.Parent = rigHumanoid
 	end
 
+	-- Apply player appearance in a separate thread so it never blocks rig creation.
+	-- The rig is fully usable for animations immediately; appearance loads in background.
+	if rigHumanoid and player and player.UserId and player.UserId > 0 then
+		task.spawn(function()
+			local ok, desc = pcall(function()
+				return Players:GetHumanoidDescriptionFromUserId(player.UserId)
+			end)
+			if ok and desc and rigHumanoid.Parent then
+				pcall(function()
+					rigHumanoid:ApplyDescription(desc)
+				end)
+				configureRigDefault(rig)
+				rig:SetAttribute("DescriptionApplied", tick())
+			end
+		end)
+	end
+
 	-- Setup ragdoll system for this rig (client-only)
 	if RunService:IsClient() then
 		local ragdoll = getRagdollModule()

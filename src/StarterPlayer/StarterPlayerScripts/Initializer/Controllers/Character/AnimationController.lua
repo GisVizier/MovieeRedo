@@ -937,6 +937,23 @@ function AnimationController:OnOtherCharacterSpawned(character)
 	self.OtherCharacterAnimators[character] = animator
 	self.OtherCharacterTracks[character] = {}
 	self.OtherCharacterCurrentAnimations[character] = {}
+
+	-- Re-acquire Animator after ApplyDescription (it can destroy/recreate it)
+	rig:GetAttributeChangedSignal("DescriptionApplied"):Connect(function()
+		local rigHumanoid = rig:FindFirstChildOfClass("Humanoid")
+		if not rigHumanoid then
+			return
+		end
+		local newAnimator = rigHumanoid:FindFirstChildOfClass("Animator")
+		if not newAnimator then
+			newAnimator = Instance.new("Animator")
+			newAnimator.Parent = rigHumanoid
+		end
+		self.OtherCharacterAnimators[character] = newAnimator
+		self.OtherCharacterTracks[character] = {}
+		self.OtherCharacterWeaponTracks[character] = {}
+		self.OtherCharacterCurrentAnimations[character] = {}
+	end)
 end
 
 function AnimationController:OnOtherCharacterRemoving(character)
