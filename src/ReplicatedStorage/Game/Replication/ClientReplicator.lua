@@ -14,6 +14,7 @@ local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):Wai
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local ThirdPersonWeaponManager = require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
+local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 local function vmLog(...) end
 
 local function isSingleTrackViewmodelAction(actionName: string): boolean
@@ -227,6 +228,21 @@ function ClientReplicator:_parseLoadout(raw)
 	self.CurrentLoadout = loadout
 end
 
+local function getEquippedSkinForWeapon(weaponId)
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return ""
+	end
+
+	local ok, skinId = pcall(function()
+		return PlayerDataTable.getEquippedSkin(weaponId)
+	end)
+	if not ok or type(skinId) ~= "string" or skinId == "" then
+		return ""
+	end
+
+	return skinId
+end
+
 -- Force re-parse loadout and re-equip (for respawn deep refresh)
 function ClientReplicator:ForceLoadoutRefresh()
 	local localPlayer = Players.LocalPlayer
@@ -261,7 +277,7 @@ function ClientReplicator:_equipSlotWeapon(slot)
 
 	if not slot or slot == "" then
 		self.WeaponManager:UnequipWeapon()
-		self:ReplicateViewmodelAction("", "Unequip", "", false)
+		self:ReplicateViewmodelAction("", "", "Unequip", "", false)
 		vmLog("Unequip due to empty slot")
 		return
 	end
@@ -276,15 +292,17 @@ function ClientReplicator:_equipSlotWeapon(slot)
 
 	if not weaponId or weaponId == "" then
 		self.WeaponManager:UnequipWeapon()
-		self:ReplicateViewmodelAction("", "Unequip", "", false)
+		self:ReplicateViewmodelAction("", "", "Unequip", "", false)
 		vmLog("Unequip due to no weapon", "slot=", tostring(slot), "weaponId=", tostring(weaponId))
 		return
 	end
 
+	local skinId = getEquippedSkinForWeapon(weaponId)
+
 	-- Equip the weapon
-	local success = self.WeaponManager:EquipWeapon(weaponId)
+	local success = self.WeaponManager:EquipWeapon(weaponId, skinId)
 	if success then
-		self:ReplicateViewmodelAction(weaponId, "Equip", "Equip", true)
+		self:ReplicateViewmodelAction(weaponId, skinId, "Equip", "Equip", true)
 		vmLog("Local equip success", "weaponId=", tostring(weaponId))
 	else
 		vmLog("Local equip failed", "weaponId=", tostring(weaponId))
@@ -424,7 +442,7 @@ function ClientReplicator:_getAimPitch()
 	return 0
 end
 
-function ClientReplicator:ReplicateViewmodelAction(weaponId, actionName, trackName, isActive)
+function ClientReplicator:ReplicateViewmodelAction(weaponId, skinId, actionName, trackName, isActive)
 	if not self._net then
 		return
 	end
@@ -437,6 +455,7 @@ function ClientReplicator:ReplicateViewmodelAction(weaponId, actionName, trackNa
 		end
 		table.insert(queue, {
 			WeaponId = weaponId,
+			SkinId = skinId,
 			ActionName = actionName,
 			TrackName = trackName,
 			IsActive = isActive,
@@ -448,15 +467,16 @@ function ClientReplicator:ReplicateViewmodelAction(weaponId, actionName, trackNa
 	end
 
 	local now = workspace:GetServerTimeNow()
-	self:_sendViewmodelAction(weaponId, actionName, trackName, isActive, now)
+	self:_sendViewmodelAction(weaponId, skinId, actionName, trackName, isActive, now)
 end
 
-function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, isActive, now)
+function ClientReplicator:_sendViewmodelAction(weaponId, skinId, actionName, trackName, isActive, now)
 	local localPlayer = Players.LocalPlayer
 	if localPlayer and localPlayer:GetAttribute("InLobby") == true then
 		return
 	end
 
+	skinId = tostring(skinId or "")
 	actionName = tostring(actionName or "")
 	trackName = tostring(trackName or "")
 	local actionTrackState = self._activeViewmodelActionTracks
@@ -471,7 +491,7 @@ function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, 
 		local stateKey = string.format("%s|%s", tostring(weaponId or ""), actionName)
 		local previousTrack = actionTrackState[stateKey]
 		if type(previousTrack) == "string" and previousTrack ~= "" and previousTrack ~= trackName then
-			self:_sendViewmodelAction(weaponId, actionName, previousTrack, false, now)
+			self:_sendViewmodelAction(weaponId, skinId, actionName, previousTrack, false, now)
 		end
 	end
 
@@ -489,6 +509,7 @@ function ClientReplicator:_sendViewmodelAction(weaponId, actionName, trackName, 
 	local compressed = CompressionUtils:CompressViewmodelAction(
 		localPlayer and localPlayer.UserId or 0,
 		weaponId,
+		skinId,
 		actionName,
 		trackName,
 		isActive,
@@ -522,7 +543,7 @@ function ClientReplicator:_flushPendingViewmodelActions()
 	end
 
 	for _, payload in ipairs(queue) do
-		self:_sendViewmodelAction(payload.WeaponId, payload.ActionName, payload.TrackName, payload.IsActive)
+		self:_sendViewmodelAction(payload.WeaponId, payload.SkinId, payload.ActionName, payload.TrackName, payload.IsActive)
 	end
 
 	self._pendingViewmodelActions = {}

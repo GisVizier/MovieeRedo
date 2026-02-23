@@ -656,7 +656,12 @@ function WeaponController:_applyCrosshairRecoil()
 	local weaponData = weaponConfig and weaponConfig.crosshair or nil
 
 	if weaponData then
-		self._crosshair:OnRecoil({ amount = weaponData.recoilMultiplier or 1 })
+		local state = self._weaponInstance and self._weaponInstance.State or nil
+		local recoilScale = 1
+		if state and type(state.CrosshairRecoilScale) == "number" then
+			recoilScale = math.max(state.CrosshairRecoilScale, 0.1)
+		end
+		self._crosshair:OnRecoil({ amount = (weaponData.recoilMultiplier or 1) * recoilScale })
 	end
 end
 
@@ -685,6 +690,13 @@ function WeaponController:_applyCameraRecoil()
 			or weaponConfig.adsEffectsMultiplier
 			or 0.35
 	end
+
+	local state = self._weaponInstance and self._weaponInstance.State or nil
+	local shotRecoilScale = 1
+	if state and type(state.ShotRecoilScale) == "number" then
+		shotRecoilScale = math.max(state.ShotRecoilScale, 0.1)
+	end
+	adsRecoilMult *= shotRecoilScale
 
 	local pitchKick = (recoilData.pitchUp or 1) * adsRecoilMult
 	local yawKick = ((math.random() * 2 - 1) * (recoilData.yawRandom or 0.5)) * adsRecoilMult
@@ -1530,8 +1542,8 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 		end,
 
 		-- Raycast helpers
-		PerformRaycast = function(ignoreSpread)
-			return self:_performRaycast(weaponConfig, ignoreSpread)
+		PerformRaycast = function(ignoreSpread, extraSpreadMultiplier)
+			return self:_performRaycast(weaponConfig, ignoreSpread, extraSpreadMultiplier)
 		end,
 		GeneratePelletDirections = function(profile)
 			return self:_generatePelletDirections(profile)
@@ -2501,12 +2513,18 @@ function WeaponController:_replicateViewmodelAction(actionName, trackName, isAct
 		return
 	end
 
+	local slot = self:_getCurrentSlot()
+	local skinId = self:_getSkinIdForSlot(slot)
+	if type(skinId) ~= "string" then
+		skinId = ""
+	end
+
 	if isActive ~= true and type(trackName) == "string" and trackName ~= "" then
 		local trackKey = string.format("%s|%s", tostring(actionName), tostring(trackName))
 		self:_clearReplicatedTrackStopWatch(trackKey)
 	end
 
-	replicationController:ReplicateViewmodelAction(weaponId, actionName, trackName or "", isActive == true)
+	replicationController:ReplicateViewmodelAction(weaponId, skinId, actionName, trackName or "", isActive == true)
 end
 
 function WeaponController:_clearReplicatedTrackStopWatch(trackKey)
@@ -2634,7 +2652,7 @@ function WeaponController:_stopWeaponTracks(exceptTrackName)
 	end
 end
 
-function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
+function WeaponController:_performRaycast(weaponConfig, ignoreSpread, extraSpreadMultiplier)
 	local spreadMultiplier = 1
 
 	if not ignoreSpread and LocalPlayer and weaponConfig then
@@ -2705,6 +2723,11 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread)
 			maxMultiplier = minMultiplier
 		end
 		spreadMultiplier = math.clamp(spreadMultiplier, minMultiplier, maxMultiplier)
+	end
+
+	local externalSpread = tonumber(extraSpreadMultiplier)
+	if externalSpread and externalSpread > 0 then
+		spreadMultiplier *= externalSpread
 	end
 
 	return WeaponRaycast.PerformRaycast(self._camera, LocalPlayer, weaponConfig, ignoreSpread, spreadMultiplier)

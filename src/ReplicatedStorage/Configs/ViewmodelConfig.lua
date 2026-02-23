@@ -130,7 +130,7 @@ ViewmodelConfig.Weapons = {
 
 	Revolver = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Revolver,
-		Offset = CFrame.new(0, 0, 0.4),
+		Offset = CFrame.new(0, 0, -0.675),
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
@@ -138,15 +138,15 @@ ViewmodelConfig.Weapons = {
 			RightAttachment = CFrame.new(1, 0.5, 0.5) * CFrame.Angles(0, 0, math.rad(90)),
 		},
 		Animations = {
-			-- Using legacy asset IDs (can be migrated to Animation instances later)
-			Idle = "rbxassetid://109130838280246",
-			Walk = "rbxassetid://109130838280246",
-			Run = "rbxassetid://70374674712630",
-			ADS = "rbxassetid://109130838280246",
-			Fire = "rbxassetid://116676760515163",
-			Reload = "rbxassetid://128494876463082",
-			Equip = "rbxassetid://0",
-			Inspect = "rbxassetid://129139579437341",
+			Idle = "Idle",
+			Walk = "Idle",
+			Run = "Run",
+			ADS = "rbxassetid://119465841041365",
+			Fire = "Fire",
+			ReloadBullets = "Reload",
+			ReloadEmpty = "ReloadE",
+			Equip = "Equip",
+			Inspect = "Inspect",
 		},
 	},
 
@@ -352,6 +352,12 @@ ViewmodelConfig.Skins = {
 		OGPump = {
 			-- OG Pump model under Shotguns folder
 			ModelPath = "Shotguns/OGPump",
+		},
+	},
+
+	Revolver = {
+		Sheriff = {
+			ModelPath = "Revolver/Revolver_Sheriff",
 		},
 	},
 

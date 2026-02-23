@@ -6,6 +6,7 @@
 ]]
 
 local Revolver = {}
+local Visuals = require(script:WaitForChild("Visuals"))
 
 Revolver.Cancels = {
 	FireCancelsSpecial = false,
@@ -21,6 +22,9 @@ function Revolver.Initialize(weaponInstance)
 
 	weaponInstance.State.LastFireTime = weaponInstance.State.LastFireTime or 0
 	weaponInstance.State.Equipped = weaponInstance.State.Equipped ~= false
+
+	local config = weaponInstance.Config
+	Visuals.UpdateAmmoVisibility(weaponInstance, weaponInstance.State.CurrentAmmo or 0, config and config.clipSize or 8)
 end
 
 function Revolver.OnEquip(weaponInstance)
@@ -31,6 +35,10 @@ function Revolver.OnEquip(weaponInstance)
 	if weaponInstance.PlayAnimation then
 		weaponInstance.PlayAnimation("Equip", 0.1, true)
 	end
+
+	local state = weaponInstance.State
+	local config = weaponInstance.Config
+	Visuals.UpdateAmmoVisibility(weaponInstance, state and state.CurrentAmmo or 0, config and config.clipSize or 8)
 end
 
 function Revolver.OnUnequip(weaponInstance)

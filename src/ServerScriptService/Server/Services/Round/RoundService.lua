@@ -21,6 +21,7 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MatchmakingConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("MatchmakingConfig"))
+local VoxelDestruction = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("VoxelDestruction"))
 
 local RoundService = {}
 
@@ -72,6 +73,9 @@ end
 function RoundService:RemovePlayer(player)
 	local userId = player.UserId
 
+	-- Capture area BEFORE removal so we can check if it becomes empty
+	local areaId = player:GetAttribute("CurrentArea")
+
 	local index = table.find(self._trainingPlayers, userId)
 	if index then
 		table.remove(self._trainingPlayers, index)
@@ -80,6 +84,46 @@ function RoundService:RemovePlayer(player)
 			playerId = userId,
 		})
 	end
+
+	-- If no remaining training players are in the same area, reset its destruction
+	local playersLeftInArea = 0
+	for _, uid in self._trainingPlayers do
+		local p = Players:GetPlayerByUserId(uid)
+		if p and p:GetAttribute("CurrentArea") == areaId then
+			playersLeftInArea += 1
+		end
+	end
+
+	if playersLeftInArea == 0 then
+		self:_resetAreaDestruction(areaId)
+	end
+end
+
+--[[
+	Resets voxel destruction for a training area once all players have left it.
+	Finds the map model in workspace.World.Map and calls VoxelDestruction.ResetAll.
+]]
+function RoundService:_resetAreaDestruction(areaId)
+	-- Locate the training map model
+	local worldFolder = workspace:FindFirstChild("World")
+	local mapFolder = worldFolder and worldFolder:FindFirstChild("Map")
+
+	-- Try to find the specific area model first, fall back to the whole map folder
+	local trainingMap = nil
+	if mapFolder then
+		if areaId then
+			trainingMap = mapFolder:FindFirstChild(areaId)
+		end
+		-- Fallback: use the map folder itself if no specific child found
+		if not trainingMap then
+			trainingMap = mapFolder
+		end
+	end
+
+	VoxelDestruction.ResetAll(trainingMap)
+
+	-- Notify all clients to clear debris visuals
+	self._net:FireAllClients("VoxelReset", {})
 end
 
 function RoundService:IsPlayerInTraining(player)

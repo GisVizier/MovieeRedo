@@ -60,6 +60,7 @@ SeraSchemas.CharacterStateDelta = Sera.Schema({
 SeraSchemas.ViewmodelAction = Sera.Schema({
 	PlayerUserId = Sera.Uint32,
 	WeaponId = Sera.String8,
+	SkinId = Sera.String8,
 	ActionName = Sera.String8,
 	TrackName = Sera.String8,
 	IsActive = Sera.Boolean,

@@ -389,10 +389,10 @@ function KitController:_replicateFistsTrack(trackName: string)
 
 	local previousTrack = self._replicatedFistsTrack
 	if type(previousTrack) == "string" and previousTrack ~= "" and previousTrack ~= trackName then
-		replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", previousTrack, false)
+		replicationController:ReplicateViewmodelAction("Fists", "", "PlayWeaponTrack", previousTrack, false)
 	end
 
-	replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", trackName, true)
+	replicationController:ReplicateViewmodelAction("Fists", "", "PlayWeaponTrack", trackName, true)
 	self._replicatedFistsTrack = trackName
 end
 
@@ -405,7 +405,7 @@ function KitController:_clearReplicatedFistsTrack()
 
 	local replicationController = ServiceRegistry:GetController("Replication")
 	if replicationController and type(replicationController.ReplicateViewmodelAction) == "function" then
-		replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", trackName, false)
+		replicationController:ReplicateViewmodelAction("Fists", "", "PlayWeaponTrack", trackName, false)
 	end
 
 	self._replicatedFistsTrack = nil

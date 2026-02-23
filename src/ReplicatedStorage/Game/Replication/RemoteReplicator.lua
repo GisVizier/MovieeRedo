@@ -218,6 +218,7 @@ function RemoteReplicator:OnViewmodelActionSnapshot(snapshot)
 				local stopPayload = {
 					PlayerUserId = userId,
 					WeaponId = currentPayload.WeaponId,
+					SkinId = currentPayload.SkinId,
 					ActionName = currentPayload.ActionName,
 					TrackName = currentPayload.TrackName,
 					IsActive = false,
@@ -318,6 +319,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				RigPartOffsets = rig and self:_calculateRigPartOffsets(rig) or nil,
 				WeaponManager = weaponManager,
 				CurrentLoadout = nil,
+				CurrentSkins = nil,
 				CurrentEquippedSlot = nil,
 				LastViewmodelActionSeq = nil,
 				IsCrouching = self.PendingCrouchStates[userId] == true,
@@ -731,6 +733,7 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 	end
 
 	local weaponId = tostring(payload.WeaponId or "")
+	local skinId = tostring(payload.SkinId or "")
 	local actionName = tostring(payload.ActionName or "")
 	local trackName = tostring(payload.TrackName or "")
 	local isActive = payload.IsActive == true
@@ -746,16 +749,23 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 		return
 	end
 
-	if weaponId ~= "" and weaponManager:GetWeaponId() ~= weaponId then
+	local currentSkinId = ""
+	if type(weaponManager.GetSkinId) == "function" then
+		currentSkinId = tostring(weaponManager:GetSkinId() or "")
+	end
+
+	if weaponId ~= "" and (weaponManager:GetWeaponId() ~= weaponId or currentSkinId ~= skinId) then
 		vmLog(
 			"Remote equip",
 			remoteData.Player and remoteData.Player.Name or "?",
 			"weapon=",
 			weaponId,
+			"skin=",
+			skinId,
 			"seq=",
 			sequenceNumber
 		)
-		weaponManager:EquipWeapon(weaponId)
+		weaponManager:EquipWeapon(weaponId, skinId)
 	end
 
 	vmLog(
@@ -781,6 +791,7 @@ function RemoteReplicator:_applyReplicatedViewmodelAction(remoteData, payload)
 			userMap[stateKey] = {
 				PlayerUserId = userId,
 				WeaponId = weaponId,
+				SkinId = skinId,
 				ActionName = actionName,
 				TrackName = trackName,
 				IsActive = true,
@@ -875,6 +886,14 @@ function RemoteReplicator:_updateRemoteLoadout(remoteData, player)
 	local loadout = decoded.loadout or decoded
 	remoteData.CurrentLoadout = loadout
 
+	-- Optional skin payload support if upstream includes it.
+	local skins = decoded.equippedSkins or decoded.skins or decoded.EQUIPPED_SKINS
+	if type(skins) == "table" then
+		remoteData.CurrentSkins = skins
+	else
+		remoteData.CurrentSkins = nil
+	end
+
 	-- Re-equip current slot with new loadout
 	if remoteData.CurrentEquippedSlot then
 		self:_equipRemoteWeapon(remoteData)
@@ -924,7 +943,14 @@ function RemoteReplicator:_equipRemoteWeapon(remoteData)
 	end
 
 	-- Equip the weapon
-	local success = remoteData.WeaponManager:EquipWeapon(weaponId)
+	local skinId = ""
+	if type(remoteData.CurrentSkins) == "table" then
+		local resolved = remoteData.CurrentSkins[weaponId]
+		if type(resolved) == "string" and resolved ~= "" then
+			skinId = resolved
+		end
+	end
+	local success = remoteData.WeaponManager:EquipWeapon(weaponId, skinId)
 	return success
 end
 

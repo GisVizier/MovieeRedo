@@ -426,7 +426,7 @@ local function replicateTrackSpeed(trackName: string, speed: number)
 		return
 	end
 
-	replicationController:ReplicateViewmodelAction("Fists", "SetTrackSpeed", string.format("%s|%s", trackName, tostring(speed)), true)
+	replicationController:ReplicateViewmodelAction("Fists", "", "SetTrackSpeed", string.format("%s|%s", trackName, tostring(speed)), true)
 end
 
 local function setExternalMoveMult(multiplier)

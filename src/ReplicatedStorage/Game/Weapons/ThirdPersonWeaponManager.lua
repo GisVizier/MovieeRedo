@@ -73,7 +73,7 @@ local function resolveModelTemplate(modelPath: string)
 	return current
 end
 
-local function resolveAnimationInstance(weaponId: string, animRef: string)
+local function resolveAnimationInstance(weaponId: string, animRef: string, skinId: string?)
 	if type(animRef) ~= "string" or animRef == "" then
 		return nil
 	end
@@ -92,6 +92,16 @@ local function resolveAnimationInstance(weaponId: string, animRef: string)
 	local weaponFolder = viewModelAnimations:FindFirstChild(weaponId)
 	if not weaponFolder then
 		return nil
+	end
+
+	if type(skinId) == "string" and skinId ~= "" then
+		local skinFolder = weaponFolder:FindFirstChild(skinId)
+		if skinFolder then
+			local skinAnimation = skinFolder:FindFirstChild(animRef)
+			if skinAnimation and skinAnimation:IsA("Animation") then
+				return skinAnimation
+			end
+		end
 	end
 
 	local direct = weaponFolder:FindFirstChild(animRef)
@@ -205,6 +215,7 @@ function ThirdPersonWeaponManager.new(rig: Model)
 	self.Rig = rig
 	self.WeaponModel = nil
 	self.WeaponId = nil
+	self.SkinId = nil
 	self.WeaponRoot = nil
 	self.Weld = nil
 	self.Animator = nil
@@ -233,14 +244,14 @@ function ThirdPersonWeaponManager:_getRigRoot()
 	return self.Rig:FindFirstChild("HumanoidRootPart") or self.Rig.PrimaryPart
 end
 
-function ThirdPersonWeaponManager:_loadTracks(weaponId: string, weaponConfig)
+function ThirdPersonWeaponManager:_loadTracks(weaponId: string, weaponConfig, skinId: string?)
 	self.Tracks = {}
 	if not self.Animator or not weaponConfig or not weaponConfig.Animations then
 		return
 	end
 
 	for trackName, animRef in pairs(weaponConfig.Animations) do
-		local animation = resolveAnimationInstance(weaponId, animRef)
+		local animation = resolveAnimationInstance(weaponId, animRef, skinId)
 		if animation then
 			local ok, track = pcall(function()
 				return self.Animator:LoadAnimation(animation)
@@ -457,7 +468,7 @@ function ThirdPersonWeaponManager:_resolveReplicatedTrackAnimation(trackName: st
 	end
 
 	if self.WeaponId then
-		local weaponAnimation = resolveAnimationInstance(self.WeaponId, trackName)
+		local weaponAnimation = resolveAnimationInstance(self.WeaponId, trackName, self.SkinId)
 		if weaponAnimation then
 			return weaponAnimation
 		end
@@ -655,7 +666,7 @@ function ThirdPersonWeaponManager:_setTrackSpeed(trackName: string, speed: numbe
 	track:AdjustSpeed(resolvedSpeed)
 end
 
-function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
+function ThirdPersonWeaponManager:EquipWeapon(weaponId: string, skinId: string?): boolean
 	if type(weaponId) ~= "string" or weaponId == "" then
 		self:UnequipWeapon()
 		return false
@@ -664,13 +675,24 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 	self:UnequipWeapon()
 
 	local weaponConfig = ViewmodelConfig.Weapons and ViewmodelConfig.Weapons[weaponId]
-	local modelPath = weaponConfig and weaponConfig.ModelPath
+	local resolvedSkinId = (type(skinId) == "string" and skinId ~= "") and skinId or nil
+	local skinConfig = nil
+	if resolvedSkinId and ViewmodelConfig.Skins and ViewmodelConfig.Skins[weaponId] then
+		skinConfig = ViewmodelConfig.Skins[weaponId][resolvedSkinId]
+	end
+
+	local modelPath = (skinConfig and skinConfig.ModelPath)
+		or (weaponConfig and weaponConfig.ModelPath)
 		or (ViewmodelConfig.Models and ViewmodelConfig.Models.ByWeaponId and ViewmodelConfig.Models.ByWeaponId[weaponId])
 	if type(modelPath) ~= "string" or modelPath == "" then
 		return false
 	end
 
 	local template = resolveModelTemplate(modelPath)
+	if (not template or not template:IsA("Model")) and resolvedSkinId and weaponConfig and type(weaponConfig.ModelPath) == "string" then
+		modelPath = weaponConfig.ModelPath
+		template = resolveModelTemplate(modelPath)
+	end
 	if not template or not template:IsA("Model") then
 		vmLog("Equip failed: missing template", tostring(weaponId), tostring(modelPath))
 		return false
@@ -735,8 +757,9 @@ function ThirdPersonWeaponManager:EquipWeapon(weaponId: string): boolean
 	self.Weld = weld
 	self.Animator = ensureAnimator(model)
 	self.WeaponId = weaponId
+	self.SkinId = resolvedSkinId
 
-	self:_loadTracks(weaponId, weaponConfig)
+	self:_loadTracks(weaponId, weaponConfig, resolvedSkinId)
 	if weaponId == "Fists" then
 		self:_loadFistsKitTracks()
 	end
@@ -934,6 +957,7 @@ function ThirdPersonWeaponManager:UnequipWeapon()
 	self.WeaponRoot = nil
 	self.Animator = nil
 	self.WeaponId = nil
+	self.SkinId = nil
 	self.ReplicationOffset = DEFAULT_OFFSET
 end
 
@@ -943,6 +967,10 @@ end
 
 function ThirdPersonWeaponManager:GetWeaponId(): string?
 	return self.WeaponId
+end
+
+function ThirdPersonWeaponManager:GetSkinId(): string?
+	return self.SkinId
 end
 
 function ThirdPersonWeaponManager:HasWeapon(): boolean

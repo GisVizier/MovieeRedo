@@ -417,13 +417,21 @@ LoadoutConfig.Weapons = {
 				rarity = "Epic",
 				instance = nil,
 			},
+			Sheriff = {
+				id = "Sheriff",
+				name = "Sheriff",
+				description = "Frontier-issued revolver skin.",
+				imageId = "rbxassetid://121217546077252",
+				rarity = "Legendary",
+				instance = nil,
+			},
 		},
 		actions = {
 			canQuickUseMelee = true,
 			canQuickUseAblility = true,
 		},
-		maxAmmo = 36,
-		clipSize = 6,
+		maxAmmo = 40,
+		clipSize = 8,
 		reloadTime = 1.5,
 		isAbility = false,
 		fireProfile = {
@@ -438,72 +446,47 @@ LoadoutConfig.Weapons = {
 		adsFOV = 55,
 		adsSpeedMultiplier = 0.75,
 
-		damage = 45,
-		headshotMultiplier = 2.0,
+		damage = 35.3,
+		headshotMultiplier = 3.0,
 		range = 200,
-		fireRate = 120,
+		fireRate = 421,
+		spread = 0.008,
+		spreadFactors = {
+			speedReference = 6,
+			speedMaxBonus = 1.4,
+			hipfireMult = 0.45,
+			crouchMult = 0.08,
+			slideMult = 1.25,
+			sprintMult = 2.2,
+			airMult = 2.5,
+			adsMult = 0.02,
+			minMultiplier = 0.05,
+			maxMultiplier = 2.5,
+		},
 		minRange = 8,
 		maxRange = 150,
-		minDamage = 12,
+		minDamage = 8,
 		tracerColor = Color3.fromRGB(255, 100, 50),
 		
 		-- Wall destruction pressure (high caliber)
 		destructionPressure = 40,
 
 		recoil = {
-			pitchUp = 4.0,
-			yawRandom = 0.2, -- Minimal horizontal randomness for precision
-			recoverySpeed = 6,
+			pitchUp = 5.8,
+			yawRandom = 0.2,
+			recoverySpeed = 4.5,
 		},
 
 		crosshair = {
 			type = "Default",
-			spreadX = 0.5,
-			spreadY = 0.5,
-			recoilMultiplier = 3.0,
-			-- Revolver: precision secondary with minimal spread
-			crouchMult = 0.1, -- 90% reduction when crouching
-			sprintMult = 1.0, -- No extra spread when sprinting
-			airMult = 1.0, -- No extra spread in air
-			adsMult = 0.05, -- 95% reduction when ADS
-			baseGap = 10, -- Base gap
-		},
-
-		projectile = {
-			speed = 700,
-			gravity = 20,
-			drag = 0.008,
-			lifetime = 2.0,
-			inheritVelocity = 0,
-
-			spreadMode = "Cone",
-			baseSpread = 0,
-			crosshairSpreadScale = 0,
-			movementSpreadMult = 0.3,
-			hipfireSpreadMult = 0.3,
-			airSpreadMult = 0.4,
-			crouchSpreadMult = 0.2,
-			slideSpreadMult = 0.3,
-
-			pelletsPerShot = 1,
-
-			pierce = 0,
-			pierceDamageMult = 1.0,
-			ricochet = 0,
-			ricochetDamageMult = 0.7,
-			ricochetSpeedMult = 0.9,
-
-			aoe = nil,
-			charge = nil,
-
-			visual = "Bullet",
-			tracerColor = Color3.fromRGB(255, 100, 50),
-			tracerLength = 4,
-			trailEnabled = true,
-
-			minRange = 8,
-			maxRange = 150,
-			minDamage = 12,
+			spreadX = 0.9,
+			spreadY = 0.9,
+			recoilMultiplier = 3.2,
+			crouchMult = 0.08,
+			sprintMult = 2.2,
+			airMult = 2.5,
+			adsMult = 0.02,
+			baseGap = 10,
 		},
 
 		-- Aim Assist settings (revolver: precise secondary with smooth pull)

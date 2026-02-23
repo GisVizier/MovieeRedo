@@ -37,8 +37,8 @@ function ReplicationController:ForceLoadoutRefresh()
 	ClientReplicator:ForceLoadoutRefresh()
 end
 
-function ReplicationController:ReplicateViewmodelAction(weaponId, actionName, trackName, isActive)
-	ClientReplicator:ReplicateViewmodelAction(weaponId, actionName, trackName, isActive)
+function ReplicationController:ReplicateViewmodelAction(weaponId, skinId, actionName, trackName, isActive)
+	ClientReplicator:ReplicateViewmodelAction(weaponId, skinId, actionName, trackName, isActive)
 end
 
 return ReplicationController

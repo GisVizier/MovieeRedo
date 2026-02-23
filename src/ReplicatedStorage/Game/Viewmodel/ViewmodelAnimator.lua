@@ -27,7 +27,7 @@ local function replicateKitTrackAction(animIdOrName: string, isActive: boolean)
 		return
 	end
 
-	replicationController:ReplicateViewmodelAction("Fists", "PlayWeaponTrack", animIdOrName, isActive == true)
+	replicationController:ReplicateViewmodelAction("Fists", "", "PlayWeaponTrack", animIdOrName, isActive == true)
 end
 
 local function expAlpha(dt: number, k: number): number

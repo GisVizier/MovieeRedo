@@ -116,7 +116,16 @@ function ReplicationService:UnregisterPlayer(player)
 	self.PlayerActiveViewmodelActions[player] = nil
 end
 
-function ReplicationService:_updateActiveViewmodelState(player, weaponId, actionName, trackName, isActive, sequenceNumber, timestamp)
+function ReplicationService:_updateActiveViewmodelState(
+	player,
+	weaponId,
+	skinId,
+	actionName,
+	trackName,
+	isActive,
+	sequenceNumber,
+	timestamp
+)
 	if not player then
 		return
 	end
@@ -141,6 +150,7 @@ function ReplicationService:_updateActiveViewmodelState(player, weaponId, action
 		stateMap[key] = {
 			PlayerUserId = player.UserId,
 			WeaponId = weaponId,
+			SkinId = skinId,
 			ActionName = actionName,
 			TrackName = trackName,
 			IsActive = true,
@@ -216,6 +226,7 @@ function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)
 	end
 
 	local weaponId = tostring(payload.WeaponId or "")
+	local skinId = tostring(payload.SkinId or "")
 	local actionName = tostring(payload.ActionName or "")
 	local trackName = tostring(payload.TrackName or "")
 	local isActive = payload.IsActive == true
@@ -231,8 +242,8 @@ function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)
 		return
 	end
 
-	if #weaponId > 32 or #actionName > 32 or #trackName > 32 then
-		vmLog("Drop: field too long", player.Name, weaponId, actionName, trackName)
+	if #weaponId > 32 or #skinId > 32 or #actionName > 32 or #trackName > 32 then
+		vmLog("Drop: field too long", player.Name, weaponId, skinId, actionName, trackName)
 		return
 	end
 
@@ -249,11 +260,12 @@ function ReplicationService:OnViewmodelActionUpdate(player, compressedAction)
 		end
 	end
 	self.PlayerViewmodelActionSeq[player] = sequenceNumber
-	self:_updateActiveViewmodelState(player, weaponId, actionName, trackName, isActive, sequenceNumber, timestamp)
+	self:_updateActiveViewmodelState(player, weaponId, skinId, actionName, trackName, isActive, sequenceNumber, timestamp)
 
 	local replicated = CompressionUtils:CompressViewmodelAction(
 		player.UserId,
 		weaponId,
+		skinId,
 		actionName,
 		trackName,
 		isActive,

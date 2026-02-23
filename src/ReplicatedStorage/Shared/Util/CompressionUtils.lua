@@ -275,10 +275,20 @@ function CompressionUtils:DecompressDeltaState(deltaString, lastState)
 	}
 end
 
-function CompressionUtils:CompressViewmodelAction(playerUserId, weaponId, actionName, trackName, isActive, sequenceNumber, timestamp)
+function CompressionUtils:CompressViewmodelAction(
+	playerUserId,
+	weaponId,
+	skinId,
+	actionName,
+	trackName,
+	isActive,
+	sequenceNumber,
+	timestamp
+)
 	local buf, err = Sera.Serialize(SeraSchemas.ViewmodelAction, {
 		PlayerUserId = tonumber(playerUserId) or 0,
 		WeaponId = tostring(weaponId or ""),
+		SkinId = tostring(skinId or ""),
 		ActionName = tostring(actionName or ""),
 		TrackName = tostring(trackName or ""),
 		IsActive = isActive == true,

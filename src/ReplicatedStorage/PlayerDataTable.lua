@@ -110,7 +110,7 @@ function PlayerDataTable.init()
 		},
 
 		OWNED_SKINS = {
-			Revolver = { "Energy" },
+			Revolver = { "Energy", "Sheriff" },
 			Shotgun = { "OGPump" },
 			Tomahawk = { "Cleaver" },
 		},
