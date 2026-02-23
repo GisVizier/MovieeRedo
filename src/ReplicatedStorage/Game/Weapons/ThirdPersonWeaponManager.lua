@@ -614,7 +614,7 @@ function ThirdPersonWeaponManager:SetCrouching(isCrouching: boolean?)
 end
 
 function ThirdPersonWeaponManager:_playTrack(trackName: string, restart: boolean?)
-	if DISABLE_RIG_ANIMATIONS then return end -- TESTING
+	if DISABLE_RIG_ANIMATIONS then return end
 	local track = self.Tracks[trackName] or self:_ensureReplicatedTrack(trackName)
 	if not track then
 		return
@@ -630,7 +630,7 @@ function ThirdPersonWeaponManager:_playTrack(trackName: string, restart: boolean
 end
 
 function ThirdPersonWeaponManager:_stopTrack(trackName: string)
-	if DISABLE_RIG_ANIMATIONS then return end -- TESTING
+	if DISABLE_RIG_ANIMATIONS then return end
 	local track = self.Tracks[trackName]
 	if track and track.IsPlaying then
 		track:Stop(0.05)

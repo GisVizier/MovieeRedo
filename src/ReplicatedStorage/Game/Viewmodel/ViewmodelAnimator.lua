@@ -731,9 +731,6 @@ function ViewmodelAnimator:PlayKitAnimation(animIdOrName: string, settings: {[st
 	replicateKitTrackAction(animIdOrName, true)
 	self:_watchKitReplicatedStop(animIdOrName, track)
 	
-	if DEBUG_VIEWMODEL then
-	end
-	
 	return track
 end
 
@@ -764,7 +761,6 @@ function ViewmodelAnimator:StopAllKitAnimations(fadeTime: number?)
 		if track and track.IsPlaying then
 			track:Stop(fade)
 			replicateKitTrackAction(name, false)
-
 		end
 	end
 end

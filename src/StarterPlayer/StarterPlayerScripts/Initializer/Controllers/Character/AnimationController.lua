@@ -553,6 +553,13 @@ function AnimationController:PlayRigAnimation(animName: string, settings: { [str
 end
 
 function AnimationController:StopRigAnimation(animName: string, fadeOut: number?)
+	-- Also stop through viewmodel replication path (where kit animations are actually played)
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	local vmAnimator = viewmodelController and viewmodelController._animator
+	if vmAnimator and type(vmAnimator.StopKitAnimation) == "function" then
+		vmAnimator:StopKitAnimation(animName, fadeOut or 0.1)
+	end
+
 	Net:FireServer("RigAnimationRequest", {
 		action = "Stop",
 		animName = animName,
@@ -561,6 +568,15 @@ function AnimationController:StopRigAnimation(animName: string, fadeOut: number?
 end
 
 function AnimationController:StopAllRigAnimations(fadeOut: number?)
+	-- Kit animations are played through the viewmodel replication system
+	-- (PlayWeaponTrack via ThirdPersonWeaponManager), NOT through _rigAnimTracks.
+	-- Stop them through the viewmodel path so remote clients see the stop.
+	local viewmodelController = ServiceRegistry:GetController("Viewmodel")
+	local vmAnimator = viewmodelController and viewmodelController._animator
+	if vmAnimator and type(vmAnimator.StopAllKitAnimations) == "function" then
+		vmAnimator:StopAllKitAnimations(fadeOut or 0.1)
+	end
+
 	Net:FireServer("RigAnimationRequest", {
 		action = "StopAll",
 		fadeOut = fadeOut or 0.15,
@@ -573,12 +589,10 @@ function AnimationController:_getAnimatorForUserId(userId)
 		return nil
 	end
 
-	-- Local player: use LocalAnimator
 	if player == LocalPlayer then
 		return self.LocalAnimator
 	end
 
-	-- Remote player: use OtherCharacterAnimators
 	local character = player.Character
 	if character then
 		return self.OtherCharacterAnimators[character]

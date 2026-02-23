@@ -383,13 +383,20 @@ function RemoteReplicator:OnStatesReplicated(batch)
 			self.PlayerLossStats[userId] = self.PlayerLossStats[userId]
 				or { LossRate = 0, PacketsLost = 0, PacketsReceived = 0 }
 
-			-- Drop duplicate/out-of-order snapshots so stale initial states cannot
-			-- overwrite a newer movement animation state for late joiners.
-			if sequenceGap == 0 then
-				continue
-			end
+			-- Drop out-of-order snapshots (sequence wrapped backwards).
 			if sequenceGap > HALF_SEQUENCE then
 				continue
+			end
+
+			-- For same-sequence packets (dormant resends), accept them only if the
+			-- animation ID differs from what we last played. This ensures that when
+			-- unreliable transport drops the original animation-change packet, the
+			-- server's periodic dormant resend still corrects the late joiner's state.
+			if sequenceGap == 0 then
+				local currentAnimId = state.AnimationId or 1
+				if currentAnimId == remoteData.LastAnimationId then
+					continue
+				end
 			end
 
 			if sequenceGap > 1 then
@@ -473,13 +480,21 @@ function RemoteReplicator:AddSnapshotToBuffer(remoteData, state, receiveTime)
 		SequenceNumber = state.SequenceNumber,
 	}
 
+	local replaced = false
 	for i = #buffer, 1, -1 do
 		if buffer[i] and buffer[i].SequenceNumber == snapshot.SequenceNumber then
+			if buffer[i].AnimationId ~= snapshot.AnimationId then
+				buffer[i] = snapshot
+				replaced = true
+				break
+			end
 			return
 		end
 	end
 
-	table.insert(buffer, snapshot)
+	if not replaced then
+		table.insert(buffer, snapshot)
+	end
 
 	while #buffer > 10 do
 		table.remove(buffer, 1)
