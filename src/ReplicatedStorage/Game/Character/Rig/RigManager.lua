@@ -76,21 +76,39 @@ function RigManager:Init()
 		return
 	end
 
-	local container = Workspace:FindFirstChild("Rigs")
-	if not container then
-		container = Instance.new("Folder")
-		container.Name = "Rigs"
-		container.Parent = Workspace
+	if RunService:IsServer() then
+		local container = Workspace:FindFirstChild("Rigs")
+		if not container then
+			container = Instance.new("Folder")
+			container.Name = "Rigs"
+			container.Parent = Workspace
+		end
+		self.RigContainer = container
+	else
+		self.RigContainer = Workspace:FindFirstChild("Rigs")
 	end
-
-	self.RigContainer = container
 end
 
 function RigManager:GetRigContainer()
 	if not self.RigContainer then
+		self.RigContainer = Workspace:FindFirstChild("Rigs")
+	end
+	if not self.RigContainer and RunService:IsServer() then
 		self:Init()
 	end
 	return self.RigContainer
+end
+
+function RigManager:WaitForRigContainer(timeout)
+	local container = self:GetRigContainer()
+	if container then
+		return container
+	end
+	container = Workspace:WaitForChild("Rigs", timeout or 15)
+	if container then
+		self.RigContainer = container
+	end
+	return container
 end
 
 function RigManager:CreateRig(player, character)
@@ -203,7 +221,7 @@ function RigManager:WaitForActiveRig(player, timeout)
 	end
 
 	timeout = timeout or 10
-	local container = self:GetRigContainer()
+	local container = self:WaitForRigContainer(timeout)
 	if not container or not player then
 		return nil
 	end
