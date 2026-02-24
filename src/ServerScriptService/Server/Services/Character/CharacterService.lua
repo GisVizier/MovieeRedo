@@ -131,6 +131,76 @@ function CharacterService:_bindRemotes()
 			end
 		end
 	end)
+
+	-- =================================================================
+	-- REQUEST RESET — fired by the client when the Roblox "Reset
+	-- Character" button is pressed.  Routes based on game context:
+	--   Match / Training  → CombatService:Kill  (same as H key)
+	--   Lobby             → Full respawn + controller reset
+	-- =================================================================
+	self._net:ConnectServer("RequestReset", function(player)
+		if self.IsSpawningCharacter[player.UserId] then
+			return
+		end
+
+		local combatService = self._registry and self._registry:TryGet("CombatService")
+		local matchManager = self._registry and self._registry:TryGet("MatchManager")
+		local roundService = self._registry and self._registry:TryGet("Round")
+
+		-- Don't allow reset if already dead in combat
+		if combatService then
+			local resource = combatService:GetResource(player)
+			if resource and resource:IsDead() then
+				return
+			end
+		end
+
+		local match = matchManager and matchManager:GetMatchForPlayer(player)
+		local isInMatch = match and (match.state == "playing" or match.state == "storm"
+			or match.state == "loadout_selection" or match.state == "starting")
+		local isTraining = roundService and roundService:IsPlayerInTraining(player)
+
+		if isInMatch or isTraining then
+			-- IN MATCH or TRAINING: kill through combat pipeline (same as H key)
+			if combatService then
+				local resource = combatService:GetResource(player)
+				if resource and resource:IsAlive() then
+					combatService:Kill(player, nil, "Ragdoll")
+				end
+			end
+		else
+			-- LOBBY: clean up and respawn fresh
+			local kitService = self._registry and self._registry:TryGet("KitService")
+			if kitService and kitService.ClearKit then
+				pcall(function() kitService:ClearKit(player) end)
+			end
+
+			-- Clear stale attributes
+			player:SetAttribute("SelectedLoadout", nil)
+			player:SetAttribute("KitData", nil)
+			player:SetAttribute("PrimaryData", nil)
+			player:SetAttribute("SecondaryData", nil)
+			player:SetAttribute("MeleeData", nil)
+			player:SetAttribute("EquippedSlot", nil)
+			player:SetAttribute("LastEquippedSlot", nil)
+			player:SetAttribute("MatchFrozen", nil)
+			player:SetAttribute("BetweenRoundActive", nil)
+			player:SetAttribute("AttackDisabled", nil)
+			player:SetAttribute("ExternalMoveMult", 1)
+			player:SetAttribute("InWaitingRoom", nil)
+			player:SetAttribute("ForceUncrouch", nil)
+			player:SetAttribute("BlockCrouchWhileAbility", nil)
+			player:SetAttribute("DisplaySlot", nil)
+
+			-- Respawn a fresh character at lobby spawn
+			self:SpawnCharacter(player)
+
+			-- Tell the client to fully reset all controllers to lobby state
+			if self._net then
+				self._net:FireClient("LobbyReset", player)
+			end
+		end
+	end)
 end
 
 function CharacterService:_ensureEntitiesContainer()
@@ -234,6 +304,94 @@ function CharacterService:SpawnCharacter(player, options)
 
 	-- CharacterSpawned MUST be global - clients need this to setup Collider for hit detection
 	self._net:FireAllClients("CharacterSpawned", character)
+
+	-- =====================================================================
+	-- ROBLOX RESET CHARACTER HANDLER
+	-- When the player uses Roblox's "Reset Character" menu button, it sets
+	-- Humanoid.Health = 0, which fires Humanoid.Died.  Since
+	-- CharacterAutoLoads = false, no auto-respawn happens.  We intercept
+	-- Humanoid.Died here and route the respawn based on the player's
+	-- current context (match, training, or lobby).
+	-- =====================================================================
+	if humanoid then
+		humanoid.Died:Connect(function()
+			-- Guard: if the player left, do nothing
+			if not player or not player.Parent then return end
+
+			-- Guard: if we're already spawning a new character, skip
+			if self.IsSpawningCharacter[player.UserId] then return end
+
+			-- Check if the death was already handled by CombatService
+			-- (combat kill, H key, etc.).  CombatResource tracks _isDead;
+			-- if it's already dead, CombatService processed it and owns the
+			-- respawn flow — don't interfere.
+			local combatService = self._registry and self._registry:TryGet("CombatService")
+			local alreadyHandledByCombat = false
+			if combatService then
+				local resource = combatService:GetResource(player)
+				if resource and resource:IsDead() then
+					alreadyHandledByCombat = true
+				end
+			end
+
+			if alreadyHandledByCombat then
+				return
+			end
+
+			-- The humanoid died from a Roblox reset (or void/external kill).
+			-- Route based on context:
+			local matchManager = self._registry and self._registry:TryGet("MatchManager")
+			local roundService = self._registry and self._registry:TryGet("Round")
+			local match = matchManager and matchManager:GetMatchForPlayer(player)
+			local isInMatch = match and (match.state == "playing" or match.state == "storm"
+				or match.state == "loadout_selection" or match.state == "starting")
+			local isTraining = roundService and roundService:IsPlayerInTraining(player)
+
+			if isInMatch or isTraining then
+				-- IN MATCH or TRAINING: kill through combat pipeline (same as H key)
+				-- This triggers ragdoll, death screen, respawn — the full flow.
+				if combatService then
+					combatService:Kill(player, nil, "Ragdoll")
+				end
+			else
+				-- LOBBY: full character respawn + controller reset
+				task.delay(0.5, function()
+					if not player or not player.Parent then return end
+
+					-- Clean up kit state
+					local kitService = self._registry and self._registry:TryGet("KitService")
+					if kitService and kitService.ClearKit then
+						pcall(function() kitService:ClearKit(player) end)
+					end
+
+					-- Clear all stale match/loadout attributes
+					player:SetAttribute("SelectedLoadout", nil)
+					player:SetAttribute("KitData", nil)
+					player:SetAttribute("PrimaryData", nil)
+					player:SetAttribute("SecondaryData", nil)
+					player:SetAttribute("MeleeData", nil)
+					player:SetAttribute("EquippedSlot", nil)
+					player:SetAttribute("LastEquippedSlot", nil)
+					player:SetAttribute("MatchFrozen", nil)
+					player:SetAttribute("BetweenRoundActive", nil)
+					player:SetAttribute("AttackDisabled", nil)
+					player:SetAttribute("ExternalMoveMult", 1)
+					player:SetAttribute("InWaitingRoom", nil)
+					player:SetAttribute("ForceUncrouch", nil)
+					player:SetAttribute("BlockCrouchWhileAbility", nil)
+					player:SetAttribute("DisplaySlot", nil)
+
+					-- Respawn a fresh character at lobby spawn
+					self:SpawnCharacter(player)
+
+					-- Tell the client to fully reset all controllers to lobby state
+					if self._net then
+						self._net:FireClient("LobbyReset", player)
+					end
+				end)
+			end
+		end)
+	end
 
 	self.IsSpawningCharacter[player.UserId] = nil
 	return character

@@ -26,6 +26,7 @@ local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
@@ -87,7 +88,8 @@ local PROJ_PHYSICS_CONFIG = {
 
 -- Sound Configuration & Preloading
 local SOUND_CONFIG = {
-	start = { id = "rbxassetid://105009462750670", volume = 1 },
+	start = { id = "rbxassetid://83328666361446",  volume = 1 },
+	shoot = { id = "rbxassetid://77626226439727",  volume = 1 },
 }
 
 local preloadItems = {}
@@ -173,19 +175,31 @@ end
 -- Active ability sounds (for cleanup on cancel)
 local activeSounds = {}
 
-local function playStartSound(viewmodelRig: any): Sound?
-	-- Play the "start" sound on the viewmodel root part
+local function playStartSound(_viewmodelRig: any): Sound?
+	-- Parent to SoundService so there is zero 3D positioning — no side-to-side panning
+	-- inside the camera from the viewmodel root part moving around.
 	local startSound = script:FindFirstChild("start")
 	if not startSound then return nil end
-	
-	local rootPart = viewmodelRig and viewmodelRig.Model and viewmodelRig.Model:FindFirstChild("HumanoidRootPart")
-	if not rootPart then return nil end
-	
+
 	local sound = startSound:Clone()
-	sound.Parent = rootPart
+	sound.Parent = SoundService
 	sound:Play()
 
-	-- Track for cleanup
+	table.insert(activeSounds, sound)
+	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
+
+	return sound
+end
+
+local function playShootSound(_viewmodelRig: any): Sound?
+	-- Same as above — non-positional so it plays flat in front of the player.
+	local shootSound = script:FindFirstChild("shoot")
+	if not shootSound then return nil end
+
+	local sound = shootSound:Clone()
+	sound.Parent = SoundService
+	sound:Play()
+
 	table.insert(activeSounds, sound)
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 
@@ -1268,8 +1282,16 @@ local function launchKonProjectile(state, abilityRequest, character, viewmodelRi
 		if hitResult then
 			-- Hit something — check if breakable
 			if isBreakablePart(hitResult.Instance) then
-				-- Pierce through breakable wall: add to filter, nudge forward
-				warn("[Aki Proj] Pierced breakable:", hitResult.Instance:GetFullName())
+				-- Destroy the breakable wall immediately at the hit point
+				local hp = hitResult.Position
+				abilityRequest.Send({
+					action = "konProjectileDestroy",
+					position = { X = hp.X, Y = hp.Y, Z = hp.Z },
+					allowMultiple = true,
+				})
+				lastDestroyTime = os.clock() -- reset the timed loop so we don't double-fire
+
+				-- Pierce: add the hit part to the raycast filter and nudge forward
 				local filter = rayParams.FilterDescendantsInstances
 				table.insert(filter, hitResult.Instance)
 				rayParams.FilterDescendantsInstances = filter
@@ -1548,6 +1570,9 @@ local function startThrowPhase(state, abilityRequest, character, viewmodelRig, v
 		state.heldKonModel = nil
 		launchKonProjectile(state, abilityRequest, character, viewmodelRig, startPos, lookDir)
 
+		-- Shoot sound (fallback path — no throw animation track)
+		task.spawn(playShootSound, viewmodelRig)
+
 		-- VFX: fire/throw burst + projectile soaring trail (fallback path)
 		VFXRep:Fire("Me", { Module = "Kon", Function = "fxFire" }, {
 			Character = character,
@@ -1600,6 +1625,9 @@ local function startThrowPhase(state, abilityRequest, character, viewmodelRig, v
 
 			-- Launch projectile
 			launchKonProjectile(state, abilityRequest, character, viewmodelRig, startPos, lookDir)
+
+			-- Shoot sound (throw marker path)
+			task.spawn(playShootSound, viewmodelRig)
 
 			-- VFX: fire/throw burst on viewmodel + projectile soaring trail
 			VFXRep:Fire("Me", { Module = "Kon", Function = "fxFire" }, {

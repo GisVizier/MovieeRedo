@@ -30,8 +30,8 @@ Camera.Sensitivity = {
 -- ANGLE LIMITS
 -- =============================================================================
 Camera.AngleLimits = {
-	MinVertical = -80,
-	MaxVertical = 80,
+	MinVertical = -90,
+	MaxVertical = 90,
 }
 
 -- =============================================================================

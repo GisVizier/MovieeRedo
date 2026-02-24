@@ -1,7 +1,7 @@
 local Character = {
 	SprintSpeed = 28,
 	WalkSpeed = 19,
-	JumpPower = 48,
+	JumpPower = 43,
 	AutoSprint = false,
 	CoyoteTime = 0.12,
 
@@ -55,24 +55,24 @@ local Character = {
 	
 	FallSpeed = {
 		Enabled = true,
-		MaxFallSpeed = 50,                -- Lower terminal velocity = slower fall cap
-		DragMultiplier = 0.4,             -- Drag when exceeding max
+		MaxFallSpeed = 90,                -- Terminal velocity; hit in ~1s = natural acceleration feel
+		DragMultiplier = 0.08,            -- Gentle brake approaching terminal
 
 		AscentDrag = 0.004,               -- Floaty ascent
 
 		FallAcceleration = 6,             -- Slight downward pull during descent
 		AscentGravityReduction = 0.58,    -- Counteracts 58% of gravity going up = slow, low-gravity ascent
 
-		HangTimeThreshold = 7,            -- Narrow apex window so hang drag only fires very near zero velocity
-		HangTimeDrag = 0.55,              -- Strong drag at apex = long hang time
+		HangTimeThreshold = 3,            -- Tight window; prevents hang firing during normal air movement
+		HangTimeDrag = 0.40,              -- Reduced so force delta at hang-exit is smaller = smoother transition
 
-		VerticalForceLerp = 4,            -- Much smoother transitions between ascent/apex/descent phases
+		VerticalForceLerp = 8,            -- Faster lerp smooths the hang→descent force cliff
 	},
 
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.50,             -- 0.50 × 1.35 = 0.675 (67.5% counteracted, leaves clean fall)
-		MaxFallSpeed = 50,
+		DampingFactor = 0.42,             -- 0.42 × 1.35 = 0.567 (~57% counteracted, net ~43% gravity)
+		MaxFallSpeed = 100,               -- Hard cap above FallSpeed terminal; out of the way in normal play
 		ApplyOnlyWhenFalling = true,
 	},
 
@@ -88,7 +88,7 @@ local Character = {
 	
 	LandingMomentum = {
 		Enabled = true,
-		PreservationMultiplier = 0.88,    -- Keep good momentum on landing
+		PreservationMultiplier = 0.55,    -- Keep good momentum on landing
 		MinPreservationSpeed = 12,
 		DecayRate = 0.75,                 -- Faster decay = less slide
 	},

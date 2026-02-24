@@ -404,6 +404,11 @@ function UIController:Init(registry, net)
 		self:_onReturnToLobby(data)
 	end)
 
+	-- LobbyReset: player used Roblox "Reset Character" in lobby – do same cleanup
+	self._net:ConnectClient("LobbyReset", function()
+		self:_onReturnToLobby({})
+	end)
+
 	-- Map selection (competitive)
 	self._net:ConnectClient("ShowMapSelection", function(data)
 		self:_onShowMapSelection(data)
@@ -1301,9 +1306,23 @@ function UIController:_onBetweenRoundFreeze(data)
 	-- NEW BETWEEN-ROUND FLOW
 	-- Show ONLY the countdown timer + "Swap Loadout" button.
 	-- The full picker opens only when the player presses the swap button
-	-- (or M key).  Camera stays at FirstPerson until confirmSwap fires
-	-- SwapLoadoutOpened, which switches it to Orbit.
+	-- (or M key).  Camera is Orbit so the player can look around and
+	-- click the button.
 	-- ----------------------------------------------------------------
+
+	-- Switch to Orbit camera so the player can freely look around and
+	-- click the "Swap Loadout" button. Orbit sets MouseBehavior = Default.
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("Orbit")
+	end
+
+	-- Hide crosshair while between rounds (weapons are visible but disabled)
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController and type(weaponController.HideCrosshair) == "function" then
+		pcall(function() weaponController:HideCrosshair() end)
+	end
+
 	local loadoutModule = self._coreUi:getModule("Loadout")
 	if loadoutModule then
 		local player = Players.LocalPlayer
@@ -1551,7 +1570,17 @@ function UIController:_onRoundStart(data)
 			end)
 		end
 	end
-	-- If wasBetweenRound and !playerSwapped: weapons are already equipped, do nothing.
+	-- If wasBetweenRound and !playerSwapped: weapons are already equipped.
+	-- Just restore the crosshair that was hidden during the between-round phase.
+	if wasBetweenRound and not playerSwapped then
+		local weaponController = self._registry and self._registry:TryGet("Weapon")
+		if weaponController and type(weaponController.RestoreCrosshair) == "function" then
+			pcall(function() weaponController:RestoreCrosshair() end)
+		end
+		if weaponController and type(weaponController._applyCrosshairForWeapon) == "function" and weaponController._equippedWeaponId then
+			pcall(function() weaponController:_applyCrosshairForWeapon(weaponController._equippedWeaponId) end)
+		end
+	end
 
 	-- Show round start animation on HUD with round number
 	local hudModule = self._coreUi:getModule("HUD")

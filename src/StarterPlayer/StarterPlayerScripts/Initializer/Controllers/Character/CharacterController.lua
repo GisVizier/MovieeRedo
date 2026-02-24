@@ -1,6 +1,7 @@
 local CharacterController = {}
 
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
@@ -117,6 +118,15 @@ function CharacterController:Init(registry, net)
 		end)
 	end)
 
+	-- =================================================================
+	-- LOBBY RESET – fired by the server when the player uses Roblox's
+	-- "Reset Character" button while in the lobby.  We need to fully
+	-- reset all client-side controllers so nothing is stuck.
+	-- =================================================================
+	self._net:ConnectClient("LobbyReset", function()
+		self:_onLobbyReset()
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		local character = player.Character
 		if character then
@@ -141,6 +151,13 @@ function CharacterController:Init(registry, net)
 		end
 	end)
 
+	-- =====================================================================
+	-- OVERRIDE ROBLOX "RESET CHARACTER" BUTTON
+	-- The default reset doesn't work with custom characters + CharacterAutoLoads=false.
+	-- We intercept it via SetCore("ResetButtonCallback") and fire our own remote.
+	-- =====================================================================
+	self:_overrideResetButton()
+
 	self:_setupExistingCharacters()
 	task.delay(1, function()
 		self:_setupExistingCharacters()
@@ -154,6 +171,36 @@ end
 
 function CharacterController:Start()
 	-- No-op for now.
+end
+
+--[[
+	Override the Roblox "Reset Character" button so it fires RequestReset
+	to the server instead of the default (broken) Humanoid.Health = 0 behavior.
+]]
+function CharacterController:_overrideResetButton()
+	local resetBindable = Instance.new("BindableEvent")
+	resetBindable.Event:Connect(function()
+		-- Fire our controlled reset remote to the server
+		self._net:FireServer("RequestReset")
+	end)
+
+	-- SetCore can fail if called too early; retry until it succeeds
+	task.spawn(function()
+		local success = false
+		for _ = 1, 20 do
+			local ok = pcall(function()
+				StarterGui:SetCore("ResetButtonCallback", resetBindable)
+			end)
+			if ok then
+				success = true
+				break
+			end
+			task.wait(0.5)
+		end
+		if not success then
+			warn("[CharacterController] Failed to override reset button after retries")
+		end
+	end)
 end
 
 function CharacterController:_setupExistingCharacters()
@@ -268,6 +315,78 @@ function CharacterController:_onRespawnLoadoutRefresh()
 	local replicationController = self._registry and self._registry:TryGet("Replication")
 	if replicationController and replicationController.ForceLoadoutRefresh then
 		replicationController:ForceLoadoutRefresh()
+	end
+end
+
+--[[
+	Full client-side reset when the server respawns us in the lobby
+	(triggered by Roblox "Reset Character" while in lobby context).
+	Clears viewmodel, weapons, crosshair, camera, movement state, etc.
+]]
+function CharacterController:_onLobbyReset()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then return end
+
+	local UserInputService = game:GetService("UserInputService")
+
+	-- 1. Clear viewmodel (first-person weapon)
+	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+	if viewmodelController then
+		if viewmodelController.ClearLoadout then
+			viewmodelController:ClearLoadout()
+		end
+	end
+
+	-- 2. Clear weapon controller (crosshair, actions, ammo)
+	local weaponController = self._registry and self._registry:TryGet("Weapon")
+	if weaponController then
+		if type(weaponController._unequipCurrentWeapon) == "function" then
+			weaponController:_unequipCurrentWeapon()
+		end
+		if type(weaponController.HideCrosshair) == "function" then
+			weaponController:HideCrosshair()
+		end
+	end
+
+	-- 3. Clear third-person replication weapon
+	local replicationController = self._registry and self._registry:TryGet("Replication")
+	if replicationController then
+		if type(replicationController.ClearWeapons) == "function" then
+			replicationController:ClearWeapons()
+		end
+	end
+
+	-- 4. Reset movement controller
+	local movementController = self._registry and self._registry:TryGet("Movement")
+	if movementController and movementController.ResetRespawnLocalState then
+		movementController:ResetRespawnLocalState()
+	end
+
+	-- 5. Switch camera to Orbit (lobby mode)
+	local cameraController = self._registry and self._registry:TryGet("Camera")
+	if cameraController and type(cameraController.SetCameraMode) == "function" then
+		cameraController:SetCameraMode("Orbit")
+	end
+
+	-- 6. Unlock mouse for lobby
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
+
+	-- 7. Clear stale player attributes on the client side
+	localPlayer:SetAttribute("EquippedSlot", nil)
+	localPlayer:SetAttribute("MatchFrozen", nil)
+	localPlayer:SetAttribute("BetweenRoundActive", nil)
+	localPlayer:SetAttribute("AttackDisabled", nil)
+	localPlayer:SetAttribute("InLobby", true)
+	localPlayer:SetAttribute("PlayerState", "Lobby")
+
+	-- 8. Reset ragdoll state if stuck
+	if self:IsRagdolled(localPlayer) then
+		RagdollModule.GetBackUp(localPlayer)
+		self._activeRagdolls[localPlayer] = nil
+		if cameraController and cameraController.ClearRagdollFocus then
+			cameraController:ClearRagdollFocus()
+		end
 	end
 end
 

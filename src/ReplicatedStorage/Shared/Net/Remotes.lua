@@ -132,6 +132,10 @@ local Remotes = {
 	-- Debug / testing
 	{ name = "RequestTestDeath", description = "Client requests self-kill for testing respawn flow" },
 
+	-- Respawn system
+	{ name = "RequestReset", description = "Client requests character reset (Roblox Reset button override)" },
+	{ name = "LobbyReset", description = "Server tells client to fully reset all controllers for lobby" },
+
 	-- Overhead system
 	{ name = "SetPlatform", description = "Client sends platform type to server" },
 

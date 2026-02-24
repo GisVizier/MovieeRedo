@@ -76,7 +76,7 @@ Movement.Sliding = {
 		MinAirTime = 0.3,
 		MinFallDistance = 10,
 		BoostMultiplier = 0.8,
-		MaxBoost = 25,
+		MaxBoost = 12,
 		RayDistance = 3,
 		RayOffset = 0.5,
 		SlopeBoostMultiplier = 1.0,
@@ -103,7 +103,7 @@ Movement.Sliding = {
 			Enabled = true,
 			SlopeThreshold = 0.15,      -- ~25 degrees min
 			MinVerticalBoost = 30,      -- Moderate slopes = modest boost
-			MaxVerticalBoost = 120,     -- Steep slopes = big boost
+			MaxVerticalBoost = 70,      -- Steep slopes = big boost
 			MaxSlopeAngle = 60,
 			ScalingExponent = 1.5,      -- Balanced curve
 

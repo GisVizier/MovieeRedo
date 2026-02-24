@@ -725,6 +725,9 @@ function Kon:fireProjectile(originUserId, data)
 		self._activeProjectiles[originUserId] = nil
 	end
 
+	-- Throw sound — heard at the launch position by all spectators
+	playSoundAtPosition("shoot", startPosition)
+
 	-- Clone konny model, scale, orient
 	local template = getKonnyTemplate()
 	if not template then return end
@@ -827,6 +830,9 @@ function Kon:projectileImpact(originUserId, data)
 			Pivot = CFrame.new(position),
 		})
 	end
+
+	-- Impact smoke sound — positional, heard by all clients at impact spot
+	playSoundAtPosition("smoke", position)
 end
 
 --[[

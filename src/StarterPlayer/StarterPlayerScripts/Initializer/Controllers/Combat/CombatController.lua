@@ -12,6 +12,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+local Assets = ReplicatedStorage:WaitForChild("Assets")
+local SoundHitmarker = Assets:WaitForChild("Sounds"):WaitForChild("hitmarker")
+local SoundHeadshot  = Assets:WaitForChild("Sounds"):WaitForChild("headshot")
+
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local DamageNumbers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("DamageNumbers"))
 local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("Tracers"))
@@ -232,6 +236,9 @@ function CombatController:_onDamageDealt(data)
 			})
 		end
 
+		-- Play hitmarker sound
+		self:_playHitSound(data.isHeadshot)
+
 		-- Damage confirmed by server — run tracer HitPlayer effect on the target
 		-- Resolve character for dummies/non-player entities by name in workspace
 		if not targetCharacter and data.targetCharacterName then
@@ -296,6 +303,17 @@ function CombatController:_onPlayerKilled(data)
 	if data.victimUserId == LocalPlayer.UserId then
 		-- We died
 		self._lastHealth = nil
+	end
+end
+
+-- =============================================================================
+-- HITMARKER SOUNDS
+-- =============================================================================
+
+function CombatController:_playHitSound(isHeadshot)
+	local sound = isHeadshot and SoundHeadshot or SoundHitmarker
+	if sound then
+		sound:Play()
 	end
 end
 

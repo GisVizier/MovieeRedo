@@ -65,6 +65,7 @@ local ADS_SENSITIVITY_BASE_MULT = 0.75
 local DEFAULT_EQUIP_FIRE_LOCK = 0.35
 local MIN_EQUIP_FIRE_LOCK = 0.1
 local MAX_EQUIP_FIRE_LOCK = 2.5
+local SHOTGUN_SWAP_SKIP_WINDOW = 0.9
 
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
@@ -157,6 +158,7 @@ WeaponController._weaponInstance = nil
 WeaponController._isFiring = false
 WeaponController._isADS = false
 WeaponController._lastFireTime = 0
+WeaponController._lastFireTimeBySlot = {}
 WeaponController._isAutomatic = false
 WeaponController._autoFireConn = nil
 WeaponController._isReloading = false
@@ -165,6 +167,8 @@ WeaponController._reloadFireLocked = false
 WeaponController._equipFireLockUntil = 0
 WeaponController._equipFireLockToken = 0
 WeaponController._equipBufferedShot = false
+WeaponController._lastShotWeaponId = nil
+WeaponController._lastShotTime = 0
 WeaponController._slotChangedConn = nil
 WeaponController._lastCameraMode = nil
 
@@ -768,11 +772,98 @@ function WeaponController:_setEquipFireLock(durationSeconds: number?)
 	end)
 end
 
+function WeaponController:_isShotgunWeapon(weaponId: string?): boolean
+	if type(weaponId) ~= "string" or weaponId == "" then
+		return false
+	end
+
+	local cfg = LoadoutConfig.getWeapon(weaponId)
+	if not cfg then
+		return false
+	end
+
+	local fireProfile = cfg.fireProfile
+	if type(fireProfile) == "table" and fireProfile.mode == "Shotgun" then
+		return true
+	end
+
+	return (tonumber(cfg.pelletsPerShot) or 1) > 1
+end
+
+function WeaponController:_shouldSkipShotgunEquip(outgoingWeaponId: string?, incomingWeaponId: string?): boolean
+	if not self:_isShotgunWeapon(incomingWeaponId) then
+		return false
+	end
+
+	if not self:_isShotgunWeapon(self._lastShotWeaponId) then
+		return false
+	end
+
+	local now = workspace:GetServerTimeNow()
+	if (now - (self._lastShotTime or 0)) > SHOTGUN_SWAP_SKIP_WINDOW then
+		return false
+	end
+
+	-- Preferred path: direct shotgun -> shotgun swap.
+	if self:_isShotgunWeapon(outgoingWeaponId) then
+		return true
+	end
+
+	-- Fallback: recent shotgun shot + incoming shotgun still gets skip (covers slot-sync edge cases).
+	return true
+end
+
+function WeaponController:_getLastFireTimeForSlot(slot: string?): number
+	if type(slot) ~= "string" or slot == "" then
+		return 0
+	end
+
+	if type(self._lastFireTimeBySlot) ~= "table" then
+		self._lastFireTimeBySlot = {}
+	end
+
+	return tonumber(self._lastFireTimeBySlot[slot]) or 0
+end
+
+function WeaponController:_setLastFireTimeForSlot(slot: string?, fireTime: number?)
+	local resolved = tonumber(fireTime) or 0
+	self._lastFireTime = resolved
+
+	if type(slot) ~= "string" or slot == "" then
+		return
+	end
+
+	if type(self._lastFireTimeBySlot) ~= "table" then
+		self._lastFireTimeBySlot = {}
+	end
+	self._lastFireTimeBySlot[slot] = resolved
+end
+
+function WeaponController:_bypassShotgunSwapCooldown(slot: string?, weaponConfig)
+	if not self:_isShotgunWeapon(self._equippedWeaponId) then
+		return
+	end
+
+	local now = workspace:GetServerTimeNow()
+	local fireRate = weaponConfig and tonumber(weaponConfig.fireRate) or 0
+	local bypassTime = 0
+	if fireRate > 0 then
+		local interval = 60 / fireRate
+		bypassTime = now - interval - 0.01
+	end
+
+	self:_setLastFireTimeForSlot(slot, bypassTime)
+	if self._weaponInstance and self._weaponInstance.State then
+		self._weaponInstance.State.LastFireTime = bypassTime
+	end
+end
+
 -- =============================================================================
 -- EQUIP / UNEQUIP
 -- =============================================================================
 
 function WeaponController:_equipWeapon(weaponId, slot)
+	local previousWeaponId = self._equippedWeaponId
 
 	-- Unequip old weapon first
 	self:_unequipCurrentWeapon()
@@ -789,6 +880,7 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	self._currentActions = actions
 	self._isADS = false
 	self._equippedWeaponId = weaponId
+	self._lastFireTime = self:_getLastFireTimeForSlot(slot)
 
 	-- Build weapon instance
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
@@ -806,16 +898,28 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	local didSkipEquipAnimation = false
 	if self._currentActions.Main then
 		local quickSession = self._quickMeleeSession
-		local shouldSkipOnEquip = quickSession
+		local shouldSkipQuickMelee = quickSession
 			and quickSession.skipEquipAnimation == true
 			and slot == "Melee"
+		local shouldSkipShotgunEquip = self:_shouldSkipShotgunEquip(previousWeaponId, weaponId)
+		local shouldSkipOnEquip = shouldSkipQuickMelee or shouldSkipShotgunEquip
 
 		if self._currentActions.Main.Initialize then
 			self._currentActions.Main.Initialize(self._weaponInstance)
 		end
 
 		if shouldSkipOnEquip then
-			quickSession.skipEquipAnimation = false
+			if shouldSkipQuickMelee and quickSession then
+				quickSession.skipEquipAnimation = false
+			end
+			if shouldSkipShotgunEquip then
+				self:_bypassShotgunSwapCooldown(slot, weaponConfig)
+			end
+			local viewmodelController = self._viewmodelController
+			local animator = viewmodelController and viewmodelController._animator
+			if animator and type(animator.Stop) == "function" then
+				animator:Stop("Equip", 0)
+			end
 			didSkipEquipAnimation = true
 		elseif self._currentActions.Main.OnEquip then
 			local ok, err = pcall(function()
@@ -1641,7 +1745,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 				self._reloadFireLocked = false
 			end
 			if type(nextState.LastFireTime) == "number" then
-				self._lastFireTime = nextState.LastFireTime
+				self:_setLastFireTimeForSlot(slot, nextState.LastFireTime)
 			end
 
 			if self._ammo and slot then
@@ -1660,7 +1764,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 				end
 				stateRef.IsReloading = self._isReloading
 				stateRef.ReloadFireLocked = self._reloadFireLocked
-				stateRef.LastFireTime = self._lastFireTime
+				stateRef.LastFireTime = self:_getLastFireTimeForSlot(slot)
 			end
 		end,
 		CancelReload = function()
@@ -1680,7 +1784,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			IsReloading = self._isReloading,
 			ReloadFireLocked = self._reloadFireLocked,
 			IsAttacking = self._isFiring,
-			LastFireTime = self._lastFireTime,
+			LastFireTime = self:_getLastFireTimeForSlot(slot),
 			Equipped = self:_isActiveWeaponEquipped() and not self:_isEquipLocked(),
 		},
 	}
@@ -1706,7 +1810,7 @@ function WeaponController:_updateWeaponInstanceState()
 	nextState.IsReloading = self._isReloading
 	nextState.ReloadFireLocked = self._reloadFireLocked
 	nextState.IsAttacking = self._isFiring
-	nextState.LastFireTime = self._lastFireTime
+	nextState.LastFireTime = self:_getLastFireTimeForSlot(slot)
 	nextState.Equipped = self:_isActiveWeaponEquipped() and not self:_isEquipLocked()
 
 	self._weaponInstance.State = nextState
@@ -1808,7 +1912,9 @@ local currentTime = workspace:GetServerTimeNow()
 	self:_applyCameraRecoil()
 
 	-- Update state after attack
-	self._lastFireTime = currentTime
+	self:_setLastFireTimeForSlot(self:_getCurrentSlot(), currentTime)
+	self._lastShotWeaponId = self._equippedWeaponId
+	self._lastShotTime = currentTime
 	self:_updateWeaponInstanceState()
 end
 
