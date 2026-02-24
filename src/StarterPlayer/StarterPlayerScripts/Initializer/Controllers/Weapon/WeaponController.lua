@@ -62,6 +62,9 @@ local FIRE_SOUND_PITCH_MIN = 0.92
 local FIRE_SOUND_PITCH_MAX = 1.10
 local FIRE_SOUND_PITCH_RNG = Random.new()
 local ADS_SENSITIVITY_BASE_MULT = 0.75
+local DEFAULT_EQUIP_FIRE_LOCK = 0.35
+local MIN_EQUIP_FIRE_LOCK = 0.1
+local MAX_EQUIP_FIRE_LOCK = 2.5
 
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
@@ -159,6 +162,9 @@ WeaponController._autoFireConn = nil
 WeaponController._isReloading = false
 WeaponController._reloadToken = 0
 WeaponController._reloadFireLocked = false
+WeaponController._equipFireLockUntil = 0
+WeaponController._equipFireLockToken = 0
+WeaponController._equipBufferedShot = false
 WeaponController._slotChangedConn = nil
 WeaponController._lastCameraMode = nil
 
@@ -378,6 +384,11 @@ function WeaponController:_connectInputs()
 	self._inputManager:ConnectToInput("Fire", function(isFiring)
 		self._isFiring = isFiring
 		if isFiring then
+			if self:_isEquipLocked() then
+				self._equipBufferedShot = true
+				self:_stopAutoFire()
+				return
+			end
 			self:_onFirePressed()
 			self:_startAutoFire()
 		else
@@ -707,6 +718,56 @@ function WeaponController:_resolveADSState(defaultState: boolean?): boolean
 	return fallback
 end
 
+function WeaponController:_isEquipLocked(): boolean
+	return (self._equipFireLockUntil or 0) > os.clock()
+end
+
+function WeaponController:_clearEquipFireLock()
+	self._equipFireLockToken = (self._equipFireLockToken or 0) + 1
+	self._equipFireLockUntil = 0
+	self._equipBufferedShot = false
+end
+
+function WeaponController:_flushBufferedEquipShot()
+	if self:_isEquipLocked() then
+		return
+	end
+	if self._equipBufferedShot ~= true then
+		return
+	end
+
+	self._equipBufferedShot = false
+	self:_onFirePressed()
+	if self._isFiring then
+		self:_startAutoFire()
+	end
+end
+
+function WeaponController:_setEquipFireLock(durationSeconds: number?)
+	local duration = tonumber(durationSeconds) or DEFAULT_EQUIP_FIRE_LOCK
+	duration = math.clamp(duration, MIN_EQUIP_FIRE_LOCK, MAX_EQUIP_FIRE_LOCK)
+
+	self._equipFireLockToken = (self._equipFireLockToken or 0) + 1
+	local token = self._equipFireLockToken
+	self._equipFireLockUntil = os.clock() + duration
+	local wasFiringHeld = self._isFiring == true
+	self._equipBufferedShot = wasFiringHeld
+
+	-- Equipping should immediately stop any pending fire loop/state.
+	self._isFiring = false
+	self:_stopAutoFire()
+
+	task.delay(duration, function()
+		if self._equipFireLockToken ~= token then
+			return
+		end
+		if (self._equipFireLockUntil or 0) <= os.clock() then
+			self._equipFireLockUntil = 0
+			self:_flushBufferedEquipShot()
+		end
+	end)
+end
+
 -- =============================================================================
 -- EQUIP / UNEQUIP
 -- =============================================================================
@@ -742,6 +803,7 @@ function WeaponController:_equipWeapon(weaponId, slot)
 	self:_applyMouseSensitivityForADS(false)
 
 	-- Initialize and equip
+	local didSkipEquipAnimation = false
 	if self._currentActions.Main then
 		local quickSession = self._quickMeleeSession
 		local shouldSkipOnEquip = quickSession
@@ -754,6 +816,7 @@ function WeaponController:_equipWeapon(weaponId, slot)
 
 		if shouldSkipOnEquip then
 			quickSession.skipEquipAnimation = false
+			didSkipEquipAnimation = true
 		elseif self._currentActions.Main.OnEquip then
 			local ok, err = pcall(function()
 				self._currentActions.Main.OnEquip(self._weaponInstance)
@@ -762,6 +825,24 @@ function WeaponController:_equipWeapon(weaponId, slot)
 			end
 		end
 
+	end
+
+	if didSkipEquipAnimation then
+		self:_clearEquipFireLock()
+	else
+		local equipLockDuration = DEFAULT_EQUIP_FIRE_LOCK
+		local equipTrack = self:_getViewmodelTrack("Equip")
+		if equipTrack then
+			local trackLength = tonumber(equipTrack.Length)
+			if trackLength and trackLength > 0 then
+				local speed = tonumber(equipTrack.Speed) or 1
+				if math.abs(speed) < 0.001 then
+					speed = 1
+				end
+				equipLockDuration = math.clamp((trackLength / math.abs(speed)) + 0.02, MIN_EQUIP_FIRE_LOCK, MAX_EQUIP_FIRE_LOCK)
+			end
+		end
+		self:_setEquipFireLock(equipLockDuration)
 	end
 
 	-- Fallback equip cue: guarantees equip audio even if Main module is missing.
@@ -978,6 +1059,7 @@ function WeaponController:_unequipCurrentWeapon()
 	self._currentActions = nil
 	self._equippedWeaponId = nil
 	self._weaponInstance = nil
+	self:_clearEquipFireLock()
 	self._isReloading = false
 	self._reloadFireLocked = false
 	self._isADS = false
@@ -1599,7 +1681,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			ReloadFireLocked = self._reloadFireLocked,
 			IsAttacking = self._isFiring,
 			LastFireTime = self._lastFireTime,
-			Equipped = self:_isActiveWeaponEquipped(),
+			Equipped = self:_isActiveWeaponEquipped() and not self:_isEquipLocked(),
 		},
 	}
 end
@@ -1625,7 +1707,7 @@ function WeaponController:_updateWeaponInstanceState()
 	nextState.ReloadFireLocked = self._reloadFireLocked
 	nextState.IsAttacking = self._isFiring
 	nextState.LastFireTime = self._lastFireTime
-	nextState.Equipped = self:_isActiveWeaponEquipped()
+	nextState.Equipped = self:_isActiveWeaponEquipped() and not self:_isEquipLocked()
 
 	self._weaponInstance.State = nextState
 end
@@ -1645,6 +1727,9 @@ function WeaponController:_onFirePressed()
 	end
 
 	if not self:_isActiveWeaponEquipped() then
+		return
+	end
+	if self:_isEquipLocked() then
 		return
 	end
 
@@ -2338,6 +2423,10 @@ function WeaponController:_startAutoFire()
 		return
 	end
 
+	if self:_isEquipLocked() then
+		return
+	end
+
 	if not self:_isActiveWeaponEquipped() then
 		return
 	end
@@ -2599,15 +2688,15 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread, extraSprea
 			horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 		end
 
-		local speedReference = tonumber(spreadFactors.speedReference) or tonumber(spreadFactors.velocityReference) or 20
-		if speedReference <= 0 then
-			speedReference = 20
+		local baseSpeedReference = tonumber(spreadFactors.speedReference) or tonumber(spreadFactors.velocityReference) or 20
+		if baseSpeedReference <= 0 then
+			baseSpeedReference = 20
 		end
-		local speedMaxBonus = tonumber(spreadFactors.speedMaxBonus)
-		if speedMaxBonus == nil then
-			speedMaxBonus = tonumber(spreadFactors.velocityMaxBonus) or 0.8
+		local baseSpeedMaxBonus = tonumber(spreadFactors.speedMaxBonus)
+		if baseSpeedMaxBonus == nil then
+			baseSpeedMaxBonus = tonumber(spreadFactors.velocityMaxBonus) or 0.8
 		end
-		speedMaxBonus = math.max(speedMaxBonus, 0)
+		baseSpeedMaxBonus = math.max(baseSpeedMaxBonus, 0)
 
 		local function resolveSpreadFactor(key, fallback)
 			local customValue = spreadFactors[key]
@@ -2619,6 +2708,20 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread, extraSprea
 				return legacyValue
 			end
 			return fallback
+		end
+
+		local isADS = movementState and movementState.isADS == true
+		local speedReference = baseSpeedReference
+		local speedMaxBonus = baseSpeedMaxBonus
+		if isADS then
+			local adsSpeedReference = tonumber(spreadFactors.adsSpeedReference) or tonumber(spreadFactors.adsVelocityReference)
+			local adsSpeedMaxBonus = tonumber(spreadFactors.adsSpeedMaxBonus) or tonumber(spreadFactors.adsVelocityMaxBonus)
+			if adsSpeedReference and adsSpeedReference > 0 then
+				speedReference = adsSpeedReference
+			end
+			if adsSpeedMaxBonus then
+				speedMaxBonus = math.max(adsSpeedMaxBonus, 0)
+			end
 		end
 
 		local movementBoost = 1 + math.clamp(horizontalSpeed / speedReference, 0, 1) * speedMaxBonus

@@ -8,7 +8,7 @@ local CompressionUtils = require(Locations.Shared.Util:WaitForChild("Compression
 local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
 local RigManager = require(Locations.Game:WaitForChild("Character"):WaitForChild("Rig"):WaitForChild("RigManager"))
-local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator)
+-- local MovementValidator = require(script.Parent.Parent.AntiCheat.MovementValidator) -- disabled
 local HitValidator = require(script.Parent.Parent.AntiCheat.HitValidator)
 local function vmLog(...) end
 
@@ -52,7 +52,7 @@ function ReplicationService:Init(registry, net)
 	self._matchManager = registry:TryGet("MatchManager")
 
 	-- Initialize anti-cheat
-	-- MovementValidator:Init() -- DISABLED - too aggressive for slide/jump mechanics
+	-- MovementValidator:Init() -- DISABLED - server teleports (match/waitroom) trigger false positives
 	-- HitValidator:Init() -- Now initialized in WeaponService
 
 	self._net:ConnectServer("CharacterStateUpdate", function(player, compressedState)
@@ -385,12 +385,9 @@ function ReplicationService:OnClientStateUpdate(player, compressedState)
 			playerData.LastUpdateTime = tick()
 			playerData.DirtyForBroadcast = true
 		else
-			-- Anti-cheat validation (DISABLED - too aggressive)
-			-- local deltaTime = state.Timestamp - playerData.LastState.Timestamp
-			-- local isValid = MovementValidator:Validate(player, state, deltaTime)
-			--
+			-- Anti-cheat validation (DISABLED - re-enable once server teleports set bypass attribute)
+			-- local isValid = MovementValidator:Validate(player, state)
 			-- if not isValid then
-			-- 	-- Reject invalid state - don't update or broadcast
 			-- 	return
 			-- end
 

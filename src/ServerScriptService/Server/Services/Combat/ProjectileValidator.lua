@@ -31,36 +31,41 @@ local CONFIG = {
 	DebugLogging = true,
 
 	-- Timestamp validation
-	MaxTimestampAge = 2.0,        -- Max time in past for hits (seconds)
-	MinTimestampAge = -0.1,       -- Small tolerance for processing delay
-	MaxFlightTime = 10.0,         -- Maximum allowed flight time
+	MaxTimestampAge = 3.0,        -- Max time in past for hits — relaxed from 2.0
+	MinTimestampAge = -0.2,       -- Tolerance for processing delay — relaxed from -0.1
+	MaxFlightTime = 15.0,         -- Maximum allowed flight time — relaxed from 10.0
 
 	-- Flight time validation
-	FlightTimeTolerance = 0.30,   -- 30% variance allowed (network jitter)
+	FlightTimeTolerance = 0.45,   -- 45% variance allowed — relaxed from 0.30
 
 	-- Position validation
-	BasePositionTolerance = 8,    -- Base tolerance (studs) - accounts for root-to-hitbox offset (~2-3 studs)
-	MaxPositionTolerance = 30,    -- Maximum tolerance cap
-	BaseHeadTolerance = 6,        -- Head hitbox tolerance (head is smaller but offset from root)
+	BasePositionTolerance = 10,   -- Base tolerance (studs) — relaxed from 8
+	MaxPositionTolerance = 40,    -- Maximum tolerance cap — relaxed from 30
+	BaseHeadTolerance = 8,        -- Head hitbox tolerance — relaxed from 6
 	HeadHeightOffset = 2.5,       -- Vertical offset for head position
-	BodyRadiusOffset = 3,         -- Extra studs to account for hit point being on body surface vs root center
+	BodyRadiusOffset = 4,         -- Extra studs for body surface vs root center — relaxed from 3
 
 	-- Trajectory validation
 	TrajectoryCheckPoints = 3,    -- Points to check along path
 
 	-- Rate limiting
-	FireRateTolerance = 0.70,     -- 30% faster allowed (latency + jitter)
+	FireRateTolerance = 0.60,     -- 40% faster allowed — relaxed from 0.70
 
 	-- Anti-cheat thresholds
-	MinShotsForAnalysis = 30,
-	SuspiciousHitRate = 0.90,     -- 90%+ accuracy triggers flag
-	SuspiciousHeadshotRate = 0.70, -- 70%+ headshot rate triggers flag
+	MinShotsForAnalysis = 50,     -- Relaxed from 30
+	SuspiciousHitRate = 0.95,     -- 95%+ accuracy triggers flag — relaxed from 0.90
+	SuspiciousHeadshotRate = 0.85, -- 85%+ headshot rate triggers flag — relaxed from 0.70
+
+	-- Rejection logging
+	MaxRejectionLogSize = 200,    -- Ring buffer size for rejection log
 }
 
 -- Internal state
 local HitDetectionAPI = nil
 local PlayerStats = {}
 local FlaggedPlayers = {}
+local RejectionLog = {}
+local RejectionLogIndex = 0
 
 -- =============================================================================
 -- INITIALIZATION
@@ -95,17 +100,20 @@ end
 ]]
 function ProjectileValidator:ValidateHit(shooter, hitData, weaponConfig)
 	if not shooter or not hitData or not weaponConfig then
+		self:_logRejectionEntry(shooter, hitData or {}, "InvalidInput")
 		return false, "InvalidInput"
 	end
 	
 	local projectileConfig = weaponConfig.projectile
 	if not projectileConfig then
+		self:_logRejectionEntry(shooter, hitData, "NotProjectileWeapon")
 		return false, "NotProjectileWeapon"
 	end
 	
 	-- 1. Timestamp validation
 	local valid, reason = self:_validateTimestamps(shooter, hitData)
 	if not valid then
+		self:_logRejectionEntry(shooter, hitData, reason, { fireTimestamp = hitData.fireTimestamp, impactTimestamp = hitData.impactTimestamp })
 		self:_logValidation(shooter, hitData, reason, false)
 		return false, reason
 	end
@@ -113,6 +121,8 @@ function ProjectileValidator:ValidateHit(shooter, hitData, weaponConfig)
 	-- 2. Flight time validation
 	valid, reason = self:_validateFlightTime(hitData, projectileConfig)
 	if not valid then
+		local claimedFlight = hitData.flightTime or (hitData.impactTimestamp - hitData.fireTimestamp)
+		self:_logRejectionEntry(shooter, hitData, reason, { claimedFlightTime = claimedFlight })
 		self:_logValidation(shooter, hitData, reason, false)
 		return false, reason
 	end
@@ -120,6 +130,8 @@ function ProjectileValidator:ValidateHit(shooter, hitData, weaponConfig)
 	-- 3. Range validation
 	valid, reason = self:_validateRange(hitData, weaponConfig)
 	if not valid then
+		local dist = (hitData.hitPosition - hitData.origin).Magnitude
+		self:_logRejectionEntry(shooter, hitData, reason, { distance = dist, maxRange = (weaponConfig.range or 500) * 1.2 })
 		self:_logValidation(shooter, hitData, reason, false)
 		return false, reason
 	end
@@ -128,6 +140,7 @@ function ProjectileValidator:ValidateHit(shooter, hitData, weaponConfig)
 	if hitData.targetUserId and hitData.targetUserId ~= 0 then
 		valid, reason = self:_validateTargetPosition(shooter, hitData, projectileConfig)
 		if not valid then
+			self:_logRejectionEntry(shooter, hitData, reason)
 			self:_logValidation(shooter, hitData, reason, false)
 			return false, reason
 		end
@@ -136,6 +149,7 @@ function ProjectileValidator:ValidateHit(shooter, hitData, weaponConfig)
 	-- 5. Trajectory validation
 	valid, reason = self:_validateTrajectory(shooter, hitData, projectileConfig)
 	if not valid then
+		self:_logRejectionEntry(shooter, hitData, reason)
 		self:_logValidation(shooter, hitData, reason, false)
 		return false, reason
 	end
@@ -535,6 +549,82 @@ function ProjectileValidator:SetConfig(key, value)
 	if CONFIG[key] ~= nil then
 		CONFIG[key] = value
 	end
+end
+
+-- =============================================================================
+-- REJECTION LOGGING
+-- =============================================================================
+
+--[[
+	Log a rejection with full context for debugging.
+	Stores in a ring buffer so it doesn't grow unbounded.
+	
+	@param shooter Player? - The shooting player
+	@param hitData table - Hit data from the packet
+	@param reason string - Rejection reason code
+	@param extras table? - Additional context
+]]
+function ProjectileValidator:_logRejectionEntry(shooter, hitData, reason, extras)
+	local entry = {
+		timestamp = workspace:GetServerTimeNow(),
+		shooter = shooter and shooter.Name or "Unknown",
+		shooterUserId = shooter and shooter.UserId or 0,
+		target = hitData.hitPlayer and hitData.hitPlayer.Name
+			or (hitData.targetUserId and hitData.targetUserId ~= 0 and ("UserId:" .. tostring(hitData.targetUserId)))
+			or "Environment",
+		reason = reason,
+		weapon = hitData.weaponName or "Unknown",
+		origin = hitData.origin,
+		hitPosition = hitData.hitPosition,
+		isHeadshot = hitData.isHeadshot,
+		projectileId = hitData.projectileId,
+		ping = shooter and (HitDetectionAPI and HitDetectionAPI:GetPlayerPing(shooter) or -1) or -1,
+		extras = extras or {},
+	}
+
+	RejectionLogIndex = RejectionLogIndex + 1
+	local index = ((RejectionLogIndex - 1) % CONFIG.MaxRejectionLogSize) + 1
+	RejectionLog[index] = entry
+
+	-- Always warn on rejections so they show in output
+	warn(string.format("[ProjectileValidator] REJECTED: shooter=%s target=%s reason=%s weapon=%s ping=%.0fms",
+		entry.shooter, entry.target, reason, entry.weapon, entry.ping))
+end
+
+--[[
+	Get recent rejection log entries.
+	
+	@param count number? - How many recent entries to return (default: all stored)
+	@return table - Array of rejection entries, newest first
+]]
+function ProjectileValidator:GetRejectionLog(count)
+	local total = math.min(RejectionLogIndex, CONFIG.MaxRejectionLogSize)
+	local requested = count and math.min(count, total) or total
+	local result = {}
+
+	for i = 0, requested - 1 do
+		local idx = ((RejectionLogIndex - 1 - i) % CONFIG.MaxRejectionLogSize) + 1
+		if RejectionLog[idx] then
+			table.insert(result, RejectionLog[idx])
+		end
+	end
+
+	return result
+end
+
+--[[
+	Get rejection counts grouped by reason.
+	
+	@return table - { [reason] = count }
+]]
+function ProjectileValidator:GetRejectionSummary()
+	local summary = {}
+	for _, entry in pairs(RejectionLog) do
+		if entry then
+			summary[entry.reason] = (summary[entry.reason] or 0) + 1
+		end
+	end
+	return summary
 end
 
 return ProjectileValidator

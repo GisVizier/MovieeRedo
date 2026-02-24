@@ -672,14 +672,20 @@ function CombatService:_handleDeath(victim, killer, weaponId, deathContext)
 				end
 			end
 			
-			-- Get killer's current health
-			local killerHealth = killer:GetAttribute("Health") or 100
-			
+		-- Get killer's current health and maxHealth from their player attributes.
+			-- CombatResource keeps these attributes in sync on every health mutation,
+			-- so they are accurate at the time of the kill.
+			-- maxHealth must be included so the client Kill UI can compute the correct
+			-- health fraction (hardcoding / 100 was wrong for kits with non-100 HP).
+			local killerHealth    = killer:GetAttribute("Health")    or 100
+			local killerMaxHealth = killer:GetAttribute("MaxHealth") or 100
+
 			killerData = {
 				displayName = killer.DisplayName,
 				userName = killer.Name,
 				kitId = killerKitId,
 				health = killerHealth,
+				maxHealth = killerMaxHealth,
 			}
 		end
 		

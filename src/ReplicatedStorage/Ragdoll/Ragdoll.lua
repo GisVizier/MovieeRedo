@@ -164,7 +164,6 @@ if IsServer then
 		
 		Module.RagdollStates[player] = true
 		character:SetAttribute("RagdollActive", true)
-		RagdollEvent:FireAllClients(player, true, knockbackForce)
 		
 		if duration and duration > 0 then
 			task.delay(duration, function()
@@ -185,7 +184,6 @@ if IsServer then
 		if character then
 			character:SetAttribute("RagdollActive", false)
 		end
-		RagdollEvent:FireAllClients(player, false)
 		return true
 	end
 	
@@ -209,7 +207,48 @@ end
 -- =============================================================================
 
 if IsClient then
-	local LocalPlayer = Players.LocalPlayer
+	local function findDataForPlayer(player)
+		for _, data in Module.Ragdollers do
+			if data.Player == player then
+				return data
+			end
+		end
+		return nil
+	end
+
+	local function findReplicatedRigForPlayer(player)
+		if not player then
+			return nil
+		end
+
+		local rigsFolder = Workspace:FindFirstChild("Rigs")
+		if not rigsFolder then
+			return nil
+		end
+
+		for _, rig in ipairs(rigsFolder:GetChildren()) do
+			if rig:GetAttribute("OwnerUserId") == player.UserId and rig:GetAttribute("IsActive") ~= false then
+				return rig
+			end
+		end
+
+		return nil
+	end
+
+	local function resolveRagdollData(player)
+		local existing = findDataForPlayer(player)
+		if existing then
+			return existing
+		end
+
+		local rig = findReplicatedRigForPlayer(player)
+		if rig then
+			Module.SetupRig(player, rig, player.Character)
+			return Module.Ragdollers[rig]
+		end
+
+		return nil
+	end
 	
 	-- Register rig for ragdolling (called by RigManager)
 	function Module.SetupRig(player, rig, character)
@@ -336,10 +375,7 @@ if IsClient then
 	
 	-- Activate ragdoll
 	local function activate(player, knockbackForce)
-		local data
-		for _, d in Module.Ragdollers do
-			if d.Player == player then data = d break end
-		end
+		local data = resolveRagdollData(player)
 		if not data or data.IsActive then return end
 		
 		local rig = data.Rig
@@ -425,10 +461,7 @@ if IsClient then
 	
 	-- Deactivate ragdoll
 	local function deactivate(player)
-		local data
-		for _, d in Module.Ragdollers do
-			if d.Player == player then data = d break end
-		end
+		local data = resolveRagdollData(player)
 		if not data or not data.IsActive then return end
 		
 		local rig = data.Rig
@@ -510,23 +543,21 @@ if IsClient then
 	end
 	
 	-- Public API
-	function Module.Ragdoll(target, knockbackForce, duration)
+	function Module.Ragdoll(target, knockbackForce, _duration)
 		local player = resolvePlayer(target)
-		if player == LocalPlayer then
-			RagdollEvent:FireServer(player, true, knockbackForce, duration)
-			activate(player, knockbackForce)
-		end
+		if not player then return false end
+		activate(player, knockbackForce)
+		return true
 	end
 	
 	function Module.GetBackUp(target)
 		local player = resolvePlayer(target)
-		if player == LocalPlayer then
-			RagdollEvent:FireServer(player, false)
-			deactivate(player)
-		end
+		if not player then return false end
+		deactivate(player)
+		return true
 	end
 	
-	-- Listen for server events
+	-- Legacy fallback for older servers that still fire the RagdollEvent directly.
 	RagdollEvent.OnClientEvent:Connect(function(player, isRagdoll, force)
 		if isRagdoll then
 			activate(player, force)

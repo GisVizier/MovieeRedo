@@ -50,6 +50,17 @@ local function configureRigDefault(rig)
 	end
 end
 
+local function setupClientRagdollBinding(player, rig, character)
+	if not RunService:IsClient() then
+		return
+	end
+
+	local ragdoll = getRagdollModule()
+	if ragdoll and ragdoll.SetupRig then
+		ragdoll.SetupRig(player, rig, character or (player and player.Character) or nil)
+	end
+end
+
 function RigManager:_bindRigDescendantAdded(rig)
 	if self._descendantConnections[rig] then
 		return
@@ -188,20 +199,13 @@ function RigManager:CreateRig(player, character)
 		end)
 	end
 
-	-- Setup ragdoll system for this rig (client-only)
-	if RunService:IsClient() then
-		local ragdoll = getRagdollModule()
-		if ragdoll and ragdoll.SetupRig then
-			ragdoll.SetupRig(player, rig, character)
-		end
-	end
-
 	return rig
 end
 
 function RigManager:GetActiveRig(player)
 	local cached = self.ActiveRigs[player]
 	if cached and cached.Parent then
+		setupClientRagdollBinding(player, cached)
 		return cached
 	end
 
@@ -212,6 +216,7 @@ function RigManager:GetActiveRig(player)
 		for _, child in ipairs(container:GetChildren()) do
 			if child:GetAttribute("OwnerUserId") == player.UserId and child:GetAttribute("IsActive") == true then
 				self.ActiveRigs[player] = child
+				setupClientRagdollBinding(player, child)
 				return child
 			end
 		end
@@ -238,6 +243,7 @@ function RigManager:WaitForActiveRig(player, timeout)
 	local rig = container:WaitForChild(rigName, remaining)
 	if rig then
 		self.ActiveRigs[player] = rig
+		setupClientRagdollBinding(player, rig)
 	end
 	return rig
 end

@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 local KitConfig = require(ReplicatedStorage.Configs.KitConfig)
 
 local KitService = {}
@@ -427,6 +428,11 @@ function KitService:_activateAbility(player: Player, info, abilityType: string, 
 			info.ultimate = (info.ultimate or 0) - cost
 			self:_applyAttributes(player, info)
 		end
+	end
+
+	-- Give the movement validator a bypass window so ability movement isn't flagged
+	if RunService:IsServer() and inputState == Enum.UserInputState.Begin then
+		player:SetAttribute("AbilityBypassUntil", os.clock() + 5)
 	end
 
 	-- Call the kit function

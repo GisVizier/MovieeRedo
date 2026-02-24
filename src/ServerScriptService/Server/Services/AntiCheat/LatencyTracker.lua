@@ -35,9 +35,9 @@ local CONFIG = {
 
 -- Base tolerances (scaled by ping)
 local BASE_TOLERANCES = {
-	PositionTolerance = 8, -- studs (includes body-surface-to-root offset)
-	HeadTolerance = 5, -- studs (head is smaller but still offset from root)
-	TimestampTolerance = 0.5, -- seconds
+	PositionTolerance = 10, -- studs — relaxed from 8 to match HitValidator
+	HeadTolerance = 7, -- studs — relaxed from 5 for fewer false headshot rejects
+	TimestampTolerance = 0.6, -- seconds — relaxed from 0.5 for more time window
 }
 
 -- Per-player data

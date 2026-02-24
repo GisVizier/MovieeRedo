@@ -16,6 +16,8 @@ local ThirdPersonWeaponManager =
 	require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
 local function vmLog(...) end
 
+local STALE_PLAYER_TIMEOUT = 3 -- seconds with no packets before sinking character below map
+
 RemoteReplicator.RemotePlayers = {}
 RemoteReplicator.RenderConnection = nil
 RemoteReplicator._net = nil
@@ -474,6 +476,21 @@ function RemoteReplicator:ReplicatePlayers(dt)
 	for userId, remoteData in pairs(self.RemotePlayers) do
 		if not remoteData.Character or not remoteData.Character.Parent or not remoteData.PrimaryPart then
 			-- Cleanup weapon manager before removing
+			if remoteData.WeaponManager then
+				remoteData.WeaponManager:Destroy()
+			end
+			self.PendingViewmodelActions[userId] = nil
+			self.ActiveViewmodelState[userId] = nil
+			self.RemotePlayers[userId] = nil
+			continue
+		end
+
+		-- Stale timeout: character exists but no packets for too long (left match scope, etc.)
+		local timeSincePacket = currentTime - (remoteData.LastPacketTime or currentTime)
+		if timeSincePacket > STALE_PLAYER_TIMEOUT then
+			if remoteData.PrimaryPart and remoteData.PrimaryPart.Parent then
+				remoteData.PrimaryPart.CFrame = CFrame.new(0, -500, 0)
+			end
 			if remoteData.WeaponManager then
 				remoteData.WeaponManager:Destroy()
 			end

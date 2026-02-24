@@ -203,7 +203,13 @@ task.wait(); --heyy
 		if effectiveSpeed > self.Config.movingThreshold then
 			movingBase = self.Config.movingBaseSpread
 		end
-		local adsVelocitySensitivityMult = state.isADS and self.Config.adsVelocitySensitivityMult or 1
+		local adsVelocitySensitivityMult = 1
+		if state.isADS then
+			adsVelocitySensitivityMult = positiveMultiplier(
+				weaponData.adsVelocitySensitivityMult,
+				self.Config.adsVelocitySensitivityMult
+			)
+		end
 		targetVelocitySpread = math.clamp(
 			movingBase + (effectiveSpeed * self.Config.velocitySensitivity * adsVelocitySensitivityMult),
 			self.Config.velocityMinSpread,
@@ -211,7 +217,13 @@ task.wait(); --heyy
 		)
 	end
 
-	local adsVelocityRecoveryMult = state.isADS and self.Config.adsVelocityRecoveryMult or 1
+	local adsVelocityRecoveryMult = 1
+	if state.isADS then
+		adsVelocityRecoveryMult = positiveMultiplier(
+			weaponData.adsVelocityRecoveryMult,
+			self.Config.adsVelocityRecoveryMult
+		)
+	end
 	local velocityAlpha = math.clamp(frameDt * self.Config.velocityRecoveryRate * adsVelocityRecoveryMult, 0, 1)
 	self._velocitySpread += (targetVelocitySpread - self._velocitySpread) * velocityAlpha
 
@@ -256,7 +268,10 @@ task.wait(); --heyy
 		0
 	)
 
-	local adsSpreadResponseMult = state.isADS and self.Config.adsSpreadResponseMult or 1
+	local adsSpreadResponseMult = 1
+	if state.isADS then
+		adsSpreadResponseMult = positiveMultiplier(weaponData.adsSpreadResponseMult, self.Config.adsSpreadResponseMult)
+	end
 	local spreadAmount = (self._velocitySpread + self._currentRecoil) * spreadStateMult * adsSpreadResponseMult
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)

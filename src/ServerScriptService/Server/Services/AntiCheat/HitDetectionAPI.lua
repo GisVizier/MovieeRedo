@@ -277,6 +277,33 @@ end
 -- STANCE ENUM
 -- =============================================================================
 
+-- =============================================================================
+-- REJECTION LOG
+-- =============================================================================
+
+--[[
+	Get recent rejection log entries from the hit validator.
+	
+	@param count number? - How many recent entries (default: all stored)
+	@return table - Array of rejection entries, newest first
+]]
+function HitDetectionAPI:GetRejectionLog(count)
+	return HitValidator:GetRejectionLog(count)
+end
+
+--[[
+	Get rejection counts grouped by reason.
+	
+	@return table - { [reason] = count }
+]]
+function HitDetectionAPI:GetRejectionSummary()
+	return HitValidator:GetRejectionSummary()
+end
+
+-- =============================================================================
+-- STANCE ENUM
+-- =============================================================================
+
 -- Expose stance enum for external use
 HitDetectionAPI.Stance = {
 	Standing = 0,

@@ -295,6 +295,25 @@ function ProjectileAPI:GetFlaggedPlayers()
 end
 
 --[[
+	Get recent rejection log entries from the projectile validator.
+	
+	@param count number? - How many recent entries (default: all stored)
+	@return table - Array of rejection entries, newest first
+]]
+function ProjectileAPI:GetRejectionLog(count)
+	return ProjectileValidator:GetRejectionLog(count)
+end
+
+--[[
+	Get rejection counts grouped by reason.
+	
+	@return table - { [reason] = count }
+]]
+function ProjectileAPI:GetRejectionSummary()
+	return ProjectileValidator:GetRejectionSummary()
+end
+
+--[[
 	Clear a player's flag
 	
 	@param player Player - The player to clear

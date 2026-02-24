@@ -18,7 +18,7 @@ Camera.CycleOrder = { "Orbit", "Shoulder", "FirstPerson" }
 -- SENSITIVITY SETTINGS
 -- =============================================================================
 Camera.Sensitivity = {
-	Mouse = 0.4,
+	Mouse = 0.25,
 	Touch = 1.0,
 	MobileHorizontal = 3.75,
 	MobileVertical = 1.0,
@@ -38,7 +38,7 @@ Camera.AngleLimits = {
 -- SMOOTHING 2
 -- =============================================================================
 Camera.Smoothing = {
-	AngleSmoothness = 50,       -- Higher = smoother (less responsive)
+	AngleSmoothness = 37.5,       -- Higher = smoother (less responsive)
 	CrouchTransitionSpeed = 12,
 	EnableCrouchTransition = true,
 	ModeTransitionTime = 0.067,  -- Seconds to blend between camera modes
@@ -124,7 +124,7 @@ Camera.FOV = {
 Camera.ScreenShake = {
 	Enabled = true,
 	WallJump = {
-		Intensity = 0.3,
+		Intensity = 0.67,
 		Duration = 0.2,
 		Frequency = 15,
 	},

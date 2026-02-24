@@ -324,6 +324,8 @@ LoadoutConfig.Weapons = {
 		spreadFactors = {
 			speedReference = 5,
 			speedMaxBonus = 0.2,
+			adsSpeedReference = 16,
+			adsSpeedMaxBonus = 0.06,
 			hipfireMult = .5,
 			crouchMult = 0.115,
 			slideMult = 1.0,
@@ -336,7 +338,7 @@ LoadoutConfig.Weapons = {
 
 		minRange = 15,
 		maxRange = 250,
-		minDamage = 5,
+		minDamage = 18.24,
 		tracerColor = Color3.fromRGB(255, 230, 150),
 		
 		-- Wall destruction pressure
@@ -358,6 +360,9 @@ LoadoutConfig.Weapons = {
 			sprintMult = 2.2, -- 120% more spread when sprinting
 			airMult = 2.5, -- 150% more spread in air
 			adsMult = 0.01, -- 85% reduction when ADS
+			adsVelocitySensitivityMult = 0.45,
+			adsVelocityRecoveryMult = 0.8,
+			adsSpreadResponseMult = 0.85,
 			baseGap = 10, -- Base gap for crosshair
 		},
 
@@ -448,7 +453,7 @@ LoadoutConfig.Weapons = {
 
 		damage = 35.3,
 		headshotMultiplier = 3.0,
-		range = 200,
+		range = 240,
 		fireRate = 421,
 		spread = 0.008,
 		spreadFactors = {
@@ -463,9 +468,9 @@ LoadoutConfig.Weapons = {
 			minMultiplier = 0.05,
 			maxMultiplier = 2.5,
 		},
-		minRange = 8,
-		maxRange = 150,
-		minDamage = 8,
+		minRange = 15,
+		maxRange = 220,
+		minDamage = 23.53,
 		tracerColor = Color3.fromRGB(255, 100, 50),
 		
 		-- Wall destruction pressure (high caliber)

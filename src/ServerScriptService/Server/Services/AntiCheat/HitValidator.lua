@@ -31,33 +31,36 @@ local CONFIG = {
 	DebugLogging = true,            -- Enable detailed hit validation logging
 
 	-- Timing
-	MaxTimestampAge = 2.0,          -- Max seconds in the past (hard cap)
-	MaxRollbackTime = 2.0,          -- Never rollback more than this (matches position history buffer)
-	MinTimestampAge = -0.35,        -- Allow moderate clock jitter/network variance before rejecting
-	FutureTimestampClamp = 0.25,    -- Clamp slightly-future timestamps instead of rejecting immediately
-	ClientMaxFutureLead = 2.0,      -- Reject only extreme future timestamps (likely tampering)
-	ClientMaxPastAge = 10.0,        -- Reject only extreme stale timestamps (likely replay/tampering)
+	MaxTimestampAge = 2.5,          -- Max seconds in the past (hard cap) — relaxed from 2.0
+	MaxRollbackTime = 2.5,          -- Never rollback more than this — relaxed from 2.0
+	MinTimestampAge = -0.5,         -- Allow moderate clock jitter/network variance — relaxed from -0.35
+	FutureTimestampClamp = 0.35,    -- Clamp slightly-future timestamps — relaxed from 0.25
+	ClientMaxFutureLead = 3.0,      -- Reject only extreme future timestamps — relaxed from 2.0
+	ClientMaxPastAge = 15.0,        -- Reject only extreme stale timestamps — relaxed from 10.0
 
 	-- Distance
-	RangeTolerance = 1.2,           -- 20% extra range tolerance
+	RangeTolerance = 1.35,          -- 35% extra range tolerance — relaxed from 1.2
 
 	-- Position validation
-	BasePositionTolerance = 8,      -- studs (scaled by ping) - includes root-to-hitbox surface offset
-	BaseHeadTolerance = 6,          -- studs (for headshots, accounts for head height + body offset)
+	BasePositionTolerance = 10,     -- studs (scaled by ping) — relaxed from 8
+	BaseHeadTolerance = 8,          -- studs (for headshots) — relaxed from 6
 	HeadHeightOffset = 2.5,         -- studs above root where head is located
-	BodyRadiusOffset = 3,           -- extra studs for hit point on body surface vs root center
+	BodyRadiusOffset = 4,           -- extra studs for hit point on body surface — relaxed from 3
 
 	-- Rate limiting
-	FireRateTolerance = 0.70,       -- Allow 30% faster than config (latency + jitter)
+	FireRateTolerance = 0.60,       -- Allow 40% faster than config — relaxed from 0.70
 
 	-- Statistical tracking
-	MinShotsForAnalysis = 50,       -- Shots before flagging for accuracy
-	SuspiciousHitRate = 0.95,       -- 95%+ accuracy is suspicious
-	SuspiciousHeadshotRate = 0.80,  -- 80%+ headshot rate is suspicious
-	MinHeadshotsForAnalysis = 20,   -- Headshots before flagging ratio
+	MinShotsForAnalysis = 75,       -- Shots before flagging for accuracy — relaxed from 50
+	SuspiciousHitRate = 0.98,       -- 98%+ accuracy is suspicious — relaxed from 0.95
+	SuspiciousHeadshotRate = 0.90,  -- 90%+ headshot rate is suspicious — relaxed from 0.80
+	MinHeadshotsForAnalysis = 30,   -- Headshots before flagging ratio — relaxed from 20
 
 	LineOfSightSkipStep = 0.01,     -- Skip distance when re-raycasting through destroyed remnants
-	MaxLineOfSightSkips = 32,       -- Safety cap for remnant-skip iterations
+	MaxLineOfSightSkips = 48,       -- Safety cap for remnant-skip iterations — relaxed from 32
+
+	-- Rejection logging
+	MaxRejectionLogSize = 200,      -- Ring buffer size for rejection log
 }
 
 -- Stance enum for comparison
@@ -108,6 +111,8 @@ HitValidator.LastFireTimes = {}    -- [player] = { [weaponId] = timestamp }
 HitValidator.PlayerStats = {}      -- [player] = { TotalShots, Hits, Headshots, ... }
 HitValidator.FlaggedPlayers = {}   -- [player] = { reason, timestamp, value }
 HitValidator._net = nil
+HitValidator.RejectionLog = {}     -- Ring buffer of rejection entries
+HitValidator._rejectionLogIndex = 0
 
 -- =============================================================================
 -- INITIALIZATION
@@ -169,9 +174,7 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	local now = hitData.serverReceiveTime or workspace:GetServerTimeNow()
 
 	if shooter and hitData and hitData.hitPlayer == shooter then
-		if CONFIG.DebugLogging then
-			warn(string.format("[HitValidator] Rejected self target: shooter=%s", shooter.Name))
-		end
+		self:_logRejection(shooter, hitData, "SelfTarget")
 		return false, "SelfTarget"
 	end
 
@@ -185,17 +188,26 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 		end
 
 		if not RunService:IsStudio() and futureDelta > CONFIG.ClientMaxFutureLead then
+			self:_logRejection(shooter, hitData, "TimestampInFuture", { delta = futureDelta })
 			return false, "TimestampInFuture"
 		end
 
 		if pastAge > CONFIG.ClientMaxPastAge then
+			self:_logRejection(shooter, hitData, "TimestampTooOld", { age = pastAge })
 			return false, "TimestampTooOld"
 		end
 	end
 	
 	-- Get network conditions
 	local rollbackTime = LatencyTracker:GetRollbackTime(shooter)
-	local tolerances = LatencyTracker:GetAdaptiveTolerances(shooter)
+	-- Use combined tolerances when hitting a player so low-ping shooters
+	-- aren't penalized for a high-ping target's stale position history.
+	local tolerances
+	if hitData.hitPlayer then
+		tolerances = LatencyTracker:GetCombinedTolerances(shooter, hitData.hitPlayer)
+	else
+		tolerances = LatencyTracker:GetAdaptiveTolerances(shooter)
+	end
 
 	-- Server-authoritative shot time for all rollback validations.
 	local clampedRollback = math.min(rollbackTime, CONFIG.MaxRollbackTime)
@@ -207,6 +219,7 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	local valid, reason
 	valid, reason = self:_validateFireRate(shooter, now, weaponConfig)
 	if not valid then
+		self:_logRejection(shooter, hitData, reason, { weaponId = weaponConfig.name or weaponConfig.weaponName })
 		return false, reason
 	end
 	local weaponId = weaponConfig.name or weaponConfig.weaponName or "Unknown"
@@ -218,6 +231,11 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	-- 2. RANGE VALIDATION
 	valid, reason = self:_validateRange(hitData, weaponConfig)
 	if not valid then
+		local dist = (hitData.hitPosition - hitData.origin).Magnitude
+		self:_logRejection(shooter, hitData, reason, {
+			distance = dist,
+			maxRange = (weaponConfig.range or 100) * CONFIG.RangeTolerance,
+		})
 		return false, reason
 	end
 	
@@ -225,18 +243,24 @@ function HitValidator:ValidateHit(shooter, hitData, weaponConfig)
 	if hitData.hitPlayer then
 		valid, reason = self:_validatePositionBacktrack(shooter, hitData, rollbackTime, tolerances)
 		if not valid then
+			self:_logRejection(shooter, hitData, reason, { rollbackTime = rollbackTime })
 			return false, reason
 		end
 		
 		-- 4. STANCE VALIDATION
 		valid, reason = self:_validateStance(hitData, rollbackTime)
 		if not valid then
+			self:_logRejection(shooter, hitData, reason, {
+				claimedStance = hitData.targetStance,
+				rollbackTime = rollbackTime,
+			})
 			return false, reason
 		end
 		
 		-- 5. LINE-OF-SIGHT CHECK
 		valid, reason = self:_validateLineOfSight(shooter, hitData, rollbackTime)
 		if not valid then
+			self:_logRejection(shooter, hitData, reason)
 			return false, reason
 		end
 	end
@@ -314,6 +338,19 @@ function HitValidator:_validatePositionBacktrack(shooter, hitData, rollbackTime,
 	-- Clamp rollback time to prevent abuse
 	local clampedRollback = math.min(rollbackTime, CONFIG.MaxRollbackTime)
 	local now = workspace:GetServerTimeNow()
+
+	-- Also consider the target's one-way latency — their position history
+	-- on the server is stale by their own latency, not the shooter's.
+	-- Without this, low-ping shooters can't look back far enough to find
+	-- where the high-ping target actually was when the shot was fired.
+	if hitData.hitPlayer and hitData.hitPlayer.Parent then
+		local targetOneWay = LatencyTracker:GetOneWayLatency(hitData.hitPlayer)
+		clampedRollback = math.min(
+			math.max(clampedRollback, targetOneWay),
+			CONFIG.MaxRollbackTime
+		)
+	end
+
 	local minLookbackTime = now - clampedRollback
 	local lookbackTime = math.max(hitTime, minLookbackTime)
 	
@@ -683,6 +720,81 @@ end
 ]]
 function HitValidator:SetPlayerStance(player, stance)
 	PositionHistory:SetStance(player, stance)
+end
+
+-- =============================================================================
+-- REJECTION LOGGING
+-- =============================================================================
+
+--[[
+	Log a rejection with full context for debugging.
+	Stores in a ring buffer so it doesn't grow unbounded.
+	
+	@param shooter Player? - The shooting player
+	@param hitData table - Hit data from the packet
+	@param reason string - Rejection reason code
+	@param extras table? - Additional context (distances, tolerances, etc.)
+]]
+function HitValidator:_logRejection(shooter, hitData, reason, extras)
+	local entry = {
+		timestamp = workspace:GetServerTimeNow(),
+		shooter = shooter and shooter.Name or "Unknown",
+		shooterUserId = shooter and shooter.UserId or 0,
+		target = hitData.hitPlayer and hitData.hitPlayer.Name or "Environment",
+		targetUserId = hitData.targetUserId or 0,
+		reason = reason,
+		weapon = hitData.weaponName or "Unknown",
+		origin = hitData.origin,
+		hitPosition = hitData.hitPosition,
+		isHeadshot = hitData.isHeadshot,
+		ping = shooter and LatencyTracker:GetPing(shooter) or -1,
+		extras = extras or {},
+	}
+
+	self._rejectionLogIndex = self._rejectionLogIndex + 1
+	local index = ((self._rejectionLogIndex - 1) % CONFIG.MaxRejectionLogSize) + 1
+	self.RejectionLog[index] = entry
+
+	-- Always warn on rejections so they show in output
+	warn(string.format("[HitValidator] REJECTED: shooter=%s target=%s reason=%s weapon=%s ping=%.0fms",
+		entry.shooter, entry.target, reason, entry.weapon, entry.ping))
+end
+
+--[[
+	Get recent rejection log entries.
+	
+	@param count number? - How many recent entries to return (default: all stored)
+	@return table - Array of rejection entries, newest first
+]]
+function HitValidator:GetRejectionLog(count)
+	local total = math.min(self._rejectionLogIndex, CONFIG.MaxRejectionLogSize)
+	local requested = count and math.min(count, total) or total
+	local result = {}
+
+	for i = 0, requested - 1 do
+		local idx = ((self._rejectionLogIndex - 1 - i) % CONFIG.MaxRejectionLogSize) + 1
+		local entry = self.RejectionLog[idx]
+		if entry then
+			table.insert(result, entry)
+		end
+	end
+
+	return result
+end
+
+--[[
+	Get rejection counts grouped by reason.
+	
+	@return table - { [reason] = count }
+]]
+function HitValidator:GetRejectionSummary()
+	local summary = {}
+	for _, entry in pairs(self.RejectionLog) do
+		if entry then
+			summary[entry.reason] = (summary[entry.reason] or 0) + 1
+		end
+	end
+	return summary
 end
 
 return HitValidator

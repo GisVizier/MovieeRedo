@@ -55,32 +55,32 @@ local Character = {
 	
 	FallSpeed = {
 		Enabled = true,
-		MaxFallSpeed = 85,                -- Higher terminal velocity (faster fall)
+		MaxFallSpeed = 50,                -- Lower terminal velocity = slower fall cap
 		DragMultiplier = 0.4,             -- Drag when exceeding max
-		
+
 		AscentDrag = 0.004,               -- Floaty ascent
 
-		FallAcceleration = 18,            -- Gentler pull (good for wall jumps)
-		AscentGravityReduction = 0.35,    -- Floatier going up (helps wall jumps)
+		FallAcceleration = 6,             -- Slight downward pull during descent
+		AscentGravityReduction = 0.58,    -- Counteracts 58% of gravity going up = slow, low-gravity ascent
 
-		HangTimeThreshold = 10,           -- Wider apex float window
-		HangTimeDrag = 0.35,              -- More float at apex
+		HangTimeThreshold = 7,            -- Narrow apex window so hang drag only fires very near zero velocity
+		HangTimeDrag = 0.55,              -- Strong drag at apex = long hang time
 
-		VerticalForceLerp = 10,           -- Smoothing
+		VerticalForceLerp = 4,            -- Much smoother transitions between ascent/apex/descent phases
 	},
 
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.38,             -- Slightly more upward force (gentler initial fall)
-		MaxFallSpeed = 85,
+		DampingFactor = 0.50,             -- 0.50 × 1.35 = 0.675 (67.5% counteracted, leaves clean fall)
+		MaxFallSpeed = 50,
 		ApplyOnlyWhenFalling = true,
 	},
-	
+
 	FloatDecay = {
 		Enabled = true,
-		FloatDuration = 0.4,              -- Short float at apex only
-		DecayRate = 0.12,                 -- Fast decay so normal fall kicks in quick
-		MinDampingFactor = 0.18,          -- Low floor = can fall faster
+		FloatDuration = 0.70,             -- Longer float at apex
+		DecayRate = 0.05,                 -- Very slow decay = floatiness fades out gradually
+		MinDampingFactor = 0.22,          -- Lower floor so fall accelerates naturally as arc completes
 		MomentumFactor = 0.003,           -- Less momentum penalty
 		VelocityThreshold = 0.6,          -- Threshold
 		ThresholdShrinkRate = 0.003,      -- Faster shrink
