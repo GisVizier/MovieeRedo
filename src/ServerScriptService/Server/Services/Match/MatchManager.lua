@@ -1102,6 +1102,14 @@ function MatchManager:OnPlayerKilled(killerPlayer, victimPlayer)
 	})
 	self:_fireMatchStatsUpdate(match)
 
+	-- Task system: record elimination for killer
+	if killerPlayer and killerId and killerId ~= victimId then
+		local taskService = self._registry:TryGet("DailyTaskService")
+		if taskService then
+			taskService:RecordEvent(killerPlayer, "ELIMINATION")
+		end
+	end
+
 	local postKillDelay = match.modeConfig.postKillDelay or 5
 
 	-- Elimination check: is victim's entire team wiped?
@@ -1474,6 +1482,22 @@ function MatchManager:EndMatch(matchId, winnerTeam)
 			Team2 = match.scores.Team2,
 		},
 	})
+
+	-- Task system: DUEL_PLAYED for all participants, DUEL_WON for winners
+	local taskService = self._registry:TryGet("DailyTaskService")
+	if taskService then
+		for _, player in self:_getMatchPlayers(match) do
+			taskService:RecordEvent(player, "DUEL_PLAYED")
+		end
+
+		local winnerUserIds = (winnerTeam == "Team1") and match.team1 or match.team2
+		for _, userId in winnerUserIds do
+			local winner = Players:GetPlayerByUserId(userId)
+			if winner then
+				taskService:RecordEvent(winner, "DUEL_WON")
+			end
+		end
+	end
 
 	local lobbyReturnDelay = match.modeConfig.lobbyReturnDelay or 5
 	task.delay(lobbyReturnDelay, function()

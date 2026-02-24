@@ -124,6 +124,11 @@ local Remotes = {
 	{ name = "VoxelDebris", description = "Server sends debris creation data to clients", unreliable = true },
 	{ name = "VoxelReset", description = "Server tells clients to clear voxel debris (round reset)" },
 
+	-- Task system
+	{ name = "TasksRequest", description = "Client requests current task state on init" },
+	{ name = "TasksUpdate", description = "Server sends full task state to client" },
+	{ name = "TaskClaimReward", description = "Client claims reward for a completed task" },
+
 	-- Debug / testing
 	{ name = "RequestTestDeath", description = "Client requests self-kill for testing respawn flow" },
 

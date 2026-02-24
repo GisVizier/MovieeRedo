@@ -119,6 +119,10 @@ local entries = {
 		name = "PartyService",
 		module = servicesFolder:WaitForChild("Party"):WaitForChild("PartyService"),
 	},
+	{
+		name = "DailyTaskService",
+		module = servicesFolder:WaitForChild("DailyTask"):WaitForChild("DailyTaskService"),
+	},
 }
 
 -- Temporary recv isolation toggles. Set to true to skip loading a service.

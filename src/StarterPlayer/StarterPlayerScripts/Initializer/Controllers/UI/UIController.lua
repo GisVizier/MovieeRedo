@@ -518,6 +518,15 @@ function UIController:Init(registry, net)
 		end
 	end)
 
+	-- Task system: forward TasksUpdate from server to CoreUI
+	self._net:ConnectClient("TasksUpdate", function(data)
+		if self._coreUi and data then
+			pcall(function()
+				self._coreUi:emit("TasksUpdate", data)
+			end)
+		end
+	end)
+
 	-- Training mode entry flow
 	self._net:ConnectClient("ShowTrainingLoadout", function(data)
 		self:_onShowTrainingLoadout(data)
@@ -684,6 +693,7 @@ function UIController:_bootstrapUi()
 		"Emotes",
 		"Dialogue",
 		"Spec",
+		"Lobby",
 	}) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then
@@ -977,6 +987,20 @@ function UIController:_setupEmoteWheelInput(ui)
 	ui:on("EmoteSelected", function()
 		emoteWheelOpen = false
 	end)
+
+	-- Task system: Lobby module emits these → UIController routes to server
+	ui:on("TasksRequestRefresh", function()
+		self._net:FireServer("TasksRequest")
+	end)
+
+	ui:on("TaskClaimReward", function(taskId)
+		self._net:FireServer("TaskClaimReward", taskId)
+	end)
+
+	-- Show lobby task panel on initial join
+	safeCall(function()
+		ui:show("Lobby", true)
+	end)
 end
 
 function UIController:_onStartMatch(matchData)
@@ -1010,6 +1034,9 @@ function UIController:_onStartMatch(matchData)
 	end)
 	safeCall(function()
 		self._coreUi:hide("Loadout")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Lobby")
 	end)
 
 	-- Match start: show in-game HUD.
@@ -1108,6 +1135,9 @@ function UIController:_onShowMapSelection(data)
 	end)
 	safeCall(function()
 		self._coreUi:hide("Loadout")
+	end)
+	safeCall(function()
+		self._coreUi:hide("Lobby")
 	end)
 
 	-- Build team data for the Map module
@@ -1893,6 +1923,11 @@ function UIController:_onReturnToLobby(data)
 		end
 	end)
 
+	-- Show lobby task panel
+	safeCall(function()
+		self._coreUi:show("Lobby", true)
+	end)
+
 	-- Force third person (Orbit) camera for lobby
 	local cameraController = self._registry and self._registry:TryGet("Camera")
 	if cameraController and type(cameraController.SetCameraMode) == "function" then
@@ -1906,7 +1941,10 @@ function UIController:_onShowTrainingLoadout(data)
 		return
 	end
 
-	-- Hide player list when entering training (uses proper module methods)
+	-- Hide lobby and player list when entering training
+	safeCall(function()
+		self._coreUi:hide("Lobby")
+	end)
 	safeCall(function()
 		self._coreUi:emit("TrainingStart")
 	end)

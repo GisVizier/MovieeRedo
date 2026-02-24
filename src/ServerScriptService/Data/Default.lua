@@ -83,6 +83,20 @@ return {
 		Tomahawk = { "Cleaver" },
 	},
 
+	-- Task system (beginner / daily / bonus)
+	TASKS = {
+		beginnerProgress = {},   -- { [taskId] = number }
+		beginnerClaimed  = {},   -- { [taskId] = true }
+		beginnerComplete = false,
+
+		dailyDayId       = "",   -- UTC day string e.g. "2026-02-24"
+		dailyProgress    = {},   -- { [taskId] = number }
+		dailyClaimed     = {},   -- { [taskId] = true }
+
+		bonusProgress    = {},   -- { [taskId] = number }
+		bonusClaimed     = {},   -- { [taskId] = true }
+	},
+
 	-- Per-weapon customization (kill effects, etc.)
 	WEAPON_DATA = {},
 

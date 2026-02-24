@@ -102,7 +102,17 @@ function PlayerDataTable.init()
 			Tomahawk = { "Cleaver" },
 		},
 
-		-- Per-weapon customization data (kill effects, etc.)
+		TASKS = {
+			beginnerProgress = {},
+			beginnerClaimed  = {},
+			beginnerComplete = false,
+			dailyDayId       = "",
+			dailyProgress    = {},
+			dailyClaimed     = {},
+			bonusProgress    = {},
+			bonusClaimed     = {},
+		},
+
 		WEAPON_DATA = {
 			-- Example:
 			-- ["Shotgun"] = {
