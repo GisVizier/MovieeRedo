@@ -747,12 +747,43 @@ function UIController:_bootstrapUi()
 	-- Between-round: player pressed the swap button inside the Loadout module
 	-- → switch to Orbit camera so they can see their character while picking
 	ui:on("SwapLoadoutOpened", function()
+		-- Switch to Orbit camera and unlock mouse for the picker
 		local cameraController = self._registry and self._registry:TryGet("Camera")
 		if cameraController and type(cameraController.SetCameraMode) == "function" then
 			cameraController:SetCameraMode("Orbit")
 		end
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
+
+		-- NOW destroy weapons – the player has committed to swapping
+		-- 1) Viewmodel (first-person arms/weapon rigs)
+		local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+		if viewmodelController and viewmodelController.ClearLoadout then
+			pcall(function() viewmodelController:ClearLoadout() end)
+		end
+
+		-- 2) WeaponController (weapon logic, crosshair, aim-assist)
+		local weaponController = self._registry and self._registry:TryGet("Weapon")
+		if weaponController then
+			if type(weaponController._unequipCurrentWeapon) == "function" then
+				pcall(function() weaponController:_unequipCurrentWeapon() end)
+			end
+			if type(weaponController.HideCrosshair) == "function" then
+				pcall(function() weaponController:HideCrosshair() end)
+			end
+		end
+
+		-- 3) Third-person weapon model on local rig
+		local replicationController = self._registry and self._registry:TryGet("Replication")
+		if replicationController and type(replicationController.ClearWeapons) == "function" then
+			pcall(function() replicationController:ClearWeapons() end)
+		end
+
+		-- 4) Clear EquippedSlot so nothing re-equips from listeners
+		local lp = Players.LocalPlayer
+		if lp then
+			lp:SetAttribute("EquippedSlot", nil)
+		end
 	end)
 
 	-- Player has filled all 4 slots - notify server they're ready
@@ -1213,36 +1244,12 @@ function UIController:_onBetweenRoundFreeze(data)
 		end)
 	end
 
-	-- ===== DESTROY ALL WEAPONS (viewmodel + weapon controller + third-person) =====
-	-- 1) Viewmodel (first-person arms/weapon rigs)
-	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
-	if viewmodelController and viewmodelController.ClearLoadout then
-		pcall(function()
-			viewmodelController:ClearLoadout()
-		end)
-	end
-
-	-- 2) WeaponController (weapon logic, crosshair, aim-assist, actions)
-	local weaponController = self._registry and self._registry:TryGet("Weapon")
-	if weaponController then
-		if type(weaponController._unequipCurrentWeapon) == "function" then
-			pcall(function() weaponController:_unequipCurrentWeapon() end)
-		end
-		if type(weaponController.HideCrosshair) == "function" then
-			pcall(function() weaponController:HideCrosshair() end)
-		end
-	end
-
-	-- 3) Third-person weapon model on the local player's rig
-	local replicationController = self._registry and self._registry:TryGet("Replication")
-	if replicationController and type(replicationController.ClearWeapons) == "function" then
-		pcall(function() replicationController:ClearWeapons() end)
-	end
-
-	-- 4) Clear EquippedSlot attribute so nothing re-equips from listeners
+	-- Block weapon attacks while between rounds (server-side attribute).
+	-- Weapons stay visually equipped; the ViewmodelController ignores
+	-- attribute changes via BetweenRoundActive, so no new loadout spawns.
 	local localPlayer = Players.LocalPlayer
 	if localPlayer then
-		localPlayer:SetAttribute("EquippedSlot", nil)
+		localPlayer:SetAttribute("AttackDisabled", true)
 	end
 
 	-- Tell HUD loadout is "open" (hides health/item bars, keeps score visible)
@@ -1313,35 +1320,10 @@ function UIController:_onBetweenRoundFreeze(data)
 	-- Deferred re-application: character/weapon controllers that process
 	-- MatchFrozen on the same frame may re-lock the mouse.  We override them
 	-- one frame later to guarantee the cursor is visible for the swap button.
-	-- Also re-clear weapons: OnPlayerRespawn's task.defer may have re-set
-	-- SelectedLoadout after the server cleared it, causing CreateLoadout to fire.
 	task.defer(function()
 		if self._betweenRounds then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			UserInputService.MouseIconEnabled = true
-
-			-- Re-destroy weapons in case OnPlayerRespawn's deferred SelectedLoadout
-			-- re-set triggered CreateLoadout between our initial clear and now.
-			local vm = self._registry and self._registry:TryGet("Viewmodel")
-			if vm and vm.ClearLoadout then
-				pcall(function() vm:ClearLoadout() end)
-			end
-			local wp = self._registry and self._registry:TryGet("Weapon")
-			if wp and type(wp._unequipCurrentWeapon) == "function" then
-				pcall(function() wp:_unequipCurrentWeapon() end)
-			end
-			if wp and type(wp.HideCrosshair) == "function" then
-				pcall(function() wp:HideCrosshair() end)
-			end
-			local rep = self._registry and self._registry:TryGet("Replication")
-			if rep and type(rep.ClearWeapons) == "function" then
-				pcall(function() rep:ClearWeapons() end)
-			end
-
-			local lp = Players.LocalPlayer
-			if lp then
-				lp:SetAttribute("EquippedSlot", nil)
-			end
 		end
 	end)
 end
@@ -1412,12 +1394,23 @@ function UIController:_onRoundStart(data)
 	if player then
 		player:SetAttribute("InLobby", false)
 		player:SetAttribute("PlayerState", "InMatch")
+		-- Clear between-round flags so weapons & attacks work normally again
+		player:SetAttribute("BetweenRoundActive", nil)
+		player:SetAttribute("AttackDisabled", nil)
 	end
+
+	-- Track whether the player actually clicked "Swap Loadout" during
+	-- the between-round phase.  If they didn't, their weapons are still
+	-- equipped and we can skip the destroy→recreate cycle entirely.
+	local playerSwapped = false
 
 	-- In between-round mode: make sure finishLoadout ran (fills empty slots),
 	-- then submit the authoritative loadout to the server.
 	if wasBetweenRound then
 		local loadoutModule = self._coreUi:getModule("Loadout")
+
+		-- Did the player actually open the loadout picker?
+		playerSwapped = loadoutModule and loadoutModule._swapConfirmed == true
 
 		-- If the timer already fired finishLoadout(), this is a no-op.
 		-- If the player was still picking, this fills remaining empty slots.
@@ -1489,23 +1482,46 @@ function UIController:_onRoundStart(data)
 		cameraController:SetCameraMode("FirstPerson")
 	end
 
-	-- Create loadout from SelectedLoadout attribute (weapons were cleared during between-round)
-	local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
-	if viewmodelController and viewmodelController.RefreshLoadoutFromAttributes then
-		pcall(function()
-			viewmodelController:RefreshLoadoutFromAttributes()
-		end)
-	end
-
-	-- Refresh weapon controller to re-equip
-	local weaponController = self._registry and self._registry:TryGet("Weapon")
-	if weaponController and weaponController.OnRespawnRefresh then
-		task.defer(function()
+	-- Only destroy → recreate the viewmodel if the player actually swapped.
+	-- If they didn't swap, their weapons were never destroyed, so we leave
+	-- them alone (no flicker, no race-condition risk).
+	if wasBetweenRound and playerSwapped then
+		-- Create loadout from SelectedLoadout attribute (weapons were cleared when swap opened)
+		local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+		if viewmodelController and viewmodelController.RefreshLoadoutFromAttributes then
 			pcall(function()
-				weaponController:OnRespawnRefresh()
+				viewmodelController:RefreshLoadoutFromAttributes()
 			end)
-		end)
+		end
+
+		-- Refresh weapon controller to re-equip
+		local weaponController = self._registry and self._registry:TryGet("Weapon")
+		if weaponController and weaponController.OnRespawnRefresh then
+			task.defer(function()
+				pcall(function()
+					weaponController:OnRespawnRefresh()
+				end)
+			end)
+		end
+	elseif not wasBetweenRound then
+		-- Normal round-start (Round 1): the usual flow
+		local viewmodelController = self._registry and self._registry:TryGet("Viewmodel")
+		if viewmodelController and viewmodelController.RefreshLoadoutFromAttributes then
+			pcall(function()
+				viewmodelController:RefreshLoadoutFromAttributes()
+			end)
+		end
+
+		local weaponController = self._registry and self._registry:TryGet("Weapon")
+		if weaponController and weaponController.OnRespawnRefresh then
+			task.defer(function()
+				pcall(function()
+					weaponController:OnRespawnRefresh()
+				end)
+			end)
+		end
 	end
+	-- If wasBetweenRound and !playerSwapped: weapons are already equipped, do nothing.
 
 	-- Show round start animation on HUD with round number
 	local hudModule = self._coreUi:getModule("HUD")

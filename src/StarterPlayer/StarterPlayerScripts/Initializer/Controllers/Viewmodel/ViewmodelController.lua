@@ -247,6 +247,13 @@ function ViewmodelController:Init(registry, net)
 
 	if LocalPlayer then
 		local function onSelectedLoadoutChanged()
+			-- While the between-round phase is active, ignore attribute
+			-- changes so OnPlayerRespawn's force-refresh doesn't
+			-- recreate the viewmodel (the player shouldn't have weapons).
+			if LocalPlayer:GetAttribute("BetweenRoundActive") then
+				return
+			end
+
 			local raw = LocalPlayer:GetAttribute("SelectedLoadout")
 			if type(raw) ~= "string" or raw == "" then
 				self:ClearLoadout()

@@ -1269,34 +1269,22 @@ function MatchManager:_resetRound(match)
 		end
 	end
 
-	-- CLEAR SelectedLoadout + EquippedSlot BEFORE revive.
-	-- OnPlayerRespawn (called inside _reviveAllPlayers) schedules a task.defer
-	-- that re-sets SelectedLoadout to the old value. Clearing first ensures that
-	-- deferred callback finds nil and skips the re-set, preventing the client
-	-- ViewmodelController from re-creating weapons during the between-round phase.
+	-- Signal clients to keep their weapons alive during between-round.
+	-- The ViewmodelController will ignore SelectedLoadout changes while
+	-- BetweenRoundActive is true, so OnPlayerRespawn's force-refresh of
+	-- SelectedLoadout won't destroy the player's viewmodel.
 	for _, player in self:_getMatchPlayers(match) do
 		pcall(function()
-			player:SetAttribute("SelectedLoadout", nil)
-			player:SetAttribute("EquippedSlot", nil)
+			player:SetAttribute("BetweenRoundActive", true)
+			player:SetAttribute("AttackDisabled", true)
 		end)
 	end
 
-	-- Revive and teleport to spawn positions
+	-- Revive and teleport to spawn positions.
+	-- OnPlayerRespawn will force-refresh SelectedLoadout but the client
+	-- ignores it (BetweenRoundActive guard), so weapons persist.
 	self:_reviveAllPlayers(match)
 	self:_teleportMatchPlayersDirect(match)
-
-	-- Safety: re-clear SelectedLoadout AFTER revive in a deferred callback to
-	-- guarantee it runs after any task.defer scheduled inside OnPlayerRespawn.
-	for _, player in self:_getMatchPlayers(match) do
-		task.defer(function()
-			if player.Parent then
-				pcall(function()
-					player:SetAttribute("SelectedLoadout", nil)
-					player:SetAttribute("EquippedSlot", nil)
-				end)
-			end
-		end)
-	end
 
 	-- DESTROY kit instances + clear server-side kit state (ability, cooldowns, ultimate)
 	-- so players start the between-round picker with a completely clean slate
@@ -1356,6 +1344,15 @@ function MatchManager:_onBetweenRoundLoadoutExpired(match)
 	match._deadThisRound = {}
 	match.state = "playing"
 	match._pendingLoadouts = nil
+
+	-- Clear between-round flags so the client's viewmodel & weapon systems
+	-- react normally again from this point forward.
+	for _, player in self:_getMatchPlayers(match) do
+		pcall(function()
+			player:SetAttribute("BetweenRoundActive", nil)
+			player:SetAttribute("AttackDisabled", nil)
+		end)
+	end
 	
 	self:_unfreezeMatchPlayers(match)
 	-- Revive again in case anyone died during the between-round phase
@@ -1574,6 +1571,8 @@ function MatchManager:_returnPlayersToLobby(match)
 			player:SetAttribute("MatchFrozen", nil)
 			player:SetAttribute("InWaitingRoom", nil)
 			player:SetAttribute("ExternalMoveMult", 1)
+			player:SetAttribute("BetweenRoundActive", nil)
+			player:SetAttribute("AttackDisabled", nil)
 			
 			-- Clear movement/ability attributes that could linger
 			player:SetAttribute("ForceUncrouch", nil)

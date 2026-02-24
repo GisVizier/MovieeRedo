@@ -1717,7 +1717,12 @@ end
 -- =============================================================================
 
 function WeaponController:_onFirePressed()
-	local currentTime = workspace:GetServerTimeNow()
+local currentTime = workspace:GetServerTimeNow()
+
+	-- Between-round lock: server sets AttackDisabled during between-round phase
+	if LocalPlayer and LocalPlayer:GetAttribute("AttackDisabled") then
+		return
+	end
 
 	-- During loadout (MatchFrozen): only allow firing when in first person
 	if LocalPlayer and LocalPlayer:GetAttribute("MatchFrozen") then
@@ -2229,6 +2234,10 @@ function WeaponController:QuickMelee()
 end
 
 function WeaponController:Reload()
+	if LocalPlayer and LocalPlayer:GetAttribute("AttackDisabled") then
+		return
+	end
+
 	if not self._currentActions then
 		return
 	end
@@ -2322,6 +2331,10 @@ function WeaponController:Inspect()
 end
 
 function WeaponController:Special(isPressed)
+	if LocalPlayer and LocalPlayer:GetAttribute("AttackDisabled") then
+		return
+	end
+
 	if not self._currentActions then
 		return
 	end
