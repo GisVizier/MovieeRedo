@@ -3,7 +3,7 @@ local Movement = {}
 Movement.Cooldowns = {
 	Crouch = 0.35,
 	Jump = 0.12,
-	Slide = 1.0,           -- Up from 0.8 (longer base cooldown)
+	Slide = 0.85,          -- Slightly reduced for faster re-slide
 	WorldGravity = 196.2,  -- Keep default (float is handled by Character.lua)
 }
 
@@ -37,10 +37,10 @@ Movement.Sliding = {
 		MaxSlopeAngle = 65,
 	},
 	Steering = {
-		Enabled = false,
+		Enabled = true,
 		Responsiveness = 0.12,
-		VelocityPenalty = 0.75,
-		MinAlignment = 0.7,
+		VelocityPenalty = 0.88,
+		MinAlignment = 0.55,
 	},
 	SpeedChangeRates = {
 		Forward = 0.21,

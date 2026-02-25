@@ -1912,9 +1912,13 @@ local currentTime = workspace:GetServerTimeNow()
 	self:_applyCameraRecoil()
 
 	-- Update state after attack
-	self:_setLastFireTimeForSlot(self:_getCurrentSlot(), currentTime)
+	local resolvedShotTime = currentTime
+	if self._weaponInstance and self._weaponInstance.State and type(self._weaponInstance.State.LastFireTime) == "number" then
+		resolvedShotTime = self._weaponInstance.State.LastFireTime
+	end
+	self:_setLastFireTimeForSlot(self:_getCurrentSlot(), resolvedShotTime)
 	self._lastShotWeaponId = self._equippedWeaponId
-	self._lastShotTime = currentTime
+	self._lastShotTime = resolvedShotTime
 	self:_updateWeaponInstanceState()
 end
 

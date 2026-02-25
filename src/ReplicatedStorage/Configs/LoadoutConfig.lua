@@ -641,7 +641,7 @@ LoadoutConfig.Weapons = {
 		fireProfile = {
 			mode = "Semi",
 			autoReloadOnEmpty = true,
-			spread = 0.025,
+			spread = 0.019,
 		},
 		burstProfile = {
 			shots = 3,
@@ -651,36 +651,36 @@ LoadoutConfig.Weapons = {
 
 		speedMultiplier = 1.28,
 
-		damage = 14,
+		damage = 15.5,
 		headshotMultiplier = 1.5,
 		range = 180,
 		fireRate = 700,
 		projectileSpeed = nil,
 		bulletDrop = false,
-		spread = 0.025,
-		minRange = 8,
-		maxRange = 180,
-		minDamage = 7,
+		spread = 0.019,
+		minRange = 14,
+		maxRange = 220,
+		minDamage = 9,
 		tracerColor = Color3.fromRGB(255, 230, 170),
 		
 		-- Wall destruction (fast fire = lots of small holes)
 		destructionPressure = 15,
 
 			recoil = {
-				pitchUp = 3.6,
-				yawRandom = 0.65,
-				recoverySpeed = 6.5,
+				pitchUp = 4.6,
+				yawRandom = 0.9,
+				recoverySpeed = 6.1,
 			},
 
 		crosshair = {
 			type = "Default",
-			spreadX = 2.1,
-			spreadY = 2.1,
-			recoilMultiplier = 2.1,
+			spreadX = 1.85,
+			spreadY = 1.85,
+			recoilMultiplier = 2.35,
 			crouchMult = 0.6,
 			sprintMult = 1.8,
 			airMult = 2.1,
-			adsMult = 1.0,
+			adsMult = 0.92,
 			baseGap = 9,
 		},
 

@@ -87,7 +87,17 @@ function Attack.Execute(weaponInstance, currentTime)
 		return false, "NoAmmo"
 	end
 
-	local fireInterval = 60 / (config.fireRate or 421)
+	local configuredFireRate = tonumber(config.fireRate)
+	if not configuredFireRate then
+		local fireProfile = config.fireProfile
+		if type(fireProfile) == "table" then
+			configuredFireRate = tonumber(fireProfile.fireRate)
+		end
+	end
+	if not configuredFireRate or configuredFireRate <= 0 then
+		configuredFireRate = 421
+	end
+	local fireInterval = 60 / configuredFireRate
 	if state.LastFireTime and now - state.LastFireTime < fireInterval then
 		return false, "Cooldown"
 	end

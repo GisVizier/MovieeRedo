@@ -534,23 +534,28 @@ function WeaponService:CalculateDamage(shotData, weaponConfig)
 		dropoffScale = 0.5
 	end
 
-	-- Headshot multiplier
-	if shotData.isHeadshot then
-		baseDamage = baseDamage * (weaponConfig.headshotMultiplier or 1.5)
-	end
-
-	-- Distance falloff
-	if weaponConfig.minRange and weaponConfig.maxRange then
+	-- Distance falloff applies to body damage first.
+	-- Headshot multiplier is applied after falloff so headshots still beat bodyshots at max range.
+	if weaponConfig.minRange and weaponConfig.maxRange and shotData.hitPosition and shotData.origin then
 		local distance = (shotData.hitPosition - shotData.origin).Magnitude
 
 		if distance > weaponConfig.minRange then
 			local falloffRange = weaponConfig.maxRange - weaponConfig.minRange
-			local distanceBeyondMin = distance - weaponConfig.minRange
-			local falloffPercent = math.clamp(distanceBeyondMin / falloffRange, 0, 1)
+			if falloffRange > 0 then
+				local distanceBeyondMin = distance - weaponConfig.minRange
+				local falloffPercent = math.clamp(distanceBeyondMin / falloffRange, 0, 1)
 
-			local minDamage = weaponConfig.minDamage or (baseDamage * 0.3)
-			baseDamage = baseDamage - ((baseDamage - minDamage) * (falloffPercent * dropoffScale))
+				local minDamage = weaponConfig.minDamage or (baseDamage * 0.3)
+				baseDamage = baseDamage - ((baseDamage - minDamage) * (falloffPercent * dropoffScale))
+			else
+				baseDamage = weaponConfig.minDamage or baseDamage
+			end
 		end
+	end
+
+	-- Headshot multiplier
+	if shotData.isHeadshot then
+		baseDamage = baseDamage * (weaponConfig.headshotMultiplier or 1.5)
 	end
 
 	-- Handle shotgun pellets
@@ -881,11 +886,6 @@ function WeaponService:CalculateProjectileDamage(hitData, weaponConfig, extraDat
 	local projectileConfig = weaponConfig.projectile or {}
 	local isRocketSpecial = extraData and extraData.isRocketSpecial == true
 
-	-- Headshot multiplier
-	if hitData.isHeadshot then
-		baseDamage = baseDamage * (weaponConfig.headshotMultiplier or 1.5)
-	end
-
 	-- Pierce damage reduction
 	local pierceCount = hitData.pierceCount or 0
 	if pierceCount > 0 then
@@ -917,6 +917,11 @@ function WeaponService:CalculateProjectileDamage(hitData, weaponConfig, extraDat
 		local distance = (hitData.hitPosition - hitData.origin).Magnitude
 		local falloffConfig = projectileConfig.minRange and projectileConfig or weaponConfig
 		baseDamage = applyDistanceFalloff(baseDamage, distance, falloffConfig)
+	end
+
+	-- Headshot multiplier (after distance/aoe/pierce falloff)
+	if hitData.isHeadshot then
+		baseDamage = baseDamage * (weaponConfig.headshotMultiplier or 1.5)
 	end
 
 	-- Charge scaling (based on chargePercent stored in projectile tracking)

@@ -332,6 +332,11 @@ function CameraController:OnCharacterSpawned(character)
 			self:ApplyCameraModeSettings()
 			self:ApplyRigVisibility()
 			self:HideColliderParts() -- Hide the bean/collider parts
+
+			-- Restart the camera render step loop.
+			-- OnCharacterRemoving unbinds it; we must re-bind here
+			-- so the camera continues updating for the new character.
+			self:StartCameraLoop()
 			return
 		end
 

@@ -298,10 +298,19 @@ function HitValidator:_validateTimestamp(timestamp, now, tolerances)
 end
 
 function HitValidator:_validateFireRate(shooter, now, weaponConfig)
-	local fireRate = weaponConfig.fireRate or 600
+	local fireRate = tonumber(weaponConfig.fireRate)
+	if not fireRate then
+		local fireProfile = weaponConfig.fireProfile
+		if type(fireProfile) == "table" then
+			fireRate = tonumber(fireProfile.fireRate)
+		end
+	end
+	if not fireRate or fireRate <= 0 then
+		fireRate = 600
+	end
 	local fireInterval = 60 / fireRate
 
-	local weaponId = weaponConfig.name or weaponConfig.weaponName or "Unknown"
+	local weaponId = weaponConfig.id or weaponConfig.name or weaponConfig.weaponName or "Unknown"
 	if not self.LastFireTimes[shooter] then
 		self.LastFireTimes[shooter] = {}
 	end

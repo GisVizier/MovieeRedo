@@ -71,7 +71,7 @@ local function restoreADSHoldAnimation(weaponInstance, side)
 	if animator and type(animator.GetTrack) == "function" then
 		local holdTrack = animator:GetTrack(holdAnim)
 		if holdTrack then
-			holdTrack.Looped = false
+			holdTrack.Looped = true
 		end
 	end
 end

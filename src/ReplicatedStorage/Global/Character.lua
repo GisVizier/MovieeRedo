@@ -1,7 +1,7 @@
 local Character = {
 	SprintSpeed = 28,
 	WalkSpeed = 19,
-	JumpPower = 43,
+	JumpPower = 47,
 	AutoSprint = false,
 	CoyoteTime = 0.12,
 
@@ -13,15 +13,15 @@ local Character = {
 
 		MinVerticalVelocity = 12.5,
 		MinVerticalEnforceTime = 0.12,
-		GroundResetTime = .85,
+		GroundResetTime = 0.5,
 		RecoverWhileFalling = true,
 	},
 
 
 	WallJump = {
 		Enabled = true,
-		VerticalBoost = 46.74,
-		HorizontalBoost = 25,
+		VerticalBoost = 35,
+		HorizontalBoost = 22,
 		WallPushForce = 35,
 		AnglePushMultiplier = 1.5,
 		WallDetectionDistance = 3.0,
@@ -61,7 +61,7 @@ local Character = {
 		AscentDrag = 0.004,               -- Floaty ascent
 
 		FallAcceleration = 6,             -- Slight downward pull during descent
-		AscentGravityReduction = 0.58,    -- Counteracts 58% of gravity going up = slow, low-gravity ascent
+		AscentGravityReduction = 0.47,    -- Counteracts 47% of gravity going up
 
 		HangTimeThreshold = 3,            -- Tight window; prevents hang firing during normal air movement
 		HangTimeDrag = 0.40,              -- Reduced so force delta at hang-exit is smaller = smoother transition
@@ -71,15 +71,15 @@ local Character = {
 
 	GravityDamping = {
 		Enabled = true,
-		DampingFactor = 0.42,             -- 0.42 × 1.35 = 0.567 (~57% counteracted, net ~43% gravity)
+		DampingFactor = 0.30,             -- 0.30 (~30% counteracted, slight weightlessness on falls)
 		MaxFallSpeed = 100,               -- Hard cap above FallSpeed terminal; out of the way in normal play
 		ApplyOnlyWhenFalling = true,
 	},
 
 	FloatDecay = {
 		Enabled = true,
-		FloatDuration = 0.70,             -- Longer float at apex
-		DecayRate = 0.05,                 -- Very slow decay = floatiness fades out gradually
+		FloatDuration = 0.55,             -- Slightly longer float window at apex
+		DecayRate = 0.08,                 -- Slightly slower decay = floatiness lingers a touch more
 		MinDampingFactor = 0.22,          -- Lower floor so fall accelerates naturally as arc completes
 		MomentumFactor = 0.003,           -- Less momentum penalty
 		VelocityThreshold = 0.6,          -- Threshold

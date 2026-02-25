@@ -46,7 +46,8 @@ local function playWeaponAnimation(weaponInstance, animName, fadeTime)
 		end
 	end
 	if track then
-		track.Looped = false
+		local isADSLoop = (animName == "SpecailLeft" or animName == "SpecailRight")
+		track.Looped = isADSLoop
 	end
 	return track
 end
