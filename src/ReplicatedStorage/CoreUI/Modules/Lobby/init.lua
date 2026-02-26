@@ -253,9 +253,9 @@ function module:_clearTemplateText()
 					local leftImg  = slot.barObj:FindFirstChild("Left")
 					local rightImg = slot.barObj:FindFirstChild("Right")
 					if leftImg then
-						leftImg.Visible = true
+						leftImg.Visible = false
 						local g = leftImg:FindFirstChildOfClass("UIGradient")
-						if g then g.Rotation = 0 end
+						if g then g.Rotation = -1 end
 					end
 					if rightImg then
 						rightImg.Visible = true
@@ -394,7 +394,7 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 			local rightImg = slot.barObj:FindFirstChild("Right")
 			local rightRot, leftRot = arcRotations(frac)
 
-			if leftImg  then leftImg.Visible  = true end
+			if leftImg  then leftImg.Visible  = frac > 0 end
 			if rightImg then rightImg.Visible = true end
 
 			local rightGrad = rightImg and rightImg:FindFirstChildOfClass("UIGradient")
