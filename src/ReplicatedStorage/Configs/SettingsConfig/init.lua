@@ -353,15 +353,17 @@ SettingsConfig.Categories = {
 
 			Brightness = {
 				Name = "Brightness",
-				Description = "Increase or decrease client brightness intensity.",
+				Description = "Adjust brightness preset and optional bloom.",
 				Order = 12,
-				SettingType = "slider",
-				Slider = {
-					Max = 200,
-					Min = 0,
-					Step = 1,
-					Default = 100,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Darker", Value = "Darker", Image = "rbxassetid://107716367760784" },
+					{ Display = "Dark", Value = "Dark", Image = "rbxassetid://139553824197447" },
+					{ Display = "Default", Value = "Default", Image = "rbxassetid://88725146989228" },
+					{ Display = "Bright", Value = "Bright", Image = "rbxassetid://98387775837893" },
+					{ Display = "Bright + Bloom", Value = "BrightBloom", Image = "rbxassetid://84354271851550" },
 				},
+				Default = 3,
 			},
 
 			FieldOfView = {
@@ -776,11 +778,13 @@ SettingsConfig.DefaultSettings = {
 		HideHud = false,
 		WeaponInking = 4,
 		HideTeammateDisplay = 2,
-		DisplayArea = 0,
+		DisplayArea = 100,
+		Brightness = 3,
 		HorizontalSensitivity = 50,
 		VerticalSensitivity = 50,
 		ADSSensitivity = 75,
 		FieldOfView = 70,
+		FOVZoomStrength = 100,
 		FieldOfViewEffects = 2,
 		ScreenShake = 1,
 		TeamColor = 1,

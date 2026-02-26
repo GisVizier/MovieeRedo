@@ -2285,16 +2285,17 @@ function module:hide()
 	-- Stop the timer immediately so zombie loops don't linger.
 	self._timerRunning = false
 
-	-- Cancel any previously scheduled hide-delay before creating a new one.
+	-- Cancel any previously scheduled hide-delay.
 	if self._pendingHideTask then
 		pcall(task.cancel, self._pendingHideTask)
 		self._pendingHideTask = nil
 	end
 
-	self._pendingHideTask = task.delay(0.6, function()
-		self._pendingHideTask = nil
+	-- CoreUI calls _cleanup right after hide() succeeds, so visibility must be
+	-- applied immediately instead of waiting on a delayed task.
+	if self._ui then
 		self._ui.Visible = false
-	end)
+	end
 
 	return true
 end

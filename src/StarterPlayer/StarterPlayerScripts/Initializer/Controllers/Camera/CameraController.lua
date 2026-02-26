@@ -1386,6 +1386,11 @@ function CameraController:GetCameraAngles()
 end
 
 function CameraController:SetFOV(fov)
+	if FOVController and FOVController.SetSettingsBaseFOV then
+		FOVController:SetSettingsBaseFOV(fov)
+		return
+	end
+
 	local camera = getCurrentCamera()
 	if camera then
 		camera.FieldOfView = fov

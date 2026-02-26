@@ -8,7 +8,6 @@ local DualPistolsState = require(script.Parent:WaitForChild("State"))
 
 local Special = {}
 Special._isADS = false
-Special._originalFOV = nil
 Special._activeSlot = nil
 Special._specialTracks = {
 	"SpecailLeft",
@@ -164,11 +163,7 @@ function Special:_enterADS(weaponInstance, side)
 	local adsEffectsMultiplier = config and config.adsEffectsMultiplier or 0.15
 
 	viewmodelController:SetADS(true, adsEffectsMultiplier)
-
-	if adsFOV then
-		Special._originalFOV = FOVController.BaseFOV
-		FOVController:SetBaseFOV(adsFOV)
-	end
+	FOVController:SetADSState(true, adsFOV)
 
 	local adsSpeedMult = config and config.adsSpeedMultiplier or 0.75
 	local weaponController = ServiceRegistry:GetController("Weapon")
@@ -189,11 +184,7 @@ function Special:_exitADS(weaponInstance)
 		end
 		viewmodelController:SetADS(false)
 	end
-
-	if Special._originalFOV then
-		FOVController:SetBaseFOV(Special._originalFOV)
-		Special._originalFOV = nil
-	end
+	FOVController:SetADSState(false)
 
 	local weaponController = ServiceRegistry:GetController("Weapon")
 	if weaponController and weaponController.SetADSSpeedMultiplier then
@@ -206,7 +197,7 @@ function Special:_exitADS(weaponInstance)
 end
 
 function Special.Cancel()
-	local shouldExitADS = Special._isADS or Special._originalFOV ~= nil
+	local shouldExitADS = Special._isADS
 	if not shouldExitADS then
 		return
 	end

@@ -8,6 +8,7 @@ local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForCh
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
+local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 
 local SettingsCallbacks = {}
 local ADS_SENSITIVITY_BASE_MULT = 0.75
@@ -31,6 +32,45 @@ local HUD_HIDE_ALLOWED_MODULES = {
 	["stats"] = true,
 	["Stats"] = true,
 }
+local BRIGHTNESS_BLOOM_NAME = "_SettingsBrightnessBloom"
+local BRIGHTNESS_DEFAULT_INDEX = 3
+local BRIGHTNESS_PRESETS = {
+	[1] = {
+		exposure = -0.65,
+		bloomEnabled = false,
+		bloomIntensity = 0,
+		bloomSize = 24,
+		bloomThreshold = 1.1,
+	},
+	[2] = {
+		exposure = -0.25,
+		bloomEnabled = false,
+		bloomIntensity = 0,
+		bloomSize = 24,
+		bloomThreshold = 1.1,
+	},
+	[3] = {
+		exposure = 0,
+		bloomEnabled = false,
+		bloomIntensity = 0,
+		bloomSize = 24,
+		bloomThreshold = 1.1,
+	},
+	[4] = {
+		exposure = 0.2,
+		bloomEnabled = false,
+		bloomIntensity = 0,
+		bloomSize = 24,
+		bloomThreshold = 1.1,
+	},
+	[5] = {
+		exposure = 0.25,
+		bloomEnabled = true,
+		bloomIntensity = 0.35,
+		bloomSize = 24,
+		bloomThreshold = 1.1,
+	},
+}
 
 local function getLocalPlayer()
 	return Players.LocalPlayer
@@ -42,6 +82,26 @@ local function getCoreUI()
 		return uiController:GetCoreUI()
 	end
 	return nil
+end
+
+local function applyDisplayAreaScale(value)
+	local numeric = tonumber(value)
+	if numeric == nil then
+		numeric = 100
+	end
+	local percent = math.clamp(numeric, 50, 150)
+	local scale = percent / 100
+
+	local player = getLocalPlayer()
+	if player then
+		player:SetAttribute("SettingsDisplayAreaScale", scale)
+		player:SetAttribute("SettingsDisplayAreaPercent", percent)
+	end
+
+	local coreUi = getCoreUI()
+	if coreUi and type(coreUi.setScaleToScreenMultiplier) == "function" then
+		coreUi:setScaleToScreenMultiplier(scale)
+	end
 end
 
 local function shouldShowHudInCurrentContext()
@@ -126,6 +186,88 @@ local function isSettingEnabled(value)
 		return lowered == "enabled" or lowered == "true" or lowered == "on"
 	end
 	return false
+end
+
+local function resolveBrightnessPresetIndex(value)
+	if type(value) == "number" then
+		local rounded = math.floor(value + 0.5)
+		if rounded >= 1 and rounded <= #BRIGHTNESS_PRESETS then
+			return rounded
+		end
+
+		local oldSliderValue = math.clamp(value, 0, 200)
+		if oldSliderValue < 60 then
+			return 1
+		end
+		if oldSliderValue < 90 then
+			return 2
+		end
+		if oldSliderValue < 130 then
+			return 3
+		end
+		if oldSliderValue < 170 then
+			return 4
+		end
+		return 5
+	end
+
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		if lowered == "darker" then
+			return 1
+		end
+		if lowered == "dark" then
+			return 2
+		end
+		if lowered == "default" then
+			return 3
+		end
+		if lowered == "bright" then
+			return 4
+		end
+		if lowered == "bright+bloom" or lowered == "bright + bloom" or lowered == "brightbloom" then
+			return 5
+		end
+	end
+
+	return BRIGHTNESS_DEFAULT_INDEX
+end
+
+local function getBrightnessBloomEffect()
+	local existing = Lighting:FindFirstChild(BRIGHTNESS_BLOOM_NAME)
+	if existing then
+		if existing:IsA("BloomEffect") then
+			return existing
+		end
+		existing:Destroy()
+	end
+
+	local bloom = Instance.new("BloomEffect")
+	bloom.Name = BRIGHTNESS_BLOOM_NAME
+	bloom.Enabled = false
+	bloom.Intensity = 0
+	bloom.Size = 24
+	bloom.Threshold = 1.1
+	bloom.Parent = Lighting
+	return bloom
+end
+
+local function applyBrightnessPreset(value)
+	local presetIndex = resolveBrightnessPresetIndex(value)
+	local preset = BRIGHTNESS_PRESETS[presetIndex] or BRIGHTNESS_PRESETS[BRIGHTNESS_DEFAULT_INDEX]
+	if not preset then
+		return BRIGHTNESS_DEFAULT_INDEX
+	end
+
+	Lighting.ExposureCompensation = preset.exposure
+
+	local bloom = getBrightnessBloomEffect()
+	bloom.Enabled = preset.bloomEnabled
+	bloom.Intensity = preset.bloomIntensity
+	bloom.Size = preset.bloomSize
+	bloom.Threshold = preset.bloomThreshold
+
+	return presetIndex
 end
 
 local function hasHumanoidAncestor(instance)
@@ -516,6 +658,15 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		DisplayArea = function(value, oldValue)
+			applyDisplayAreaScale(value)
+		end,
+
+		Brightness = function(value, oldValue)
+			local presetIndex = applyBrightnessPreset(value)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsBrightnessPreset", presetIndex)
+			end
 		end,
 
 		HorizontalSensitivity = function(value, oldValue)
@@ -540,14 +691,31 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		FieldOfView = function(value, oldValue)
-			local camera = workspace.CurrentCamera
-			if camera then
-				camera.FieldOfView = value
+			local fov = clampNumber(value, 30, 120, 70)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsBaseFOV", fov)
 			end
+			FOVController:SetSettingsBaseFOV(fov)
 		end,
 
 		FieldOfViewEffects = function(value, oldValue)
-			local enabled = value == 1
+			local enabled = isSettingEnabled(value)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsFOVEffectsEnabled", enabled)
+			end
+			FOVController:SetEffectsEnabled(enabled)
+		end,
+
+		FOVZoomStrength = function(value, oldValue)
+			local strengthPercent = clampNumber(value, 0, 100, 100)
+			local strengthScale = strengthPercent / 100
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsFOVZoomStrength", strengthScale)
+			end
+			FOVController:SetADSZoomStrength(strengthScale)
 		end,
 
 		ScreenShake = function(value, oldValue)

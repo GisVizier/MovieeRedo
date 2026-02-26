@@ -6,7 +6,6 @@ local Inspect = require(script.Parent:WaitForChild("Inspect"))
 
 local Special = {}
 Special._isADS = false
-Special._originalFOV = nil
 
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance then
@@ -47,11 +46,7 @@ function Special:_enterADS(weaponInstance)
 	local adsEffectsMultiplier = config and config.adsEffectsMultiplier or 0.25
 
 	viewmodelController:SetADS(true, adsEffectsMultiplier)
-
-	if adsFOV then
-		Special._originalFOV = FOVController.BaseFOV
-		FOVController:SetBaseFOV(adsFOV)
-	end
+	FOVController:SetADSState(true, adsFOV)
 
 	local adsSpeedMult = config and config.adsSpeedMultiplier or 0.7
 	local weaponController = ServiceRegistry:GetController("Weapon")
@@ -72,11 +67,7 @@ function Special:_exitADS(weaponInstance)
 	if viewmodelController then
 		viewmodelController:SetADS(false)
 	end
-
-	if Special._originalFOV then
-		FOVController:SetBaseFOV(Special._originalFOV)
-		Special._originalFOV = nil
-	end
+	FOVController:SetADSState(false)
 
 	local weaponController = ServiceRegistry:GetController("Weapon")
 	if weaponController and weaponController.SetADSSpeedMultiplier then
@@ -92,7 +83,7 @@ function Special:_exitADS(weaponInstance)
 end
 
 function Special.Cancel()
-	local shouldExitADS = Special._isADS or Special._originalFOV ~= nil
+	local shouldExitADS = Special._isADS
 	if not shouldExitADS then
 		return
 	end

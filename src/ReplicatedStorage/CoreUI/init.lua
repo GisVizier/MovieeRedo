@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
 
 local Signal = require(script.Signal)
 local ConnectionManager = require(script.ConnectionManager)
@@ -145,6 +146,7 @@ function CoreUI.new(screenGui)
 	self._tween = TweenLibrary.new(self._connections)
 	self._originals = {}
 	self._elementData = {}
+	self._scaleToScreenMultiplier = 1
 
 	self.onModuleShow = Signal.new()
 	self.onModuleHide = Signal.new()
@@ -545,6 +547,19 @@ end
 function CoreUI:_initScaleToScreen()
 	self._scaleToScreenElements = {}
 	self._lastViewportSize = Vector2.zero
+	self._scaleToScreenMultiplier = 1
+
+	local localPlayer = Players.LocalPlayer
+	if localPlayer then
+		local savedScale = localPlayer:GetAttribute("SettingsDisplayAreaScale")
+		if type(savedScale) == "number" then
+			if savedScale > 2 then
+				self._scaleToScreenMultiplier = math.clamp(savedScale / 100, 0.5, 1.5)
+			else
+				self._scaleToScreenMultiplier = math.clamp(savedScale, 0.5, 1.5)
+			end
+		end
+	end
 
 	-- Find all UIScale objects named "ScaleToScreen"
 	for _, uiScale in self._screenGui:GetDescendants() do
@@ -590,13 +605,25 @@ function CoreUI:_updateScaleToScreen()
 	self._lastViewportSize = viewportSize
 
 	local scaleFactor = getScreenScale()
+	local userScale = self._scaleToScreenMultiplier or 1
 
 	for _, uiScale in self._scaleToScreenElements do
 		if uiScale and uiScale.Parent then
 			local originalScale = uiScale:GetAttribute("OrginalScale") or 1
-			uiScale.Scale = originalScale * scaleFactor
+			uiScale.Scale = originalScale * scaleFactor * userScale
 		end
 	end
+end
+
+function CoreUI:setScaleToScreenMultiplier(multiplier)
+	local numeric = tonumber(multiplier)
+	if numeric == nil then
+		return
+	end
+
+	self._scaleToScreenMultiplier = math.clamp(numeric, 0.5, 1.5)
+	self._lastViewportSize = Vector2.new(-1, -1)
+	self:_updateScaleToScreen()
 end
 
 function CoreUI:destroy()

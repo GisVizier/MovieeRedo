@@ -91,7 +91,9 @@ local function clampIndex(index, count)
 	if count <= 0 then
 		return 1
 	end
-	return math.clamp(index, 1, count)
+	local numericIndex = tonumber(index) or 1
+	local roundedIndex = math.floor(numericIndex + 0.5)
+	return math.clamp(roundedIndex, 1, count)
 end
 
 local function toNumber(value, fallback)
@@ -100,6 +102,27 @@ local function toNumber(value, fallback)
 		return fallback
 	end
 	return numeric
+end
+
+local function mapLegacyBrightnessPresetIndex(value)
+	local numeric = tonumber(value)
+	if numeric == nil then
+		return 3
+	end
+
+	if numeric < 60 then
+		return 1
+	end
+	if numeric < 90 then
+		return 2
+	end
+	if numeric < 130 then
+		return 3
+	end
+	if numeric < 170 then
+		return 4
+	end
+	return 5
 end
 
 local function snapToStep(value, minValue, step)
@@ -1761,8 +1784,13 @@ function module:_setupMultileRow(categoryKey, settingKey, config, row)
 		end
 	end
 
-	local currentIndex = PlayerDataTable.get(categoryKey, settingKey)
-	currentIndex = clampIndex(toNumber(currentIndex, config.Default or 1), #options)
+	local savedValue = PlayerDataTable.get(categoryKey, settingKey)
+	local currentIndex = clampIndex(toNumber(savedValue, config.Default or 1), #options)
+	if settingKey == "Brightness" and type(savedValue) == "number" and savedValue > #options then
+		local migratedIndex = clampIndex(mapLegacyBrightnessPresetIndex(savedValue), #options)
+		currentIndex = migratedIndex
+		PlayerDataTable.set(categoryKey, settingKey, migratedIndex)
+	end
 
 	local function updateDisplay()
 		local selectedOption = options[currentIndex]
