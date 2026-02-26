@@ -716,6 +716,7 @@ function UIController:_bootstrapUi()
 		"Dialogue",
 		"Spec",
 		"Lobby",
+		"UnHide",
 	}) do
 		local inst = ui:getUI(name)
 		if inst and inst:IsA("GuiObject") then

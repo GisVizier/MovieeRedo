@@ -152,7 +152,7 @@ function WeaponFX:RenderBulletTracer(hitData)
 	if not tracerModule then return end
 
 	-- Muzzle flash on the gun model
-	if tracerModule.Muzzle and hitData.gunModel then
+	if tracerModule.Muzzle and hitData.gunModel and not Tracers:IsMuzzleHidden() then
 		local muzzleAttachment = nil
 		if typeof(hitData.muzzleAttachment) == "Instance" and hitData.muzzleAttachment:IsA("Attachment") then
 			muzzleAttachment = hitData.muzzleAttachment

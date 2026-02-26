@@ -61,6 +61,25 @@ local function getDirectChildrenByName(parent, name)
 	return list
 end
 
+local function toAssetId(asset)
+	if typeof(asset) == "number" then
+		return "rbxassetid://" .. tostring(asset)
+	end
+	if typeof(asset) ~= "string" then
+		return nil
+	end
+	if asset == "" then
+		return nil
+	end
+	if string.find(asset, "rbxassetid://", 1, true) then
+		return asset
+	end
+	if string.match(asset, "^%d+$") then
+		return "rbxassetid://" .. asset
+	end
+	return asset
+end
+
 local function keyCodeDisplay(keyCode)
 	if keyCode == nil then
 		return "-"
@@ -103,6 +122,25 @@ local function findBooleanOptionIndex(options, targetValue)
 	end
 
 	return nil
+end
+
+local function resolveOptionIndex(config, storedValue)
+	local options = config and config.Options
+	if typeof(options) ~= "table" or #options == 0 then
+		return nil
+	end
+
+	if typeof(storedValue) == "number" then
+		return clampIndex(storedValue, #options)
+	end
+
+	if typeof(storedValue) == "boolean" then
+		return findBooleanOptionIndex(options, storedValue)
+			or (storedValue and 1 or math.min(2, #options))
+	end
+
+	local defaultIndex = toNumber(config.Default, 1)
+	return clampIndex(defaultIndex, #options)
 end
 
 local function resolveToggleState(config, storedValue)
@@ -246,6 +284,41 @@ local function getMultileControls(row)
 	}
 end
 
+local function getInfoOptionControls(slot)
+	if not slot then
+		return nil
+	end
+
+	local label = slot:FindFirstChild("Username", true)
+	if label and not label:IsA("TextLabel") then
+		label = nil
+	end
+	if not label then
+		label = slot:FindFirstChildWhichIsA("TextLabel", true)
+	end
+
+	local button = nil
+	if slot:IsA("GuiButton") then
+		button = slot
+	else
+		button = slot:FindFirstChildWhichIsA("ImageButton", true)
+	end
+
+	local image = slot:FindFirstChild("ImageLabel", true)
+	if image and not image:IsA("ImageLabel") then
+		image = nil
+	end
+	if not image then
+		image = slot:FindFirstChildWhichIsA("ImageLabel", true)
+	end
+
+	return {
+		label = label,
+		button = button,
+		image = image,
+	}
+end
+
 function module.start(export, ui)
 	local self = setmetatable({}, module)
 
@@ -263,6 +336,9 @@ function module.start(export, ui)
 	self._settingRows = {}
 	self._keybindUpdaters = {}
 	self._multileUpdaters = {}
+	self._infoOptionSlots = {}
+	self._infoPreviewSettingKey = nil
+	self._infoPreviewOptionIndex = nil
 	self._awaitingKeybind = nil
 
 	self._currentImageIndex = 1
@@ -338,22 +414,20 @@ function module:_cacheUIReferences()
 	self._infoImageFrame = self._infoRoot and self._infoRoot:FindFirstChild("ImageFrame")
 	self._infoVideoFrame = self._infoRoot and self._infoRoot:FindFirstChild("VideoFrame")
 	self._infoOptionsContainer = self._infoRoot and self._infoRoot:FindFirstChild("Options")
-	self._infoOptionsTemplate = nil
+	self._infoOptionSlots = {}
 	if self._infoOptionsContainer then
-		self._infoOptionsTemplate = self._infoOptionsContainer:FindFirstChild("Template")
-		if not self._infoOptionsTemplate then
-			for _, child in ipairs(self._infoOptionsContainer:GetChildren()) do
-				if child:IsA("Frame") then
-					self._infoOptionsTemplate = child
-					break
-				end
+		for _, child in ipairs(self._infoOptionsContainer:GetChildren()) do
+			if child:IsA("GuiObject") then
+				table.insert(self._infoOptionSlots, child)
+				child.Visible = false
 			end
 		end
 
+		table.sort(self._infoOptionSlots, function(a, b)
+			return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
+		end)
+
 		self._infoOptionsContainer.Visible = false
-		if self._infoOptionsTemplate and self._infoOptionsTemplate:IsA("GuiObject") then
-			self._infoOptionsTemplate.Visible = false
-		end
 	end
 
 	self._infoImageHolder = self._infoImageFrame and self._infoImageFrame:FindFirstChild("Holder")
@@ -1065,21 +1139,20 @@ end
 
 function module:_clearInfoOptions()
 	self._connections:cleanupGroup("infoOptions")
+	self._infoPreviewSettingKey = nil
+	self._infoPreviewOptionIndex = nil
 
 	if not self._infoOptionsContainer then
 		return
 	end
 
-	for _, child in ipairs(self._infoOptionsContainer:GetChildren()) do
-		if child ~= self._infoOptionsTemplate and child:IsA("GuiObject") then
-			child:Destroy()
+	for _, slot in ipairs(self._infoOptionSlots) do
+		if slot and slot.Parent == self._infoOptionsContainer then
+			slot.Visible = false
 		end
 	end
 
 	self._infoOptionsContainer.Visible = false
-	if self._infoOptionsTemplate and self._infoOptionsTemplate:IsA("GuiObject") then
-		self._infoOptionsTemplate.Visible = false
-	end
 end
 
 function module:_populateInfoOptions(rowData)
@@ -1094,8 +1167,29 @@ function module:_populateInfoOptions(rowData)
 		return
 	end
 
-	local templateSource = SettingsConfig.getTemplate("Multile") or self._infoOptionsTemplate
-	if not templateSource then
+	if #self._infoOptionSlots == 0 then
+		for _, child in ipairs(self._infoOptionsContainer:GetChildren()) do
+			if child:IsA("GuiObject") then
+				table.insert(self._infoOptionSlots, child)
+				child.Visible = false
+			end
+		end
+		table.sort(self._infoOptionSlots, function(a, b)
+			return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
+		end)
+	end
+
+	if #self._infoOptionSlots > 0 and #self._infoOptionSlots < #options then
+		local baseSlot = self._infoOptionSlots[1]
+		for _ = (#self._infoOptionSlots + 1), #options do
+			local clone = baseSlot:Clone()
+			clone.Visible = false
+			clone.Parent = self._infoOptionsContainer
+			table.insert(self._infoOptionSlots, clone)
+		end
+	end
+
+	if #self._infoOptionSlots == 0 then
 		return
 	end
 
@@ -1105,120 +1199,184 @@ function module:_populateInfoOptions(rowData)
 		selectedIndex = updater.getIndex()
 	end
 	if selectedIndex == nil then
-		selectedIndex = PlayerDataTable.get(rowData.category, rowData.key)
+		local storedValue = PlayerDataTable.get(rowData.category, rowData.key)
+		selectedIndex = resolveOptionIndex(rowData.config, storedValue)
 	end
 	selectedIndex = clampIndex(toNumber(selectedIndex, rowData.config.Default or 1), #options)
+
+	if self._infoPreviewSettingKey ~= rowData.key then
+		self._infoPreviewSettingKey = rowData.key
+		self._infoPreviewOptionIndex = selectedIndex
+	else
+		self._infoPreviewOptionIndex = clampIndex(toNumber(self._infoPreviewOptionIndex, selectedIndex), #options)
+	end
 
 	local layout = self._infoOptionsContainer:FindFirstChildWhichIsA("UIListLayout")
 	if not layout then
 		layout = Instance.new("UIListLayout")
 		layout.Parent = self._infoOptionsContainer
+		layout.FillDirection = Enum.FillDirection.Horizontal
 	end
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.FillDirection = Enum.FillDirection.Vertical
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 
 	self._infoOptionsContainer.Visible = true
 
-	local function bindSelect(target, optionIndex)
+	local function applyPreview(optionIndex)
+		local clampedIndex = clampIndex(toNumber(optionIndex, selectedIndex), #options)
+		self._infoPreviewSettingKey = rowData.key
+		self._infoPreviewOptionIndex = clampedIndex
+
+		for i, slot in ipairs(self._infoOptionSlots) do
+			if slot and slot.Parent == self._infoOptionsContainer and i <= #options then
+				local option = options[i]
+				local controls = getInfoOptionControls(slot)
+				local isSelected = i == clampedIndex
+				local hasOptionColor = typeof(option.Color) == "Color3"
+				local optionColor = hasOptionColor and option.Color or Color3.fromRGB(230, 230, 230)
+
+				if controls and controls.label then
+					controls.label.TextColor3 = isSelected and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+				end
+
+				if slot:IsA("GuiObject") then
+					slot.BackgroundColor3 = optionColor
+					slot.BackgroundTransparency = isSelected and 0 or 1
+				end
+
+				if controls and controls.button then
+					controls.button.Active = true
+					controls.button.AutoButtonColor = false
+					controls.button.Selectable = false
+				end
+
+				if controls and controls.image then
+					controls.image.ImageColor3 = Color3.fromRGB(0, 0, 0)
+					controls.image.Visible = isSelected
+					controls.image.ImageTransparency = isSelected and 0 or 1
+				end
+			end
+		end
+
+		self:_applyInfoMedia(rowData)
+	end
+
+	local function bindPreview(target, optionIndex)
 		if not target then
 			return
 		end
 
-		self._connections:track(target, "InputBegan", function(input)
-			if not self._buttonsActive then
-				return
-			end
-			if not isPointerInput(input) then
-				return
-			end
+		if target:IsA("GuiButton") then
+			self._connections:track(target, "Activated", function()
+				if not self._buttonsActive then
+					return
+				end
+				applyPreview(optionIndex)
+			end, "infoOptions")
+			return
+		end
 
-			local currentUpdater = self._multileUpdaters[rowData.key]
-			if currentUpdater then
-				currentUpdater.setIndex(optionIndex, true)
-			end
-		end, "infoOptions")
+		if target:IsA("GuiObject") then
+			self._connections:track(target, "InputBegan", function(input)
+				if not self._buttonsActive then
+					return
+				end
+				if not isPointerInput(input) then
+					return
+				end
+
+				applyPreview(optionIndex)
+			end, "infoOptions")
+		end
 	end
 
-	for optionIndex, option in ipairs(options) do
-		local optionRow = templateSource:Clone()
-		optionRow.Name = "Option_" .. tostring(optionIndex)
-		optionRow.LayoutOrder = optionIndex
-		optionRow.Visible = true
-		optionRow.Parent = self._infoOptionsContainer
-
-		local controls = getMultileControls(optionRow)
-		if not controls then
-			continue
-		end
-
-		local isSelected = optionIndex == selectedIndex
-		local accentColor = typeof(option.Color) == "Color3" and option.Color or Color3.fromRGB(255, 255, 255)
-
-		if controls.valueLabel then
-			controls.valueLabel.Text = tostring(option.Display or "")
-			controls.valueLabel.TextColor3 = isSelected and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
-			controls.valueLabel.TextTransparency = isSelected and 0 or 0.42
-		end
-
-		if controls.rowBody and controls.rowBody:IsA("Frame") then
-			controls.rowBody.BackgroundColor3 = isSelected and Color3.fromRGB(221, 221, 221) or Color3.fromRGB(0, 0, 0)
-			controls.rowBody.BackgroundTransparency = isSelected and 0 or 0.5
-		end
-
-		if controls.leftArrow then
-			controls.leftArrow.ImageTransparency = isSelected and 0 or 1
-			controls.leftArrow.ImageColor3 = accentColor
-		end
-		if controls.rightArrow then
-			controls.rightArrow.ImageTransparency = isSelected and 0 or 1
-			controls.rightArrow.ImageColor3 = accentColor
-		end
-
-		if controls.dotTemplate then
-			controls.dotTemplate.Visible = true
-			controls.dotTemplate.BackgroundColor3 = accentColor
-			controls.dotTemplate.BackgroundTransparency = isSelected and 0 or 0.8
-			local dotImage = controls.dotTemplate:FindFirstChild("ImageLabel", true)
-			if dotImage and dotImage:IsA("ImageButton") then
-				dotImage.ImageTransparency = isSelected and 0 or 1
-				dotImage.ImageColor3 = accentColor
+	for optionIndex, slot in ipairs(self._infoOptionSlots) do
+		local option = options[optionIndex]
+		if option and slot and slot.Parent == self._infoOptionsContainer then
+			slot.Visible = true
+			if slot:IsA("GuiButton") then
+				slot.Active = true
+				slot.AutoButtonColor = false
+				slot.Selectable = false
 			end
-		end
+			slot.LayoutOrder = optionIndex
+			slot.Name = "Option_" .. tostring(optionIndex)
 
-		bindSelect(optionRow, optionIndex)
-		bindSelect(controls.contentRoot, optionIndex)
+			local controls = getInfoOptionControls(slot)
+			if controls and controls.label then
+				controls.label.Text = tostring(option.Display or "")
+			end
+
+			bindPreview(slot, optionIndex)
+			if controls and controls.button and controls.button ~= slot then
+				controls.button.Active = true
+				controls.button.AutoButtonColor = false
+				controls.button.Selectable = false
+				bindPreview(controls.button, optionIndex)
+			end
+		elseif slot and slot.Parent == self._infoOptionsContainer then
+			slot.Visible = false
+		end
 	end
+
+	applyPreview(self._infoPreviewOptionIndex or selectedIndex)
 end
 
-function module:_updateInfoPanel(rowData)
-	local config = rowData and rowData.config or {}
-	local available = rowData and rowData.available
-
-	if self._infoTitleLabel and self._infoTitleLabel:IsA("TextLabel") then
-		self._infoTitleLabel.Text = config.Name or ""
+function module:_getSelectedOptionImage(rowData)
+	if not rowData or not rowData.config then
+		return nil
 	end
 
-	if self._infoDescriptionLabel and self._infoDescriptionLabel:IsA("TextLabel") then
-		local descriptionText = config.Description or ""
-		if available == false then
-			descriptionText = descriptionText
-				.. "\n\nUnavailable on "
-				.. tostring(self._deviceType)
-				.. "."
-		end
-		self._infoDescriptionLabel.Text = descriptionText
+	local config = rowData.config
+	local options = config.Options
+	if typeof(options) ~= "table" or #options == 0 then
+		return nil
 	end
 
-	if rowData and rowData.renderType == "Multile" and available then
-		self:_populateInfoOptions(rowData)
+	local selectedIndex = nil
+	if self._infoPreviewSettingKey == rowData.key then
+		selectedIndex = self._infoPreviewOptionIndex
 	else
-		self:_clearInfoOptions()
+		local updater = self._multileUpdaters[rowData.key]
+		if updater and updater.getIndex then
+			selectedIndex = updater.getIndex()
+		end
+		if selectedIndex == nil then
+			local storedValue = PlayerDataTable.get(rowData.category, rowData.key)
+			selectedIndex = resolveOptionIndex(config, storedValue)
+		end
 	end
+
+	if selectedIndex == nil then
+		return nil
+	end
+	selectedIndex = clampIndex(toNumber(selectedIndex, 1), #options)
+
+	local option = options[selectedIndex]
+	if typeof(option) ~= "table" then
+		return nil
+	end
+
+	return toAssetId(option.Image)
+end
+
+function module:_applyInfoMedia(rowData)
+	local config = rowData and rowData.config or {}
 
 	self:_stopImageCarousel()
 	self:_stopVideo()
 	self._currentInfoImages = nil
+
+	local selectedOptionImage = self:_getSelectedOptionImage(rowData)
+	if selectedOptionImage and self._infoImageFrame then
+		if self._infoVideoFrame then
+			self._infoVideoFrame.Visible = false
+		end
+		self._infoImageFrame.Visible = true
+		self._currentInfoImages = { selectedOptionImage }
+		self:_startImageCarousel(self._currentInfoImages)
+		return
+	end
 
 	if config.Video and self._infoVideoFrame then
 		if self._infoImageFrame then
@@ -1245,6 +1403,39 @@ function module:_updateInfoPanel(rowData)
 	if self._infoImageFrame then
 		self._infoImageFrame.Visible = false
 	end
+end
+
+function module:_updateInfoPanel(rowData)
+	local config = rowData and rowData.config or {}
+	local available = rowData and rowData.available
+
+	if self._infoTitleLabel and self._infoTitleLabel:IsA("TextLabel") then
+		self._infoTitleLabel.Text = config.Name or ""
+	end
+
+	if self._infoDescriptionLabel and self._infoDescriptionLabel:IsA("TextLabel") then
+		local descriptionText = config.Description or ""
+		if available == false then
+			descriptionText = descriptionText
+				.. "\n\nUnavailable on "
+				.. tostring(self._deviceType)
+				.. "."
+		end
+		self._infoDescriptionLabel.Text = descriptionText
+	end
+
+	local hasOptionList = rowData
+		and available
+		and typeof(config.Options) == "table"
+		and #config.Options > 0
+
+	if hasOptionList then
+		self:_populateInfoOptions(rowData)
+	else
+		self:_clearInfoOptions()
+	end
+
+	self:_applyInfoMedia(rowData)
 end
 
 function module:_clearInfoPanel()
@@ -1482,9 +1673,48 @@ function module:_setupToggleRow(categoryKey, settingKey, config, row)
 		end
 
 		updateDisplay(save)
+
+		if self._selectedSetting == settingKey then
+			local rowData = self:_findRowData(settingKey)
+			if rowData then
+				self:_updateInfoPanel(rowData)
+			end
+		end
+	end
+
+	local function setIndex(nextIndex, save)
+		local options = config.Options
+		if typeof(options) ~= "table" or #options == 0 then
+			return
+		end
+
+		local clampedIndex = clampIndex(nextIndex, #options)
+		currentIndex = clampedIndex
+
+		local option = options[clampedIndex]
+		local nextEnabled = enabled
+		if typeof(option) == "table" and typeof(option.Value) == "boolean" then
+			nextEnabled = option.Value
+		else
+			nextEnabled = clampedIndex == 1
+		end
+
+		setValue(nextEnabled, save)
 	end
 
 	updateDisplay(false)
+
+	if typeof(config.Options) == "table" and #config.Options > 0 then
+		self._multileUpdaters[settingKey] = {
+			setIndex = setIndex,
+			getIndex = function()
+				return currentIndex
+			end,
+			updateDisplay = function()
+				updateDisplay(false)
+			end,
+		}
+	end
 
 	self._connections:track(toggleButton, "Activated", function()
 		if not self._buttonsActive then

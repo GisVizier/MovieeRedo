@@ -7,12 +7,73 @@ local Players = game:GetService("Players")
 local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
+local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 
 local SettingsCallbacks = {}
 local ADS_SENSITIVITY_BASE_MULT = 0.75
+local DisableTexturesState = {
+	enabled = false,
+	tracked = {},
+	descendantAddedConnection = nil,
+}
+local HideHudState = {
+	enabled = false,
+	hiddenModules = {},
+	moduleShowConnection = nil,
+	pendingApply = false,
+}
+local HUD_HIDE_ALLOWED_MODULES = {
+	["Loadout"] = true,
+	["Map"] = true,
+	["Settings"] = true,
+	["_Settings"] = true,
+	["UnHide"] = true,
+	["stats"] = true,
+	["Stats"] = true,
+}
 
 local function getLocalPlayer()
 	return Players.LocalPlayer
+end
+
+local function getCoreUI()
+	local uiController = ServiceRegistry:GetController("UI")
+	if uiController and type(uiController.GetCoreUI) == "function" then
+		return uiController:GetCoreUI()
+	end
+	return nil
+end
+
+local function shouldShowHudInCurrentContext()
+	local player = Players.LocalPlayer
+	if not player then
+		return false
+	end
+	return player:GetAttribute("InLobby") ~= true
+end
+
+local function getUnHideUI()
+	local player = Players.LocalPlayer
+	if not player then
+		return nil
+	end
+
+	local playerGui = player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then
+		return nil
+	end
+
+	local screenGui = playerGui:FindFirstChild("Gui")
+	if not screenGui then
+		return nil
+	end
+
+	local unHide = screenGui:FindFirstChild("UnHide", true)
+	if unHide and unHide:IsA("GuiObject") then
+		return unHide
+	end
+
+	return nil
 end
 
 local function clampNumber(value, minValue, maxValue, fallback)
@@ -53,6 +114,369 @@ local function applyMouseSensitivityFromSettings()
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
 end
 
+local function isSettingEnabled(value)
+	if value == true then
+		return true
+	end
+	if type(value) == "number" then
+		return value == 1
+	end
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		return lowered == "enabled" or lowered == "true" or lowered == "on"
+	end
+	return false
+end
+
+local function hasHumanoidAncestor(instance)
+	local current = instance
+	while current and current ~= workspace do
+		if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+local function shouldAffectForDisableTextures(instance)
+	if not instance or not instance.Parent then
+		return false
+	end
+
+	if hasHumanoidAncestor(instance) then
+		return false
+	end
+
+	return instance:IsA("BasePart") or instance:IsA("Decal") or instance:IsA("Texture")
+end
+
+local function getTrackedEntry(instance)
+	local tracked = DisableTexturesState.tracked
+	local entry = tracked[instance]
+	if not entry then
+		entry = {}
+		tracked[instance] = entry
+	end
+	return entry
+end
+
+local function applyDisableTexturesToInstance(instance)
+	if not DisableTexturesState.enabled then
+		return
+	end
+
+	if not shouldAffectForDisableTextures(instance) then
+		return
+	end
+
+	local entry = getTrackedEntry(instance)
+
+	if instance:IsA("BasePart") then
+		if entry.material == nil then
+			entry.material = instance.Material
+		end
+		if entry.materialVariant == nil then
+			local ok, result = pcall(function()
+				return instance.MaterialVariant
+			end)
+			if ok then
+				entry.materialVariant = result
+			end
+		end
+
+		instance.Material = Enum.Material.SmoothPlastic
+		pcall(function()
+			instance.MaterialVariant = ""
+		end)
+
+		if instance:IsA("MeshPart") then
+			if entry.textureID == nil then
+				entry.textureID = instance.TextureID
+			end
+			instance.TextureID = ""
+		end
+	end
+
+	if instance:IsA("Decal") or instance:IsA("Texture") then
+		if entry.transparency == nil then
+			entry.transparency = instance.Transparency
+		end
+		instance.Transparency = 1
+	end
+end
+
+local function restoreDisableTexturesInstance(instance, entry)
+	if not instance or not entry then
+		return
+	end
+
+	if instance:IsA("BasePart") then
+		if entry.material ~= nil then
+			instance.Material = entry.material
+		end
+		if entry.materialVariant ~= nil then
+			pcall(function()
+				instance.MaterialVariant = entry.materialVariant
+			end)
+		end
+		if instance:IsA("MeshPart") and entry.textureID ~= nil then
+			instance.TextureID = entry.textureID
+		end
+	end
+
+	if (instance:IsA("Decal") or instance:IsA("Texture")) and entry.transparency ~= nil then
+		instance.Transparency = entry.transparency
+	end
+end
+
+local function connectDisableTexturesWatcher()
+	if DisableTexturesState.descendantAddedConnection then
+		return
+	end
+
+	DisableTexturesState.descendantAddedConnection = workspace.DescendantAdded:Connect(function(instance)
+		applyDisableTexturesToInstance(instance)
+	end)
+end
+
+local function disconnectDisableTexturesWatcher()
+	local connection = DisableTexturesState.descendantAddedConnection
+	if connection then
+		connection:Disconnect()
+		DisableTexturesState.descendantAddedConnection = nil
+	end
+end
+
+local function applyDisableTexturesToWorkspace()
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		applyDisableTexturesToInstance(descendant)
+	end
+end
+
+local function restoreDisableTexturesAll()
+	local restoreList = {}
+	for instance, entry in pairs(DisableTexturesState.tracked) do
+		table.insert(restoreList, { instance = instance, entry = entry })
+	end
+
+	for _, item in ipairs(restoreList) do
+		local instance = item.instance
+		local entry = item.entry
+		if instance and instance.Parent then
+			restoreDisableTexturesInstance(instance, entry)
+		end
+		DisableTexturesState.tracked[instance] = nil
+	end
+end
+
+local function setDisableTexturesEnabled(enabled)
+	enabled = enabled == true
+	if DisableTexturesState.enabled == enabled then
+		return
+	end
+
+	DisableTexturesState.enabled = enabled
+	if enabled then
+		connectDisableTexturesWatcher()
+		applyDisableTexturesToWorkspace()
+	else
+		disconnectDisableTexturesWatcher()
+		restoreDisableTexturesAll()
+	end
+end
+
+local function shouldKeepHudModule(moduleName)
+	if moduleName == "PlayerList" then
+		return false
+	end
+	return HUD_HIDE_ALLOWED_MODULES[moduleName] == true
+end
+
+local function disconnectHideHudConnection()
+	local connection = HideHudState.moduleShowConnection
+	if not connection then
+		return
+	end
+
+	if typeof(connection) == "RBXScriptConnection" then
+		connection:Disconnect()
+	elseif type(connection) == "table" and connection.disconnect then
+		connection:disconnect()
+	end
+
+	HideHudState.moduleShowConnection = nil
+end
+
+local function setUnHideVisible(coreUi, visible)
+	if coreUi then
+		if visible then
+			coreUi:show("UnHide", true)
+		else
+			coreUi:hide("UnHide")
+		end
+
+		local ui = coreUi:getUI("UnHide")
+		if ui and ui:IsA("GuiObject") then
+			ui.Visible = visible
+		end
+		return
+	end
+
+	local fallbackUi = getUnHideUI()
+	if fallbackUi then
+		fallbackUi.Visible = visible
+	end
+end
+
+local function applyHideHudState(enabled)
+	local coreUi = getCoreUI()
+
+	if enabled == true and HideHudState.enabled == true then
+		setUnHideVisible(coreUi, true)
+		return
+	end
+
+	if enabled ~= true and HideHudState.enabled ~= true then
+		setUnHideVisible(coreUi, false)
+		return
+	end
+
+	if enabled ~= true then
+		HideHudState.enabled = false
+		HideHudState.pendingApply = false
+		disconnectHideHudConnection()
+		setUnHideVisible(coreUi, false)
+
+		local restoreState = HideHudState.hiddenModules
+		HideHudState.hiddenModules = {}
+		if not coreUi then
+			task.spawn(function()
+				for _ = 1, 120 do
+					if HideHudState.enabled then
+						return
+					end
+
+					local liveCoreUi = getCoreUI()
+					if liveCoreUi then
+						for moduleName, state in pairs(restoreState) do
+							if state.wasOpen then
+								liveCoreUi:show(moduleName, true)
+							else
+								local ui = liveCoreUi:getUI(moduleName)
+								if ui and ui:IsA("GuiObject") and state.wasVisible then
+									ui.Visible = true
+								end
+							end
+						end
+						if shouldShowHudInCurrentContext() and liveCoreUi:getUI("HUD") then
+							liveCoreUi:show("HUD", true)
+						end
+						return
+					end
+
+					task.wait(0.25)
+				end
+			end)
+			return
+		end
+
+		for moduleName, state in pairs(restoreState) do
+			if state.wasOpen then
+				coreUi:show(moduleName, true)
+			else
+				local ui = coreUi:getUI(moduleName)
+				if ui and ui:IsA("GuiObject") and state.wasVisible then
+					ui.Visible = true
+				end
+			end
+		end
+		if shouldShowHudInCurrentContext() and coreUi:getUI("HUD") then
+			coreUi:show("HUD", true)
+		end
+		return
+	end
+
+	HideHudState.enabled = true
+	HideHudState.hiddenModules = {}
+
+	if not coreUi then
+		if not HideHudState.pendingApply then
+			HideHudState.pendingApply = true
+			task.spawn(function()
+				for _ = 1, 120 do
+					if not HideHudState.enabled then
+						HideHudState.pendingApply = false
+						return
+					end
+
+					local liveCoreUi = getCoreUI()
+					if liveCoreUi then
+						HideHudState.pendingApply = false
+						applyHideHudState(true)
+						return
+					end
+
+					task.wait(0.25)
+				end
+				HideHudState.pendingApply = false
+			end)
+		end
+
+		setUnHideVisible(nil, true)
+		return
+	end
+	HideHudState.pendingApply = false
+
+	if coreUi then
+		for moduleName, _ in pairs(coreUi._modules or {}) do
+			if not shouldKeepHudModule(moduleName) then
+				local ui = coreUi:getUI(moduleName)
+				local wasVisible = ui and ui:IsA("GuiObject") and ui.Visible == true or false
+				local wasOpen = coreUi:isOpen(moduleName)
+
+				if wasVisible or wasOpen then
+					HideHudState.hiddenModules[moduleName] = {
+						wasOpen = wasOpen,
+						wasVisible = wasVisible,
+					}
+				end
+
+				if wasOpen then
+					coreUi:hide(moduleName)
+				elseif ui and ui:IsA("GuiObject") then
+					ui.Visible = false
+				end
+			end
+		end
+
+		disconnectHideHudConnection()
+		HideHudState.moduleShowConnection = coreUi.onModuleShow:connect(function(moduleName)
+			if not HideHudState.enabled or shouldKeepHudModule(moduleName) then
+				return
+			end
+
+			task.defer(function()
+				local liveCoreUi = getCoreUI()
+				if not liveCoreUi then
+					return
+				end
+
+				if liveCoreUi:isOpen(moduleName) then
+					liveCoreUi:hide(moduleName)
+				end
+
+				local liveUi = liveCoreUi:getUI(moduleName)
+				if liveUi and liveUi:IsA("GuiObject") then
+					liveUi.Visible = false
+				end
+			end)
+		end)
+	end
+
+	setUnHideVisible(coreUi, true)
+end
+
 SettingsCallbacks.Callbacks = {
 	Gameplay = {
 		DisableShadows = function(value, oldValue)
@@ -61,7 +485,7 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		DisableTextures = function(value, oldValue)
-			local enabled = value == 1
+			setDisableTexturesEnabled(isSettingEnabled(value))
 		end,
 
 		DisableOthersWraps = function(value, oldValue)
@@ -77,7 +501,14 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		HideHud = function(value, oldValue)
-			local enabled = value == 1
+			applyHideHudState(isSettingEnabled(value))
+		end,
+
+		HideMuzzleFlash = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("HideMuzzleFlashEnabled", isSettingEnabled(value))
+			end
 		end,
 
 		HideTeammateDisplay = function(value, oldValue)

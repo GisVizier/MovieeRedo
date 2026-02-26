@@ -16,6 +16,7 @@ local ViewmodelAppearance = require(Locations.Game:WaitForChild("Viewmodel"):Wai
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local Spring = require(Locations.Game:WaitForChild("Viewmodel"):WaitForChild("Spring"))
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
+local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 
 local ViewmodelController = {}
 local DEBUG_WEAPON_CYCLE = true
@@ -48,6 +49,14 @@ local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
 local DEFAULT_ADS_EFFECTS_MULTIPLIER = 0.25
 local ADS_LERP_SPEED = 15
+local WEAPON_INKING_SETTING_CATEGORY = "Gameplay"
+local WEAPON_INKING_SETTING_KEY = "WeaponInking"
+local WEAPON_INKING_ATTRIBUTE = "WeaponInkingMode"
+local WEAPON_INKING_MODE_HIDE = 1
+local WEAPON_INKING_MODE_OUTLINE = 2
+local WEAPON_INKING_MODE_FILL = 3
+local WEAPON_INKING_MODE_FILL_AND_OUTLINE = 4
+local WEAPON_INKING_DEFAULT_MODE = WEAPON_INKING_MODE_FILL_AND_OUTLINE
 
 ViewmodelController._registry = nil
 ViewmodelController._net = nil
@@ -71,6 +80,9 @@ ViewmodelController._startMatchConn = nil
 ViewmodelController._attrConn = nil
 ViewmodelController._ziplineAttrConn = nil
 ViewmodelController._equipKeysConn = nil
+ViewmodelController._weaponInkingConn = nil
+ViewmodelController._weaponInkingDataDisconnect = nil
+ViewmodelController._weaponInkingHighlight = nil
 ViewmodelController._skipNextEquipAnimation = false
 
 ViewmodelController._rigStorage = nil
@@ -85,6 +97,7 @@ ViewmodelController._adsCustomAimAttachment = nil
 ViewmodelController._adsCustomLookAtAttachment = nil
 ViewmodelController._ziplineActive = false
 ViewmodelController._viewmodelHidden = false
+ViewmodelController._weaponInkingMode = WEAPON_INKING_DEFAULT_MODE
 
 local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
 
@@ -200,6 +213,34 @@ local function cycleLog(message: string, data: { [string]: any }?)
 	LogService:Info("VIEWMODEL_CYCLE", message, data)
 end
 
+local function parseWeaponInkingMode(value): number
+	if type(value) == "number" then
+		return math.clamp(math.floor(value + 0.5), WEAPON_INKING_MODE_HIDE, WEAPON_INKING_MODE_FILL_AND_OUTLINE)
+	end
+
+	if type(value) == "boolean" then
+		return value and WEAPON_INKING_MODE_HIDE or WEAPON_INKING_MODE_FILL_AND_OUTLINE
+	end
+
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		if lowered == "hide" then
+			return WEAPON_INKING_MODE_HIDE
+		end
+		if lowered == "outline" then
+			return WEAPON_INKING_MODE_OUTLINE
+		end
+		if lowered == "fill" then
+			return WEAPON_INKING_MODE_FILL
+		end
+		if lowered == "fill and outline" or lowered == "fillandoutline" or lowered == "fill and outlin" then
+			return WEAPON_INKING_MODE_FILL_AND_OUTLINE
+		end
+	end
+
+	return WEAPON_INKING_DEFAULT_MODE
+end
+
 function ViewmodelController:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -287,7 +328,21 @@ function ViewmodelController:Init(registry, net)
 
 		self._ziplineAttrConn = LocalPlayer:GetAttributeChangedSignal("ZiplineActive"):Connect(onZiplineActiveChanged)
 		task.defer(onZiplineActiveChanged)
+
+		local function onWeaponInkingModeChanged()
+			self:_refreshWeaponInkingMode()
+		end
+
+		self._weaponInkingConn = LocalPlayer:GetAttributeChangedSignal(WEAPON_INKING_ATTRIBUTE):Connect(onWeaponInkingModeChanged)
+		task.defer(onWeaponInkingModeChanged)
 	end
+
+	self._weaponInkingDataDisconnect = PlayerDataTable.onChanged(function(category, key)
+		if category == WEAPON_INKING_SETTING_CATEGORY and key == WEAPON_INKING_SETTING_KEY then
+			self:_refreshWeaponInkingMode()
+		end
+	end)
+	self:_refreshWeaponInkingMode()
 
 	do
 		local inputController = self._registry and self._registry:TryGet("Input")
@@ -398,6 +453,98 @@ function ViewmodelController:_ensureRigStorage(): Folder
 	return folder
 end
 
+function ViewmodelController:_resolveWeaponInkingMode(): number
+	local stored = PlayerDataTable.get(WEAPON_INKING_SETTING_CATEGORY, WEAPON_INKING_SETTING_KEY)
+	if stored ~= nil then
+		return parseWeaponInkingMode(stored)
+	end
+
+	local attrMode = LocalPlayer and LocalPlayer:GetAttribute(WEAPON_INKING_ATTRIBUTE)
+	if attrMode ~= nil then
+		return parseWeaponInkingMode(attrMode)
+	end
+
+	return WEAPON_INKING_DEFAULT_MODE
+end
+
+function ViewmodelController:_ensureWeaponInkingHighlight(): Highlight
+	local highlight = self._weaponInkingHighlight
+	if highlight and highlight.Parent then
+		return highlight
+	end
+
+	highlight = Instance.new("Highlight")
+	highlight.Name = "Highlight"
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.FillColor = Color3.fromRGB(255, 255, 255)
+	highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+	self._weaponInkingHighlight = highlight
+	return highlight
+end
+
+function ViewmodelController:_clearWeaponInkingFromInactiveRigs(activeRig)
+	if not self._loadoutVm or not self._loadoutVm.Rigs then
+		return
+	end
+
+	for _, rig in pairs(self._loadoutVm.Rigs) do
+		if rig ~= activeRig and rig and rig.Model and rig.Model:IsA("Model") then
+			local model = rig.Model
+			for _, child in ipairs(model:GetChildren()) do
+				if child:IsA("Highlight") and (child.Name == "Highlight" or child.Name == "WeaponInkingHighlight") then
+					child:Destroy()
+				end
+			end
+		end
+	end
+end
+
+function ViewmodelController:_applyWeaponInkingToActiveRig()
+	local activeRig = self:GetActiveRig()
+	local activeModel = activeRig and activeRig.Model
+	local highlight = self:_ensureWeaponInkingHighlight()
+
+	if not activeModel or not activeModel:IsA("Model") then
+		highlight.Enabled = false
+		highlight.Adornee = nil
+		highlight.Parent = workspace.CurrentCamera or workspace
+		self:_clearWeaponInkingFromInactiveRigs(nil)
+		return
+	end
+
+	highlight.Parent = activeModel
+	highlight.Adornee = activeModel
+
+	local mode = self._weaponInkingMode or WEAPON_INKING_DEFAULT_MODE
+	if mode == WEAPON_INKING_MODE_HIDE then
+		highlight.Enabled = false
+	elseif mode == WEAPON_INKING_MODE_OUTLINE then
+		highlight.Enabled = true
+		highlight.FillTransparency = 1
+		highlight.OutlineTransparency = 0.95
+	elseif mode == WEAPON_INKING_MODE_FILL then
+		highlight.Enabled = true
+		highlight.FillTransparency = 0.99
+		highlight.OutlineTransparency = 1
+	else
+		highlight.Enabled = true
+		highlight.FillTransparency = 0.99
+		highlight.OutlineTransparency = 0.95
+	end
+
+	self:_clearWeaponInkingFromInactiveRigs(activeRig)
+end
+
+function ViewmodelController:_refreshWeaponInkingMode()
+	self._weaponInkingMode = self:_resolveWeaponInkingMode()
+
+	if LocalPlayer and LocalPlayer:GetAttribute(WEAPON_INKING_ATTRIBUTE) ~= self._weaponInkingMode then
+		LocalPlayer:SetAttribute(WEAPON_INKING_ATTRIBUTE, self._weaponInkingMode)
+	end
+
+	self:_applyWeaponInkingToActiveRig()
+end
+
 function ViewmodelController:_destroyAllRigs()
 	if self._storedRigs then
 		for _, rig in pairs(self._storedRigs) do
@@ -419,7 +566,6 @@ function ViewmodelController:_createAllRigsForLoadout(loadout: { [string]: any }
 	local toPreload = {}
 
 	-- Get equipped skin for a weapon from PlayerDataTable
-	local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 	local function getEquippedSkin(weaponId: string): string?
 		local success, skinId = pcall(function()
 			return PlayerDataTable.getEquippedSkin(weaponId)
@@ -714,6 +860,10 @@ end
 
 function ViewmodelController:ClearLoadout()
 	self:_destroyAllRigs()
+	if self._weaponInkingHighlight then
+		self._weaponInkingHighlight:Destroy()
+		self._weaponInkingHighlight = nil
+	end
 	if self._loadoutVm then
 		self._loadoutVm = nil
 	end
@@ -814,6 +964,7 @@ function ViewmodelController:SetActiveSlot(slot: string)
 			end
 		end
 	end
+	self:_applyWeaponInkingToActiveRig()
 
 	do
 		local rig = getRigForSlot(self, slot)
@@ -1452,8 +1603,20 @@ function ViewmodelController:Destroy()
 		self._equipKeysConn:Disconnect()
 		self._equipKeysConn = nil
 	end
+	if self._weaponInkingConn then
+		self._weaponInkingConn:Disconnect()
+		self._weaponInkingConn = nil
+	end
+	if self._weaponInkingDataDisconnect then
+		self._weaponInkingDataDisconnect()
+		self._weaponInkingDataDisconnect = nil
+	end
 
 	self:_destroyAllRigs()
+	if self._weaponInkingHighlight then
+		self._weaponInkingHighlight:Destroy()
+		self._weaponInkingHighlight = nil
+	end
 
 	if self._loadoutVm then
 		self._loadoutVm = nil

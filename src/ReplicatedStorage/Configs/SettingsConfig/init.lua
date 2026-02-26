@@ -207,6 +207,7 @@ export type DividerTemplate = Frame & {
 export type SettingOption = {
 	Display: string,
 	Color: Color3?,
+	Image: string?,
 	Value: any?,
 }
 
@@ -258,10 +259,17 @@ SettingsConfig.Categories = {
 		DisplayName = "Gameplay",
 		Order = 1,
 		Settings = {
+			DividerPerformance = {
+				Name = "PERFORMANCE",
+				Description = "",
+				Order = 1,
+				SettingType = "divider",
+			},
+
 			DisableShadows = {
 				Name = "Disable Shadows",
 				Description = "Remove all shadows in game, reducing lag and improving performance on lower-end devices.",
-				Order = 1,
+				Order = 2,
 				SettingType = "toggle",
 				Image = { "rbxassetid://99447160043691", "rbxassetid://84344867877749" },
 				Options = {
@@ -274,20 +282,20 @@ SettingsConfig.Categories = {
 			DisableTextures = {
 				Name = "Disable Textures",
 				Description = "Remove textures to improve performance.",
-				Order = 2,
+				Order = 3,
 				SettingType = "toggle",
 				Image = { "rbxassetid://118298540523091", "rbxassetid://97170520694267" },
 				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
+					{ Display = "Enabled", Value = true, Image = "rbxassetid://100262195669556" },
+					{ Display = "Disabled", Value = false, Image = "rbxassetid://103645719222800" },
 				},
 				Default = 2,
 			},
 
 			DisableOthersWraps = {
-				Name = "Disable Others Wraps",
-				Description = "Hide weapon wraps from other players.",
-				Order = 3,
+				Name = "Disable Others Weapon Cosmetics",
+				Description = "Hide other players' weapon wraps and cosmetic FX when not spectating.",
+				Order = 4,
 				SettingType = "toggle",
 				Image = { "rbxassetid://108799503900149" },
 				Options = {
@@ -297,10 +305,97 @@ SettingsConfig.Categories = {
 				Default = 2,
 			},
 
-			DamageNumbers = {
-				Name = "Damage Numbers",
-				Description = "Toggle floating damage numbers above enemies when dealing damage.",
-				Order = 4,
+			HideMuzzleFlash = {
+				Name = "Hide Muzzle Flash",
+				Description = "Hide muzzle flash visuals while firing.",
+				Order = 5,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true, Image = "rbxassetid://92723398731557" },
+					{ Display = "Disabled", Value = false, Image = "rbxassetid://131413727437208" },
+				},
+				Default = 2,
+			},
+
+			WeaponInking = {
+				Name = "Weapon Inking",
+				Description = "Adjust active weapon inking style.",
+				Order = 6,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Hide", Value = "Hide" },
+					{ Display = "Outline", Value = "Outline" },
+					{ Display = "Fill", Value = "Fill" },
+					{ Display = "Fill And Outline", Value = "FillAndOutline" },
+				},
+				Default = 4,
+			},
+
+			DividerDisplay = {
+				Name = "DISPLAY",
+				Description = "",
+				Order = 10,
+				SettingType = "divider",
+			},
+
+			DisplayArea = {
+				Name = "HUD Size",
+				Description = "Scale the HUD larger or smaller.",
+				Order = 11,
+				SettingType = "slider",
+				Slider = {
+					Max = 150,
+					Min = 50,
+					Step = 1,
+					Default = 100,
+				},
+			},
+
+			Brightness = {
+				Name = "Brightness",
+				Description = "Increase or decrease client brightness intensity.",
+				Order = 12,
+				SettingType = "slider",
+				Slider = {
+					Max = 200,
+					Min = 0,
+					Step = 1,
+					Default = 100,
+				},
+			},
+
+			FieldOfView = {
+				Name = "Field Of View",
+				Description = "Adjust camera field of view.",
+				Order = 13,
+
+				Image = { "rbxassetid://131531757988844" },
+				SettingType = "slider",
+				Slider = {
+					Max = 120,
+					Min = 30,
+					Step = 1,
+					Default = 70,
+				},
+			},
+
+			FOVZoomStrength = {
+				Name = "FOV Zoom Strength",
+				Description = "Scale ADS FOV change strength from 0 to 100%.",
+				Order = 14,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 100,
+				},
+			},
+
+			FieldOfViewEffects = {
+				Name = "Field Of View Effects",
+				Description = "Toggle dynamic FOV changes during gameplay.",
+				Order = 15,
 				SettingType = "toggle",
 				Options = {
 					{ Display = "Enabled", Value = true },
@@ -309,139 +404,10 @@ SettingsConfig.Categories = {
 				Default = 1,
 			},
 
-			DisableEffects = {
-				Name = "Hide Effects",
-				Description = "Hide visual effects to improve performance.",
-				Order = 5,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
-			Divider1 = {
-				Name = "HUD",
-				Description = "",
-				Order = 10,
-				SettingType = "divider",
-			},
-
-			HideHud = {
-				Name = "Hide Hud",
-				Description = "Hide the entire HUD interface.",
-				Order = 11,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
-			HideTeammateDisplay = {
-				Name = "Hide Teammate Display",
-				Description = "Hide teammate indicators and information.",
-				Order = 12,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
-			DisplayArea = {
-				Name = "Display Area",
-				Description = "Shrinks the HUD display area.",
-				Order = 13,
-				SettingType = "slider",
-				Slider = {
-					Max = 5,
-					Min = 0,
-					Step = 1,
-					Default = 0,
-				},
-			},
-
-			Divider2 = {
-				Name = "CAMERA",
-				Description = "",
-				Order = 20,
-				SettingType = "divider",
-			},
-
-			HorizontalSensitivity = {
-				Name = "Horizontal Sensitivity",
-				Description = "Adjust horizontal camera sensitivity.",
-				Order = 21,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 50,
-				},
-			},
-
-			VerticalSensitivity = {
-				Name = "Vertical Sensitivity",
-				Description = "Adjust vertical camera sensitivity.",
-				Order = 22,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 50,
-				},
-			},
-
-			ADSSensitivity = {
-				Name = "ADS Sensitivity",
-				Description = "Adjust aim down sights sensitivity.",
-				Order = 23,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 75,
-				},
-			},
-
-			FieldOfView = {
-				Name = "Field Of View",
-				Description = "Adjust camera field of view.",
-				Order = 24,
-
-				Image = { "rbxassetid://131531757988844" },
-				SettingType = "slider",
-				Slider = {
-					Max = 120,
-					Min = 0,
-					Step = 1,
-					Default = 70,
-				},
-			},
-
-			FieldOfViewEffects = {
-				Name = "Field Of View Effects",
-				Description = "Toggle dynamic FOV changes during gameplay.",
-				Order = 25,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
 			ScreenShake = {
 				Name = "Screen Shake",
 				Description = "Controls the intensity of camera shake effects during combat and explosions.",
-				Order = 26,
+				Order = 16,
 				SettingType = "slider",
 				Slider = {
 					Max = 3,
@@ -451,98 +417,16 @@ SettingsConfig.Categories = {
 				},
 			},
 
-			Divider3 = {
-				Name = "COLORS",
-				Description = "",
-				Order = 30,
-				SettingType = "divider",
-			},
-
-			TeamColor = {
-				Name = "Team Color",
-				Description = "Change the color used for teammates.",
-				Order = 31,
+			HideHud = {
+				Name = "Disable HUD",
+				Description = "Hide the HUD and show only the unhide prompt.",
+				Order = 17,
 				SettingType = "toggle",
 				Options = {
-					{ Display = "Blue", Color = Color3.fromRGB(39, 53, 255), Value = "Blue" },
-					{ Display = "Orange", Color = Color3.fromRGB(231, 155, 32), Value = "Orange" },
-					{ Display = "Green", Color = Color3.fromRGB(20, 177, 46), Value = "Green" },
-					{ Display = "Yellow", Color = Color3.fromRGB(233, 219, 23), Value = "Yellow" },
+					{ Display = "Enabled", Value = true, Image = "rbxassetid://136898318593158" },
+					{ Display = "Disabled", Value = false, Image = "rbxassetid://133332591837085" },
 				},
-				Default = 1,
-			},
-
-			EnemyColor = {
-				Name = "Enemy Color",
-				Description = "Change the color used for enemies.",
-				Order = 32,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Red", Color = Color3.fromRGB(255, 0, 4), Value = "Red" },
-					{ Display = "Pink", Color = Color3.fromRGB(201, 34, 223), Value = "Pink" },
-					{ Display = "Purple", Color = Color3.fromRGB(121, 25, 255), Value = "Purple" },
-					{ Display = "Cyan", Color = Color3.fromRGB(27, 177, 247), Value = "Cyan" },
-				},
-				Default = 1,
-			},
-
-			Divider4 = {
-				Name = "AUDIO",
-				Description = "",
-				Order = 40,
-				SettingType = "divider",
-			},
-
-			MasterVolume = {
-				Name = "Master Volume",
-				Description = "Controls the overall volume of all game sounds.",
-				Order = 41,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 100,
-				},
-			},
-
-			MusicVolume = {
-				Name = "Music Volume",
-				Description = "Controls the volume of background music.",
-				Order = 42,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 100,
-				},
-			},
-
-			SFXVolume = {
-				Name = "SFX Volume",
-				Description = "Controls the volume of sound effects.",
-				Order = 43,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 100,
-				},
-			},
-
-			EmoteVolume = {
-				Name = "Emote Volume",
-				Description = "Controls the volume of emote sounds.",
-				Order = 44,
-				SettingType = "slider",
-				Slider = {
-					Max = 100,
-					Min = 0,
-					Step = 1,
-					Default = 100,
-				},
+				Default = 2,
 			},
 		},
 	},
@@ -765,7 +649,7 @@ SettingsConfig.Categories = {
 				Name = "Cycle Weapon Right",
 				Description = "Cycle to next weapon.",
 				Order = 19.4,
-				SettingType = "keybind",
+				SettingType = "slider",
 				Action = "CycleWeaponRight",
 				Bind = {
 					PC = nil,
@@ -777,108 +661,6 @@ SettingsConfig.Categories = {
 					PC2 = nil,
 					Console = Enum.KeyCode.ButtonR1,
 				},
-			},
-
-			Divider2 = {
-				Name = "AIM ASSIST",
-				Description = "",
-				Order = 20,
-				SettingType = "divider",
-			},
-
-			AutoShootMode = {
-				Name = "Auto Shoot Mode",
-				Description = "Automatically fire when aiming at enemies.",
-				Order = 21,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 1,
-			},
-
-			AutoShootReactionTime = {
-				Name = "Auto Shoot Reaction Time",
-				Description = "Delay before auto-shoot activates (milliseconds).",
-				Order = 22,
-				SettingType = "slider",
-				Slider = {
-					Max = 125,
-					Min = 0,
-					Step = 10,
-					Default = 25,
-				},
-			},
-
-			AimAssistStrength = {
-				Name = "Aim Assist Strength",
-				Description = "Strength of aim assist.",
-				Order = 23,
-				SettingType = "slider",
-				Slider = {
-					Max = 1,
-					Min = 0,
-					Step = 0.1,
-					Default = 0.5,
-				},
-			},
-
-			Divider1 = {
-				Name = "Actions",
-				Description = "",
-				Order = 25,
-				SettingType = "divider",
-			},
-
-			ToggleAim = {
-				Name = "Toggle Aim",
-				Description = "Toggle aim down sights instead of holding.",
-				Order = 26,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
-			ScrollEquip = {
-				Name = "Scroll Equip",
-				Description = "Use scroll wheel to switch weapons.",
-				Order = 27,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
-			ToggleCrouch = {
-				Name = "Toggle Crouch",
-				Description = "Toggle crouch instead of holding.",
-				Order = 28,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
-				},
-				Default = 2,
-			},
-
-			SprintSetting = {
-				Name = "Sprint Setting",
-				Description = "Choose sprint behavior.",
-				Order = 29,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Hold", Value = "Hold" },
-					{ Display = "Toggle", Value = "Toggle" },
-					{ Display = "Auto", Value = "Auto" },
-					{ Display = "Disabled", Value = "Disabled" },
-				},
-				Default = 1,
 			},
 		},
 	},
@@ -991,7 +773,8 @@ SettingsConfig.DefaultSettings = {
 		DisableOthersWraps = 2,
 		DamageNumbers = 1,
 		DisableEffects = 2,
-		HideHud = 2,
+		HideHud = false,
+		WeaponInking = 4,
 		HideTeammateDisplay = 2,
 		DisplayArea = 0,
 		HorizontalSensitivity = 50,

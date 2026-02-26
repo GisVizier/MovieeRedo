@@ -11,6 +11,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 
 local Tracers = {}
 Tracers._cache = {}
@@ -24,6 +25,66 @@ Tracers._assetsFolder = nil
 Tracers.DEFAULT = "Default"
 Tracers.POOL_SIZE = 50
 Tracers.MAX_ACTIVE = 100
+
+local _playerDataTable = nil
+local _playerDataTableResolved = false
+
+local function resolvePlayerDataTable()
+	if _playerDataTableResolved then
+		return _playerDataTable
+	end
+	_playerDataTableResolved = true
+
+	local moduleScript = ReplicatedStorage:FindFirstChild("PlayerDataTable")
+	if not moduleScript then
+		return nil
+	end
+
+	local ok, result = pcall(require, moduleScript)
+	if ok then
+		_playerDataTable = result
+	end
+
+	return _playerDataTable
+end
+
+local function isSettingEnabledValue(value)
+	if value == true then
+		return true
+	end
+	if type(value) == "number" then
+		return value == 1
+	end
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		return lowered == "enabled" or lowered == "true" or lowered == "on"
+	end
+	return false
+end
+
+function Tracers:IsMuzzleHidden(): boolean
+	local player = Players.LocalPlayer
+	if not player then
+		return false
+	end
+
+	local attrValue = player:GetAttribute("HideMuzzleFlashEnabled")
+	if type(attrValue) == "boolean" then
+		return attrValue
+	end
+
+	local playerDataTable = resolvePlayerDataTable()
+	if playerDataTable and type(playerDataTable.get) == "function" then
+		local ok, storedValue = pcall(function()
+			return playerDataTable.get("Gameplay", "HideMuzzleFlash")
+		end)
+		if ok then
+			return isSettingEnabledValue(storedValue)
+		end
+	end
+
+	return false
+end
 
 --[[
 	Initializes the tracer system with pooled attachments
@@ -479,7 +540,7 @@ function Tracers:Fire(
 	self:_attachTrailFX(resolvedId, attachment, trailScale)
 	
 	-- Only play muzzle FX once per shot (not per pellet)
-	if playMuzzle and tracer.Muzzle then
+	if playMuzzle and tracer.Muzzle and not self:IsMuzzleHidden() then
 		local muzzleAttachment = self:FindMuzzleAttachment(gunModel)
 		tracer:Muzzle(origin, gunModel, attachment, self, muzzleAttachment, {
 			muzzleScale = muzzleScale,
