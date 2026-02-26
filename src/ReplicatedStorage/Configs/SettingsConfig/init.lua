@@ -254,6 +254,21 @@ export type CategoryConfig = {
 	Settings: SettingsCategory,
 }
 
+local function buildCrosshairColorOptions()
+	return {
+		{ Display = "White", Color = Color3.fromRGB(255, 255, 255), Value = "White" },
+		{ Display = "Red", Color = Color3.fromRGB(255, 0, 4), Value = "Red" },
+		{ Display = "Pink", Color = Color3.fromRGB(255, 24, 213), Value = "Pink" },
+		{ Display = "Purple", Color = Color3.fromRGB(121, 25, 255), Value = "Purple" },
+		{ Display = "Blue", Color = Color3.fromRGB(16, 72, 255), Value = "Blue" },
+		{ Display = "Cyan", Color = Color3.fromRGB(14, 235, 255), Value = "Cyan" },
+		{ Display = "Green", Color = Color3.fromRGB(37, 181, 11), Value = "Green" },
+		{ Display = "Yellow", Color = Color3.fromRGB(255, 219, 15), Value = "Yellow" },
+		{ Display = "Orange", Color = Color3.fromRGB(255, 125, 12), Value = "Orange" },
+		{ Display = "Black", Color = Color3.fromRGB(0, 0, 0), Value = "Black" },
+	}
+end
+
 SettingsConfig.Categories = {
 	Gameplay = {
 		DisplayName = "Gameplay",
@@ -672,10 +687,72 @@ SettingsConfig.Categories = {
 		DisplayName = "Crosshair",
 		Order = 3,
 		Settings = {
-			CrosshairEnabled = {
+			DividerPreset = {
+				Name = "PRESET",
+				Description = "Override behavior and visibility controls.",
+				Order = 1,
+				SettingType = "divider",
+			},
+
+			CrosshairDisabled = {
 				Name = "Crosshair Disabled",
 				Description = "Hides your crosshair when enabled.",
-				Order = 1,
+				Order = 2,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			ForceDefaultCrosshair = {
+				Name = "Force Default Crosshair",
+				Description = "Always use your customized default crosshair instead of weapon-specific presets.",
+				Order = 3,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DisableSlideRotation = {
+				Name = "Disable Slide Rotation",
+				Description = "Disables crosshair rotation while sliding.",
+				Order = 4,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			AdvancedStyleSettings = {
+				Name = "Advanced Style Settings",
+				Description = "Enable per-part style controls for top, bottom, left, right, and dot.",
+				Order = 5,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DividerVisibility = {
+				Name = "VISIBILITY",
+				Description = "Turn each crosshair part on or off.",
+				Order = 10,
+				SettingType = "divider",
+			},
+
+			ShowTopLine = {
+				Name = "Show Top Line",
+				Description = "Toggles the top line.",
+				Order = 11,
 				SettingType = "toggle",
 				Options = {
 					{ Display = "Enabled", Value = true },
@@ -684,30 +761,79 @@ SettingsConfig.Categories = {
 				Default = 1,
 			},
 
+			ShowBottomLine = {
+				Name = "Show Bottom Line",
+				Description = "Toggles the bottom line.",
+				Order = 12,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			ShowLeftLine = {
+				Name = "Show Left Line",
+				Description = "Toggles the left line.",
+				Order = 13,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			ShowRightLine = {
+				Name = "Show Right Line",
+				Description = "Toggles the right line.",
+				Order = 14,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			ShowDot = {
+				Name = "Show Dot",
+				Description = "Toggles the center dot.",
+				Order = 15,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			DividerBase = {
+				Name = "BASE",
+				Description = "Core crosshair size, spacing, and rotation.",
+				Order = 20,
+				SettingType = "divider",
+			},
+
 			CrosshairColor = {
 				Name = "Crosshair Color",
 				Description = "Sets the color preset used by your crosshair.",
-				Order = 2,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "White", Color = Color3.fromRGB(255, 255, 255), Value = "White" },
-					{ Display = "Red", Color = Color3.fromRGB(255, 0, 4), Value = "Red" },
-					{ Display = "Pink", Color = Color3.fromRGB(255, 24, 213), Value = "Pink" },
-					{ Display = "Purple", Color = Color3.fromRGB(121, 25, 255), Value = "Purple" },
-					{ Display = "Blue", Color = Color3.fromRGB(16, 72, 255), Value = "Blue" },
-					{ Display = "Cyan", Color = Color3.fromRGB(14, 235, 255), Value = "Cyan" },
-					{ Display = "Green", Color = Color3.fromRGB(37, 181, 11), Value = "Green" },
-					{ Display = "Yellow", Color = Color3.fromRGB(255, 219, 15), Value = "Yellow" },
-					{ Display = "Orange", Color = Color3.fromRGB(255, 125, 12), Value = "Orange" },
-					{ Display = "Black", Color = Color3.fromRGB(0, 0, 0), Value = "Black" },
+				Order = 21,
+				SettingType = "Multile",
+				Image = {
+					"rbxassetid://79026012675606",
+					"rbxassetid://103662115936011",
+					"rbxassetid://77724131858624",
 				},
+				Options = buildCrosshairColorOptions(),
 				Default = 1,
 			},
 
 			CrosshairSize = {
 				Name = "Crosshair Size",
 				Description = "Adjusts overall crosshair scale.",
-				Order = 3,
+				Order = 22,
 				SettingType = "slider",
 				Slider = {
 					Max = 200,
@@ -720,7 +846,7 @@ SettingsConfig.Categories = {
 			CrosshairOpacity = {
 				Name = "Crosshair Opacity",
 				Description = "Adjusts crosshair visibility by changing opacity.",
-				Order = 4,
+				Order = 23,
 				SettingType = "slider",
 				Slider = {
 					Max = 100,
@@ -733,7 +859,7 @@ SettingsConfig.Categories = {
 			CrosshairGap = {
 				Name = "Crosshair Gap",
 				Description = "Adjusts the center spacing between crosshair lines.",
-				Order = 5,
+				Order = 24,
 				SettingType = "slider",
 				Slider = {
 					Max = 50,
@@ -746,7 +872,7 @@ SettingsConfig.Categories = {
 			CrosshairThickness = {
 				Name = "Crosshair Thickness",
 				Description = "Adjusts how thick each crosshair line is.",
-				Order = 6,
+				Order = 25,
 				SettingType = "slider",
 				Slider = {
 					Max = 10,
@@ -755,6 +881,238 @@ SettingsConfig.Categories = {
 					Default = 2,
 				},
 			},
+
+			CrosshairLineLength = {
+				Name = "Crosshair Line Length",
+				Description = "Adjusts line length.",
+				Order = 26,
+				SettingType = "slider",
+				Slider = {
+					Max = 40,
+					Min = 2,
+					Step = 1,
+					Default = 10,
+				},
+			},
+
+			CrosshairRoundness = {
+				Name = "Crosshair Roundness",
+				Description = "Adjusts global line and dot corner roundness.",
+				Order = 27,
+				SettingType = "slider",
+				Slider = {
+					Max = 20,
+					Min = 0,
+					Step = 1,
+					Default = 0,
+				},
+			},
+
+			GlobalRotation = {
+				Name = "Global Rotation",
+				Description = "Rotates the entire crosshair.",
+				Order = 28,
+				SettingType = "slider",
+				Slider = {
+					Max = 180,
+					Min = -180,
+					Step = 1,
+					Default = 0,
+				},
+			},
+
+			DotSize = {
+				Name = "Dot Size",
+				Description = "Adjusts center dot size.",
+				Order = 29,
+				SettingType = "slider",
+				Slider = {
+					Max = 20,
+					Min = 1,
+					Step = 1,
+					Default = 3,
+				},
+			},
+
+			DividerOutline = {
+				Name = "OUTLINE",
+				Description = "Outline style controls.",
+				Order = 30,
+				SettingType = "divider",
+			},
+
+			OutlineColor = {
+				Name = "Outline Color",
+				Description = "Sets outline color for lines and dot.",
+				Order = 31,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Black", Color = Color3.fromRGB(0, 0, 0), Value = "Black" },
+					{ Display = "White", Color = Color3.fromRGB(255, 255, 255), Value = "White" },
+					{ Display = "Red", Color = Color3.fromRGB(255, 0, 4), Value = "Red" },
+					{ Display = "Blue", Color = Color3.fromRGB(16, 72, 255), Value = "Blue" },
+					{ Display = "Green", Color = Color3.fromRGB(37, 181, 11), Value = "Green" },
+				},
+				Default = 1,
+			},
+
+			OutlineThickness = {
+				Name = "Outline Thickness",
+				Description = "Adjusts outline thickness.",
+				Order = 32,
+				SettingType = "slider",
+				Slider = {
+					Max = 6,
+					Min = 0,
+					Step = 1,
+					Default = 0,
+				},
+			},
+
+			OutlineOpacity = {
+				Name = "Outline Opacity",
+				Description = "Adjusts outline opacity.",
+				Order = 33,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 100,
+				},
+			},
+
+			DividerSpread = {
+				Name = "SPREAD",
+				Description = "Dynamic spread behavior multipliers.",
+				Order = 40,
+				SettingType = "divider",
+			},
+
+			DynamicSpreadEnabled = {
+				Name = "Dynamic Spread",
+				Description = "Enable movement and recoil spread animation.",
+				Order = 41,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			MovementSpreadMultiplier = {
+				Name = "Movement Spread Multiplier",
+				Description = "Scales movement-based spread.",
+				Order = 42,
+				SettingType = "slider",
+				Slider = { Min = 0, Max = 5, Step = 0.1, Default = 1 },
+			},
+
+			SprintSpreadMultiplier = {
+				Name = "Sprint Spread Multiplier",
+				Description = "Scales sprint spread.",
+				Order = 43,
+				SettingType = "slider",
+				Slider = { Min = 0, Max = 5, Step = 0.1, Default = 1 },
+			},
+
+			AirSpreadMultiplier = {
+				Name = "Air Spread Multiplier",
+				Description = "Scales airborne spread.",
+				Order = 44,
+				SettingType = "slider",
+				Slider = { Min = 0, Max = 5, Step = 0.1, Default = 1 },
+			},
+
+			CrouchSpreadMultiplier = {
+				Name = "Crouch Spread Multiplier",
+				Description = "Scales crouch spread.",
+				Order = 45,
+				SettingType = "slider",
+				Slider = { Min = 0, Max = 5, Step = 0.1, Default = 1 },
+			},
+
+			RecoilSpreadMultiplier = {
+				Name = "Recoil Spread Multiplier",
+				Description = "Scales recoil expansion on fire.",
+				Order = 46,
+				SettingType = "slider",
+				Slider = { Min = 0, Max = 5, Step = 0.1, Default = 1 },
+			},
+
+			DividerAdvanced = {
+				Name = "ADVANCED PART STYLE",
+				Description = "Per-part style controls (used when Advanced Style Settings is enabled).",
+				Order = 50,
+				SettingType = "divider",
+			},
+
+			DividerAdvancedTop = {
+				Name = "TOP LINE",
+				Description = "Advanced style for top line.",
+				Order = 51,
+				SettingType = "divider",
+			},
+			TopLineColor = { Name = "Top Line Color", Description = "Top line color.", Order = 52, SettingType = "Multile", Options = buildCrosshairColorOptions(), Default = 1 },
+			TopLineOpacity = { Name = "Top Line Opacity", Description = "Top line opacity.", Order = 53, SettingType = "slider", Slider = { Min = 0, Max = 100, Step = 1, Default = 100 } },
+			TopLineThickness = { Name = "Top Line Thickness", Description = "Top line thickness.", Order = 54, SettingType = "slider", Slider = { Min = 1, Max = 12, Step = 1, Default = 2 } },
+			TopLineLength = { Name = "Top Line Length", Description = "Top line length.", Order = 55, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
+			TopLineRoundness = { Name = "Top Line Roundness", Description = "Top line roundness.", Order = 56, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
+			TopLineRotation = { Name = "Top Line Rotation", Description = "Top line rotation.", Order = 57, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
+			TopLineGap = { Name = "Top Line Gap", Description = "Top line extra gap.", Order = 58, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+
+			DividerAdvancedBottom = {
+				Name = "BOTTOM LINE",
+				Description = "Advanced style for bottom line.",
+				Order = 59,
+				SettingType = "divider",
+			},
+			BottomLineColor = { Name = "Bottom Line Color", Description = "Bottom line color.", Order = 60, SettingType = "Multile", Options = buildCrosshairColorOptions(), Default = 1 },
+			BottomLineOpacity = { Name = "Bottom Line Opacity", Description = "Bottom line opacity.", Order = 61, SettingType = "slider", Slider = { Min = 0, Max = 100, Step = 1, Default = 100 } },
+			BottomLineThickness = { Name = "Bottom Line Thickness", Description = "Bottom line thickness.", Order = 62, SettingType = "slider", Slider = { Min = 1, Max = 12, Step = 1, Default = 2 } },
+			BottomLineLength = { Name = "Bottom Line Length", Description = "Bottom line length.", Order = 63, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
+			BottomLineRoundness = { Name = "Bottom Line Roundness", Description = "Bottom line roundness.", Order = 64, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
+			BottomLineRotation = { Name = "Bottom Line Rotation", Description = "Bottom line rotation.", Order = 65, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
+			BottomLineGap = { Name = "Bottom Line Gap", Description = "Bottom line extra gap.", Order = 66, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+
+			DividerAdvancedLeft = {
+				Name = "LEFT LINE",
+				Description = "Advanced style for left line.",
+				Order = 67,
+				SettingType = "divider",
+			},
+			LeftLineColor = { Name = "Left Line Color", Description = "Left line color.", Order = 68, SettingType = "Multile", Options = buildCrosshairColorOptions(), Default = 1 },
+			LeftLineOpacity = { Name = "Left Line Opacity", Description = "Left line opacity.", Order = 69, SettingType = "slider", Slider = { Min = 0, Max = 100, Step = 1, Default = 100 } },
+			LeftLineThickness = { Name = "Left Line Thickness", Description = "Left line thickness.", Order = 70, SettingType = "slider", Slider = { Min = 1, Max = 12, Step = 1, Default = 2 } },
+			LeftLineLength = { Name = "Left Line Length", Description = "Left line length.", Order = 71, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
+			LeftLineRoundness = { Name = "Left Line Roundness", Description = "Left line roundness.", Order = 72, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
+			LeftLineRotation = { Name = "Left Line Rotation", Description = "Left line rotation.", Order = 73, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
+			LeftLineGap = { Name = "Left Line Gap", Description = "Left line extra gap.", Order = 74, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+
+			DividerAdvancedRight = {
+				Name = "RIGHT LINE",
+				Description = "Advanced style for right line.",
+				Order = 75,
+				SettingType = "divider",
+			},
+			RightLineColor = { Name = "Right Line Color", Description = "Right line color.", Order = 76, SettingType = "Multile", Options = buildCrosshairColorOptions(), Default = 1 },
+			RightLineOpacity = { Name = "Right Line Opacity", Description = "Right line opacity.", Order = 77, SettingType = "slider", Slider = { Min = 0, Max = 100, Step = 1, Default = 100 } },
+			RightLineThickness = { Name = "Right Line Thickness", Description = "Right line thickness.", Order = 78, SettingType = "slider", Slider = { Min = 1, Max = 12, Step = 1, Default = 2 } },
+			RightLineLength = { Name = "Right Line Length", Description = "Right line length.", Order = 79, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
+			RightLineRoundness = { Name = "Right Line Roundness", Description = "Right line roundness.", Order = 80, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
+			RightLineRotation = { Name = "Right Line Rotation", Description = "Right line rotation.", Order = 81, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
+			RightLineGap = { Name = "Right Line Gap", Description = "Right line extra gap.", Order = 82, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+
+			DividerAdvancedDot = {
+				Name = "DOT",
+				Description = "Advanced style for center dot.",
+				Order = 83,
+				SettingType = "divider",
+			},
+			DotColor = { Name = "Dot Color", Description = "Dot color.", Order = 84, SettingType = "Multile", Options = buildCrosshairColorOptions(), Default = 1 },
+			DotOpacity = { Name = "Dot Opacity", Description = "Dot opacity.", Order = 85, SettingType = "slider", Slider = { Min = 0, Max = 100, Step = 1, Default = 100 } },
+			DotRoundness = { Name = "Dot Roundness", Description = "Dot roundness.", Order = 86, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
 		},
 	},
 }
@@ -869,12 +1227,64 @@ SettingsConfig.DefaultSettings = {
 	},
 
 	Crosshair = {
-		CrosshairEnabled = 1,
+		CrosshairDisabled = 2,
+		ForceDefaultCrosshair = 2,
+		DisableSlideRotation = 2,
+		AdvancedStyleSettings = 2,
+		ShowTopLine = 1,
+		ShowBottomLine = 1,
+		ShowLeftLine = 1,
+		ShowRightLine = 1,
+		ShowDot = 1,
 		CrosshairColor = 1,
 		CrosshairSize = 100,
 		CrosshairOpacity = 100,
 		CrosshairGap = 10,
 		CrosshairThickness = 2,
+		CrosshairLineLength = 10,
+		CrosshairRoundness = 0,
+		GlobalRotation = 0,
+		DotSize = 3,
+		OutlineColor = 1,
+		OutlineThickness = 0,
+		OutlineOpacity = 100,
+		DynamicSpreadEnabled = 1,
+		MovementSpreadMultiplier = 1,
+		SprintSpreadMultiplier = 1,
+		AirSpreadMultiplier = 1,
+		CrouchSpreadMultiplier = 1,
+		RecoilSpreadMultiplier = 1,
+		TopLineColor = 1,
+		TopLineOpacity = 100,
+		TopLineThickness = 2,
+		TopLineLength = 10,
+		TopLineRoundness = 0,
+		TopLineRotation = 0,
+		TopLineGap = 10,
+		BottomLineColor = 1,
+		BottomLineOpacity = 100,
+		BottomLineThickness = 2,
+		BottomLineLength = 10,
+		BottomLineRoundness = 0,
+		BottomLineRotation = 0,
+		BottomLineGap = 10,
+		LeftLineColor = 1,
+		LeftLineOpacity = 100,
+		LeftLineThickness = 2,
+		LeftLineLength = 10,
+		LeftLineRoundness = 0,
+		LeftLineRotation = 0,
+		LeftLineGap = 10,
+		RightLineColor = 1,
+		RightLineOpacity = 100,
+		RightLineThickness = 2,
+		RightLineLength = 10,
+		RightLineRoundness = 0,
+		RightLineRotation = 0,
+		RightLineGap = 10,
+		DotColor = 1,
+		DotOpacity = 100,
+		DotRoundness = 0,
 	},
 }
 

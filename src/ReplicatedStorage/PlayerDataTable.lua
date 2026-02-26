@@ -333,9 +333,9 @@ function PlayerDataTable.set(category: string, key: string, value: any): boolean
 		return false
 	end
 	local oldValue = categoryData[key]
-	if not replicaData then
-		categoryData[key] = deepClone(value)
-	end
+	-- Always update local cache immediately so UI/preview reads are in sync
+	-- even while Replica-backed data is waiting for server round-trip.
+	categoryData[key] = deepClone(value)
 	PlayerDataTable._fireCallbacks(category, key, value, oldValue)
 	PlayerDataTable._saveToServer(category, key, value)
 	return true

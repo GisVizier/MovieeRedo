@@ -78,6 +78,8 @@ local BRIGHTNESS_PRESETS = {
 	},
 }
 
+local isSettingEnabled
+
 local function getLocalPlayer()
 	return Players.LocalPlayer
 end
@@ -180,9 +182,9 @@ local function applyMouseSensitivityFromSettings()
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
 end
 
-local function getCrosshairColorFromSetting(value)
+local function getCrosshairColorFromSetting(settingKey, value)
 	local category = SettingsConfig.Categories.Crosshair
-	local setting = category and category.Settings and category.Settings.CrosshairColor
+	local setting = category and category.Settings and category.Settings[settingKey]
 	local options = setting and setting.Options
 	if typeof(options) ~= "table" or #options == 0 then
 		return Color3.fromRGB(255, 255, 255)
@@ -249,27 +251,108 @@ local function applyCrosshairSettingsFromAttributes()
 	end
 	thickness = math.clamp(thickness, 1, 10)
 
-	local colorValue = player:GetAttribute("SettingsCrosshairColor")
-	local mainColor = getCrosshairColorFromSetting(colorValue)
+	local function readNumber(name, defaultValue, minValue, maxValue)
+		local value = player:GetAttribute(name)
+		if type(value) ~= "number" then
+			value = defaultValue
+		end
+		return math.clamp(value, minValue, maxValue)
+	end
+
+	local function readBoolean(name, defaultValue)
+		local value = player:GetAttribute(name)
+		if type(value) ~= "boolean" then
+			return defaultValue
+		end
+		return value
+	end
+
+	local advanced = readBoolean("SettingsCrosshairAdvancedStyleSettings", false)
+	local showTop = readBoolean("SettingsCrosshairShowTopLine", true)
+	local showBottom = readBoolean("SettingsCrosshairShowBottomLine", true)
+	local showLeft = readBoolean("SettingsCrosshairShowLeftLine", true)
+	local showRight = readBoolean("SettingsCrosshairShowRightLine", true)
+	local showDot = readBoolean("SettingsCrosshairShowDot", true)
+
+	local mainColor = getCrosshairColorFromSetting("CrosshairColor", player:GetAttribute("SettingsCrosshairColor"))
+	local outlineColor = getCrosshairColorFromSetting("OutlineColor", player:GetAttribute("SettingsCrosshairOutlineColor"))
+	local baseOpacity = opacityPercent / 100
+	local baseThickness = readNumber("SettingsCrosshairThickness", thickness, 1, 12)
+	local baseLength = readNumber("SettingsCrosshairLineLength", 10, 2, 40)
+	local baseRoundness = readNumber("SettingsCrosshairRoundness", 0, 0, 20)
+	local baseGap = gap
 
 	local customization = {
-		showDot = not disabled,
-		showTopLine = not disabled,
-		showBottomLine = not disabled,
-		showLeftLine = not disabled,
-		showRightLine = not disabled,
-		lineThickness = thickness,
-		lineLength = 6,
-		gapFromCenter = gap,
-		dotSize = 3,
-		rotation = 0,
-		cornerRadius = 0,
+		showDot = (not disabled) and showDot,
+		showTopLine = (not disabled) and showTop,
+		showBottomLine = (not disabled) and showBottom,
+		showLeftLine = (not disabled) and showLeft,
+		showRightLine = (not disabled) and showRight,
+		lineThickness = baseThickness,
+		lineLength = baseLength,
+		gapFromCenter = baseGap,
+		dotSize = readNumber("SettingsCrosshairDotSize", 3, 1, 20),
+		rotation = readNumber("SettingsCrosshairGlobalRotation", 0, -180, 180),
+		cornerRadius = baseRoundness,
 		mainColor = mainColor,
-		outlineColor = Color3.fromRGB(0, 0, 0),
-		outlineThickness = 0,
-		opacity = opacityPercent / 100,
+		outlineColor = outlineColor,
+		outlineThickness = readNumber("SettingsCrosshairOutlineThickness", 0, 0, 6),
+		outlineOpacity = readNumber("SettingsCrosshairOutlineOpacity", 100, 0, 100) / 100,
+		opacity = baseOpacity,
 		scale = scalePercent / 100,
-		dynamicSpreadEnabled = true,
+		dynamicSpreadEnabled = readBoolean("SettingsCrosshairDynamicSpreadEnabled", true),
+		recoilSpreadMultiplier = readNumber("SettingsCrosshairRecoilSpreadMultiplier", 1, 0, 5),
+		spread = {
+			movement = readNumber("SettingsCrosshairMovementSpreadMultiplier", 1, 0, 5),
+			sprint = readNumber("SettingsCrosshairSprintSpreadMultiplier", 1, 0, 5),
+			air = readNumber("SettingsCrosshairAirSpreadMultiplier", 1, 0, 5),
+			crouch = readNumber("SettingsCrosshairCrouchSpreadMultiplier", 1, 0, 5),
+		},
+		advancedStyleSettings = advanced,
+		perLineStyles = {
+			Top = {
+				color = getCrosshairColorFromSetting("TopLineColor", player:GetAttribute("SettingsCrosshairTopLineColor")) or mainColor,
+				opacity = readNumber("SettingsCrosshairTopLineOpacity", opacityPercent, 0, 100) / 100,
+				thickness = readNumber("SettingsCrosshairTopLineThickness", baseThickness, 1, 12),
+				length = readNumber("SettingsCrosshairTopLineLength", baseLength, 2, 40),
+				roundness = readNumber("SettingsCrosshairTopLineRoundness", baseRoundness, 0, 20),
+				rotation = readNumber("SettingsCrosshairTopLineRotation", 0, -180, 180),
+				gap = readNumber("SettingsCrosshairTopLineGap", baseGap, 0, 50),
+			},
+			Bottom = {
+				color = getCrosshairColorFromSetting("BottomLineColor", player:GetAttribute("SettingsCrosshairBottomLineColor")) or mainColor,
+				opacity = readNumber("SettingsCrosshairBottomLineOpacity", opacityPercent, 0, 100) / 100,
+				thickness = readNumber("SettingsCrosshairBottomLineThickness", baseThickness, 1, 12),
+				length = readNumber("SettingsCrosshairBottomLineLength", baseLength, 2, 40),
+				roundness = readNumber("SettingsCrosshairBottomLineRoundness", baseRoundness, 0, 20),
+				rotation = readNumber("SettingsCrosshairBottomLineRotation", 0, -180, 180),
+				gap = readNumber("SettingsCrosshairBottomLineGap", baseGap, 0, 50),
+			},
+			Left = {
+				color = getCrosshairColorFromSetting("LeftLineColor", player:GetAttribute("SettingsCrosshairLeftLineColor")) or mainColor,
+				opacity = readNumber("SettingsCrosshairLeftLineOpacity", opacityPercent, 0, 100) / 100,
+				thickness = readNumber("SettingsCrosshairLeftLineThickness", baseThickness, 1, 12),
+				length = readNumber("SettingsCrosshairLeftLineLength", baseLength, 2, 40),
+				roundness = readNumber("SettingsCrosshairLeftLineRoundness", baseRoundness, 0, 20),
+				rotation = readNumber("SettingsCrosshairLeftLineRotation", 0, -180, 180),
+				gap = readNumber("SettingsCrosshairLeftLineGap", baseGap, 0, 50),
+			},
+			Right = {
+				color = getCrosshairColorFromSetting("RightLineColor", player:GetAttribute("SettingsCrosshairRightLineColor")) or mainColor,
+				opacity = readNumber("SettingsCrosshairRightLineOpacity", opacityPercent, 0, 100) / 100,
+				thickness = readNumber("SettingsCrosshairRightLineThickness", baseThickness, 1, 12),
+				length = readNumber("SettingsCrosshairRightLineLength", baseLength, 2, 40),
+				roundness = readNumber("SettingsCrosshairRightLineRoundness", baseRoundness, 0, 20),
+				rotation = readNumber("SettingsCrosshairRightLineRotation", 0, -180, 180),
+				gap = readNumber("SettingsCrosshairRightLineGap", baseGap, 0, 50),
+			},
+		},
+		dotStyle = {
+			color = getCrosshairColorFromSetting("DotColor", player:GetAttribute("SettingsCrosshairDotColor")) or mainColor,
+			opacity = readNumber("SettingsCrosshairDotOpacity", opacityPercent, 0, 100) / 100,
+			size = readNumber("SettingsCrosshairDotSize", 3, 1, 20),
+			roundness = readNumber("SettingsCrosshairDotRoundness", baseRoundness, 0, 20),
+		},
 	}
 
 	local weaponController = ServiceRegistry:GetController("Weapon")
@@ -279,7 +362,18 @@ local function applyCrosshairSettingsFromAttributes()
 	end
 end
 
-local function isSettingEnabled(value)
+local function setCrosshairSetting(player, attrName, value, minValue, maxValue, fallback, asBoolean)
+	if not player then
+		return
+	end
+	if asBoolean then
+		player:SetAttribute(attrName, isSettingEnabled(value))
+		return
+	end
+	player:SetAttribute(attrName, clampNumber(value, minValue, maxValue, fallback))
+end
+
+isSettingEnabled = function(value)
 	if value == true then
 		return true
 	end
@@ -671,11 +765,6 @@ end
 local function applyHideHudState(enabled)
 	local coreUi = getCoreUI()
 
-	if enabled == true and HideHudState.enabled == true then
-		setUnHideVisible(coreUi, true)
-		return
-	end
-
 	if enabled ~= true and HideHudState.enabled ~= true then
 		setUnHideVisible(coreUi, false)
 		return
@@ -1013,7 +1102,7 @@ SettingsCallbacks.Callbacks = {
 	},
 
 	Crosshair = {
-		CrosshairEnabled = function(value, oldValue)
+		CrosshairDisabled = function(value, oldValue)
 			local player = getLocalPlayer()
 			if player then
 				player:SetAttribute("SettingsCrosshairDisabled", isSettingEnabled(value))
@@ -1021,10 +1110,77 @@ SettingsCallbacks.Callbacks = {
 			applyCrosshairSettingsFromAttributes()
 		end,
 
+		ForceDefaultCrosshair = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairForceDefault", isSettingEnabled(value))
+			end
+			local weaponController = ServiceRegistry:GetController("Weapon")
+			if weaponController and type(weaponController.RefreshCrosshair) == "function" then
+				weaponController:RefreshCrosshair()
+			end
+			applyCrosshairSettingsFromAttributes()
+		end,
+
+		DisableSlideRotation = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairDisableSlideRotation", isSettingEnabled(value))
+			end
+		end,
+
+		AdvancedStyleSettings = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				local enabled = isSettingEnabled(value)
+				player:SetAttribute("SettingsCrosshairAdvancedStyleSettings", enabled)
+				if enabled ~= true then
+					local baseColor = player:GetAttribute("SettingsCrosshairColor")
+					if baseColor == nil then
+						baseColor = 1
+					end
+					player:SetAttribute("SettingsCrosshairTopLineColor", baseColor)
+					player:SetAttribute("SettingsCrosshairBottomLineColor", baseColor)
+					player:SetAttribute("SettingsCrosshairLeftLineColor", baseColor)
+					player:SetAttribute("SettingsCrosshairRightLineColor", baseColor)
+					player:SetAttribute("SettingsCrosshairDotColor", baseColor)
+				end
+			end
+			applyCrosshairSettingsFromAttributes()
+		end,
+
+		ShowTopLine = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairShowTopLine", value, 0, 1, 1, true)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		ShowBottomLine = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairShowBottomLine", value, 0, 1, 1, true)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		ShowLeftLine = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairShowLeftLine", value, 0, 1, 1, true)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		ShowRightLine = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairShowRightLine", value, 0, 1, 1, true)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		ShowDot = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairShowDot", value, 0, 1, 1, true)
+			applyCrosshairSettingsFromAttributes()
+		end,
+
 		CrosshairColor = function(value, oldValue)
 			local player = getLocalPlayer()
 			if player then
 				player:SetAttribute("SettingsCrosshairColor", value)
+				if player:GetAttribute("SettingsCrosshairAdvancedStyleSettings") ~= true then
+					player:SetAttribute("SettingsCrosshairTopLineColor", value)
+					player:SetAttribute("SettingsCrosshairBottomLineColor", value)
+					player:SetAttribute("SettingsCrosshairLeftLineColor", value)
+					player:SetAttribute("SettingsCrosshairRightLineColor", value)
+					player:SetAttribute("SettingsCrosshairDotColor", value)
+				end
 			end
 			applyCrosshairSettingsFromAttributes()
 		end,
@@ -1060,6 +1216,100 @@ SettingsCallbacks.Callbacks = {
 			end
 			applyCrosshairSettingsFromAttributes()
 		end,
+
+		CrosshairLineLength = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLineLength", value, 2, 40, 10)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		CrosshairRoundness = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRoundness", value, 0, 20, 0)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		GlobalRotation = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairGlobalRotation", value, -180, 180, 0)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		DotSize = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairDotSize", value, 1, 20, 3)
+			applyCrosshairSettingsFromAttributes()
+		end,
+
+		OutlineColor = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairOutlineColor", value)
+			end
+			applyCrosshairSettingsFromAttributes()
+		end,
+		OutlineThickness = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairOutlineThickness", value, 0, 6, 0)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		OutlineOpacity = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairOutlineOpacity", value, 0, 100, 100)
+			applyCrosshairSettingsFromAttributes()
+		end,
+
+		DynamicSpreadEnabled = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairDynamicSpreadEnabled", value, 0, 1, 1, true)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		MovementSpreadMultiplier = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairMovementSpreadMultiplier", value, 0, 5, 1)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		SprintSpreadMultiplier = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairSprintSpreadMultiplier", value, 0, 5, 1)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		AirSpreadMultiplier = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairAirSpreadMultiplier", value, 0, 5, 1)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		CrouchSpreadMultiplier = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairCrouchSpreadMultiplier", value, 0, 5, 1)
+			applyCrosshairSettingsFromAttributes()
+		end,
+		RecoilSpreadMultiplier = function(value, oldValue)
+			setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRecoilSpreadMultiplier", value, 0, 5, 1)
+			applyCrosshairSettingsFromAttributes()
+		end,
+
+		TopLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairTopLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
+		TopLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
+		TopLineThickness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineThickness", value, 1, 12, 2); applyCrosshairSettingsFromAttributes() end,
+		TopLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
+		TopLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
+		TopLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
+		TopLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+
+		BottomLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairBottomLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
+		BottomLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
+		BottomLineThickness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineThickness", value, 1, 12, 2); applyCrosshairSettingsFromAttributes() end,
+		BottomLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
+		BottomLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
+		BottomLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
+		BottomLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+
+		LeftLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairLeftLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
+		LeftLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
+		LeftLineThickness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineThickness", value, 1, 12, 2); applyCrosshairSettingsFromAttributes() end,
+		LeftLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
+		LeftLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
+		LeftLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
+		LeftLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+
+		RightLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairRightLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
+		RightLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
+		RightLineThickness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineThickness", value, 1, 12, 2); applyCrosshairSettingsFromAttributes() end,
+		RightLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
+		RightLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
+		RightLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
+		RightLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+
+		DotColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairDotColor", value) end; applyCrosshairSettingsFromAttributes() end,
+		DotOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairDotOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
+		DotRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairDotRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
 	},
 }
 
@@ -1079,6 +1329,7 @@ function SettingsCallbacks.fire(category: string, key: string, value: any, oldVa
 	end)
 
 	if not success then
+		warn(string.format("[SettingsCallbacks] %s.%s failed: %s", tostring(category), tostring(key), tostring(err)))
 	end
 end
 
@@ -1096,6 +1347,7 @@ function SettingsCallbacks.fireAll(category: string, settings: {[string]: any})
 			end)
 
 			if not success then
+				warn(string.format("[SettingsCallbacks] fireAll %s.%s failed: %s", tostring(category), tostring(key), tostring(err)))
 			end
 		end
 	end

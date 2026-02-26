@@ -250,6 +250,46 @@ local function isBooleanToggleConfig(config)
 	return bothBooleanValues or isEnabledDisabledDisplay(options)
 end
 
+local CROSSHAIR_ADVANCED_KEYS = {
+	DividerAdvanced = true,
+	DividerAdvancedTop = true,
+	DividerAdvancedBottom = true,
+	DividerAdvancedLeft = true,
+	DividerAdvancedRight = true,
+	DividerAdvancedDot = true,
+	TopLineColor = true,
+	TopLineOpacity = true,
+	TopLineThickness = true,
+	TopLineLength = true,
+	TopLineRoundness = true,
+	TopLineRotation = true,
+	TopLineGap = true,
+	BottomLineColor = true,
+	BottomLineOpacity = true,
+	BottomLineThickness = true,
+	BottomLineLength = true,
+	BottomLineRoundness = true,
+	BottomLineRotation = true,
+	BottomLineGap = true,
+	LeftLineColor = true,
+	LeftLineOpacity = true,
+	LeftLineThickness = true,
+	LeftLineLength = true,
+	LeftLineRoundness = true,
+	LeftLineRotation = true,
+	LeftLineGap = true,
+	RightLineColor = true,
+	RightLineOpacity = true,
+	RightLineThickness = true,
+	RightLineLength = true,
+	RightLineRoundness = true,
+	RightLineRotation = true,
+	RightLineGap = true,
+	DotColor = true,
+	DotOpacity = true,
+	DotRoundness = true,
+}
+
 local function getMultileControls(row)
 	if not row then
 		return nil
@@ -429,10 +469,11 @@ end
 
 function module:_buildCrosshairPreviewCustomization()
 	local crosshairCategory = SettingsConfig.Categories.Crosshair
-	local colorSetting = crosshairCategory and crosshairCategory.Settings and crosshairCategory.Settings.CrosshairColor
-	local colorOptions = colorSetting and colorSetting.Options
+	local settings = crosshairCategory and crosshairCategory.Settings
 
-	local function getColorFromValue(value)
+	local function getColorFromSetting(settingKey, value)
+		local colorSetting = settings and settings[settingKey]
+		local colorOptions = colorSetting and colorSetting.Options
 		if typeof(colorOptions) ~= "table" or #colorOptions == 0 then
 			return Color3.fromRGB(255, 255, 255)
 		end
@@ -463,31 +504,98 @@ function module:_buildCrosshairPreviewCustomization()
 		return (first and typeof(first.Color) == "Color3") and first.Color or Color3.fromRGB(255, 255, 255)
 	end
 
-	local disabled = isSettingEnabled(PlayerDataTable.get("Crosshair", "CrosshairEnabled"))
-	local scalePercent = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairSize"), 100), 50, 200)
-	local opacityPercent = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairOpacity"), 100), 10, 100)
-	local gap = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairGap"), 10), 0, 50)
-	local thickness = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairThickness"), 2), 1, 10)
+	local function getBool(settingKey, defaultValue)
+		local raw = PlayerDataTable.get("Crosshair", settingKey)
+		if raw == nil then
+			return defaultValue
+		end
+		return isSettingEnabled(raw)
+	end
+
+	local function getNumber(settingKey, defaultValue, minValue, maxValue)
+		local raw = PlayerDataTable.get("Crosshair", settingKey)
+		local value = toNumber(raw, defaultValue)
+		return math.clamp(value, minValue, maxValue)
+	end
+
+	local disabled = isSettingEnabled(PlayerDataTable.get("Crosshair", "CrosshairDisabled"))
+	local advanced = getBool("AdvancedStyleSettings", false)
+	local scalePercent = getNumber("CrosshairSize", 100, 50, 200)
+	local opacityPercent = getNumber("CrosshairOpacity", 100, 0, 100)
+	local gap = getNumber("CrosshairGap", 10, 0, 50)
 	local colorValue = PlayerDataTable.get("Crosshair", "CrosshairColor")
 
 	return {
-		showDot = not disabled,
-		showTopLine = not disabled,
-		showBottomLine = not disabled,
-		showLeftLine = not disabled,
-		showRightLine = not disabled,
-		lineThickness = thickness,
-		lineLength = 6,
+		showDot = (not disabled) and getBool("ShowDot", true),
+		showTopLine = (not disabled) and getBool("ShowTopLine", true),
+		showBottomLine = (not disabled) and getBool("ShowBottomLine", true),
+		showLeftLine = (not disabled) and getBool("ShowLeftLine", true),
+		showRightLine = (not disabled) and getBool("ShowRightLine", true),
+		lineThickness = getNumber("CrosshairThickness", 2, 1, 12),
+		lineLength = getNumber("CrosshairLineLength", 10, 2, 40),
 		gapFromCenter = gap,
-		dotSize = 3,
-		rotation = 0,
-		cornerRadius = 0,
-		mainColor = getColorFromValue(colorValue),
-		outlineColor = Color3.fromRGB(0, 0, 0),
-		outlineThickness = 0,
+		dotSize = getNumber("DotSize", 3, 1, 20),
+		rotation = getNumber("GlobalRotation", 0, -180, 180),
+		cornerRadius = getNumber("CrosshairRoundness", 0, 0, 20),
+		mainColor = getColorFromSetting("CrosshairColor", colorValue),
+		outlineColor = getColorFromSetting("OutlineColor", PlayerDataTable.get("Crosshair", "OutlineColor")),
+		outlineThickness = getNumber("OutlineThickness", 0, 0, 6),
+		outlineOpacity = getNumber("OutlineOpacity", 100, 0, 100) / 100,
 		opacity = opacityPercent / 100,
 		scale = scalePercent / 100,
-		dynamicSpreadEnabled = true,
+		dynamicSpreadEnabled = getBool("DynamicSpreadEnabled", true),
+		recoilSpreadMultiplier = getNumber("RecoilSpreadMultiplier", 1, 0, 5),
+		spread = {
+			movement = getNumber("MovementSpreadMultiplier", 1, 0, 5),
+			sprint = getNumber("SprintSpreadMultiplier", 1, 0, 5),
+			air = getNumber("AirSpreadMultiplier", 1, 0, 5),
+			crouch = getNumber("CrouchSpreadMultiplier", 1, 0, 5),
+		},
+		advancedStyleSettings = advanced,
+		perLineStyles = {
+			Top = {
+				color = getColorFromSetting("TopLineColor", PlayerDataTable.get("Crosshair", "TopLineColor")),
+				opacity = getNumber("TopLineOpacity", 100, 0, 100) / 100,
+				thickness = getNumber("TopLineThickness", 2, 1, 12),
+				length = getNumber("TopLineLength", 10, 2, 40),
+				roundness = getNumber("TopLineRoundness", 0, 0, 20),
+				rotation = getNumber("TopLineRotation", 0, -180, 180),
+				gap = getNumber("TopLineGap", gap, 0, 50),
+			},
+			Bottom = {
+				color = getColorFromSetting("BottomLineColor", PlayerDataTable.get("Crosshair", "BottomLineColor")),
+				opacity = getNumber("BottomLineOpacity", 100, 0, 100) / 100,
+				thickness = getNumber("BottomLineThickness", 2, 1, 12),
+				length = getNumber("BottomLineLength", 10, 2, 40),
+				roundness = getNumber("BottomLineRoundness", 0, 0, 20),
+				rotation = getNumber("BottomLineRotation", 0, -180, 180),
+				gap = getNumber("BottomLineGap", gap, 0, 50),
+			},
+			Left = {
+				color = getColorFromSetting("LeftLineColor", PlayerDataTable.get("Crosshair", "LeftLineColor")),
+				opacity = getNumber("LeftLineOpacity", 100, 0, 100) / 100,
+				thickness = getNumber("LeftLineThickness", 2, 1, 12),
+				length = getNumber("LeftLineLength", 10, 2, 40),
+				roundness = getNumber("LeftLineRoundness", 0, 0, 20),
+				rotation = getNumber("LeftLineRotation", 0, -180, 180),
+				gap = getNumber("LeftLineGap", gap, 0, 50),
+			},
+			Right = {
+				color = getColorFromSetting("RightLineColor", PlayerDataTable.get("Crosshair", "RightLineColor")),
+				opacity = getNumber("RightLineOpacity", 100, 0, 100) / 100,
+				thickness = getNumber("RightLineThickness", 2, 1, 12),
+				length = getNumber("RightLineLength", 10, 2, 40),
+				roundness = getNumber("RightLineRoundness", 0, 0, 20),
+				rotation = getNumber("RightLineRotation", 0, -180, 180),
+				gap = getNumber("RightLineGap", gap, 0, 50),
+			},
+		},
+		dotStyle = {
+			color = getColorFromSetting("DotColor", PlayerDataTable.get("Crosshair", "DotColor")),
+			opacity = getNumber("DotOpacity", 100, 0, 100) / 100,
+			size = getNumber("DotSize", 3, 1, 20),
+			roundness = getNumber("DotRoundness", 0, 0, 20),
+		},
 	}
 end
 
@@ -530,6 +638,14 @@ function module:_ensureCrosshairPreview()
 	previewFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 	previewFrame.Position = UDim2.fromScale(0.5, 0.5)
 	previewFrame.Parent = root
+	local previewScale = previewFrame:FindFirstChildOfClass("UIScale")
+	if previewScale then
+		previewScale.Scale = previewScale.Scale * 1.85
+	else
+		local scaleObj = Instance.new("UIScale")
+		scaleObj.Scale = 1.85
+		scaleObj.Parent = previewFrame
+	end
 
 	local hitmarker = previewFrame:FindFirstChild("Hitmarker", true)
 	if hitmarker and hitmarker:IsA("GuiObject") then
@@ -916,7 +1032,7 @@ function module:_setupTopBar()
 	end
 end
 
-function module:_selectTab(holderName, forceRefresh)
+function module:_selectTab(holderName, forceRefresh, preferredSettingKey)
 	if not forceRefresh and self._currentTab == holderName then
 		return
 	end
@@ -928,12 +1044,14 @@ function module:_selectTab(holderName, forceRefresh)
 	self._currentTab = holderName
 	self:_animateTabSelect(holderName)
 
+	local previousSelectedSetting = self._selectedSetting
 	self:_clearSettings()
 
 	local tabData = self._tabs[holderName]
 	local categoryKey = tabData and tabData.categoryKey
 	if categoryKey then
-		self:_populateSettings(categoryKey)
+		local targetSettingKey = preferredSettingKey or previousSelectedSetting
+		self:_populateSettings(categoryKey, targetSettingKey)
 	else
 		self:_clearInfoPanel()
 	end
@@ -1067,7 +1185,7 @@ function module:_resolveSettingRenderType(config)
 	return config.SettingType
 end
 
-function module:_populateSettings(categoryKey)
+function module:_populateSettings(categoryKey, preferredSettingKey)
 	if not self._scrollFrame then
 		return
 	end
@@ -1078,6 +1196,13 @@ function module:_populateSettings(categoryKey)
 	local lastLayoutOrder = 0
 
 	for index, settingData in ipairs(settingsList) do
+		if categoryKey == "Crosshair" and CROSSHAIR_ADVANCED_KEYS[settingData.key] then
+			local advancedEnabled = isSettingEnabled(PlayerDataTable.get("Crosshair", "AdvancedStyleSettings"))
+			if not advancedEnabled then
+				continue
+			end
+		end
+
 		local available = SettingsConfig.isSettingAllowedOnDevice(settingData.config, self._deviceType)
 		local row, renderType = self:_createSettingRow(categoryKey, settingData.key, settingData.config, index, available)
 		if not row then
@@ -1116,8 +1241,20 @@ function module:_populateSettings(categoryKey)
 		})
 	end
 
-	if firstSelectableSetting then
-		self:_selectSetting(firstSelectableSetting)
+	local targetSetting = nil
+	if type(preferredSettingKey) == "string" and preferredSettingKey ~= "" then
+		local preferredRow = self:_findRowData(preferredSettingKey)
+		if preferredRow and preferredRow.available and preferredRow.renderType ~= "divider" then
+			targetSetting = preferredSettingKey
+		end
+	end
+
+	if not targetSetting then
+		targetSetting = firstSelectableSetting
+	end
+
+	if targetSetting then
+		self:_selectSetting(targetSetting)
 	else
 		self:_clearInfoPanel()
 	end
@@ -1681,6 +1818,16 @@ function module:_applyInfoMedia(rowData)
 			self._infoVideoFrame.Visible = false
 		end
 		self._infoImageFrame.Visible = true
+		local crosshairCategory = SettingsConfig.Categories and SettingsConfig.Categories.Crosshair
+		local crosshairColorSetting = crosshairCategory and crosshairCategory.Settings and crosshairCategory.Settings.CrosshairColor
+		local crosshairImages = crosshairColorSetting and crosshairColorSetting.Image
+		if typeof(crosshairImages) == "table" and #crosshairImages > 0 then
+			self._currentInfoImages = crosshairImages
+			self:_startImageCarousel(crosshairImages)
+		elseif config.Image and #config.Image > 0 then
+			self._currentInfoImages = config.Image
+			self:_startImageCarousel(config.Image)
+		end
 		self:_updateCrosshairPreview()
 		return
 	end
@@ -1998,6 +2145,10 @@ function module:_setupToggleRow(categoryKey, settingKey, config, row)
 			if rowData then
 				self:_updateInfoPanel(rowData)
 			end
+		end
+
+		if save and categoryKey == "Crosshair" and settingKey == "AdvancedStyleSettings" then
+			self:_selectTab(self._currentTab or DEFAULT_TAB, true, settingKey)
 		end
 	end
 

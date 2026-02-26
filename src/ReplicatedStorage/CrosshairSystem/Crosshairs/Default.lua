@@ -77,7 +77,8 @@ local function positiveMultiplier(value, fallback)
 end
 
 local function resolveGap(customization, weaponData, config, state)
-	local rawGap = (customization and customization.gapFromCenter) or weaponData.baseGap or config.defaultGap
+	local hasCustomGap = customization and type(customization.gapFromCenter) == "number"
+	local rawGap = (hasCustomGap and customization.gapFromCenter) or weaponData.baseGap or config.defaultGap
 	local minGap = config.minGap
 	local maxGap = config.maxGap
 
@@ -92,6 +93,10 @@ local function resolveGap(customization, weaponData, config, state)
 			minGap = math.min(minGap, config.adsMinGap or minGap)
 		end
 		rawGap *= gapMult
+	end
+
+	if hasCustomGap then
+		return math.clamp(rawGap, 0, maxGap)
 	end
 
 	return math.clamp(rawGap, minGap, maxGap)
@@ -125,69 +130,112 @@ function module:ApplyCustomization(customization)
 	local mainColor = customization.mainColor or Color3.new(1, 1, 1)
 	local outlineColor = customization.outlineColor or Color3.new(0, 0, 0)
 	local outlineThickness = customization.outlineThickness or 1
+	local outlineOpacity = math.clamp(customization.outlineOpacity or 1, 0, 1)
 	local scale = customization.scale or 1
+	local globalRoundness = customization.cornerRadius or 0
+	local globalLength = customization.lineLength or 10
+	local globalThickness = customization.lineThickness or 2
+	local globalRotation = customization.rotation or 0
+	local advanced = customization.advancedStyleSettings == true
 
 	if self._root then
-		self._root.Rotation = customization.rotation or 0
+		self._root.Rotation = globalRotation
 	end
 	if self._uiScale then
 		self._uiScale.Scale = scale
 	end
 
+	local dotStyle = customization.dotStyle or {}
+	local dotColor = (advanced and dotStyle.color) or mainColor
+	local dotOpacity = (advanced and dotStyle.opacity) or opacity
+	local dotRoundness = (advanced and dotStyle.roundness) or globalRoundness
+	local dotSize = (advanced and dotStyle.size) or (customization.dotSize or 2)
+
 	if self._dot then
 		self._dot.Visible = customization.showDot ~= false
-		self._dot.BackgroundColor3 = mainColor
-		self._dot.BackgroundTransparency = transparency
-		applyStrokeProps(self._dot, outlineColor, outlineThickness, transparency)
-		applyCorner(self._dot, customization.cornerRadius or 0)
-		local dotSize = customization.dotSize or 2
+		self._dot.BackgroundColor3 = dotColor
+		self._dot.BackgroundTransparency = 1 - math.clamp(dotOpacity, 0, 1)
+		applyStrokeProps(
+			self._dot,
+			outlineColor,
+			outlineThickness,
+			1 - math.clamp(dotOpacity * outlineOpacity, 0, 1)
+		)
+		applyCorner(self._dot, dotRoundness)
 		self._dot.Size = UDim2.fromOffset(dotSize, dotSize)
 	end
 
-	local function applyLine(line, visible)
+	local function applyLine(line, visible, partName)
 		if not line then
 			return
 		end
+		local perLineStyles = customization.perLineStyles or {}
+		local style = perLineStyles[partName] or {}
+		local lineColor = (advanced and style.color) or mainColor
+		local lineOpacity = (advanced and style.opacity) or opacity
+		local lineRoundness = (advanced and style.roundness) or globalRoundness
+		local lineRotation = (advanced and style.rotation) or 0
+
 		line.Visible = visible
-		line.BackgroundColor3 = mainColor
-		line.BackgroundTransparency = transparency
-		applyStrokeProps(line, outlineColor, outlineThickness, transparency)
-		applyCorner(line, customization.cornerRadius or 0)
+		line.BackgroundColor3 = lineColor
+		line.BackgroundTransparency = 1 - math.clamp(lineOpacity, 0, 1)
+		line.Rotation = lineRotation
+		applyStrokeProps(
+			line,
+			outlineColor,
+			outlineThickness,
+			1 - math.clamp(lineOpacity * outlineOpacity, 0, 1)
+		)
+		applyCorner(line, lineRoundness)
 	end
 
-	applyLine(self._top, customization.showTopLine ~= false)
-	applyLine(self._bottom, customization.showBottomLine ~= false)
-	applyLine(self._left, customization.showLeftLine ~= false)
-	applyLine(self._right, customization.showRightLine ~= false)
+	applyLine(self._top, customization.showTopLine ~= false, "Top")
+	applyLine(self._bottom, customization.showBottomLine ~= false, "Bottom")
+	applyLine(self._left, customization.showLeftLine ~= false, "Left")
+	applyLine(self._right, customization.showRightLine ~= false, "Right")
 
-	local thickness = customization.lineThickness or 2
-	local length = customization.lineLength or 10
+	local topStyle = (customization.perLineStyles and customization.perLineStyles.Top) or {}
+	local bottomStyle = (customization.perLineStyles and customization.perLineStyles.Bottom) or {}
+	local leftStyle = (customization.perLineStyles and customization.perLineStyles.Left) or {}
+	local rightStyle = (customization.perLineStyles and customization.perLineStyles.Right) or {}
+
+	local topThickness = (advanced and topStyle.thickness) or globalThickness
+	local bottomThickness = (advanced and bottomStyle.thickness) or globalThickness
+	local leftThickness = (advanced and leftStyle.thickness) or globalThickness
+	local rightThickness = (advanced and rightStyle.thickness) or globalThickness
+	local topLength = (advanced and topStyle.length) or globalLength
+	local bottomLength = (advanced and bottomStyle.length) or globalLength
+	local leftLength = (advanced and leftStyle.length) or globalLength
+	local rightLength = (advanced and rightStyle.length) or globalLength
+
 	local gap = resolveGap(customization, {}, self.Config, nil)
+	local topGap = (advanced and type(topStyle.gap) == "number") and topStyle.gap or gap
+	local bottomGap = (advanced and type(bottomStyle.gap) == "number") and bottomStyle.gap or gap
+	local leftGap = (advanced and type(leftStyle.gap) == "number") and leftStyle.gap or gap
+	local rightGap = (advanced and type(rightStyle.gap) == "number") and rightStyle.gap or gap
 
 	if self._top then
-		self._top.Size = UDim2.fromOffset(thickness, length)
-		self._top.Position = UDim2.new(0.5, 0, 0.5, -gap)
+		self._top.Size = UDim2.fromOffset(topThickness, topLength)
+		self._top.Position = UDim2.new(0.5, 0, 0.5, -topGap)
 	end
 
 	if self._bottom then
-		self._bottom.Size = UDim2.fromOffset(thickness, length)
-		self._bottom.Position = UDim2.new(0.5, 0, 0.5, gap)
+		self._bottom.Size = UDim2.fromOffset(bottomThickness, bottomLength)
+		self._bottom.Position = UDim2.new(0.5, 0, 0.5, bottomGap)
 	end
 
 	if self._left then
-		self._left.Size = UDim2.fromOffset(length, thickness)
-		self._left.Position = UDim2.new(0.5, -gap, 0.5, 0)
+		self._left.Size = UDim2.fromOffset(leftLength, leftThickness)
+		self._left.Position = UDim2.new(0.5, -leftGap, 0.5, 0)
 	end
 
 	if self._right then
-		self._right.Size = UDim2.fromOffset(length, thickness)
-		self._right.Position = UDim2.new(0.5, gap, 0.5, 0)
+		self._right.Size = UDim2.fromOffset(rightLength, rightThickness)
+		self._right.Position = UDim2.new(0.5, rightGap, 0.5, 0)
 	end
 end
 
 function module:Update(dt, state)
-task.wait(); --heyy
-
 	local frameDt = math.clamp(dt or 0, 0, 0.1)
 	local velocity = state.velocity or Vector3.zero
 	local customization = state.customization or self._customization
@@ -227,10 +275,11 @@ task.wait(); --heyy
 	local velocityAlpha = math.clamp(frameDt * self.Config.velocityRecoveryRate * adsVelocityRecoveryMult, 0, 1)
 	self._velocitySpread += (targetVelocitySpread - self._velocitySpread) * velocityAlpha
 
-	local crouchMult = positiveMultiplier(weaponData.crouchMult, self.Config.crouchMult)
+	local spreadOverrides = customization and customization.spread or nil
+	local crouchMult = positiveMultiplier(spreadOverrides and spreadOverrides.crouch, positiveMultiplier(weaponData.crouchMult, self.Config.crouchMult))
 	local slideMult = positiveMultiplier(weaponData.slideMult, self.Config.slideMult)
-	local sprintMult = positiveMultiplier(weaponData.sprintMult, self.Config.sprintMult)
-	local airMult = positiveMultiplier(weaponData.airMult, self.Config.airMult)
+	local sprintMult = positiveMultiplier(spreadOverrides and spreadOverrides.sprint, positiveMultiplier(weaponData.sprintMult, self.Config.sprintMult))
+	local airMult = positiveMultiplier(spreadOverrides and spreadOverrides.air, positiveMultiplier(weaponData.airMult, self.Config.airMult))
 	local adsMult = positiveMultiplier(weaponData.adsMult, self.Config.adsMult)
 
 	local spreadStateMult = 1
@@ -272,11 +321,18 @@ task.wait(); --heyy
 	if state.isADS then
 		adsSpreadResponseMult = positiveMultiplier(weaponData.adsSpreadResponseMult, self.Config.adsSpreadResponseMult)
 	end
-	local spreadAmount = (self._velocitySpread + self._currentRecoil) * spreadStateMult * adsSpreadResponseMult
+	local movementMult = positiveMultiplier(spreadOverrides and spreadOverrides.movement, 1)
+	local spreadAmount = ((self._velocitySpread * movementMult) + self._currentRecoil) * spreadStateMult * adsSpreadResponseMult
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 
 	local gap = resolveGap(customization, weaponData, self.Config, state)
+	local advanced = customization and customization.advancedStyleSettings == true
+	local perLine = (customization and customization.perLineStyles) or {}
+	local topGap = (advanced and perLine.Top and type(perLine.Top.gap) == "number") and perLine.Top.gap or gap
+	local bottomGap = (advanced and perLine.Bottom and type(perLine.Bottom.gap) == "number") and perLine.Bottom.gap or gap
+	local leftGap = (advanced and perLine.Left and type(perLine.Left.gap) == "number") and perLine.Left.gap or gap
+	local rightGap = (advanced and perLine.Right and type(perLine.Right.gap) == "number") and perLine.Right.gap or gap
 
 	if DEBUG_CROSSHAIR then
 		local now = tick()
@@ -286,19 +342,19 @@ task.wait(); --heyy
 	end
 
 	if self._top then
-		self._top.Position = UDim2.new(0.5, 0, 0.5, -(gap + spreadY))
+		self._top.Position = UDim2.new(0.5, 0, 0.5, -(topGap + spreadY))
 	end
 
 	if self._bottom then
-		self._bottom.Position = UDim2.new(0.5, 0, 0.5, gap + spreadY)
+		self._bottom.Position = UDim2.new(0.5, 0, 0.5, bottomGap + spreadY)
 	end
 
 	if self._left then
-		self._left.Position = UDim2.new(0.5, -(gap + spreadX), 0.5, 0)
+		self._left.Position = UDim2.new(0.5, -(leftGap + spreadX), 0.5, 0)
 	end
 
 	if self._right then
-		self._right.Position = UDim2.new(0.5, gap + spreadX, 0.5, 0)
+		self._right.Position = UDim2.new(0.5, rightGap + spreadX, 0.5, 0)
 	end
 end
 
@@ -309,7 +365,8 @@ function module:OnRecoil(recoilData, weaponData)
 		return
 	end
 
-	local recoilDelta = amount * recoilMultiplier
+	local customRecoilMult = (self._customization and self._customization.recoilSpreadMultiplier) or 1
+	local recoilDelta = amount * recoilMultiplier * customRecoilMult
 	self._currentRecoil = math.min(self._currentRecoil + recoilDelta, self.Config.maxRecoil)
 end
 

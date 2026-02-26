@@ -352,6 +352,18 @@ function WeaponController:Start()
 	LogService:Info("WEAPON", "WeaponController started")
 end
 
+function WeaponController:_getCrosshairBaseRotation()
+	local player = LocalPlayer or Players.LocalPlayer
+	if not player then
+		return 0
+	end
+	local value = player:GetAttribute("SettingsCrosshairGlobalRotation")
+	if type(value) ~= "number" then
+		return 0
+	end
+	return math.clamp(value, -180, 180)
+end
+
 function WeaponController:_ensureCrosshairRotationLoop()
 	if self._crosshairRotationConn then
 		return
@@ -360,6 +372,7 @@ function WeaponController:_ensureCrosshairRotationLoop()
 		if not self._crosshair then
 			return
 		end
+		self._crosshairRotationTarget = self:_getCrosshairBaseRotation() + self._crosshairSlidingRotation
 		local speed = 12
 		local alpha = math.clamp(1 - math.exp(-speed * dt), 0, 1)
 		self._crosshairRotation = self._crosshairRotation
@@ -373,12 +386,14 @@ function WeaponController:_connectMovementState()
 		if not self._crosshair then
 			return
 		end
+		local disableSlideRotation = LocalPlayer
+			and LocalPlayer:GetAttribute("SettingsCrosshairDisableSlideRotation") == true
 		if newState == MovementStateManager.States.Sliding then
-			self._crosshairSlidingRotation = 30
+			self._crosshairSlidingRotation = disableSlideRotation and 0 or 30
 		else
 			self._crosshairSlidingRotation = 0
 		end
-		self._crosshairRotationTarget = self._crosshairSlidingRotation
+		self._crosshairRotationTarget = self:_getCrosshairBaseRotation() + self._crosshairSlidingRotation
 	end)
 end
 
@@ -632,6 +647,9 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
 	local weaponData = weaponConfig and weaponConfig.crosshair or nil
 	local crosshairType = (weaponData and weaponData.type) or "Default"
+	if LocalPlayer and LocalPlayer:GetAttribute("SettingsCrosshairForceDefault") == true then
+		crosshairType = "Default"
+	end
 	UserInputService.MouseIconEnabled = false
 	self._crosshair:ApplyCrosshair(crosshairType, weaponData)
 	if type(self._crosshair.SetHideReticleInADS) == "function" then
@@ -641,7 +659,7 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 		end
 		self._crosshair:SetHideReticleInADS(hideInADS)
 	end
-	self._crosshairRotationTarget = self._crosshairSlidingRotation
+	self._crosshairRotationTarget = self:_getCrosshairBaseRotation() + self._crosshairSlidingRotation
 	self._crosshairRotation = self._crosshairRotationTarget
 	self._crosshair:SetRotation(self._crosshairRotation)
 end
