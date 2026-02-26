@@ -86,7 +86,7 @@ function SlidingPhysics:GetInitialSlopeVelocityBoost()
 		local slopeStrength = (slopeDegrees - Config.Gameplay.Sliding.SlopeThreshold * 2)
 			/ (90 - Config.Gameplay.Sliding.SlopeThreshold * 2)
 		slopeStrength = math.clamp(slopeStrength, 0, 1)
-		return slopeStrength * 15
+		return slopeStrength * 19  -- Nerfed from 25 (orig 15)
 	end
 
 	return 0

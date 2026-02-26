@@ -39,6 +39,58 @@ function CharacterController:_applyRigCollisionFilters(character)
 	end)
 end
 
+-- Ensure Collider hitbox parts always have CanQuery = true after rig creation.
+-- This guards against anything (rig setup, description apply, etc.) accidentally
+-- overwriting CanQuery on the Collider parts that need to be raycastable.
+function CharacterController:_ensureColliderCanQuery(character)
+	local collider = character:FindFirstChild("Collider")
+	if not collider then
+		return
+	end
+
+	local isCrouching = character:GetAttribute("IsCrouching") == true
+
+	-- New structure: Collider/Hitbox/Standing + Crouching
+	local hitboxFolder = collider:FindFirstChild("Hitbox")
+	if hitboxFolder then
+		local standing = hitboxFolder:FindFirstChild("Standing")
+		local crouching = hitboxFolder:FindFirstChild("Crouching")
+		if standing then
+			for _, part in standing:GetChildren() do
+				if part:IsA("BasePart") then
+					part.CanQuery = not isCrouching
+				end
+			end
+		end
+		if crouching then
+			for _, part in crouching:GetChildren() do
+				if part:IsA("BasePart") then
+					part.CanQuery = isCrouching
+				end
+			end
+		end
+		return
+	end
+
+	-- Legacy structure: Collider/Default + Crouch
+	local defaultFolder = collider:FindFirstChild("Default")
+	local crouchFolder = collider:FindFirstChild("Crouch")
+	if defaultFolder then
+		for _, part in defaultFolder:GetChildren() do
+			if part:IsA("BasePart") then
+				part.CanQuery = not isCrouching
+			end
+		end
+	end
+	if crouchFolder then
+		for _, part in crouchFolder:GetChildren() do
+			if part:IsA("BasePart") then
+				part.CanQuery = isCrouching
+			end
+		end
+	end
+end
+
 function CharacterController:Init(registry, net)
 	self._registry = registry
 	self._net = net
@@ -494,6 +546,8 @@ function CharacterController:_setupLocalCharacter(player, character)
 			local rig = RigManager:WaitForActiveRig(player, 10)
 			if rig and character.Parent then
 				self:_applyRigCollisionFilters(character)
+				-- After rig setup, ensure Collider hitbox CanQuery is still true
+				self:_ensureColliderCanQuery(character)
 			end
 		end)
 	end
@@ -623,6 +677,9 @@ function CharacterController:_setupRemoteCharacter(player, character)
 						rig:PivotTo(rootPart.CFrame * rigOffset)
 					end
 				end
+
+				-- After rig setup, ensure Collider hitbox CanQuery is still true
+				self:_ensureColliderCanQuery(character)
 			end
 		end
 

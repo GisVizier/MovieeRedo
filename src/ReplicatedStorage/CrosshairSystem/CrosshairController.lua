@@ -81,7 +81,7 @@ function CrosshairController.new(player: Player?)
 	self._hitmarkerStack = 0
 	self._moduleCache = {}
 	self._moduleCacheWarmed = false
-	self._hideReticleInADS = true
+	self._hideReticleInADS = false
 	self._reticleHidden = false
 	self._reticleVisibilitySnapshot = {}
 

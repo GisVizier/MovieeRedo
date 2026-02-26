@@ -52,16 +52,20 @@ local WALL_CONFIG = {
 	GRACE_PERIOD = 3,     -- Seconds to use push before cooldown kicks in
 	
 	-- Push projectile physics
-	PUSH_SPEED = 80,              -- Initial speed
+	PUSH_SPEED = 110,              -- Initial speed
 	PUSH_UPWARD = 25,             -- Slight upward arc
 	PUSH_GRAVITY = 0.6,           -- Gravity multiplier (lower = more floaty)
 	PUSH_LIFETIME = 4,            -- Max seconds before despawn
 	
 	-- Impact damage/knockback
-	IMPACT_RADIUS = 10,           -- Sphere radius on impact
-	IMPACT_DAMAGE = 20,           -- Damage to players in impact radius
+	IMPACT_RADIUS = 18,           -- Sphere radius on impact
+	IMPACT_DAMAGE = 35,           -- Damage to players in impact radius
 	IMPACT_KNOCKBACK = 70,        -- Knockback strength
 	IMPACT_UPWARD = 50,           -- Upward knockback component
+	
+	-- Wall rise damage (damages enemies when wall comes up)
+	WALL_RISE_DAMAGE = 30,            -- Damage to nearby enemies on wall rise
+	WALL_RISE_RADIUS = 14,            -- Radius for wall rise damage detection
 }
 
 -- Allowed VFX actions for relay
@@ -486,8 +490,8 @@ function Kit:_pushWall(direction)
 		-- Make piece anchored (we control movement manually)
 		piece.Anchored = true
 		piece.CanCollide = false
-		piece.CanQuery = false
-		piece.CanTouch = false
+		piece.CanQuery = true
+		piece.CanTouch = true
 		
 		-- Store original position
 		local position = piece.Position

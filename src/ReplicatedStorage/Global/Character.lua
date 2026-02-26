@@ -20,7 +20,7 @@ local Character = {
 
 	WallJump = {
 		Enabled = true,
-		VerticalBoost = 35,
+		VerticalBoost = 45,
 		HorizontalBoost = 22,
 		WallPushForce = 35,
 		AnglePushMultiplier = 1.5,
@@ -120,6 +120,12 @@ local Character = {
 		Enabled = false,
 		ForceMultiplier = 1.15,    -- Extra force when walking uphill
 		MaxSlopeAngle = 50,        -- Don't assist past this angle
+	},
+	SlopeJump = {
+		MinSlopeAngle = 7,         -- Nerfed from 6 (orig 8)
+		BaseBoost = 18,            -- Nerfed from 25 (orig 15)
+		MaxBoost = 42,             -- Nerfed from 55 (orig 35)
+		SlopeScaling = 1.7,        -- Nerfed from 2.0 (orig 1.5)
 	},
 	GroundRayOffset = 0.35,
 	GroundRayDistance = 1.0,

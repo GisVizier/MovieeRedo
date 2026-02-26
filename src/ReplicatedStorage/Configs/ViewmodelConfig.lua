@@ -31,6 +31,10 @@ ViewmodelConfig.Models = {
 	},
 }
 
+-- Default ADS overlay frame name (fallback when weapon/skin doesn't define one).
+-- Refers to a child Frame inside the "AdsGui" ScreenGui in PlayerGui.
+ViewmodelConfig.ADSOverlayDefault = "Default"
+
 -- Global offsets/effects (feel). Keep these minimal; tune per weapon via Weapons[weaponId].Effects.
 ViewmodelConfig.Effects = {
 	MouseSway = {
@@ -252,6 +256,7 @@ ViewmodelConfig.Weapons = {
 	Sniper = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Sniper,
 		Offset = CFrame.new(0, -0.3, 0.7) * CFrame.Angles(math.rad(5), math.rad(0), math.rad(-9)),
+		ADSOverlay = "Sniper", -- Scope overlay frame inside AdsGui
 		Replication = {
 			Scale = 0.5725,
 			Offset = CFrame.new(),
@@ -331,7 +336,7 @@ ViewmodelConfig.Kits = {
 
 --[[
 	Skin overrides for viewmodels.
-	Skins can override ModelPath, Animations, and Sounds from the base weapon config.
+	Skins can override ModelPath, Animations, Sounds, and ADSOverlay from the base weapon config.
 	Only specify properties that change - rest inherited from base weapon.
 
 	Animation lookup order:
@@ -340,12 +345,18 @@ ViewmodelConfig.Kits = {
 	3. ViewmodelConfig.Weapons[WeaponId].Animations[AnimName] (base weapon config)
 	4. Assets/Animations/ViewModel/{WeaponId}/Viewmodel/{AnimName} (base folder)
 
+	ADS Overlay lookup order:
+	1. ViewmodelConfig.Skins[WeaponId][SkinId].ADSOverlay (skin-specific frame)
+	2. ViewmodelConfig.Weapons[WeaponId].ADSOverlay (weapon-specific frame)
+	3. ViewmodelConfig.ADSOverlayDefault ("Default" frame)
+
 	This allows skins to:
 	- Use custom models with default animations (just set ModelPath)
 	- Use custom animations with default model (just set Animations)
 	- Use both custom model and animations (set both)
 	- Only override specific animations (partial Animations table)
 	- Override specific sounds (partial Sounds table)
+	- Use a unique ADS overlay (just set ADSOverlay)
 ]]
 ViewmodelConfig.Skins = {
 	Shotgun = {

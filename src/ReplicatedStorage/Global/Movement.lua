@@ -9,13 +9,13 @@ Movement.Cooldowns = {
 
 Movement.Sliding = {
 	AutoSlide = true,
-	InitialVelocity = 62,  -- Down from 70 (slightly shorter slides)
+	InitialVelocity = 50,  -- Nerfed from 62
 	MinVelocity = 5,
 	MaxVelocity = 110,     -- Down from 120
 	FrictionRate = 1.25,   -- Down from 0.9 (slightly more friction)
 	ImpulseSlide = {
 		Enabled = true,
-		ImpulsePower = 62,  -- Down from 70
+		ImpulsePower = 50,  -- Nerfed from 62
 		SlideFriction = 0,
 		NormalFriction = 2,
 		DecayTime = 0.7,    -- Down from 0.8
@@ -37,7 +37,7 @@ Movement.Sliding = {
 		MaxSlopeAngle = 65,
 	},
 	Steering = {
-		Enabled = true,
+		Enabled = false,
 		Responsiveness = 0.12,
 		VelocityPenalty = 0.88,
 		MinAlignment = 0.55,
@@ -45,7 +45,7 @@ Movement.Sliding = {
 	SpeedChangeRates = {
 		Forward = 0.21,
 		Upward = 0.7,
-		Downward = 1.8,
+		Downward = 2.0,        -- Nerfed from 2.5 (orig 1.8)
 		CrossSlope = 0.55,
 	},
 	SlopeThreshold = 0.02,
@@ -76,10 +76,10 @@ Movement.Sliding = {
 		MinAirTime = 0.3,
 		MinFallDistance = 10,
 		BoostMultiplier = 0.8,
-		MaxBoost = 12,
+		MaxBoost = 14,                  -- Nerfed from 18 (orig 12)
 		RayDistance = 3,
 		RayOffset = 0.5,
-		SlopeBoostMultiplier = 1.0,
+		SlopeBoostMultiplier = 1.15,    -- Nerfed from 1.4 (orig 1.0)
 		FlatBoostMultiplier = 0.6,
 		SlopeThreshold = 5,
 	},
@@ -101,14 +101,14 @@ Movement.Sliding = {
 		
 		UphillBoost = {
 			Enabled = true,
-			SlopeThreshold = 0.15,      -- ~25 degrees min
-			MinVerticalBoost = 30,      -- Moderate slopes = modest boost
-			MaxVerticalBoost = 70,      -- Steep slopes = big boost
+			SlopeThreshold = 0.14,      -- Nerfed from 0.12 (orig 0.15)
+			MinVerticalBoost = 35,      -- Nerfed from 45 (orig 30)
+			MaxVerticalBoost = 80,      -- Nerfed from 100 (orig 70)
 			MaxSlopeAngle = 60,
-			ScalingExponent = 1.5,      -- Balanced curve
+			ScalingExponent = 1.4,      -- Nerfed from 1.3 (orig 1.5)
 
-			HorizontalVelocityScale = 0.85,
-			MinHorizontalVelocity = 15,
+			HorizontalVelocityScale = 0.9,  -- Nerfed from 1.0 (orig 0.85)
+			MinHorizontalVelocity = 18,     -- Nerfed from 22 (orig 15)
 			MinUphillAlignment = -0.25,
 		},
 	},

@@ -239,12 +239,16 @@ function CrouchUtils:SetupLegacyWelds(character)
 
 	body.Transparency = 0
 	body.CanCollide = true
+	body.CanQuery = true
 	head.Transparency = 0
 	head.CanCollide = true
+	head.CanQuery = true
 	crouchBody.Transparency = 1
 	crouchBody.CanCollide = false
+	crouchBody.CanQuery = false
 	crouchHead.Transparency = 1
 	crouchHead.CanCollide = false
+	crouchHead.CanQuery = false
 
 	self.CharacterCrouchState[character] = {
 		IsCrouched = false,
@@ -335,12 +339,16 @@ function CrouchUtils:ApplyVisualCrouch(character, skipClearanceCheck)
 
 	body.Transparency = 1
 	body.CanCollide = false
+	body.CanQuery = false
 	head.Transparency = 1
 	head.CanCollide = false
+	head.CanQuery = false
 	crouchBody.Transparency = 0
 	crouchBody.CanCollide = true
+	crouchBody.CanQuery = true
 	crouchHead.Transparency = 0
 	crouchHead.CanCollide = true
+	crouchHead.CanQuery = true
 
 	return true
 end
@@ -357,12 +365,16 @@ function CrouchUtils:RemoveVisualCrouch(character)
 
 	body.Transparency = 0
 	body.CanCollide = true
+	body.CanQuery = true
 	head.Transparency = 0
 	head.CanCollide = true
+	head.CanQuery = true
 	crouchBody.Transparency = 1
 	crouchBody.CanCollide = false
+	crouchBody.CanQuery = false
 	crouchHead.Transparency = 1
 	crouchHead.CanCollide = false
+	crouchHead.CanQuery = false
 
 	return true
 end

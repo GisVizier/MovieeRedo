@@ -1,3 +1,5 @@
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+
 local SettingsConfig = {}
 
 export type ActionButtonTemplate = Frame & {
@@ -221,11 +223,14 @@ export type BindConfig = {
 	Console: Enum.KeyCode?,
 }
 
+export type DeviceType = "PC" | "Console" | "Mobile"
+
 export type SettingConfig = {
 	Name: string,
 	Description: string,
 	Order: number,
-	SettingType: "toggle" | "slider" | "keybind" | "divider",
+	SettingType: "toggle" | "slider" | "keybind" | "divider" | "Multile",
+	Icon: string?,
 	Image: { string }?,
 	Video: string?,
 	Options: { SettingOption }?,
@@ -234,6 +239,8 @@ export type SettingConfig = {
 	Action: string?,
 	Bind: BindConfig?,
 	DefaultBind: BindConfig?,
+	Platforms: { DeviceType }?,
+	BlockedPlatforms: { DeviceType }?,
 }
 
 export type SettingsCategory = {
@@ -1084,8 +1091,10 @@ SettingsConfig.DefaultSettings = {
 
 SettingsConfig.Templates = {
 	Toggle = nil,
+	Multile = nil,
 	Slider = nil,
 	Keybind = nil,
+	KeybindUnavailable = nil,
 	KeybindDisplay = nil,
 	Reset = nil,
 	Divider = nil,
@@ -1093,18 +1102,39 @@ SettingsConfig.Templates = {
 
 SettingsConfig._templatesInitialized = false
 
-function SettingsConfig.init()
-	if SettingsConfig._templatesInitialized then
+local function resolveTemplateRoot(explicitRoot: Instance?): Instance?
+	if explicitRoot then
+		return explicitRoot
+	end
+
+	local legacy = ReplicatedFirst:FindFirstChild("Templates")
+	if legacy then
+		return legacy
+	end
+
+	return nil
+end
+
+function SettingsConfig.init(templateRoot: Instance?)
+	local templatesFolder = resolveTemplateRoot(templateRoot)
+	if not templatesFolder then
 		return
 	end
 
-	local templatesFolder = game.ReplicatedFirst:WaitForChild("Templates")
-	SettingsConfig.Templates.Toggle = templatesFolder:FindFirstChild("Template")
-	SettingsConfig.Templates.Slider = templatesFolder:FindFirstChild("TemplateSlider")
-	SettingsConfig.Templates.Keybind = templatesFolder:FindFirstChild("TemplateKeybind")
+	SettingsConfig.Templates.Toggle = templatesFolder:FindFirstChild("ToggleTemplate")
+		or templatesFolder:FindFirstChild("TemplateToggle")
+	SettingsConfig.Templates.Multile = templatesFolder:FindFirstChild("MultileTemplate")
+		or templatesFolder:FindFirstChild("Template")
+	SettingsConfig.Templates.Slider = templatesFolder:FindFirstChild("SliderTemplate")
+		or templatesFolder:FindFirstChild("TemplateSlider")
+	SettingsConfig.Templates.Keybind = templatesFolder:FindFirstChild("ControlTemplate")
+		or templatesFolder:FindFirstChild("TemplateKeybind")
+	SettingsConfig.Templates.KeybindUnavailable = templatesFolder:FindFirstChild("UnavailableControlTemplate")
 	SettingsConfig.Templates.KeybindDisplay = templatesFolder:FindFirstChild("KeybindDisplay")
-	SettingsConfig.Templates.Reset = templatesFolder:FindFirstChild("Reset")
-	SettingsConfig.Templates.Divider = templatesFolder:FindFirstChild("Dvdr")
+	SettingsConfig.Templates.Reset = templatesFolder:FindFirstChild("ResetTemplate")
+		or templatesFolder:FindFirstChild("Reset")
+	SettingsConfig.Templates.Divider = templatesFolder:FindFirstChild("DividerTemplate")
+		or templatesFolder:FindFirstChild("Dvdr")
 
 	SettingsConfig._templatesInitialized = true
 end
@@ -1168,10 +1198,12 @@ end
 function SettingsConfig.getTemplate(settingType: string): Instance?
 	if settingType == "toggle" then
 		return SettingsConfig.Templates.Toggle
+	elseif settingType == "Multile" then
+		return SettingsConfig.Templates.Multile
 	elseif settingType == "slider" then
 		return SettingsConfig.Templates.Slider
 	elseif settingType == "keybind" then
-		return SettingsConfig.Templates.Keybind
+		return SettingsConfig.Templates.Keybind or SettingsConfig.Templates.KeybindUnavailable
 	elseif settingType == "divider" then
 		return SettingsConfig.Templates.Divider
 	end
@@ -1184,6 +1216,25 @@ function SettingsConfig.cloneTemplate(settingType: string): Instance?
 		return nil
 	end
 	return template:Clone()
+end
+
+function SettingsConfig.cloneUnavailableTemplate(settingType: string): Instance?
+	if settingType == "keybind" and SettingsConfig.Templates.KeybindUnavailable then
+		return SettingsConfig.Templates.KeybindUnavailable:Clone()
+	end
+	return nil
+end
+
+function SettingsConfig.isSettingAllowedOnDevice(config: SettingConfig, deviceType: DeviceType): boolean
+	if config.Platforms and #config.Platforms > 0 then
+		return table.find(config.Platforms, deviceType) ~= nil
+	end
+
+	if config.BlockedPlatforms and #config.BlockedPlatforms > 0 then
+		return table.find(config.BlockedPlatforms, deviceType) == nil
+	end
+
+	return true
 end
 
 return SettingsConfig

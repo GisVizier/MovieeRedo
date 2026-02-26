@@ -99,9 +99,9 @@ local RED_CONFIG = {
 	PROJECTILE_RADIUS = 1.5,     -- Visual size
 	
 	-- Damage
-	BODY_DAMAGE = 35,            -- Direct hit damage
+	BODY_DAMAGE = 50,            -- Direct hit damage
 	HEADSHOT_DAMAGE = 90,        -- Crit/headshot damage
-	EXPLOSION_DAMAGE = 10,       -- AoE splash damage (targets near impact)
+	EXPLOSION_DAMAGE = 50,       -- AoE splash damage (targets near impact)
 	
 	-- Explosion
 	EXPLOSION_RADIUS = 20,       -- Studs

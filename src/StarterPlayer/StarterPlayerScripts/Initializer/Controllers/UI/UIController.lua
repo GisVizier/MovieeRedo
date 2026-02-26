@@ -463,6 +463,22 @@ function UIController:Init(registry, net)
 	self._betweenRoundEndTime = 0
 	self._betweenRoundDuration = 10
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		-- P key: always allow closing settings even if UI consumed input
+		if input.KeyCode == Enum.KeyCode.P and self._coreUi then
+			if self._coreUi:isOpen("_Settings") then
+				safeCall(function()
+					self._coreUi:hide("_Settings")
+				end)
+				return
+			end
+			if not gameProcessed then
+				safeCall(function()
+					self._coreUi:show("_Settings")
+				end)
+			end
+			return
+		end
+
 		if gameProcessed then
 			return
 		end
@@ -690,6 +706,7 @@ function UIController:_bootstrapUi()
 		"Kits",
 		"Party",
 		"Settings",
+		"_Settings",
 		"Map",
 		"Loadout",
 		"Black",

@@ -45,6 +45,9 @@ local AimAssist = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("A
 local AimAssistConfig =
 	require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
 
+-- ADS Overlay
+local ADSOverlay = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("Weapons"):WaitForChild("ADSOverlay"))
+
 local ActionsRoot = ReplicatedStorage:WaitForChild("Game"):WaitForChild("Weapons"):WaitForChild("Actions")
 
 local DEBUG_WEAPON = false
@@ -741,6 +744,20 @@ function WeaponController:_flushBufferedEquipShot()
 	end
 
 	self._equipBufferedShot = false
+
+	-- For semi-auto weapons, only fire if the player is still holding the fire button.
+	-- This prevents a phantom shot when the player released fire during the equip lock.
+	if not self._isFiring then
+		local isAuto = false
+		if self._weaponInstance and self._weaponInstance.Config then
+			local fp = self._weaponInstance.Config.fireProfile
+			isAuto = fp and fp.mode == "Auto"
+		end
+		if not isAuto then
+			return
+		end
+	end
+
 	self:_onFirePressed()
 	if self._isFiring then
 		self:_startAutoFire()
@@ -758,7 +775,9 @@ function WeaponController:_setEquipFireLock(durationSeconds: number?)
 	self._equipBufferedShot = wasFiringHeld
 
 	-- Equipping should immediately stop any pending fire loop/state.
-	self._isFiring = false
+	-- NOTE: We intentionally do NOT force _isFiring = false here so the flush
+	-- function can tell whether the player is still holding fire when the lock
+	-- expires. Semi-auto weapons skip the buffered shot if fire was released.
 	self:_stopAutoFire()
 
 	task.delay(duration, function()
@@ -1106,6 +1125,10 @@ function WeaponController:OnRespawnRefresh()
 	self._isADS = false
 	self:_setADSActiveAttribute(false)
 	self:_applyMouseSensitivityForADS(false)
+	ADSOverlay:End()
+	if self._viewmodelController then
+		self._viewmodelController:SetViewmodelHidden(false)
+	end
 	self:_unequipCurrentWeapon()
 	self:_initializeAmmo()
 	local slot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
@@ -1115,6 +1138,12 @@ function WeaponController:OnRespawnRefresh()
 end
 
 function WeaponController:_unequipCurrentWeapon()
+	-- Clean up ADS overlay & restore viewmodel
+	ADSOverlay:End()
+	if self._viewmodelController then
+		self._viewmodelController:SetViewmodelHidden(false)
+	end
+
 	self:_clearReplicatedTrackStopWatch()
 	self:_stopAllTrackedWeaponActionSounds(true)
 
@@ -2399,6 +2428,9 @@ function WeaponController:Reload()
 	self:_setADSActiveAttribute(false)
 	self:_applyMouseSensitivityForADS(false)
 	self:_updateAimAssistADS(false)
+	if self._viewmodelController then
+		self._viewmodelController:SetViewmodelHidden(false)
+	end
 	self:_stopWeaponTracks("Reload")
 
 	-- Execute reload
@@ -2475,6 +2507,10 @@ function WeaponController:Special(isPressed)
 		self:_setADSActiveAttribute(false)
 		self:_applyMouseSensitivityForADS(false)
 		self:_updateAimAssistADS(false)
+		ADSOverlay:End()
+		if self._viewmodelController then
+			self._viewmodelController:SetViewmodelHidden(false)
+		end
 		return
 	end
 
@@ -2496,6 +2532,21 @@ function WeaponController:Special(isPressed)
 	self._isADS = self:_resolveADSState(isPressed)
 	self:_setADSActiveAttribute(self._isADS)
 	self:_applyMouseSensitivityForADS(self._isADS)
+
+	-- ADS Overlay GUI & hide viewmodel for scoped weapons
+	if self._isADS then
+		local slot = self:_getCurrentSlot()
+		local skinId = self:_getSkinIdForSlot(slot)
+		local overlayKey = ADSOverlay:Start(self._equippedWeaponId, skinId)
+		if overlayKey == "Sniper" and self._viewmodelController then
+			self._viewmodelController:SetViewmodelHidden(true)
+		end
+	else
+		ADSOverlay:End()
+		if self._viewmodelController then
+			self._viewmodelController:SetViewmodelHidden(false)
+		end
+	end
 
 	-- Apply Aim Assist ADS boost
 	self:_updateAimAssistADS(self._isADS)

@@ -84,6 +84,7 @@ ViewmodelController._adsEffectsMultiplier = DEFAULT_ADS_EFFECTS_MULTIPLIER
 ViewmodelController._adsCustomAimAttachment = nil
 ViewmodelController._adsCustomLookAtAttachment = nil
 ViewmodelController._ziplineActive = false
+ViewmodelController._viewmodelHidden = false
 
 local RIG_STORAGE_POSITION = CFrame.new(0, 10000, 0)
 
@@ -876,6 +877,10 @@ function ViewmodelController:GetADSBlend(): number
 	return self._adsBlend
 end
 
+function ViewmodelController:SetViewmodelHidden(hidden: boolean)
+	self._viewmodelHidden = hidden == true
+end
+
 function ViewmodelController:_setZiplineActive(active: boolean)
 	active = active == true
 	if self._ziplineActive == active then
@@ -1132,6 +1137,13 @@ function ViewmodelController:_render(dt: number)
 	if not rig or not rig.Model or not rig.Anchor then
 		return
 	end
+
+	-- When viewmodel is hidden (e.g. ADS overlay), stash active rig offscreen too
+	if self._viewmodelHidden then
+		rig.Model:PivotTo(RIG_STORAGE_POSITION)
+		return
+	end
+
 	local springs = self._springs
 	if not springs then
 		return

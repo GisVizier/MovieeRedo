@@ -827,7 +827,7 @@ LoadoutConfig.Weapons = {
 }
 
 LoadoutConfig.Crosshair = {
-	HideInADS = true,
+	HideInADS = false,
 	DefaultCustomization = {
 		showDot = true,
 		showTopLine = true,

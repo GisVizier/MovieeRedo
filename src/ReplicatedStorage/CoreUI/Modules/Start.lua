@@ -1097,7 +1097,7 @@ function module:_onActionActivated(actionName, actionButton)
 	elseif actionName == "Settings" then
 		self._actionDebounce = true
 
-		self._export:show("Settings")
+		self._export:show("_Settings")
 		self:hideAll()
 
 		task.delay(1, function()
