@@ -44,6 +44,16 @@ SpectateController._myTeam = nil
 SpectateController._renderConn = nil
 SpectateController._vmRenderConn = nil
 
+-- Health watching
+SpectateController._spectateHealthConn = nil
+SpectateController._specLastHealth = nil
+SpectateController._cachedLocalHealth = nil
+SpectateController._cachedLocalMaxHealth = nil
+
+-- Emote mode
+SpectateController._spectateEmoteMode = false
+SpectateController._emoteRenderConn = nil
+
 SpectateController._spectateVmLoadout = nil
 SpectateController._spectateAnimator = nil
 SpectateController._spectateWeaponIds = nil
@@ -122,10 +132,35 @@ local function getRigHead(userId)
 	return rig:FindFirstChild("Head")
 end
 
+local function getCoreUI()
+	local uiController = ServiceRegistry:GetController("UI")
+	if not uiController or not uiController.GetCoreUI then return nil end
+	return uiController:GetCoreUI()
+end
+
 local function getRemoteData(userId)
 	local rep = getRemoteReplicator()
 	if not rep then return nil end
 	return rep.RemotePlayers[userId]
+end
+
+SpectateController._hudModule = nil
+SpectateController._damagedOverlayModule = nil
+
+function SpectateController:_getHUD()
+	if self._hudModule then return self._hudModule end
+	local coreUi = getCoreUI()
+	if not coreUi then return nil end
+	self._hudModule = coreUi:getModule("HUD")
+	return self._hudModule
+end
+
+function SpectateController:_getDamagedOverlay()
+	if self._damagedOverlayModule then return self._damagedOverlayModule end
+	local coreUi = getCoreUI()
+	if not coreUi then return nil end
+	self._damagedOverlayModule = coreUi:getModule("Damaged")
+	return self._damagedOverlayModule
 end
 
 function SpectateController:Init(registry, net)
@@ -157,6 +192,11 @@ function SpectateController:Init(registry, net)
 
 	self._net:ConnectClient("ViewmodelActionReplicated", function(compressedPayload)
 		self:_onViewmodelActionReplicated(compressedPayload)
+	end)
+
+	-- When the spectated player starts/stops an emote, switch to 3rd person view
+	self._net:ConnectClient("EmoteReplicate", function(playerId, _emoteId, action)
+		self:_onEmoteReplicate(playerId, action)
 	end)
 
 	-- VFX forwarding handled by VFXRep's SpectateVFXForward client handler;
@@ -256,6 +296,10 @@ function SpectateController:BeginSpectate(killerUserId)
 		return
 	end
 
+	-- Cache local player's health so we can restore it when spectating ends
+	self._cachedLocalHealth = LocalPlayer and LocalPlayer:GetAttribute("Health") or 100
+	self._cachedLocalMaxHealth = LocalPlayer and LocalPlayer:GetAttribute("MaxHealth") or 100
+
 	self._active = true
 	self._targetList = targets
 	self._targetIndex = 1
@@ -265,6 +309,7 @@ function SpectateController:BeginSpectate(killerUserId)
 	self:_buildSpectateViewmodel()
 	self:_bindRenderLoop()
 	self:_hideTargetRig()
+	self:_connectHealthWatcher()
 
 	-- Tell server so "Me" VFX from this target get forwarded to us
 	pcall(function()
@@ -286,9 +331,11 @@ function SpectateController:EndSpectate()
 		FOVController:RemoveEffect("Slide")
 	end)
 
+	self:_exitEmoteView()
 	self:_unbindRenderLoop()
 	self:_showTargetRig()
 	self:_destroySpectateViewmodel()
+	self:_disconnectHealthWatcher()
 
 	self._targetUserId = nil
 	self._specWasSliding = false
@@ -310,8 +357,10 @@ function SpectateController:CycleTarget(direction)
 	if not self._active then return end
 	if #self._targetList <= 1 then return end
 
+	self:_exitEmoteView()
 	self:_showTargetRig()
 	self:_destroySpectateViewmodel()
+	self:_disconnectHealthWatcher()
 
 	local alive = self:_refreshTargetList()
 	if #alive == 0 then
@@ -330,6 +379,7 @@ function SpectateController:CycleTarget(direction)
 
 	self:_buildSpectateViewmodel()
 	self:_hideTargetRig()
+	self:_connectHealthWatcher()
 
 	-- Update server registration to new target
 	pcall(function()
@@ -337,6 +387,139 @@ function SpectateController:CycleTarget(direction)
 	end)
 
 	return self._targetUserId
+end
+
+-- =============================================================================
+-- HEALTH WATCHING
+-- =============================================================================
+
+function SpectateController:_connectHealthWatcher()
+	self:_disconnectHealthWatcher()
+
+	local targetPlayer = getPlayerByUserId(self._targetUserId)
+	if not targetPlayer then return end
+
+	-- Switch the HUD health bar to track the spectated player
+	local hud = self:_getHUD()
+	if hud and hud.setSpectateTarget then
+		pcall(function() hud:setSpectateTarget(targetPlayer) end)
+	end
+
+	-- Seed the last-health cache so we can detect damage direction
+	self._specLastHealth = targetPlayer:GetAttribute("Health")
+
+	-- Update the damage vignette whenever the spectated player's health changes
+	self._spectateHealthConn = targetPlayer:GetAttributeChangedSignal("Health"):Connect(function()
+		local health = targetPlayer:GetAttribute("Health") or 0
+		local maxHealth = targetPlayer:GetAttribute("MaxHealth") or 100
+		local damagedOverlay = self:_getDamagedOverlay()
+		if damagedOverlay then
+			if type(self._specLastHealth) == "number" and health < self._specLastHealth then
+				pcall(function() damagedOverlay:onDamageTaken(self._specLastHealth - health) end)
+			end
+			pcall(function() damagedOverlay:setHealthState(health, maxHealth) end)
+		end
+		self._specLastHealth = health
+	end)
+end
+
+function SpectateController:_disconnectHealthWatcher()
+	if self._spectateHealthConn then
+		self._spectateHealthConn:Disconnect()
+		self._spectateHealthConn = nil
+	end
+	self._specLastHealth = nil
+
+	-- Restore HUD to local player
+	local hud = self:_getHUD()
+	if hud and hud.clearSpectateTarget then
+		pcall(function() hud:clearSpectateTarget() end)
+	end
+
+	-- Restore vignette to local player's cached health
+	local damagedOverlay = self:_getDamagedOverlay()
+	if damagedOverlay and damagedOverlay.setHealthState then
+		local h = self._cachedLocalHealth or 100
+		local m = self._cachedLocalMaxHealth or 100
+		pcall(function() damagedOverlay:setHealthState(h, m) end)
+	end
+end
+
+-- =============================================================================
+-- EMOTE 3RD PERSON VIEW
+-- =============================================================================
+
+function SpectateController:_onEmoteReplicate(playerId, action)
+	if not self._active then return end
+	if playerId ~= self._targetUserId then return end
+	if action == "play" then
+		self:_enterEmoteView()
+	elseif action == "stop" then
+		self:_exitEmoteView()
+	end
+end
+
+function SpectateController:_enterEmoteView()
+	if self._spectateEmoteMode then return end
+	self._spectateEmoteMode = true
+
+	-- Hide the first-person viewmodel
+	if self._spectateVmLoadout and self._spectateActiveSlot then
+		local rig = self._spectateVmLoadout.Rigs[self._spectateActiveSlot]
+		if rig and rig.Model then
+			rig.Model.Parent = nil
+		end
+	end
+
+	-- Show the target's full rig so the emote animation is visible
+	self:_showTargetRig()
+
+	-- Bind orbit camera
+	pcall(function()
+		RunService:UnbindFromRenderStep("SpectateEmoteCamera")
+	end)
+	RunService:BindToRenderStep("SpectateEmoteCamera", Enum.RenderPriority.Camera.Value + 12, function()
+		self:_renderEmoteCamera()
+	end)
+	self._emoteRenderConn = true
+end
+
+function SpectateController:_exitEmoteView()
+	if not self._spectateEmoteMode then return end
+	self._spectateEmoteMode = false
+
+	-- Unbind orbit camera
+	if self._emoteRenderConn then
+		pcall(function()
+			RunService:UnbindFromRenderStep("SpectateEmoteCamera")
+		end)
+		self._emoteRenderConn = nil
+	end
+
+	-- Hide the rig again and restore the viewmodel
+	self:_hideTargetRig()
+	if self._spectateVmLoadout and self._spectateActiveSlot then
+		local rig = self._spectateVmLoadout.Rigs[self._spectateActiveSlot]
+		if rig and rig.Model then
+			rig.Model.Parent = workspace.CurrentCamera
+		end
+	end
+end
+
+function SpectateController:_renderEmoteCamera()
+	if not self._active or not self._targetUserId then return end
+
+	-- Position camera behind and above the target's head
+	local head = getHumanoidHead(self._targetUserId) or getRigHead(self._targetUserId)
+	if not head then return end
+
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+
+	-- Orbit: 10 studs back, 4 up from head — gives a clean over-the-shoulder view
+	local lookTarget = head.Position + Vector3.new(0, 1.5, 0)
+	local camPos = lookTarget + Vector3.new(0, 3, 9)
+	camera.CFrame = CFrame.lookAt(camPos, lookTarget)
 end
 
 function SpectateController:_buildTargetList(killerUserId)
@@ -754,6 +937,7 @@ end
 
 function SpectateController:_renderCamera(dt)
 	if not self._active or not self._targetUserId then return end
+	if self._spectateEmoteMode then return end -- emote orbit camera handles positioning
 
 	-- End spectating once the local player has respawned (character alive, no ragdoll)
 	if tick() - self._spectateStartTime > RESPAWN_CHECK_DELAY then
@@ -847,6 +1031,7 @@ end
 
 function SpectateController:_renderViewmodel(dt)
 	if not self._active then return end
+	if self._spectateEmoteMode then return end -- rig is shown; no viewmodel during emote
 	if not self._spectateVmLoadout or not self._spectateActiveSlot then return end
 
 	local rig = self._spectateVmLoadout.Rigs[self._spectateActiveSlot]

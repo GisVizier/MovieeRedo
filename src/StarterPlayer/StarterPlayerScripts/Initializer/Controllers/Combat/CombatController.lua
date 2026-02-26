@@ -270,6 +270,28 @@ function CombatController:_onDamageDealt(data)
 				damageRad:reportDamageFromPosition(sourcePosition, tonumber(data.damage))
 			end
 		end
+	elseif not data.isHeal then
+		-- While spectating, show the damage radial for hits on the spectated target
+		local spectateController = ServiceRegistry:GetController("Spectate")
+		if spectateController and spectateController:IsSpectating() then
+			if targetUserId == spectateController:GetTargetUserId() then
+				local sourcePosition = nil
+				if attackerUserId then
+					local attacker = getPlayerByUserIdSafe(attackerUserId)
+					local attackerCharacter = attacker and attacker.Character
+					sourcePosition = getCharacterPivotPosition(attackerCharacter)
+				end
+				if not sourcePosition then
+					sourcePosition = toVector3(data.sourcePosition)
+				end
+				if sourcePosition then
+					local damageRad = self:_getDamageRad()
+					if damageRad and damageRad.reportDamageFromPosition then
+						damageRad:reportDamageFromPosition(sourcePosition, tonumber(data.damage))
+					end
+				end
+			end
+		end
 	end
 end
 

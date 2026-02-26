@@ -1955,6 +1955,20 @@ function module:setViewedPlayer(player, character)
 	self._viewedCharacter = character
 end
 
+-- Switch the health bar to track a spectated player instead of LocalPlayer.
+-- Spectated player's Health/MaxHealth attributes are set server-side so all
+-- clients can read them.
+function module:setSpectateTarget(player)
+	self:setViewedPlayer(player)
+	self:_setupHealthConnection()
+end
+
+-- Restore the health bar to track the LocalPlayer again after spectating ends.
+function module:clearSpectateTarget()
+	self:setViewedPlayer(Players.LocalPlayer)
+	self:_setupHealthConnection()
+end
+
 function module:showForPlayer(player, character)
 	self:setViewedPlayer(player, character)
 	self._export:show()
