@@ -17,6 +17,7 @@ ScreenShakeController.PositionalShakes = {}
 ScreenShakeController.CurrentOffset = Vector3.zero
 ScreenShakeController.CurrentRotation = Vector3.zero
 ScreenShakeController.Connection = nil
+ScreenShakeController.IntensityScale = 1
 
 function ScreenShakeController:Init()
 	if self.IsInitialized then
@@ -27,6 +28,13 @@ function ScreenShakeController:Init()
 	self.PositionalShakes = {}
 	self.CurrentOffset = Vector3.zero
 	self.CurrentRotation = Vector3.zero
+	self.IntensityScale = 1
+	if Player then
+		local savedScale = Player:GetAttribute("SettingsScreenShakeScale")
+		if type(savedScale) == "number" then
+			self.IntensityScale = math.clamp(savedScale, 0, 3)
+		end
+	end
 	self.IsInitialized = true
 
 	self:StartUpdateLoop()
@@ -38,7 +46,20 @@ end
 
 function ScreenShakeController:IsEnabled()
 	local shakeConfig = Config.Camera.ScreenShake
-	return shakeConfig and shakeConfig.Enabled ~= false
+	return shakeConfig and shakeConfig.Enabled ~= false and self.IntensityScale > 0
+end
+
+function ScreenShakeController:SetIntensityScale(scale)
+	local numeric = tonumber(scale)
+	if numeric == nil then
+		numeric = 1
+	end
+
+	self.IntensityScale = math.clamp(numeric, 0, 3)
+
+	if self.IntensityScale <= 0 then
+		self:StopAllShakes()
+	end
 end
 
 function ScreenShakeController:Shake(intensity, duration, frequency)
@@ -110,7 +131,7 @@ function ScreenShakeController:Update(deltaTime)
 		else
 			local progress = shakeData.Elapsed / shakeData.Duration
 			local decay = 1 - progress
-			local intensity = shakeData.Intensity * decay
+			local intensity = shakeData.Intensity * decay * self.IntensityScale
 
 			local time = tick() * shakeData.Frequency
 

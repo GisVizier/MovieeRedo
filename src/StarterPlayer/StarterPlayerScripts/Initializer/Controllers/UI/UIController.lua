@@ -692,9 +692,11 @@ function UIController:_bootstrapUi()
 	end
 
 	local CoreUI = require(ReplicatedStorage:WaitForChild("CoreUI"))
+	local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 	local ui = CoreUI.new(screenGui)
 	ui:init()
 	self._coreUi = ui
+	PlayerDataTable.applyAllSettings()
 
 	self:_setupPlayerListData(ui)
 

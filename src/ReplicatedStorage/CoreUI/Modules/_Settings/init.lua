@@ -2,11 +2,15 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local Configs = require(ReplicatedStorage.Configs)
 local SettingsConfig = Configs.SettingsConfig
 local PlayerDataTable = require(ReplicatedStorage.PlayerDataTable)
 local TweenConfig = require(script.TweenConfig)
+local DefaultCrosshairModule = require(
+	ReplicatedStorage:WaitForChild("CrosshairSystem"):WaitForChild("Crosshairs"):WaitForChild("Default")
+)
 
 local module = {}
 module.__index = module
@@ -102,6 +106,20 @@ local function toNumber(value, fallback)
 		return fallback
 	end
 	return numeric
+end
+
+local function isSettingEnabled(value)
+	if value == true then
+		return true
+	end
+	if type(value) == "number" then
+		return value == 1
+	end
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		return lowered == "enabled" or lowered == "true" or lowered == "on"
+	end
+	return false
 end
 
 local function mapLegacyBrightnessPresetIndex(value)
@@ -367,6 +385,10 @@ function module.start(export, ui)
 	self._currentImageIndex = 1
 	self._currentInfoImages = nil
 	self._imageCarouselTask = nil
+	self._crosshairPreviewRoot = nil
+	self._crosshairPreviewFrame = nil
+	self._crosshairPreviewModule = nil
+	self._crosshairPreviewCustomization = nil
 	self._hiddenModulesWhileActive = {}
 	self._playerListWasOpen = false
 	self._modulesToHideWhileActive = {
@@ -403,6 +425,177 @@ function module.start(export, ui)
 	self:_cacheOriginals()
 
 	return self
+end
+
+function module:_buildCrosshairPreviewCustomization()
+	local crosshairCategory = SettingsConfig.Categories.Crosshair
+	local colorSetting = crosshairCategory and crosshairCategory.Settings and crosshairCategory.Settings.CrosshairColor
+	local colorOptions = colorSetting and colorSetting.Options
+
+	local function getColorFromValue(value)
+		if typeof(colorOptions) ~= "table" or #colorOptions == 0 then
+			return Color3.fromRGB(255, 255, 255)
+		end
+
+		if typeof(value) == "number" then
+			local index = math.clamp(math.floor(value + 0.5), 1, #colorOptions)
+			local option = colorOptions[index]
+			if option and typeof(option.Color) == "Color3" then
+				return option.Color
+			end
+		end
+
+		if typeof(value) == "string" then
+			for _, option in ipairs(colorOptions) do
+				if typeof(option) == "table" then
+					local optionValue = tostring(option.Value or "")
+					local optionDisplay = tostring(option.Display or "")
+					if optionValue == value or optionDisplay == value then
+						if typeof(option.Color) == "Color3" then
+							return option.Color
+						end
+					end
+				end
+			end
+		end
+
+		local first = colorOptions[1]
+		return (first and typeof(first.Color) == "Color3") and first.Color or Color3.fromRGB(255, 255, 255)
+	end
+
+	local disabled = isSettingEnabled(PlayerDataTable.get("Crosshair", "CrosshairEnabled"))
+	local scalePercent = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairSize"), 100), 50, 200)
+	local opacityPercent = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairOpacity"), 100), 10, 100)
+	local gap = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairGap"), 10), 0, 50)
+	local thickness = math.clamp(toNumber(PlayerDataTable.get("Crosshair", "CrosshairThickness"), 2), 1, 10)
+	local colorValue = PlayerDataTable.get("Crosshair", "CrosshairColor")
+
+	return {
+		showDot = not disabled,
+		showTopLine = not disabled,
+		showBottomLine = not disabled,
+		showLeftLine = not disabled,
+		showRightLine = not disabled,
+		lineThickness = thickness,
+		lineLength = 6,
+		gapFromCenter = gap,
+		dotSize = 3,
+		rotation = 0,
+		cornerRadius = 0,
+		mainColor = getColorFromValue(colorValue),
+		outlineColor = Color3.fromRGB(0, 0, 0),
+		outlineThickness = 0,
+		opacity = opacityPercent / 100,
+		scale = scalePercent / 100,
+		dynamicSpreadEnabled = true,
+	}
+end
+
+function module:_ensureCrosshairPreview()
+	if self._crosshairPreviewRoot and self._crosshairPreviewRoot.Parent and self._crosshairPreviewModule then
+		return true
+	end
+
+	if not self._infoImageHolder then
+		return false
+	end
+
+	local root = self._infoImageHolder:FindFirstChild("CrosshairPreview")
+	if not root then
+		root = Instance.new("Frame")
+		root.Name = "CrosshairPreview"
+		root.BackgroundTransparency = 1
+		root.Size = UDim2.fromScale(1, 1)
+		root.Position = UDim2.fromScale(0, 0)
+		root.ZIndex = 20
+		root.Visible = false
+		root.Parent = self._infoImageHolder
+	end
+
+	local playerGui = Players.LocalPlayer and Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	local crosshairGui = playerGui and playerGui:FindFirstChild("Crosshair")
+	local templateContainer = crosshairGui and crosshairGui:FindFirstChild("Frame")
+	local template = templateContainer and templateContainer:FindFirstChild("Default")
+	if not (template and template:IsA("Frame")) then
+		return false
+	end
+
+	for _, child in ipairs(root:GetChildren()) do
+		child:Destroy()
+	end
+
+	local previewFrame = template:Clone()
+	previewFrame.Name = "PreviewCrosshair"
+	previewFrame.Visible = true
+	previewFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	previewFrame.Position = UDim2.fromScale(0.5, 0.5)
+	previewFrame.Parent = root
+
+	local hitmarker = previewFrame:FindFirstChild("Hitmarker", true)
+	if hitmarker and hitmarker:IsA("GuiObject") then
+		hitmarker.Visible = false
+	end
+
+	local previewModule = DefaultCrosshairModule.new(previewFrame)
+	if not previewModule then
+		previewFrame:Destroy()
+		return false
+	end
+
+	self._crosshairPreviewRoot = root
+	self._crosshairPreviewFrame = previewFrame
+	self._crosshairPreviewModule = previewModule
+	self._crosshairPreviewCustomization = self:_buildCrosshairPreviewCustomization()
+	self._crosshairPreviewModule:ApplyCustomization(self._crosshairPreviewCustomization)
+
+	self._connections:cleanupGroup("crosshairPreview")
+	self._connections:track(RunService, "RenderStepped", function(dt)
+		if not self._crosshairPreviewModule or not self._crosshairPreviewRoot or not self._crosshairPreviewRoot.Visible then
+			return
+		end
+
+		local now = tick()
+		local moveAmount = ((math.sin(now * 1.35) + 1) * 0.5) * 16
+		self._crosshairPreviewModule:Update(dt, {
+			velocity = Vector3.new(moveAmount, 0, 0),
+			speed = moveAmount,
+			weaponData = {
+				spreadX = 1,
+				spreadY = 1,
+				recoilMultiplier = 1,
+			},
+			customization = self._crosshairPreviewCustomization,
+			dt = dt,
+			isCrouching = false,
+			isSliding = false,
+			isSprinting = moveAmount > 11,
+			isGrounded = true,
+			isADS = false,
+		})
+	end, "crosshairPreview")
+
+	return true
+end
+
+function module:_hideCrosshairPreview()
+	self._connections:cleanupGroup("crosshairPreview")
+	if self._crosshairPreviewRoot then
+		self._crosshairPreviewRoot.Visible = false
+	end
+end
+
+function module:_updateCrosshairPreview()
+	if not self:_ensureCrosshairPreview() then
+		return
+	end
+
+	self._crosshairPreviewCustomization = self:_buildCrosshairPreviewCustomization()
+	if self._crosshairPreviewModule then
+		self._crosshairPreviewModule:ApplyCustomization(self._crosshairPreviewCustomization)
+	end
+	if self._crosshairPreviewRoot then
+		self._crosshairPreviewRoot.Visible = true
+	end
 end
 
 function module:_cacheUIReferences()
@@ -882,6 +1075,7 @@ function module:_populateSettings(categoryKey)
 	self._scrollFrame.Visible = true
 	local settingsList = SettingsConfig.getSettingsList(categoryKey)
 	local firstSelectableSetting = nil
+	local lastLayoutOrder = 0
 
 	for index, settingData in ipairs(settingsList) do
 		local available = SettingsConfig.isSettingAllowedOnDevice(settingData.config, self._deviceType)
@@ -889,6 +1083,7 @@ function module:_populateSettings(categoryKey)
 		if not row then
 			continue
 		end
+		lastLayoutOrder = math.max(lastLayoutOrder, row.LayoutOrder or index)
 
 		local rowData = {
 			key = settingData.key,
@@ -900,9 +1095,25 @@ function module:_populateSettings(categoryKey)
 		}
 		table.insert(self._settingRows, rowData)
 
-		if not firstSelectableSetting and settingData.config.SettingType ~= "divider" then
+		if not firstSelectableSetting and available and settingData.config.SettingType ~= "divider" then
 			firstSelectableSetting = settingData.key
 		end
+	end
+
+	local resetRow = self:_createResetRow(categoryKey, lastLayoutOrder + 1)
+	if resetRow then
+		table.insert(self._settingRows, {
+			key = "__reset_" .. tostring(categoryKey),
+			config = {
+				Name = "Reset To Default",
+				Description = "Reset this category to default settings.",
+				SettingType = "reset",
+			},
+			renderType = "reset",
+			row = resetRow,
+			category = categoryKey,
+			available = true,
+		})
 	end
 
 	if firstSelectableSetting then
@@ -910,6 +1121,76 @@ function module:_populateSettings(categoryKey)
 	else
 		self:_clearInfoPanel()
 	end
+end
+
+function module:_createResetRow(categoryKey, order)
+	if not self._scrollFrame then
+		return nil
+	end
+	if type(categoryKey) ~= "string" or categoryKey == "" then
+		return nil
+	end
+
+	local template = SettingsConfig.Templates.Reset
+	if not template then
+		return nil
+	end
+
+	local row = template:Clone()
+	row.Name = "ResetButton"
+	row.LayoutOrder = order or 9999
+	row.Visible = true
+	row.Parent = self._scrollFrame
+
+	local action = row:FindFirstChild("Action", true)
+	local holder = action and action:FindFirstChild("HOLDER", true)
+	local holderLabel = holder and holder:FindFirstChildWhichIsA("TextLabel", true)
+	if holderLabel and holderLabel:IsA("TextLabel") then
+		holderLabel.Text = "RESET TO DEFAULT"
+	end
+
+	local titleLabel = row:FindFirstChild("Username", true)
+	if titleLabel and titleLabel:IsA("TextLabel") then
+		titleLabel.Text = "RESET"
+	end
+
+	local function triggerReset()
+		if not self._buttonsActive then
+			return
+		end
+		if not PlayerDataTable.resetCategory(categoryKey) then
+			return
+		end
+		self:_selectTab(self._currentTab or DEFAULT_TAB, true)
+	end
+
+	local function bindResetClick(target)
+		if not target then
+			return false
+		end
+		if target:IsA("GuiButton") then
+			target.Active = true
+			target.AutoButtonColor = false
+			target.Selectable = false
+			self._connections:track(target, "Activated", triggerReset, "settingRows")
+			return true
+		end
+		return false
+	end
+
+	if not bindResetClick(action) then
+		local button = row:FindFirstChildWhichIsA("GuiButton", true)
+		if not bindResetClick(button) then
+			self._connections:track(row, "InputBegan", function(input)
+				if not isPointerInput(input) then
+					return
+				end
+				triggerReset()
+			end, "settingRows")
+		end
+	end
+
+	return row
 end
 
 function module:_createSettingRow(categoryKey, settingKey, config, order, available)
@@ -963,13 +1244,16 @@ function module:_createSettingRow(categoryKey, settingKey, config, order, availa
 		self:_setupKeybindRow(settingKey, row)
 	end
 
-	if renderType ~= "divider" then
+	if renderType ~= "divider" and available then
 		self:_setupRowSelect(settingKey, row, rowBody)
 		self:_setupRowHover(settingKey, row, rowBody)
 		self:_setRowSelectedVisual(row, false)
 	end
 
 	if not available then
+		if rowBody and rowBody:IsA("Frame") then
+			rowBody.BackgroundTransparency = 1
+		end
 		local holder = row:FindFirstChild("HOLDER", true)
 		local valueLabel = holder and holder:FindFirstChild("TextLabel", true)
 		if valueLabel and valueLabel:IsA("TextLabel") then
@@ -1385,10 +1669,21 @@ end
 
 function module:_applyInfoMedia(rowData)
 	local config = rowData and rowData.config or {}
+	local isCrosshairSetting = rowData and rowData.category == "Crosshair"
 
 	self:_stopImageCarousel()
 	self:_stopVideo()
 	self._currentInfoImages = nil
+	self:_hideCrosshairPreview()
+
+	if isCrosshairSetting and self._infoImageFrame then
+		if self._infoVideoFrame then
+			self._infoVideoFrame.Visible = false
+		end
+		self._infoImageFrame.Visible = true
+		self:_updateCrosshairPreview()
+		return
+	end
 
 	local selectedOptionImage = self:_getSelectedOptionImage(rowData)
 	if selectedOptionImage and self._infoImageFrame then
@@ -1466,6 +1761,7 @@ function module:_clearInfoPanel()
 	self:_stopVideo()
 	self._currentInfoImages = nil
 	self:_clearInfoOptions()
+	self:_hideCrosshairPreview()
 
 	if self._infoTitleLabel and self._infoTitleLabel:IsA("TextLabel") then
 		self._infoTitleLabel.Text = ""
@@ -2009,6 +2305,16 @@ function module:_setupSliderRow(categoryKey, settingKey, config, row)
 		end
 	end
 
+	local function refreshSelectedInfo()
+		if self._selectedSetting ~= settingKey then
+			return
+		end
+		local rowData = self:_findRowData(settingKey)
+		if rowData then
+			self:_updateInfoPanel(rowData)
+		end
+	end
+
 	local function setValue(nextValue, save, limitArrow)
 		local snapped = snapToStep(nextValue, minValue, stepValue)
 		local clamped = math.clamp(snapped, minValue, maxValue)
@@ -2023,6 +2329,7 @@ function module:_setupSliderRow(categoryKey, settingKey, config, row)
 			PlayerDataTable.set(categoryKey, settingKey, currentValue)
 		end
 		updateDisplay(currentValue)
+		refreshSelectedInfo()
 	end
 
 	local function setFromAbsoluteX(absX, save)
@@ -2053,6 +2360,9 @@ function module:_setupSliderRow(categoryKey, settingKey, config, row)
 
 		if save and changed then
 			PlayerDataTable.set(categoryKey, settingKey, currentValue)
+		end
+		if changed then
+			refreshSelectedInfo()
 		end
 	end
 

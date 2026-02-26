@@ -40,6 +40,9 @@ local function ensureReplicaClient()
 			Replica.OnNew("PlayerData", function(replica)
 				if replica.Tags and replica.Tags.UserId == game:GetService("Players").LocalPlayer.UserId then
 					replicaData = replica.Data
+					task.defer(function()
+						PlayerDataTable.applyAllSettings()
+					end)
 					replica:OnChange(function()
 						_updateCount += 1
 					end)
@@ -407,9 +410,9 @@ function PlayerDataTable.resetCategory(category: string): boolean
 		newCategory[key] = deepClone(value)
 		PlayerDataTable._fireCallbacks(category, key, newCategory[key], nil)
 	end
-	if not replicaData then
-		src.Settings[category] = newCategory
-	end
+	-- Apply defaults locally immediately so UI rows/sliders/toggles reflect reset
+	-- without waiting for replication round-trip.
+	src.Settings[category] = newCategory
 	PlayerDataTable._savePathToServer({ "Settings", category }, newCategory)
 	return true
 end
@@ -420,6 +423,56 @@ function PlayerDataTable.getAllSettings(): { [string]: { [string]: any } }
 	end
 	local src = getDataSource()
 	return src and deepClone(src.Settings or {}) or {}
+end
+
+function PlayerDataTable.applyAllSettings(): boolean
+	if not getDataSource() then
+		PlayerDataTable.init()
+	end
+
+	local src = getDataSource()
+	if not src then
+		return false
+	end
+
+	local settings = src.Settings
+	if typeof(settings) ~= "table" then
+		return false
+	end
+
+	local defaults = SettingsConfig.DefaultSettings or {}
+	for category, categoryDefaults in defaults do
+		local mergedSettings = {}
+		local sourceCategory = settings[category]
+
+		if typeof(categoryDefaults) == "table" then
+			for key, defaultValue in categoryDefaults do
+				local value = defaultValue
+				if typeof(sourceCategory) == "table" and sourceCategory[key] ~= nil then
+					value = sourceCategory[key]
+				end
+				mergedSettings[key] = deepClone(value)
+			end
+		end
+
+		if typeof(sourceCategory) == "table" then
+			for key, value in sourceCategory do
+				if mergedSettings[key] == nil then
+					mergedSettings[key] = deepClone(value)
+				end
+			end
+		end
+
+		SettingsCallbacks.fireAll(category, mergedSettings)
+	end
+
+	for category, categoryValues in settings do
+		if defaults[category] == nil and typeof(categoryValues) == "table" then
+			SettingsCallbacks.fireAll(category, deepClone(categoryValues))
+		end
+	end
+
+	return true
 end
 
 function PlayerDataTable.onChanged(

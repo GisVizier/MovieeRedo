@@ -9,10 +9,16 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
+local SettingsConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("SettingsConfig"))
 
 local SettingsCallbacks = {}
 local ADS_SENSITIVITY_BASE_MULT = 0.75
 local DisableTexturesState = {
+	enabled = false,
+	tracked = {},
+	descendantAddedConnection = nil,
+}
+local DisableShadowsState = {
 	enabled = false,
 	tracked = {},
 	descendantAddedConnection = nil,
@@ -174,6 +180,105 @@ local function applyMouseSensitivityFromSettings()
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
 end
 
+local function getCrosshairColorFromSetting(value)
+	local category = SettingsConfig.Categories.Crosshair
+	local setting = category and category.Settings and category.Settings.CrosshairColor
+	local options = setting and setting.Options
+	if typeof(options) ~= "table" or #options == 0 then
+		return Color3.fromRGB(255, 255, 255)
+	end
+
+	if typeof(value) == "number" then
+		local index = math.clamp(math.floor(value + 0.5), 1, #options)
+		local option = options[index]
+		if option and typeof(option.Color) == "Color3" then
+			return option.Color
+		end
+	end
+
+	if typeof(value) == "string" then
+		for _, option in ipairs(options) do
+			if typeof(option) == "table" then
+				local optionValue = option.Value
+				local optionDisplay = option.Display
+				if tostring(optionValue) == value or tostring(optionDisplay) == value then
+					if typeof(option.Color) == "Color3" then
+						return option.Color
+					end
+				end
+			end
+		end
+	end
+
+	local first = options[1]
+	return (first and typeof(first.Color) == "Color3") and first.Color or Color3.fromRGB(255, 255, 255)
+end
+
+local function applyCrosshairSettingsFromAttributes()
+	local player = getLocalPlayer()
+	if not player then
+		return
+	end
+
+	local disabled = player:GetAttribute("SettingsCrosshairDisabled")
+	if type(disabled) ~= "boolean" then
+		disabled = false
+	end
+
+	local scalePercent = player:GetAttribute("SettingsCrosshairSize")
+	if type(scalePercent) ~= "number" then
+		scalePercent = 100
+	end
+	scalePercent = math.clamp(scalePercent, 50, 200)
+
+	local opacityPercent = player:GetAttribute("SettingsCrosshairOpacity")
+	if type(opacityPercent) ~= "number" then
+		opacityPercent = 100
+	end
+	opacityPercent = math.clamp(opacityPercent, 10, 100)
+
+	local gap = player:GetAttribute("SettingsCrosshairGap")
+	if type(gap) ~= "number" then
+		gap = 10
+	end
+	gap = math.clamp(gap, 0, 50)
+
+	local thickness = player:GetAttribute("SettingsCrosshairThickness")
+	if type(thickness) ~= "number" then
+		thickness = 2
+	end
+	thickness = math.clamp(thickness, 1, 10)
+
+	local colorValue = player:GetAttribute("SettingsCrosshairColor")
+	local mainColor = getCrosshairColorFromSetting(colorValue)
+
+	local customization = {
+		showDot = not disabled,
+		showTopLine = not disabled,
+		showBottomLine = not disabled,
+		showLeftLine = not disabled,
+		showRightLine = not disabled,
+		lineThickness = thickness,
+		lineLength = 6,
+		gapFromCenter = gap,
+		dotSize = 3,
+		rotation = 0,
+		cornerRadius = 0,
+		mainColor = mainColor,
+		outlineColor = Color3.fromRGB(0, 0, 0),
+		outlineThickness = 0,
+		opacity = opacityPercent / 100,
+		scale = scalePercent / 100,
+		dynamicSpreadEnabled = true,
+	}
+
+	local weaponController = ServiceRegistry:GetController("Weapon")
+	local crosshairController = weaponController and weaponController._crosshair
+	if crosshairController and type(crosshairController.SetCustomization) == "function" then
+		crosshairController:SetCustomization(customization)
+	end
+end
+
 local function isSettingEnabled(value)
 	if value == true then
 		return true
@@ -279,6 +384,98 @@ local function hasHumanoidAncestor(instance)
 		current = current.Parent
 	end
 	return false
+end
+
+local function shouldAffectForDisableShadows(instance)
+	if not instance or not instance.Parent then
+		return false
+	end
+
+	if hasHumanoidAncestor(instance) then
+		return false
+	end
+
+	return instance:IsA("BasePart")
+end
+
+local function applyDisableShadowsToInstance(instance)
+	if not DisableShadowsState.enabled then
+		return
+	end
+
+	if not shouldAffectForDisableShadows(instance) then
+		return
+	end
+
+	local tracked = DisableShadowsState.tracked
+	local entry = tracked[instance]
+	if not entry then
+		entry = {
+			castShadow = instance.CastShadow,
+		}
+		tracked[instance] = entry
+	end
+
+	instance.CastShadow = false
+end
+
+local function connectDisableShadowsWatcher()
+	if DisableShadowsState.descendantAddedConnection then
+		return
+	end
+
+	DisableShadowsState.descendantAddedConnection = workspace.DescendantAdded:Connect(function(instance)
+		applyDisableShadowsToInstance(instance)
+	end)
+end
+
+local function disconnectDisableShadowsWatcher()
+	local connection = DisableShadowsState.descendantAddedConnection
+	if connection then
+		connection:Disconnect()
+		DisableShadowsState.descendantAddedConnection = nil
+	end
+end
+
+local function applyDisableShadowsToWorkspace()
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		applyDisableShadowsToInstance(descendant)
+	end
+end
+
+local function restoreDisableShadowsAll()
+	local tracked = DisableShadowsState.tracked
+	local restoreList = {}
+	for instance, entry in pairs(tracked) do
+		table.insert(restoreList, { instance = instance, entry = entry })
+	end
+
+	for _, item in ipairs(restoreList) do
+		local instance = item.instance
+		local entry = item.entry
+		if instance and instance.Parent and entry and entry.castShadow ~= nil then
+			instance.CastShadow = entry.castShadow
+		end
+		tracked[instance] = nil
+	end
+end
+
+local function setDisableShadowsEnabled(enabled)
+	enabled = enabled == true
+	if DisableShadowsState.enabled == enabled then
+		return
+	end
+
+	DisableShadowsState.enabled = enabled
+	Lighting.GlobalShadows = not enabled
+
+	if enabled then
+		connectDisableShadowsWatcher()
+		applyDisableShadowsToWorkspace()
+	else
+		disconnectDisableShadowsWatcher()
+		restoreDisableShadowsAll()
+	end
 end
 
 local function shouldAffectForDisableTextures(instance)
@@ -622,8 +819,7 @@ end
 SettingsCallbacks.Callbacks = {
 	Gameplay = {
 		DisableShadows = function(value, oldValue)
-			local enabled = value == 1
-			Lighting.GlobalShadows = not enabled
+			setDisableShadowsEnabled(isSettingEnabled(value))
 		end,
 
 		DisableTextures = function(value, oldValue)
@@ -719,6 +915,17 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		ScreenShake = function(value, oldValue)
+			local scale = clampNumber(value, 0, 3, 1)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsScreenShakeScale", scale)
+				player:SetAttribute("SettingsScreenShakeEnabled", scale > 0)
+			end
+
+			local screenShakeController = ServiceRegistry:GetController("ScreenShake")
+			if screenShakeController and type(screenShakeController.SetIntensityScale) == "function" then
+				screenShakeController:SetIntensityScale(scale)
+			end
 		end,
 
 		TeamColor = function(value, oldValue)
@@ -807,22 +1014,51 @@ SettingsCallbacks.Callbacks = {
 
 	Crosshair = {
 		CrosshairEnabled = function(value, oldValue)
-			local enabled = value == 1
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairDisabled", isSettingEnabled(value))
+			end
+			applyCrosshairSettingsFromAttributes()
 		end,
 
 		CrosshairColor = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairColor", value)
+			end
+			applyCrosshairSettingsFromAttributes()
 		end,
 
 		CrosshairSize = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairSize", clampNumber(value, 50, 200, 100))
+			end
+			applyCrosshairSettingsFromAttributes()
 		end,
 
 		CrosshairOpacity = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairOpacity", clampNumber(value, 10, 100, 100))
+			end
+			applyCrosshairSettingsFromAttributes()
 		end,
 
 		CrosshairGap = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairGap", clampNumber(value, 0, 50, 10))
+			end
+			applyCrosshairSettingsFromAttributes()
 		end,
 
 		CrosshairThickness = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCrosshairThickness", clampNumber(value, 1, 10, 2))
+			end
+			applyCrosshairSettingsFromAttributes()
 		end,
 	},
 }

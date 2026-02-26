@@ -261,27 +261,27 @@ SettingsConfig.Categories = {
 		Settings = {
 			DividerPerformance = {
 				Name = "PERFORMANCE",
-				Description = "",
+				Description = "Performance-focused options that reduce visual load and improve FPS.",
 				Order = 1,
 				SettingType = "divider",
 			},
 
 			DisableShadows = {
 				Name = "Disable Shadows",
-				Description = "Remove all shadows in game, reducing lag and improving performance on lower-end devices.",
+				Description = "Turns off global lighting shadows and part cast shadows to improve performance.",
 				Order = 2,
 				SettingType = "toggle",
-				Image = { "rbxassetid://99447160043691", "rbxassetid://84344867877749" },
+				Image = { "rbxassetid://79326135346813", "rbxassetid://119385708450116" },
 				Options = {
-					{ Display = "Enabled", Value = true },
-					{ Display = "Disabled", Value = false },
+					{ Display = "Enabled", Value = true, Image = "rbxassetid://79326135346813" },
+					{ Display = "Disabled", Value = false, Image = "rbxassetid://119385708450116" },
 				},
 				Default = 2,
 			},
 
 			DisableTextures = {
 				Name = "Disable Textures",
-				Description = "Remove textures to improve performance.",
+				Description = "Removes map textures and decals and forces smoother materials for better performance.",
 				Order = 3,
 				SettingType = "toggle",
 				Image = { "rbxassetid://118298540523091", "rbxassetid://97170520694267" },
@@ -294,9 +294,10 @@ SettingsConfig.Categories = {
 
 			DisableOthersWraps = {
 				Name = "Disable Others Weapon Cosmetics",
-				Description = "Hide other players' weapon wraps and cosmetic FX when not spectating.",
+				Description = "Hides other players' weapon cosmetics and cosmetic effects to reduce visual clutter.",
 				Order = 4,
 				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
 				Image = { "rbxassetid://108799503900149" },
 				Options = {
 					{ Display = "Enabled", Value = true },
@@ -307,7 +308,7 @@ SettingsConfig.Categories = {
 
 			HideMuzzleFlash = {
 				Name = "Hide Muzzle Flash",
-				Description = "Hide muzzle flash visuals while firing.",
+				Description = "Disables muzzle flash visuals so firing produces less bright visual effects.",
 				Order = 5,
 				SettingType = "toggle",
 				Options = {
@@ -319,7 +320,7 @@ SettingsConfig.Categories = {
 
 			WeaponInking = {
 				Name = "Weapon Inking",
-				Description = "Adjust active weapon inking style.",
+				Description = "Sets the highlight style used on your active first-person weapon model.",
 				Order = 6,
 				SettingType = "Multile",
 				Options = {
@@ -333,14 +334,14 @@ SettingsConfig.Categories = {
 
 			DividerDisplay = {
 				Name = "DISPLAY",
-				Description = "",
+				Description = "Display and camera options that affect UI scale, visibility, and camera feel.",
 				Order = 10,
 				SettingType = "divider",
 			},
 
 			DisplayArea = {
 				Name = "HUD Size",
-				Description = "Scale the HUD larger or smaller.",
+				Description = "Scales HUD/UI size up or down across supported on-screen interface elements.",
 				Order = 11,
 				SettingType = "slider",
 				Slider = {
@@ -353,22 +354,22 @@ SettingsConfig.Categories = {
 
 			Brightness = {
 				Name = "Brightness",
-				Description = "Adjust brightness preset and optional bloom.",
+				Description = "Chooses a brightness preset for your client, with an optional bloom-enhanced mode.",
 				Order = 12,
 				SettingType = "Multile",
 				Options = {
-					{ Display = "Darker", Value = "Darker", Image = "rbxassetid://107716367760784" },
-					{ Display = "Dark", Value = "Dark", Image = "rbxassetid://139553824197447" },
-					{ Display = "Default", Value = "Default", Image = "rbxassetid://88725146989228" },
-					{ Display = "Bright", Value = "Bright", Image = "rbxassetid://98387775837893" },
-					{ Display = "Bright + Bloom", Value = "BrightBloom", Image = "rbxassetid://84354271851550" },
+					{ Display = "Darker", Value = "Darker" },
+					{ Display = "Dark", Value = "Dark" },
+					{ Display = "Default", Value = "Default" },
+					{ Display = "Bright", Value = "Bright" },
+					{ Display = "Bright + Bloom", Value = "BrightBloom" },
 				},
 				Default = 3,
 			},
 
 			FieldOfView = {
 				Name = "Field Of View",
-				Description = "Adjust camera field of view.",
+				Description = "Sets your base gameplay camera FOV.",
 				Order = 13,
 
 				Image = { "rbxassetid://131531757988844" },
@@ -383,7 +384,7 @@ SettingsConfig.Categories = {
 
 			FOVZoomStrength = {
 				Name = "FOV Zoom Strength",
-				Description = "Scale ADS FOV change strength from 0 to 100%.",
+				Description = "Controls how strong ADS zoom feels, from no zoom to full default zoom.",
 				Order = 14,
 				SettingType = "slider",
 				Slider = {
@@ -396,7 +397,7 @@ SettingsConfig.Categories = {
 
 			FieldOfViewEffects = {
 				Name = "Field Of View Effects",
-				Description = "Toggle dynamic FOV changes during gameplay.",
+				Description = "Enables or disables dynamic FOV effects from movement, actions, and gameplay states.",
 				Order = 15,
 				SettingType = "toggle",
 				Options = {
@@ -408,7 +409,7 @@ SettingsConfig.Categories = {
 
 			ScreenShake = {
 				Name = "Screen Shake",
-				Description = "Controls the intensity of camera shake effects during combat and explosions.",
+				Description = "Adjusts camera shake intensity from fully off (0) up to maximum shake (3).",
 				Order = 16,
 				SettingType = "slider",
 				Slider = {
@@ -421,7 +422,7 @@ SettingsConfig.Categories = {
 
 			HideHud = {
 				Name = "Disable HUD",
-				Description = "Hide the HUD and show only the unhide prompt.",
+				Description = "Hides most HUD modules and shows the UnHide prompt so you can restore HUD quickly.",
 				Order = 17,
 				SettingType = "toggle",
 				Options = {
@@ -439,7 +440,7 @@ SettingsConfig.Categories = {
 		Settings = {
 			Sprint = {
 				Name = "Sprint",
-				Description = "Hold to move faster.",
+				Description = "Keybind for sprinting to move faster while active.",
 				Order = 11,
 				SettingType = "keybind",
 				Action = "Sprint",
@@ -457,7 +458,7 @@ SettingsConfig.Categories = {
 
 			Jump = {
 				Name = "Jump",
-				Description = "Press to jump. Can be used for parkour and dodging.",
+				Description = "Keybind for jumping and movement tech actions.",
 				Order = 12,
 				SettingType = "keybind",
 				Action = "Jump",
@@ -475,7 +476,7 @@ SettingsConfig.Categories = {
 
 			Crouch = {
 				Name = "Crouch",
-				Description = "Toggle crouch to reduce visibility and move silently.",
+				Description = "Keybind for crouching to lower profile and movement noise.",
 				Order = 13,
 				SettingType = "keybind",
 				Action = "Crouch",
@@ -493,7 +494,7 @@ SettingsConfig.Categories = {
 
 			Ability = {
 				Name = "Use Ability",
-				Description = "Activate your kit's primary ability.",
+				Description = "Keybind for your kit's primary ability.",
 				Order = 14,
 				SettingType = "keybind",
 				Action = "Ability",
@@ -511,7 +512,7 @@ SettingsConfig.Categories = {
 
 			Ultimate = {
 				Name = "Use Ultimate",
-				Description = "Activate your kit's ultimate ability when fully charged.",
+				Description = "Keybind for activating your ultimate ability.",
 				Order = 15,
 				SettingType = "keybind",
 				Action = "Ultimate",
@@ -529,7 +530,7 @@ SettingsConfig.Categories = {
 
 			Interact = {
 				Name = "Interact",
-				Description = "Interact with objects, NPCs, and pickups in the world.",
+				Description = "Keybind for interacting with world objects and pickups.",
 				Order = 16,
 				SettingType = "keybind",
 				Action = "Interact",
@@ -547,7 +548,7 @@ SettingsConfig.Categories = {
 
 			Emotes = {
 				Name = "Emote Wheel",
-				Description = "Open the emote selection wheel.",
+				Description = "Keybind for opening the emote wheel.",
 				Order = 17,
 				SettingType = "keybind",
 				Action = "Emotes",
@@ -565,7 +566,7 @@ SettingsConfig.Categories = {
 
 			EmoteWheelMode = {
 				Name = "Emote Wheel Mode",
-				Description = "Hold: Release to select. Toggle: Press again to close.",
+				Description = "Chooses whether emote wheel input is hold-to-open or toggle-on/toggle-off.",
 				Order = 18,
 				SettingType = "toggle",
 				Options = {
@@ -577,7 +578,7 @@ SettingsConfig.Categories = {
 
 			EquipPrimary = {
 				Name = "Equip Primary",
-				Description = "Select primary weapon.",
+				Description = "Keybind for equipping your primary weapon slot.",
 				Order = 19,
 				SettingType = "keybind",
 				Action = "EquipPrimary",
@@ -595,7 +596,7 @@ SettingsConfig.Categories = {
 
 			EquipSecondary = {
 				Name = "Equip Secondary",
-				Description = "Select secondary weapon.",
+				Description = "Keybind for equipping your secondary weapon slot.",
 				Order = 19.1,
 				SettingType = "keybind",
 				Action = "EquipSecondary",
@@ -613,7 +614,7 @@ SettingsConfig.Categories = {
 
 			EquipMelee = {
 				Name = "Equip Melee",
-				Description = "Select melee weapon.",
+				Description = "Keybind for equipping your melee weapon slot.",
 				Order = 19.2,
 				SettingType = "keybind",
 				Action = "EquipMelee",
@@ -631,7 +632,7 @@ SettingsConfig.Categories = {
 
 			CycleWeaponLeft = {
 				Name = "Cycle Weapon Left",
-				Description = "Cycle to previous weapon.",
+				Description = "Keybind for cycling to the previous available weapon.",
 				Order = 19.3,
 				SettingType = "keybind",
 				Action = "CycleWeaponLeft",
@@ -649,7 +650,7 @@ SettingsConfig.Categories = {
 
 			CycleWeaponRight = {
 				Name = "Cycle Weapon Right",
-				Description = "Cycle to next weapon.",
+				Description = "Keybind for cycling to the next available weapon.",
 				Order = 19.4,
 				SettingType = "slider",
 				Action = "CycleWeaponRight",
@@ -672,8 +673,8 @@ SettingsConfig.Categories = {
 		Order = 3,
 		Settings = {
 			CrosshairEnabled = {
-				Name = "Crosshair Enabled",
-				Description = "Toggle the crosshair visibility on or off.",
+				Name = "Crosshair Disabled",
+				Description = "Hides your crosshair when enabled.",
 				Order = 1,
 				SettingType = "toggle",
 				Options = {
@@ -685,7 +686,7 @@ SettingsConfig.Categories = {
 
 			CrosshairColor = {
 				Name = "Crosshair Color",
-				Description = "Change the color of your crosshair.",
+				Description = "Sets the color preset used by your crosshair.",
 				Order = 2,
 				SettingType = "toggle",
 				Options = {
@@ -705,7 +706,7 @@ SettingsConfig.Categories = {
 
 			CrosshairSize = {
 				Name = "Crosshair Size",
-				Description = "Adjust the overall size of your crosshair.",
+				Description = "Adjusts overall crosshair scale.",
 				Order = 3,
 				SettingType = "slider",
 				Slider = {
@@ -718,7 +719,7 @@ SettingsConfig.Categories = {
 
 			CrosshairOpacity = {
 				Name = "Crosshair Opacity",
-				Description = "Adjust the transparency of your crosshair.",
+				Description = "Adjusts crosshair visibility by changing opacity.",
 				Order = 4,
 				SettingType = "slider",
 				Slider = {
@@ -731,7 +732,7 @@ SettingsConfig.Categories = {
 
 			CrosshairGap = {
 				Name = "Crosshair Gap",
-				Description = "Adjust the center gap of your crosshair.",
+				Description = "Adjusts the center spacing between crosshair lines.",
 				Order = 5,
 				SettingType = "slider",
 				Slider = {
@@ -744,7 +745,7 @@ SettingsConfig.Categories = {
 
 			CrosshairThickness = {
 				Name = "Crosshair Thickness",
-				Description = "Adjust the line thickness of your crosshair.",
+				Description = "Adjusts how thick each crosshair line is.",
 				Order = 6,
 				SettingType = "slider",
 				Slider = {
@@ -773,6 +774,7 @@ SettingsConfig.DefaultSettings = {
 		DisableShadows = 2,
 		DisableTextures = 2,
 		DisableOthersWraps = 2,
+		HideMuzzleFlash = 2,
 		DamageNumbers = 1,
 		DisableEffects = 2,
 		HideHud = false,
@@ -785,7 +787,7 @@ SettingsConfig.DefaultSettings = {
 		ADSSensitivity = 75,
 		FieldOfView = 70,
 		FOVZoomStrength = 100,
-		FieldOfViewEffects = 2,
+		FieldOfViewEffects = 1,
 		ScreenShake = 1,
 		TeamColor = 1,
 		EnemyColor = 1,
