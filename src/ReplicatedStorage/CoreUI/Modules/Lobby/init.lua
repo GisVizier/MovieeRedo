@@ -24,7 +24,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DailyTaskConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DailyTaskConfig"))
 
-local TWEEN_ARC = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local TWEEN_ARC  = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local TWEEN_SHOW = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local TWEEN_HIDE = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+
+local REWARD_DISPLAY = {
+	GEMS   = "Gems",
+	CROWNS = "Crowns",
+}
 
 -- Rotation mapping for a two-half circular arc:
 --   Right UIGradient: -180° (empty) → 0°   (right half full) for 0–50%
@@ -131,7 +138,9 @@ function module:_bindUi()
 	local canvasGroup = frame:FindFirstChild("CanvasGroup")
 	if not canvasGroup then return end
 
-	self._canvasGroup = canvasGroup
+	self._frame        = frame
+	self._frameRestPos = frame.Position
+	self._canvasGroup  = canvasGroup
 
 	local callender = canvasGroup:FindFirstChild("Callender")
 	if callender then
@@ -212,7 +221,6 @@ function module:_parseTaskRow(taskFrame)
 	end
 
 	local barKind, barObj = findBarFill(taskFrame)
-	print("[Lobby] _parseTaskRow", taskFrame.Name, "barKind=", barKind, "barObj=", barObj and barObj:GetFullName() or "nil")
 
 	return {
 		root = taskFrame,
@@ -238,6 +246,10 @@ function module:_clearTemplateText()
 	for _, slotName in { "Task1", "Task2", "Task3" } do
 		local slot = self._taskSlots[slotName]
 		if slot then
+			if slot.bgFrame then
+				slot.bgFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+				slot.bgFrame.BackgroundTransparency = 1
+			end
 			if slot.nameLabel then slot.nameLabel.Text = "" end
 			if slot.progressLabel then slot.progressLabel.Text = "" end
 			if slot.separatorLabel then slot.separatorLabel.Text = "" end
@@ -253,9 +265,9 @@ function module:_clearTemplateText()
 					local leftImg  = slot.barObj:FindFirstChild("Left")
 					local rightImg = slot.barObj:FindFirstChild("Right")
 					if leftImg then
-						leftImg.Visible = true
+						leftImg.Visible = false
 						local g = leftImg:FindFirstChildOfClass("UIGradient")
-						if g then g.Rotation = 0 end
+						if g then g.Rotation = -1 end
 					end
 					if rightImg then
 						rightImg.Visible = true
@@ -353,9 +365,17 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 	local current = progressMap[taskDef.id] or 0
 	local target  = taskDef.target
 	local claimed = claimedMap[taskDef.id] == true
-	local complete = current >= target
 	local fillFraction = target > 0 and (current / target) or 0
-	print("[Lobby] _updateSlot", taskDef.id, "frac=", fillFraction, "barKind=", slot.barKind)
+
+	if slot.bgFrame then
+		if claimed then
+			slot.bgFrame.BackgroundColor3 = Color3.fromRGB(59, 130, 246)
+			slot.bgFrame.BackgroundTransparency = 0.6
+		else
+			slot.bgFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+			slot.bgFrame.BackgroundTransparency = 1
+		end
+	end
 
 	if slot.nameLabel then
 		slot.nameLabel.Text = taskDef.name
@@ -377,7 +397,7 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 		if claimed then
 			slot.rewardLabel.Text = ""
 		else
-			slot.rewardLabel.Text = "x" .. tostring(taskDef.reward) .. " Gems"
+			slot.rewardLabel.Text = "x" .. tostring(taskDef.reward) .. " " .. (REWARD_DISPLAY[taskDef.rewardType] or taskDef.rewardType)
 		end
 	end
 
@@ -394,7 +414,7 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 			local rightImg = slot.barObj:FindFirstChild("Right")
 			local rightRot, leftRot = arcRotations(frac)
 
-			if leftImg  then leftImg.Visible  = true end
+			if leftImg  then leftImg.Visible  = frac > 0 end
 			if rightImg then rightImg.Visible = true end
 
 			local rightGrad = rightImg and rightImg:FindFirstChildOfClass("UIGradient")
@@ -409,15 +429,6 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 		end
 	end
 
-	self._connections:cleanupGroup("claim_" .. taskDef.id)
-	if complete and not claimed then
-		self._connections:track(slot.root, "InputBegan", function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1
-				or input.UserInputType == Enum.UserInputType.Touch then
-				self._export:emit("TaskClaimReward", taskDef.id)
-			end
-		end, "claim_" .. taskDef.id)
-	end
 end
 
 --------------------------------------------------------------------------------
@@ -426,11 +437,38 @@ end
 
 function module:show()
 	self._ui.Visible = true
+
+	if self._frame and self._frameRestPos then
+		local rest = self._frameRestPos
+		local offLeft = UDim2.new(rest.X.Scale - 0.5, rest.X.Offset, rest.Y.Scale, rest.Y.Offset)
+		self._frame.Position = offLeft
+		if self._canvasGroup then
+			self._canvasGroup.GroupTransparency = 1
+		end
+		TweenService:Create(self._frame, TWEEN_SHOW, { Position = rest }):Play()
+		if self._canvasGroup then
+			TweenService:Create(self._canvasGroup, TWEEN_SHOW, { GroupTransparency = 0 }):Play()
+		end
+	end
+
 	self._export:emit("TasksRequestRefresh")
 end
 
 function module:hide()
-	self._ui.Visible = false
+	if self._frame and self._frameRestPos then
+		local rest = self._frameRestPos
+		local offLeft = UDim2.new(rest.X.Scale - 0.5, rest.X.Offset, rest.Y.Scale, rest.Y.Offset)
+		local t1 = TweenService:Create(self._frame, TWEEN_HIDE, { Position = offLeft })
+		local t2 = self._canvasGroup and TweenService:Create(self._canvasGroup, TWEEN_HIDE, { GroupTransparency = 1 })
+		t1:Play()
+		if t2 then t2:Play() end
+		task.spawn(function()
+			t1.Completed:Wait()
+			self._ui.Visible = false
+		end)
+	else
+		self._ui.Visible = false
+	end
 	return true
 end
 

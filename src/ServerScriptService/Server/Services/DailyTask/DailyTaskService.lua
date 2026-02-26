@@ -132,6 +132,7 @@ function DailyTaskService:RecordEvent(player, eventType)
 	changed = self:_incrementTier(player, tasks, "bonus", eventType) or changed
 
 	if changed then
+		self:_autoClaimCompleted(player, tasks)
 		self:_sendTaskState(player)
 	end
 end
@@ -169,6 +170,43 @@ function DailyTaskService:_incrementTier(player, tasks, tier, eventType)
 end
 
 --------------------------------------------------------------------------------
+-- AUTO CLAIM
+--------------------------------------------------------------------------------
+
+function DailyTaskService:_autoClaimCompleted(player, tasks)
+	local ProfileHandler = require(game:GetService("ServerScriptService")
+		:WaitForChild("Data"):WaitForChild("ProfileHandler"))
+
+	local tiers = {
+		{ pool = DailyTaskConfig.BeginnerTasks, progressKey = "beginnerProgress", claimedKey = "beginnerClaimed", tier = "beginner" },
+		{ pool = DailyTaskConfig.DailyTasks,    progressKey = "dailyProgress",    claimedKey = "dailyClaimed",    tier = "daily"    },
+		{ pool = DailyTaskConfig.BonusTasks,    progressKey = "bonusProgress",    claimedKey = "bonusClaimed",    tier = "bonus"    },
+	}
+
+	for _, tierInfo in tiers do
+		local progress = tasks[tierInfo.progressKey] or {}
+		local claimed  = tasks[tierInfo.claimedKey]  or {}
+
+		for _, taskDef in tierInfo.pool do
+			if not claimed[taskDef.id] then
+				local current = progress[taskDef.id] or 0
+				if current >= taskDef.target then
+					claimed[taskDef.id] = true
+					setPath(player, { "TASKS", tierInfo.claimedKey, taskDef.id }, true)
+					ProfileHandler.IncrementData(player, taskDef.rewardType, taskDef.reward)
+
+					if tierInfo.tier == "beginner" then
+						self:_checkBeginnerComplete(player, tasks)
+					elseif tierInfo.tier == "bonus" then
+						self:_checkBonusReset(player, tasks)
+					end
+				end
+			end
+		end
+	end
+end
+
+--------------------------------------------------------------------------------
 -- CLAIM REWARD
 --------------------------------------------------------------------------------
 
@@ -199,7 +237,7 @@ function DailyTaskService:_claimReward(player, taskId)
 
 	local ProfileHandler = require(game:GetService("ServerScriptService")
 		:WaitForChild("Data"):WaitForChild("ProfileHandler"))
-	ProfileHandler.IncrementData(player, "GEMS", taskDef.reward)
+	ProfileHandler.IncrementData(player, taskDef.rewardType, taskDef.reward)
 
 	if tier == "beginner" then
 		self:_checkBeginnerComplete(player, tasks)
@@ -261,6 +299,7 @@ function DailyTaskService:_sendTaskState(player)
 
 	local tasks = ensureTasksTable(data)
 	self:_ensureDailyFresh(player, tasks)
+	self:_autoClaimCompleted(player, tasks)
 
 	local allDailiesClaimed = true
 	for _, def in DailyTaskConfig.DailyTasks do

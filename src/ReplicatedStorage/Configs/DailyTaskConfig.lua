@@ -22,6 +22,7 @@ DailyTaskConfig.BeginnerTasks = {
 		eventType = "DUEL_PLAYED",
 		target = 1,
 		reward = 50,
+		rewardType = "GEMS",
 	},
 	{
 		id = "beginner_eliminate_5",
@@ -29,6 +30,7 @@ DailyTaskConfig.BeginnerTasks = {
 		eventType = "ELIMINATION",
 		target = 5,
 		reward = 75,
+		rewardType = "GEMS",
 	},
 	{
 		id = "beginner_win_duel",
@@ -36,6 +38,7 @@ DailyTaskConfig.BeginnerTasks = {
 		eventType = "DUEL_WON",
 		target = 1,
 		reward = 100,
+		rewardType = "GEMS",
 	},
 }
 
@@ -46,6 +49,7 @@ DailyTaskConfig.DailyTasks = {
 		eventType = "DUEL_PLAYED",
 		target = 5,
 		reward = 50,
+		rewardType = "GEMS",
 	},
 	{
 		id = "daily_eliminate_15",
@@ -53,6 +57,7 @@ DailyTaskConfig.DailyTasks = {
 		eventType = "ELIMINATION",
 		target = 15,
 		reward = 75,
+		rewardType = "GEMS",
 	},
 	{
 		id = "daily_win_2",
@@ -60,6 +65,7 @@ DailyTaskConfig.DailyTasks = {
 		eventType = "DUEL_WON",
 		target = 2,
 		reward = 100,
+		rewardType = "GEMS",
 	},
 }
 
@@ -70,6 +76,7 @@ DailyTaskConfig.BonusTasks = {
 		eventType = "DUEL_PLAYED",
 		target = 12,
 		reward = 25,
+		rewardType = "CROWNS",
 	},
 	{
 		id = "bonus_eliminate_40",
@@ -77,6 +84,7 @@ DailyTaskConfig.BonusTasks = {
 		eventType = "ELIMINATION",
 		target = 40,
 		reward = 50,
+		rewardType = "CROWNS",
 	},
 	{
 		id = "bonus_win_12",
@@ -84,6 +92,7 @@ DailyTaskConfig.BonusTasks = {
 		eventType = "DUEL_WON",
 		target = 12,
 		reward = 75,
+		rewardType = "CROWNS",
 	},
 }
 
