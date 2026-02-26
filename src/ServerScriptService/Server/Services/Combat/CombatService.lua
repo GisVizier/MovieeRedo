@@ -904,9 +904,11 @@ function CombatService:_syncCombatState(player: Player)
 		statusEffects = statusEffects,
 	})
 
-	-- Replicate health to all clients so spectators can read it via Player attributes
+	-- Replicate combat stats to all clients so spectators can read them via Player attributes
 	player:SetAttribute("Health", state.health)
 	player:SetAttribute("MaxHealth", state.maxHealth)
+	player:SetAttribute("Ultimate", state.ultimate or 0)
+	player:SetAttribute("MaxUltimate", state.maxUltimate or 100)
 end
 
 function CombatService:_syncStatusEffects(player: Player)

@@ -285,6 +285,7 @@ function module.start(export, ui: UI)
 	self._weaponTemplates = {}
 	self._weaponData = {}
 	self._selectedSlot = nil
+	self._spectateSlotCache = nil -- pre-built weapon/kit data for spectated players
 	self._cooldownThreads = {}
 	self._lastKitId = nil  -- Track kit for ult reset between rounds
 	self._healthShakeToken = 0
@@ -1955,18 +1956,101 @@ function module:setViewedPlayer(player, character)
 	self._viewedCharacter = character
 end
 
--- Switch the health bar to track a spectated player instead of LocalPlayer.
--- Spectated player's Health/MaxHealth attributes are set server-side so all
--- clients can read them.
+-- Build weapon/kit slot data from spectated player's SelectedLoadout attribute.
+-- This bypasses the attribute-write system (_syncFromSelectedLoadout) which only
+-- works for LocalPlayer. Data is stored in _spectateSlotCache and read by
+-- getWeaponData / getKitData instead of player attributes.
+function module:_buildSpectateSlotCache(player)
+	self._spectateSlotCache = {}
+	if not player then return end
+
+	local raw = player:GetAttribute("SelectedLoadout")
+	local decoded = self:_decodeAttribute(raw)
+	if type(decoded) ~= "table" then return end
+
+	local loadout = decoded.loadout
+	if type(loadout) ~= "table" and decoded.Kit ~= nil then
+		loadout = decoded
+	end
+	if type(loadout) ~= "table" then return end
+
+	for _, slotType in ipairs({ "Primary", "Secondary", "Melee" }) do
+		local weaponId = loadout[slotType]
+		local weaponConfig = weaponId and LoadoutConfig.getWeapon(weaponId)
+		if weaponConfig then
+			self._spectateSlotCache[slotType] = {
+				Gun = weaponConfig.name,
+				GunId = weaponConfig.id,
+				GunType = weaponConfig.weaponType,
+				Ammo = weaponConfig.clipSize,
+				MaxAmmo = weaponConfig.maxAmmo,
+				ClipSize = weaponConfig.clipSize,
+				Reloading = false,
+				OnCooldown = false,
+				Cooldown = weaponConfig.cooldown or 0,
+				ReloadTime = weaponConfig.reloadTime or 0,
+				Rarity = weaponConfig.rarity,
+			}
+		end
+	end
+
+	local kitId = loadout.Kit
+	if kitId then
+		local kitData = KitConfig.buildKitData(kitId, { abilityCooldownEndsAt = 0, ultimate = 0 })
+		self._spectateSlotCache["Kit"] = kitData
+	end
+end
+
+-- Lightweight weapon connection for spectating: only watches EquippedSlot/DisplaySlot
+-- (no SelectedLoadout write-back, no PrimaryData writes — those are read-only via cache).
+function module:_setupSpectateWeaponConnections(player)
+	self._connections:cleanupGroup("hud_weapons")
+	if not player then return end
+
+	self._connections:track(player, "AttributeChanged", function(attributeName)
+		if attributeName == "EquippedSlot" or attributeName == "DisplaySlot" then
+			if player:GetAttribute("DisplaySlot") == "Ability" then
+				self:_setSelectedSlot("Kit")
+			else
+				local slot = player:GetAttribute("EquippedSlot") or "Primary"
+				self:_setSelectedSlot(slot)
+			end
+			return
+		end
+		-- Rebuild cache if the spectated player swaps loadouts mid-match
+		if attributeName == "SelectedLoadout" then
+			self:_buildSpectateSlotCache(player)
+			self:_refreshWeaponData()
+		end
+	end, "hud_weapons")
+end
+
+-- Switch the full HUD (health bar + loadout + ult) to track a spectated player.
+-- Health/MaxHealth/Ultimate/MaxUltimate are set server-side so all clients can
+-- read them. Weapon/kit data is built locally from SelectedLoadout via cache.
 function module:setSpectateTarget(player)
 	self:setViewedPlayer(player)
 	self:_setupHealthConnection()
+	self:_setupUltConnection()
+	self:_buildSpectateSlotCache(player)
+	self:_setupSpectateWeaponConnections(player)
+	self:_refreshWeaponData()
+	self:_updatePlayerThumbnail()
+	-- Bars are hidden on death; restore them so spectators see the full HUD
+	self:_showHealthAndLoadoutBars()
 end
 
--- Restore the health bar to track the LocalPlayer again after spectating ends.
+-- Restore the full HUD to track LocalPlayer again after spectating ends.
 function module:clearSpectateTarget()
+	self._spectateSlotCache = nil
 	self:setViewedPlayer(Players.LocalPlayer)
 	self:_setupHealthConnection()
+	self:_setupUltConnection()
+	self:_setupWeaponConnections()
+	self:_refreshWeaponData()
+	self:_updatePlayerThumbnail()
+	-- Re-show bars for the respawned local player
+	self:_showHealthAndLoadoutBars()
 end
 
 function module:showForPlayer(player, character)
@@ -2149,6 +2233,10 @@ function module:_syncFromSelectedLoadout(): boolean
 end
 
 function module:getWeaponData(slotType)
+	-- During spectate: return pre-built cache instead of player attribute (can't read remote attrs)
+	if self._spectateSlotCache then
+		return self._spectateSlotCache[slotType] or nil
+	end
 	if not self._viewedPlayer then
 		return nil
 	end
@@ -2158,6 +2246,10 @@ function module:getWeaponData(slotType)
 end
 
 function module:getKitData()
+	-- During spectate: return pre-built cache instead of player attribute
+	if self._spectateSlotCache then
+		return self._spectateSlotCache["Kit"] or nil
+	end
 	if not self._viewedPlayer then
 		return nil
 	end
