@@ -7,7 +7,10 @@
       "Bash(python3.exe:*)",
       "Bash(py:*)",
       "Bash(node --version:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "mcp__robloxstudio__execute_luau",
+      "mcp__robloxstudio__grep_scripts",
+      "mcp__robloxstudio__get_selection"
     ]
   }
 }

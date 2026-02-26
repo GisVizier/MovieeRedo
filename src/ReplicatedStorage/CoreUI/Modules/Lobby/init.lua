@@ -14,14 +14,26 @@
 	          │     each: Frame(bg) + Frame(content)
 	          │       content: Frame(icon) + Frame(text)
 	          │         text: Aim(name) + Frame(progress row: Aim, Aim, Aim)
-	          │         optional: Bar (Frame with Fill child or UIGradient)
+	          │         icon Frame contains: Bg + Frame{ Left(ImageLabel), Right(ImageLabel) } arc
 	          ├── UIListLayout
 	          └── Etc (CanvasGroup with Aim="TO DUELS :" + Frame/button)
 ]]
 
+local TweenService    = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DailyTaskConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("DailyTaskConfig"))
+
+local TWEEN_ARC = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- Rotation mapping for a two-half circular arc:
+--   Right UIGradient: -180° (empty) → 0°   (right half full) for 0–50%
+--   Left  UIGradient:    0° (empty) → 180° (left  half full) for 50–100%
+local function arcRotations(frac)
+	local rightRot = math.clamp(frac * 2, 0, 1) * 180 - 180  -- -180 → 0
+	local leftRot  = math.clamp(frac * 2 - 1, 0, 1) * 180    --    0 → 180
+	return rightRot, leftRot
+end
 
 local module = {}
 module.__index = module
@@ -57,6 +69,15 @@ local BAR_NAMES = { "Bar", "Fill", "Progress", "BarFill", "ProgressBar" }
 local function findBarFill(root)
 	local function search(parent)
 		for _, child in parent:GetChildren() do
+			-- Arc: a Frame containing ImageLabels named "Left" and "Right"
+			if child:IsA("Frame") then
+				local leftImg  = child:FindFirstChild("Left")
+				local rightImg = child:FindFirstChild("Right")
+				if leftImg and leftImg:IsA("ImageLabel") and rightImg and rightImg:IsA("ImageLabel") then
+					return "arc", child
+				end
+			end
+
 			local name = child.Name
 			for _, barName in BAR_NAMES do
 				if name == barName or name:find(barName) then
@@ -191,6 +212,7 @@ function module:_parseTaskRow(taskFrame)
 	end
 
 	local barKind, barObj = findBarFill(taskFrame)
+	print("[Lobby] _parseTaskRow", taskFrame.Name, "barKind=", barKind, "barObj=", barObj and barObj:GetFullName() or "nil")
 
 	return {
 		root = taskFrame,
@@ -227,6 +249,19 @@ function module:_clearTemplateText()
 					slot.barObj.Offset = Vector2.new(0, 0.5)
 				elseif slot.barKind == "size" and slot.barObj:IsA("GuiObject") then
 					slot.barObj.Size = UDim2.new(0, 0, 1, 0)
+				elseif slot.barKind == "arc" then
+					local leftImg  = slot.barObj:FindFirstChild("Left")
+					local rightImg = slot.barObj:FindFirstChild("Right")
+					if leftImg then
+						leftImg.Visible = true
+						local g = leftImg:FindFirstChildOfClass("UIGradient")
+						if g then g.Rotation = 0 end
+					end
+					if rightImg then
+						rightImg.Visible = true
+						local g = rightImg:FindFirstChildOfClass("UIGradient")
+						if g then g.Rotation = -180 end
+					end
 				end
 			end
 		end
@@ -320,6 +355,7 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 	local claimed = claimedMap[taskDef.id] == true
 	local complete = current >= target
 	local fillFraction = target > 0 and (current / target) or 0
+	print("[Lobby] _updateSlot", taskDef.id, "frac=", fillFraction, "barKind=", slot.barKind)
 
 	if slot.nameLabel then
 		slot.nameLabel.Text = taskDef.name
@@ -353,6 +389,23 @@ function module:_updateSlot(slot, taskDef, progressMap, claimedMap)
 			slot.barObj.Offset = Vector2.new(frac, 0.5)
 		elseif slot.barKind == "size" and slot.barObj:IsA("GuiObject") then
 			slot.barObj.Size = UDim2.new(frac, 0, 1, 0)
+		elseif slot.barKind == "arc" then
+			local leftImg  = slot.barObj:FindFirstChild("Left")
+			local rightImg = slot.barObj:FindFirstChild("Right")
+			local rightRot, leftRot = arcRotations(frac)
+
+			if leftImg  then leftImg.Visible  = true end
+			if rightImg then rightImg.Visible = true end
+
+			local rightGrad = rightImg and rightImg:FindFirstChildOfClass("UIGradient")
+			local leftGrad  = leftImg  and leftImg:FindFirstChildOfClass("UIGradient")
+
+			if rightGrad then
+				TweenService:Create(rightGrad, TWEEN_ARC, { Rotation = rightRot }):Play()
+			end
+			if leftGrad then
+				TweenService:Create(leftGrad, TWEEN_ARC, { Rotation = leftRot }):Play()
+			end
 		end
 	end
 
