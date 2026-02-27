@@ -260,7 +260,7 @@ end
 
 function ReplicationService:_getAnimInstanceForPlayer(player, animName)
 	self:_loadAnimInstances()
-	local inLobby = player:GetAttribute("InLobby") == true
+	local inLobby = player:GetAttribute("PlayerState") == "Lobby"
 	local useWeapon = not inLobby and self._rigWeaponAnims[animName] ~= nil
 	local newMode = useWeapon
 
