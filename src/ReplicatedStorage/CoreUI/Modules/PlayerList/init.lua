@@ -179,6 +179,10 @@ function module:_bindUi()
 	self._rowTemplate = assetsGui and assetsGui:FindFirstChild("PlayerlistTemp")
 	self._userLeaveTemplate = assetsGui and assetsGui:FindFirstChild("LeavePartyTemplate")
 
+	if not self._rowTemplate then
+		self._rowTemplate = self:_createFallbackTemplate()
+	end
+
 	for _, sectionId in ipairs(SECTION_IDS) do
 		local sectionFrame = self._scrollingFrame and self._scrollingFrame:FindFirstChild(sectionId)
 		local sectionHolder = sectionFrame and sectionFrame:FindFirstChild("Holder")
@@ -513,6 +517,10 @@ function module:_bindEvents()
 
 	self._connections:track(Players, "PlayerAdded", function(player)
 		self:addPlayer(player)
+		local localPlayer = Players.LocalPlayer
+		if player ~= localPlayer then
+			self:_connectPlayerStateListener(player)
+		end
 	end, "players")
 
 	self._connections:track(Players, "PlayerRemoving", function(player)
@@ -531,9 +539,24 @@ function module:_bindEvents()
 end
 
 function module:_bootstrapPlayers()
+	local localPlayer = Players.LocalPlayer
 	for _, player in ipairs(Players:GetPlayers()) do
 		self:addPlayer(player)
+		if player ~= localPlayer then
+			self:_connectPlayerStateListener(player)
+		end
 	end
+end
+
+function module:_connectPlayerStateListener(player)
+	local groupName = "playerState_" .. tostring(player.UserId)
+	self._connections:cleanupGroup(groupName)
+	self._connections:add(
+		player:GetAttributeChangedSignal("PlayerState"):Connect(function()
+			self:updatePlayer(player)
+		end),
+		groupName
+	)
 end
 
 function module:_buildPlayerData(inputData)
@@ -646,6 +669,155 @@ function module:_buildPlayerData(inputData)
 		inParty = inParty,
 		sectionLocked = explicitSection ~= nil,
 	}
+end
+
+function module:_createFallbackTemplate()
+	local ROW_HEIGHT = 46
+	local ROW_COLOR = Color3.fromRGB(30, 30, 35)
+	local TEXT_COLOR = Color3.fromRGB(220, 220, 220)
+	local SECONDARY_COLOR = Color3.fromRGB(140, 140, 150)
+	local BADGE_SIZE = UDim2.new(0, 18, 0, 18)
+
+	local button = Instance.new("ImageButton")
+	button.Name = "PlayerlistTemp"
+	button.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
+	button.BackgroundColor3 = ROW_COLOR
+	button.BackgroundTransparency = 0.4
+	button.AutoButtonColor = false
+	button.BorderSizePixel = 0
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = button
+
+	local uiScale = Instance.new("UIScale")
+	uiScale.Name = "UIScale"
+	uiScale.Scale = 1
+	uiScale.Parent = button
+
+	local playerImage = Instance.new("ImageLabel")
+	playerImage.Name = "PlayerImage"
+	playerImage.Size = UDim2.new(0, 36, 0, 36)
+	playerImage.Position = UDim2.new(0, 6, 0.5, 0)
+	playerImage.AnchorPoint = Vector2.new(0, 0.5)
+	playerImage.BackgroundTransparency = 1
+	playerImage.Parent = button
+
+	local imgCorner = Instance.new("UICorner")
+	imgCorner.CornerRadius = UDim.new(1, 0)
+	imgCorner.Parent = playerImage
+
+	local nameHolder = Instance.new("Frame")
+	nameHolder.Name = "NameHolder"
+	nameHolder.Size = UDim2.new(1, -120, 0, 20)
+	nameHolder.Position = UDim2.new(0, 48, 0, 4)
+	nameHolder.BackgroundTransparency = 1
+	nameHolder.Parent = button
+
+	local nameLayout = Instance.new("UIListLayout")
+	nameLayout.FillDirection = Enum.FillDirection.Horizontal
+	nameLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	nameLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	nameLayout.Padding = UDim.new(0, 4)
+	nameLayout.Parent = nameHolder
+
+	local username = Instance.new("TextLabel")
+	username.Name = "Username"
+	username.Size = UDim2.new(0, 0, 1, 0)
+	username.AutomaticSize = Enum.AutomaticSize.X
+	username.BackgroundTransparency = 1
+	username.TextColor3 = TEXT_COLOR
+	username.TextSize = 14
+	username.Font = Enum.Font.GothamBold
+	username.TextXAlignment = Enum.TextXAlignment.Left
+	username.Text = ""
+	username.LayoutOrder = 1
+	username.Parent = nameHolder
+
+	local function makeBadge(name, order)
+		local badge = Instance.new("Frame")
+		badge.Name = name
+		badge.Size = BADGE_SIZE
+		badge.BackgroundTransparency = 1
+		badge.Visible = false
+		badge.LayoutOrder = order
+		badge.Parent = nameHolder
+		return badge
+	end
+
+	makeBadge("Friend", 2)
+	makeBadge("Dev", 3)
+	makeBadge("Premuim", 4)
+
+	local icon = Instance.new("TextLabel")
+	icon.Name = "Icon"
+	icon.Size = UDim2.new(0, 18, 1, 0)
+	icon.BackgroundTransparency = 1
+	icon.TextColor3 = TEXT_COLOR
+	icon.TextSize = 14
+	icon.Font = Enum.Font.GothamBold
+	icon.Text = ""
+	icon.Visible = false
+	icon.LayoutOrder = 5
+	icon.Parent = nameHolder
+
+	local status = Instance.new("TextLabel")
+	status.Name = "Status"
+	status.Size = UDim2.new(1, -120, 0, 16)
+	status.Position = UDim2.new(0, 48, 0, 24)
+	status.BackgroundTransparency = 1
+	status.TextColor3 = SECONDARY_COLOR
+	status.TextSize = 11
+	status.Font = Enum.Font.Gotham
+	status.TextXAlignment = Enum.TextXAlignment.Left
+	status.Text = ""
+	status.Parent = button
+
+	local numberText = Instance.new("TextLabel")
+	numberText.Name = "NumberText"
+	numberText.Size = UDim2.new(0, 50, 1, 0)
+	numberText.Position = UDim2.new(1, -56, 0, 0)
+	numberText.BackgroundTransparency = 1
+	numberText.TextColor3 = TEXT_COLOR
+	numberText.TextSize = 14
+	numberText.Font = Enum.Font.GothamBold
+	numberText.TextXAlignment = Enum.TextXAlignment.Right
+	numberText.Text = "0"
+	numberText.Parent = button
+
+	local glow = Instance.new("Frame")
+	glow.Name = "Glow"
+	glow.Size = UDim2.new(1, 0, 1, 0)
+	glow.BackgroundTransparency = 1
+	glow.Visible = false
+	glow.ZIndex = 0
+	glow.Parent = button
+
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.Size = UDim2.new(1, 0, 1, 0)
+	bar.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+	bar.BackgroundTransparency = 1
+	bar.BorderSizePixel = 0
+	bar.Parent = glow
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 6)
+	barCorner.Parent = bar
+
+	local glowInner = Instance.new("Frame")
+	glowInner.Name = "Glow"
+	glowInner.Size = UDim2.new(1, 0, 1, 0)
+	glowInner.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+	glowInner.BackgroundTransparency = 1
+	glowInner.BorderSizePixel = 0
+	glowInner.Parent = glow
+
+	local glowCorner = Instance.new("UICorner")
+	glowCorner.CornerRadius = UDim.new(0, 6)
+	glowCorner.Parent = glowInner
+
+	return button
 end
 
 function module:_captureRowRefs(frame)
@@ -1161,6 +1333,14 @@ function module:addPlayer(payload)
 		return
 	end
 
+	-- Prevent ghost rows for players who have already left
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and data.userId ~= localPlayer.UserId then
+		if not Players:GetPlayerByUserId(data.userId) then
+			return
+		end
+	end
+
 	local existing = self._playersByUserId[data.userId]
 	if existing then
 		data.sectionLocked = data.sectionLocked or existing.sectionLocked
@@ -1210,11 +1390,13 @@ function module:removePlayer(payload)
 	end
 
 	self._playersByUserId[userId] = nil
+	self._connections:cleanupGroup("playerState_" .. tostring(userId))
 
 	local row = self._rows[userId]
 	if row then
 		if self._selectedUserId == userId then
 			self._selectedUserId = nil
+			self:_hidePlayerShow()
 		end
 		self:_destroyRow(row)
 		self._rows[userId] = nil
@@ -1655,14 +1837,11 @@ function module:_positionPlayerShow(userId)
 		return
 	end
 
-	local uiScaleObj = self._ui:FindFirstChildWhichIsA("UIScale")
-	local scaleFactor = uiScaleObj and uiScaleObj.Scale or 1
-
 	local rowAbsY = row.frame.AbsolutePosition.Y
 	local uiAbsY = self._ui.AbsolutePosition.Y
 
-	local nudgeUp = 0.05
-	local yScale = (rowAbsY - uiAbsY) / (uiAbsSize.Y * scaleFactor) - nudgeUp
+	local nudgeUp = 0.02
+	local yScale = (rowAbsY - uiAbsY) / uiAbsSize.Y - nudgeUp
 	yScale = math.clamp(yScale, 0, 0.75)
 
 	frame.Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, yScale, 0)

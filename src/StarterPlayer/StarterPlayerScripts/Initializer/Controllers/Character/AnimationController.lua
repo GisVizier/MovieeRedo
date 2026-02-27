@@ -984,44 +984,48 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 	local isGrounded = MovementStateManager:GetIsGrounded()
 	local isJumpCancelProtected = isJumpCancelProtected(self)
 
-	-- Always stop slide animation when leaving Sliding state, before any early returns
+	-- When leaving Sliding state, immediately stop slide animation and force a proper transition.
+	-- This must happen before any early returns to prevent stale slide visuals.
 	if previousState == "Sliding" and not isSliding then
 		self:StopSlideAnimationUpdates()
-	end
 
-	if not isGrounded and not isSliding then
-		if isJumpCancelProtected(self) then
+		-- If an airborne animation is already playing (e.g. JumpCancel triggered before StopSlide),
+		-- the slide animation is already handled — just return.
+		if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying then
 			return
 		end
-		if not self.CurrentAirborneAnimation or not self.CurrentAirborneAnimation.IsPlaying then
+
+		-- If not grounded (airborne slide end without a JumpCancel), play falling.
+		if not isGrounded then
 			self:PlayFallingAnimation()
+			return
 		end
-		return
-	end
 
-	if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying and not isSliding then
-		self:StopSlideAnimationUpdates()
-		return
-	end
-
-	local timeSinceAirborneAnim = tick() - self.LastAirborneAnimationTime
-	if timeSinceAirborneAnim < 0.2 and isGrounded and not isSliding then
-		return
-	end
-
-	if previousState == "Sliding" and not isSliding then
-		if
-			self.CurrentAirborneAnimation
-			and self.CurrentAirborneAnimation.IsPlaying
-			and isGrounded
-			and not isJumpCancelProtected
-		then
-			self:StopAirborneAnimation()
+		-- Grounded: fall through to play the correct walk/idle animation below.
+	else
+		-- Non-slide transitions: preserve original early-return logic.
+		if not isGrounded and not isSliding then
+			if isJumpCancelProtected(self) then
+				return
+			end
+			if not self.CurrentAirborneAnimation or not self.CurrentAirborneAnimation.IsPlaying then
+				self:PlayFallingAnimation()
+			end
+			return
 		end
-	end
 
-	if isJumpCancelProtected and not isSliding then
-		return
+		if self.CurrentAirborneAnimation and self.CurrentAirborneAnimation.IsPlaying and not isSliding then
+			return
+		end
+
+		local timeSinceAirborneAnim = tick() - self.LastAirborneAnimationTime
+		if timeSinceAirborneAnim < 0.2 and isGrounded and not isSliding then
+			return
+		end
+
+		if isJumpCancelProtected and not isSliding then
+			return
+		end
 	end
 
 	if isSliding then
