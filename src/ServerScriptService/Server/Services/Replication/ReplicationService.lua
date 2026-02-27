@@ -133,6 +133,14 @@ function ReplicationService:RegisterPlayer(player)
 	}
 	self.PlayerStances[player] = Stance.Standing
 	self.PlayerActiveViewmodelActions[player] = {}
+
+	-- When PlayerState changes (lobby/training/match), clear rig animation caches
+	-- so the next update forces a re-load from the correct animation set (Base vs Weapon).
+	player:GetAttributeChangedSignal("PlayerState"):Connect(function()
+		self._rigLastAnimId[player] = nil
+		self._rigAnimTracks[player] = nil
+		self._rigPlayerWeaponMode[player] = nil
+	end)
 end
 
 function ReplicationService:UnregisterPlayer(player)
