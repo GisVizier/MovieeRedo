@@ -471,6 +471,10 @@ function UIController:Init(registry, net)
 				end)
 				return
 			end
+			-- Settings only accessible in lobby, not during a match
+			if self._matchMode ~= nil then
+				return
+			end
 			if not gameProcessed then
 				safeCall(function()
 					self._coreUi:show("_Settings")

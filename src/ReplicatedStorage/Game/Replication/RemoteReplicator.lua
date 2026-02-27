@@ -14,6 +14,8 @@ local ReplicationConfig = require(Locations.Global:WaitForChild("Replication"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
 local ThirdPersonWeaponManager =
 	require(Locations.Game:WaitForChild("Weapons"):WaitForChild("ThirdPersonWeaponManager"))
+local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local AnimationIds = require(Locations.Shared:WaitForChild("Types"):WaitForChild("AnimationIds"))
 local function vmLog(...) end
 
 local STALE_PLAYER_TIMEOUT = 3 -- seconds with no packets before sinking character below map
@@ -45,6 +47,33 @@ end
 
 local function getViewmodelActionStateKey(weaponId: string, actionName: string, trackName: string): string
 	return string.format("%s|%s|%s", tostring(actionName), tostring(weaponId), tostring(trackName))
+end
+
+local function getAnimationCategory(animationName)
+	if animationName == "IdleStanding" or animationName == "IdleCrouching" then
+		return "Idle"
+	end
+	if animationName == "Jump" or animationName == "JumpCancel" or animationName == "Falling" then
+		return "Airborne"
+	end
+	if animationName == "Land" or animationName == "Landing" then
+		return "Action"
+	end
+	if animationName:match("^WallBoost") then
+		return "Airborne"
+	end
+	if animationName:match("^Zipline") then
+		return "Action"
+	end
+	return "State"
+end
+
+local function parseJumpCancelVariant(animName)
+	local index = animName:match("^JumpCancel(%d+)$")
+	if index then
+		return "JumpCancel", tonumber(index)
+	end
+	return animName, nil
 end
 
 function RemoteReplicator:Init(net)
@@ -316,6 +345,7 @@ function RemoteReplicator:OnStatesReplicated(batch)
 				CurrentEquippedSlot = nil,
 				LastViewmodelActionSeq = nil,
 				IsCrouching = self.PendingCrouchStates[userId] == true,
+				LastAppliedAnimationId = nil,
 			}
 
 			self.PendingCrouchStates[userId] = nil
@@ -565,6 +595,7 @@ function RemoteReplicator:ReplicatePlayers(dt)
 					remoteData.WeaponManager:Destroy()
 				end
 				remoteData.WeaponManager = ThirdPersonWeaponManager.new(newRig)
+				remoteData.LastAppliedAnimationId = nil
 				rig = newRig
 			else
 				remoteData.Rig = nil
@@ -588,6 +619,22 @@ function RemoteReplicator:ReplicatePlayers(dt)
 
 		if remoteData.Head and remoteData.Head.Anchored and remoteData.HeadOffset then
 			remoteData.Head.CFrame = cf * remoteData.HeadOffset
+		end
+
+		-- Apply movement animation to remote rig based on replicated AnimationId
+		if targetAnimationId and targetAnimationId ~= remoteData.LastAppliedAnimationId then
+			local animController = ServiceRegistry:GetController("AnimationController")
+			if animController then
+				local rawName = AnimationIds:GetName(targetAnimationId)
+				if rawName then
+					local animName, variantIndex = parseJumpCancelVariant(rawName)
+					local category = getAnimationCategory(animName)
+					animController:PlayAnimationForOtherPlayer(
+						remoteData.Player, animName, category, variantIndex
+					)
+				end
+			end
+			remoteData.LastAppliedAnimationId = targetAnimationId
 		end
 
 		self.Interpolations = self.Interpolations + 1

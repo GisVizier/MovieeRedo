@@ -414,7 +414,10 @@ function module:_bindInput()
 		if UserInputService:GetFocusedTextBox() then
 			return
 		end
-		-- Show on press (allowed even during InGame so it works as a live scoreboard)
+		-- In-game Tab shows the leaderboard, not the player list
+		if self._matchStatus == "InGame" then
+			return
+		end
 		self:_setPanelVisible(true, true)
 	end, "input")
 
