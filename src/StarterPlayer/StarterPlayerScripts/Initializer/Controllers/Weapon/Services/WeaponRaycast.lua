@@ -135,18 +135,26 @@ local function getCharacterFromPart(part)
 	local searchCurrent = current
 	while searchCurrent and searchCurrent ~= Workspace do
 		if searchCurrent:IsA("Model") then
-			-- Check if it's a character (has Humanoid) - use recursive search for nested Humanoids
-			if searchCurrent:FindFirstChildWhichIsA("Humanoid", true) then
-				return searchCurrent
-			end
-
-			-- Check if it's a Rig or Collider (has OwnerUserId attribute)
+			-- Check owner first so rig models in workspace.Rigs resolve to the live character.
 			local ownerUserId = searchCurrent:GetAttribute("OwnerUserId")
-			if ownerUserId then
+			if type(ownerUserId) == "number" then
 				local ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
+				if not ownerPlayer then
+					for _, player in Players:GetPlayers() do
+						if player.UserId == ownerUserId then
+							ownerPlayer = player
+							break
+						end
+					end
+				end
 				if ownerPlayer and ownerPlayer.Character then
 					return ownerPlayer.Character
 				end
+			end
+
+			-- Check if it's a character (has Humanoid) - use recursive search for nested Humanoids
+			if searchCurrent:FindFirstChildWhichIsA("Humanoid", true) then
+				return searchCurrent
 			end
 		end
 		searchCurrent = searchCurrent.Parent
@@ -176,6 +184,35 @@ local function getPlayerFromCharacterFallback(character)
 	if ownerPlayer then
 		return ownerPlayer
 	end
+
+	local ownerUserId = character:GetAttribute("OwnerUserId")
+	if type(ownerUserId) == "number" then
+		ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
+		if ownerPlayer then
+			return ownerPlayer
+		end
+		for _, player in Players:GetPlayers() do
+			if player.UserId == ownerUserId then
+				return player
+			end
+		end
+	end
+
+	local ownerName = character:GetAttribute("OwnerName")
+	if type(ownerName) == "string" and ownerName ~= "" then
+		ownerPlayer = Players:FindFirstChild(ownerName)
+		if ownerPlayer then
+			return ownerPlayer
+		end
+	end
+
+	if type(character.Name) == "string" and character.Name ~= "" then
+		ownerPlayer = Players:FindFirstChild(character.Name)
+		if ownerPlayer then
+			return ownerPlayer
+		end
+	end
+
 	for _, player in Players:GetPlayers() do
 		if player.Character == character then
 			return player
@@ -551,7 +588,7 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		if not hitCharacter then
 			hitCharacter = getCharacterFromPart(result.Instance)
 			if hitCharacter then
-				local hitPlayer = Players:GetPlayerFromCharacter(hitCharacter)
+				local hitPlayer = getPlayerFromCharacterFallback(hitCharacter)
 				if hitPlayer then
 					-- Reject only when hit is on Rig/cosmetic copy (not the actual character).
 					-- When Collider is missing, we need to accept hits on HumanoidRootPart/Head.
@@ -574,14 +611,23 @@ function WeaponRaycast.PerformRaycast(camera, localPlayer, weaponConfig, ignoreS
 		-- Get player from character
 		local hitPlayer = nil
 		if hitCharacter then
-			hitPlayer = Players:GetPlayerFromCharacter(hitCharacter)
-			-- Fallback for test clients
-			if not hitPlayer then
-				for _, player in Players:GetPlayers() do
-					if player.Character == hitCharacter then
-						hitPlayer = player
-						break
+			hitPlayer = getPlayerFromCharacterFallback(hitCharacter)
+		end
+
+		if not hitPlayer then
+			local ownerPlayerUserId = getOwnerUserIdFromAncestor(result.Instance)
+			if type(ownerPlayerUserId) == "number" then
+				hitPlayer = Players:GetPlayerByUserId(ownerPlayerUserId)
+				if not hitPlayer then
+					for _, player in Players:GetPlayers() do
+						if player.UserId == ownerPlayerUserId then
+							hitPlayer = player
+							break
+						end
 					end
+				end
+				if hitPlayer and hitPlayer.Character and not hitCharacter then
+					hitCharacter = hitPlayer.Character
 				end
 			end
 		end

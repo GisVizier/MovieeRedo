@@ -2157,6 +2157,28 @@ local currentTime = workspace:GetServerTimeNow()
 	self:_applyCrosshairRecoil()
 	self:_applyCameraRecoil()
 
+	-- Force exit ADS immediately after a successful gun shot.
+	-- Always hard-clear to prevent any stuck scope/overlay state.
+	local shouldForceUnADS = self._equippedWeaponId == "Sniper"
+		or (self._weaponInstance and self._weaponInstance.WeaponId == "Sniper")
+	if shouldForceUnADS then
+		if self._currentActions and self._currentActions.Special then
+			if self._currentActions.Special.Execute then
+				pcall(function()
+					self._currentActions.Special.Execute(self._weaponInstance, false)
+				end)
+			end
+			if self._currentActions.Special.Cancel then
+				pcall(function()
+					self._currentActions.Special.Cancel()
+				end)
+			end
+		end
+		self:_disableADSAndUI()
+		ADSOverlay:End(true)
+		self:_replicateViewmodelAction("ADS", "Hip", false)
+	end
+
 	-- Update state after attack
 	local resolvedShotTime = currentTime
 	if self._weaponInstance and self._weaponInstance.State and type(self._weaponInstance.State.LastFireTime) == "number" then
@@ -2729,6 +2751,16 @@ function WeaponController:Special(isPressed)
 
 	-- Update state
 	self:_updateWeaponInstanceState()
+
+	if self:_isEquipLocked() then
+		if self:_resolveADSState(self._isADS) then
+			if self._currentActions.Special and self._currentActions.Special.Cancel then
+				self._currentActions.Special.Cancel()
+			end
+			self:_disableADSAndUI()
+		end
+		return
+	end
 
 	if self._isReloading then
 		if isPressed then

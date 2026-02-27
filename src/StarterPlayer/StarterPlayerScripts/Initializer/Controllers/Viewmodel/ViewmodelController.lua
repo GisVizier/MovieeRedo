@@ -365,10 +365,8 @@ function ViewmodelController:Init(registry, net)
 			local runtimeInputController = self._registry and self._registry:TryGet("Input")
 			local manager = runtimeInputController and runtimeInputController.Manager or nil
 			local isGamepad = isGamepadInputType(input.UserInputType)
-			local isCycleLeft = (manager and manager:IsKeybind(input, "CycleWeaponLeft"))
-				or (isGamepad and input.KeyCode == Enum.KeyCode.ButtonL1)
-			local isCycleRight = (manager and manager:IsKeybind(input, "CycleWeaponRight"))
-				or (isGamepad and input.KeyCode == Enum.KeyCode.ButtonR1)
+			local isCycleLeft = manager and manager:IsKeybind(input, "CycleWeaponLeft")
+			local isCycleRight = manager and manager:IsKeybind(input, "CycleWeaponRight")
 			local isCycleInput = isCycleLeft or isCycleRight
 
 			if isCycleInput then

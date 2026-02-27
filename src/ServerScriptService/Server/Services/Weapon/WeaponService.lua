@@ -429,6 +429,10 @@ function WeaponService:_validatePellets(shotData, weaponConfig)
 end
 
 local function applyDistanceFalloff(baseDamage, distance, config)
+	if config and config.disableDamageFalloff == true then
+		return baseDamage
+	end
+
 	local minR = config.minRange
 	local maxR = config.maxRange
 	if not minR or not maxR or distance <= minR then
@@ -536,7 +540,12 @@ function WeaponService:CalculateDamage(shotData, weaponConfig)
 
 	-- Distance falloff applies to body damage first.
 	-- Headshot multiplier is applied after falloff so headshots still beat bodyshots at max range.
-	if weaponConfig.minRange and weaponConfig.maxRange and shotData.hitPosition and shotData.origin then
+	if weaponConfig.disableDamageFalloff ~= true
+		and weaponConfig.minRange
+		and weaponConfig.maxRange
+		and shotData.hitPosition
+		and shotData.origin
+	then
 		local distance = (shotData.hitPosition - shotData.origin).Magnitude
 
 		if distance > weaponConfig.minRange then

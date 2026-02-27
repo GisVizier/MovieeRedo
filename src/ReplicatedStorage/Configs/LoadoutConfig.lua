@@ -77,8 +77,11 @@ LoadoutConfig.Weapons = {
 
 		damage = 50,
 		headshotMultiplier = 3.0,
+		ignoreGlobalDamageMultiplier = true,
 		range = 650,
-		fireRate = 60,
+		fireRate = 90,
+		disableDamageFalloff = true,
+		adsAnimationDuration = 0.5,
 		
 		-- Wall destruction pressure (higher = bigger holes)
 		destructionPressure = 100, -- Sniper makes big holes
@@ -870,6 +873,10 @@ local function applyGlobalGunDamageBalance()
 
 	for _, weapon in pairs(LoadoutConfig.Weapons) do
 		if weapon and (weapon.weaponType == "Primary" or weapon.weaponType == "Secondary") then
+			if weapon.ignoreGlobalDamageMultiplier == true then
+				continue
+			end
+
 			if type(weapon.damage) == "number" then
 				weapon.damage = weapon.damage * multiplier
 			end

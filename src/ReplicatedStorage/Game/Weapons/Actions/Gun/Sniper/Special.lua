@@ -5,8 +5,8 @@ local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"
 
 local Special = {}
 Special._isADS = false
-local ADS_TRACK_FADE = 0.05
-local ADS_TRACK_SPEED = 1.5
+local ADS_TRACK_FADE = 0.03
+local ADS_TRACK_SPEED = 1.8
 
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance then
@@ -64,8 +64,20 @@ function Special:_enterADS(weaponInstance)
 		if not adsTrack then
 			adsTrack = weaponInstance.PlayWeaponTrack("Idle", ADS_TRACK_FADE)
 		end
-		if adsTrack and adsTrack.AdjustSpeed then
-			adsTrack:AdjustSpeed(ADS_TRACK_SPEED)
+		if adsTrack then
+			pcall(function()
+				adsTrack.Looped = true
+				adsTrack.TimePosition = 0
+			end)
+			if adsTrack.AdjustSpeed then
+				local trackSpeed = ADS_TRACK_SPEED
+				local targetDuration = config and tonumber(config.adsAnimationDuration)
+				local trackLength = tonumber(adsTrack.Length)
+				if targetDuration and targetDuration > 0 and trackLength and trackLength > 0 then
+					trackSpeed = math.max(trackLength / targetDuration, 0.01)
+				end
+				adsTrack:AdjustSpeed(trackSpeed)
+			end
 		end
 	end
 end

@@ -28,6 +28,54 @@ CharacterController._savedCameraMode = nil -- Saved camera mode before ragdoll
 -- Hitbox debug
 CharacterController._hitboxDebugEnabled = false
 CharacterController._remoteColliders = {} -- [character] = collider folder
+CharacterController._pendingCharacterResolve = {} -- [character] = true while retrying player resolution
+
+function CharacterController:_resolvePlayerForCharacter(character)
+	if not character then
+		return nil
+	end
+
+	local player = Players:GetPlayerFromCharacter(character)
+	if player then
+		return player
+	end
+
+	local ownerUserId = character:GetAttribute("OwnerUserId")
+	if type(ownerUserId) == "number" then
+		player = Players:GetPlayerByUserId(ownerUserId)
+		if player then
+			return player
+		end
+		for _, candidate in ipairs(Players:GetPlayers()) do
+			if candidate.UserId == ownerUserId then
+				return candidate
+			end
+		end
+	end
+
+	local ownerName = character:GetAttribute("OwnerName")
+	if type(ownerName) == "string" and ownerName ~= "" then
+		player = Players:FindFirstChild(ownerName)
+		if player then
+			return player
+		end
+	end
+
+	if type(character.Name) == "string" and character.Name ~= "" then
+		player = Players:FindFirstChild(character.Name)
+		if player then
+			return player
+		end
+	end
+
+	for _, candidate in ipairs(Players:GetPlayers()) do
+		if candidate.Character == character then
+			return candidate
+		end
+	end
+
+	return nil
+end
 
 function CharacterController:_applyRigCollisionFilters(character)
 	CharacterLocations:ForEachRigPart(character, function(part)
@@ -313,13 +361,33 @@ function CharacterController:_onCharacterSpawned(character)
 		return
 	end
 
-	local player = Players:GetPlayerFromCharacter(character)
+	local player = self:_resolvePlayerForCharacter(character)
 	if not player then
-		player = Players:FindFirstChild(character.Name)
-	end
-	if not player then
+		if not self._pendingCharacterResolve[character] then
+			self._pendingCharacterResolve[character] = true
+			task.spawn(function()
+				for _ = 1, 40 do
+					if not character or not character.Parent then
+						self._pendingCharacterResolve[character] = nil
+						return
+					end
+
+					local resolved = self:_resolvePlayerForCharacter(character)
+					if resolved then
+						self._pendingCharacterResolve[character] = nil
+						self:_onCharacterSpawned(character)
+						return
+					end
+
+					task.wait(0.1)
+				end
+
+				self._pendingCharacterResolve[character] = nil
+			end)
+		end
 		return
 	end
+	self._pendingCharacterResolve[character] = nil
 
 	if self._setupInProgress[character] then
 		return
@@ -446,11 +514,9 @@ function CharacterController:_onCharacterRemoving(character)
 	if not character then
 		return
 	end
+	self._pendingCharacterResolve[character] = nil
 
-	local player = Players:GetPlayerFromCharacter(character)
-	if not player then
-		player = Players:FindFirstChild(character.Name)
-	end
+	local player = self:_resolvePlayerForCharacter(character)
 	if not player then
 		return
 	end
@@ -713,9 +779,21 @@ function CharacterController:_setupRemoteCollider(character, characterTemplate)
 	collider.Name = "Collider"
 
 	-- Store owner info for hit detection
-	local player = Players:GetPlayerFromCharacter(character) or Players:FindFirstChild(character.Name)
+	local player = self:_resolvePlayerForCharacter(character)
 	if player then
 		collider:SetAttribute("OwnerUserId", player.UserId)
+		collider:SetAttribute("OwnerName", player.Name)
+	else
+		local ownerUserId = character:GetAttribute("OwnerUserId")
+		if type(ownerUserId) == "number" then
+			collider:SetAttribute("OwnerUserId", ownerUserId)
+		end
+		local ownerName = character:GetAttribute("OwnerName")
+		if type(ownerName) == "string" and ownerName ~= "" then
+			collider:SetAttribute("OwnerName", ownerName)
+		elseif type(character.Name) == "string" and character.Name ~= "" then
+			collider:SetAttribute("OwnerName", character.Name)
+		end
 	end
 
 	-- Get anchor part (Root for character, fallback to PrimaryPart)

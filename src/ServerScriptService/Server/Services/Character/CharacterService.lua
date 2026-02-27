@@ -267,6 +267,8 @@ function CharacterService:SpawnCharacter(player, options)
 	character.PrimaryPart = humanoidRootPart
 
 	player.Character = character
+	character:SetAttribute("OwnerUserId", player.UserId)
+	character:SetAttribute("OwnerName", player.Name)
 
 	local spawnPosition = options.spawnPosition or self:_getSpawnPosition()
 	if character.PrimaryPart then

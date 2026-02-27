@@ -34,6 +34,49 @@ local HitPartNames = SeraSchemas.EnumNames.HitPart
 local StanceNames = SeraSchemas.EnumNames.Stance
 local WeaponIdNames = SeraSchemas.EnumNames.WeaponId
 
+local function resolveTargetUserId(hitData)
+	if hitData.hitPlayer and hitData.hitPlayer:IsA("Player") then
+		return hitData.hitPlayer.UserId
+	end
+
+	local hitCharacter = hitData.hitCharacter
+	if hitCharacter and hitCharacter:IsA("Model") then
+		local ownerUserId = hitCharacter:GetAttribute("OwnerUserId")
+		if type(ownerUserId) == "number" then
+			return ownerUserId
+		end
+
+		local ownerName = hitCharacter:GetAttribute("OwnerName")
+		if type(ownerName) == "string" and ownerName ~= "" then
+			local ownerPlayer = Players:FindFirstChild(ownerName)
+			if ownerPlayer then
+				return ownerPlayer.UserId
+			end
+		end
+
+		if type(hitCharacter.Name) == "string" and hitCharacter.Name ~= "" then
+			local ownerPlayer = Players:FindFirstChild(hitCharacter.Name)
+			if ownerPlayer then
+				return ownerPlayer.UserId
+			end
+		end
+	end
+
+	local hitPart = hitData.hitPart
+	if hitPart and typeof(hitPart) == "Instance" then
+		local current = hitPart
+		while current and current ~= workspace do
+			local ownerUserId = current:GetAttribute("OwnerUserId")
+			if type(ownerUserId) == "number" then
+				return ownerUserId
+			end
+			current = current.Parent
+		end
+	end
+
+	return 0
+end
+
 -- =============================================================================
 -- HIT PART DETECTION
 -- =============================================================================
@@ -158,10 +201,7 @@ function HitPacketUtils:CreatePacket(hitData, weaponId)
 	end
 
 	-- Get target user ID (0 if not a player)
-	local targetUserId = 0
-	if hitData.hitPlayer and hitData.hitPlayer:IsA("Player") then
-		targetUserId = hitData.hitPlayer.UserId
-	end
+	local targetUserId = resolveTargetUserId(hitData)
 
 	-- Determine hit part type
 	local hitPartType = self:GetHitPartType(hitData.hitPart, hitData.isHeadshot)
@@ -208,10 +248,7 @@ function HitPacketUtils:CreateShotgunPacket(hitData, weaponId)
 		return nil
 	end
 
-	local targetUserId = 0
-	if hitData.hitPlayer and hitData.hitPlayer:IsA("Player") then
-		targetUserId = hitData.hitPlayer.UserId
-	end
+	local targetUserId = resolveTargetUserId(hitData)
 
 	local hitPartType = self:GetHitPartType(hitData.hitPart, hitData.isHeadshot)
 	local weaponIdNum = type(weaponId) == "number" and weaponId or self:GetWeaponId(weaponId)
