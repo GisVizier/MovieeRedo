@@ -1317,16 +1317,10 @@ end
 
 function AnimationController:_getLocalTrackTable()
 	local localPlayer = Players.LocalPlayer
-	-- In lobby: always use full-body base animations regardless of weapon mode
-	if localPlayer and localPlayer:GetAttribute("InLobby") == true then
-		return self.LocalAnimationTracks, nil
-	end
-	-- In game/match: use weapon (legs-only) animations when available
-	local useWeapon = self._weaponAnimMode
-	if not useWeapon then
-		useWeapon = localPlayer and localPlayer:GetAttribute("InLobby") == false
-	end
-	if useWeapon and next(self.WeaponAnimationTracks) then
+	local inLobby = localPlayer and localPlayer:GetAttribute("InLobby")
+	-- Only use weapon (legs-only) animations when InLobby is explicitly false (in game/match).
+	-- Lobby (InLobby == true) or unset (InLobby == nil) → full-body base animations.
+	if inLobby == false and next(self.WeaponAnimationTracks) then
 		return self.WeaponAnimationTracks, self.LocalAnimationTracks
 	end
 	return self.LocalAnimationTracks, nil
@@ -2053,13 +2047,10 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 		return false
 	end
 
-	-- Determine if this remote player is in weapon (legs-only) animation mode
-	-- In lobby: always use full-body base animations regardless of weapon mode
-	local localPlayer = Players.LocalPlayer
-	local inLobby = localPlayer and localPlayer:GetAttribute("InLobby") == true
-	local useWeaponAnims = not inLobby
-		and self.OtherCharacterWeaponMode[character] == true
-		and next(self.WeaponAnimationInstances) ~= nil
+	-- Only use weapon (legs-only) animations when InLobby is explicitly false (in game/match).
+	-- Lobby or unset → full-body base animations.
+	local inLobby = Players.LocalPlayer and Players.LocalPlayer:GetAttribute("InLobby")
+	local useWeaponAnims = inLobby == false and next(self.WeaponAnimationInstances) ~= nil
 
 	-- Pick the right track cache and animation instance table
 	local tracks, animInstances, jumpVariants
@@ -2162,6 +2153,25 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 	elseif not track.IsPlaying then
 		track:Play(settings.FadeInTime, settings.Weight, settings.Speed)
 		currentAnims[category] = track
+	end
+
+	-- Defensive cleanup: stop any stray/replicated tracks on this remote animator
+	-- to guarantee only ONE movement animation plays at a time.
+	local userId = targetPlayer.UserId
+	local rigTracks = self._rigAnimTracks[userId]
+	for _, pt in ipairs(animator:GetPlayingAnimationTracks()) do
+		if pt == track then continue end
+		-- Preserve Action overlay if we're not playing an Action
+		if category ~= "Action" and currentAnims.Action == pt then continue end
+		-- Preserve kit animation tracks (RigAnimationBroadcast system)
+		if rigTracks then
+			local isKit = false
+			for _, kt in pairs(rigTracks) do
+				if kt == pt then isKit = true break end
+			end
+			if isKit then continue end
+		end
+		pt:Stop(0.15)
 	end
 
 	return true

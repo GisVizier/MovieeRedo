@@ -108,6 +108,8 @@ function RemoteReplicator:Init(net)
 						if remoteData.WeaponManager then
 							remoteData.WeaponManager:UnequipWeapon()
 						end
+						-- Force animation re-application with base (lobby) tracks
+						remoteData.LastAppliedAnimationId = nil
 					end
 				else
 					-- Left lobby: re-equip weapons for all remote players
@@ -115,6 +117,8 @@ function RemoteReplicator:Init(net)
 						if remoteData.WeaponManager then
 							self:_equipRemoteWeapon(remoteData)
 						end
+						-- Force animation re-application with weapon (in-game) tracks
+						remoteData.LastAppliedAnimationId = nil
 					end
 				end
 			end
