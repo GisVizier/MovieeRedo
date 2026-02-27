@@ -22,6 +22,7 @@ local Debris = game:GetService("Debris")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local WallJumpUtils = require(Locations.Game.Movement:WaitForChild("WallJumpUtils"))
 local SlidingSystem = require(Locations.Game.Movement:WaitForChild("SlidingSystem"))
@@ -57,12 +58,22 @@ for name, config in pairs(ABILITY_SOUNDS) do
 end
 ContentProvider:PreloadAsync(preloadItems)
 
+local function assignSoundGroup(sound: Sound?, category: string)
+	if not sound or not sound:IsA("Sound") then
+		return
+	end
+	pcall(function()
+		SoundManager:registerSound(sound, category)
+	end)
+end
+
 local function playAbilitySound(soundName, parent)
 	local template = script:FindFirstChild(soundName)
 	if not template then return end
 
 	local sound = template:Clone()
 	sound.Parent = parent or workspace
+	assignSoundGroup(sound, "Guns")
 	sound:Play()
 	Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 end

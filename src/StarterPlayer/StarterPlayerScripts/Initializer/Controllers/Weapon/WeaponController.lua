@@ -1722,7 +1722,7 @@ function WeaponController:_playLocalWeaponSound(soundDef, pitch, slot, actionNam
 		return nil
 	end
 
-	local weaponSoundGroup = SoundService:FindFirstChild("Guns") or SoundService:FindFirstChild("SFX")
+	local weaponSoundGroup = SoundService:FindFirstChild("Player") or SoundService:FindFirstChild("SFX")
 	if weaponSoundGroup and weaponSoundGroup:IsA("SoundGroup") then
 		sound.SoundGroup = weaponSoundGroup
 	end

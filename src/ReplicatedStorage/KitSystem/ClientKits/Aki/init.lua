@@ -35,6 +35,7 @@ local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("Projectile
 local VFXRep = require(Locations.Game:WaitForChild("Replication"):WaitForChild("ReplicationModules"))
 local Dialogue = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -139,6 +140,15 @@ local function showSubtitle(text: string)
 	end)
 end
 
+local function assignSoundGroup(sound: Sound?, category: string)
+	if not sound or not sound:IsA("Sound") then
+		return
+	end
+	pcall(function()
+		SoundManager:registerSound(sound, category)
+	end)
+end
+
 local function playVoiceLine(voiceData: { soundId: string, text: string }, parent: Instance?)
 	local character = LocalPlayer.Character
 	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart or character:FindFirstChild("Root"))
@@ -151,6 +161,7 @@ local function playVoiceLine(voiceData: { soundId: string, text: string }, paren
 	sound.RollOffMode = Enum.RollOffMode.Linear
 	sound.RollOffMaxDistance = 50
 	sound.Parent = parent or root
+	assignSoundGroup(sound, "Voice")
 	if not sound.IsLoaded then
 		ContentProvider:PreloadAsync({ sound })
 	end
@@ -183,6 +194,7 @@ local function playStartSound(_viewmodelRig: any): Sound?
 
 	local sound = startSound:Clone()
 	sound.Parent = SoundService
+	assignSoundGroup(sound, "Guns")
 	sound:Play()
 
 	table.insert(activeSounds, sound)
@@ -198,6 +210,7 @@ local function playShootSound(_viewmodelRig: any): Sound?
 
 	local sound = shootSound:Clone()
 	sound.Parent = SoundService
+	assignSoundGroup(sound, "Guns")
 	sound:Play()
 
 	table.insert(activeSounds, sound)
@@ -218,6 +231,7 @@ local function playAbilityVoice(viewmodelRig: any): Sound?
 	sound.SoundId = voiceData.soundId
 	sound.Volume = 1
 	sound.Parent = rootPart
+	assignSoundGroup(sound, "Voice")
 	if not sound.IsLoaded then
 		ContentProvider:PreloadAsync({ sound })
 	end

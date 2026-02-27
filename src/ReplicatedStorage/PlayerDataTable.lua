@@ -14,6 +14,40 @@ local dataChangedCallbacks = {}
 local _initCount = 0
 local _updateCount = 0
 
+local function isValidUtf8(value: string): boolean
+	local ok, result = pcall(utf8.len, value)
+	return ok and result ~= nil
+end
+
+local function serializeForTransport(value: any): any
+	local valueType = typeof(value)
+
+	if valueType == "table" then
+		local out = {}
+		for k, v in value do
+			out[k] = serializeForTransport(v)
+		end
+		return out
+	end
+
+	if valueType == "EnumItem" then
+		return tostring(value)
+	end
+
+	if valueType == "string" then
+		if isValidUtf8(value) then
+			return value
+		end
+		return ""
+	end
+
+	if valueType == "number" or valueType == "boolean" or value == nil then
+		return value
+	end
+
+	return tostring(value)
+end
+
 local function deepClone(tbl)
 	if typeof(tbl) ~= "table" then
 		return tbl
@@ -511,7 +545,7 @@ function PlayerDataTable._savePathToServer(path: { string }, value: any)
 	end
 	local ok, net = pcall(getNet)
 	if ok and net and net.FireServer then
-		net:FireServer("PlayerDataUpdate", path, value)
+		net:FireServer("PlayerDataUpdate", path, serializeForTransport(value))
 	end
 end
 

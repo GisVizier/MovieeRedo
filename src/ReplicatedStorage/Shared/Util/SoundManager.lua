@@ -14,14 +14,9 @@ local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Con
 local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ViewmodelConfig"))
 
 local DEFAULT_GROUPS = {
-	Guns = { Volume = 0.8 },
-	Explosions = { Volume = 0.8 },
-	Movement = { Volume = 0.6 },
-	UI = { Volume = 0.6 },
-	Ambience = { Volume = 0.7 },
-	Music = { Volume = 0.7 },
-	Voice = { Volume = 1.0 },
-	SFX = { Volume = 0.8 },
+	Player = { Volume = 1.0 },
+	SFX = { Volume = 1.0 },
+	Music = { Volume = 0.4 },
 }
 
 local PRESET_DEFINITIONS = {
@@ -219,8 +214,13 @@ SoundManager._manualIndoor = nil
 SoundManager._occlusionEnabled = true
 SoundManager._environmentProcessingEnabled = true
 SoundManager._groupAliases = {
-	SFX = "Guns",
-	Weapon = "Guns",
+	Weapon = "Player",
+	Guns = "Player",
+	Movement = "Player",
+	Voice = "Player",
+	Explosions = "SFX",
+	UI = "SFX",
+	Ambience = "Music",
 }
 SoundManager._variationDefaults = {
 	PitchMin = 0.96,
@@ -292,7 +292,7 @@ end
 
 function SoundManager:_resolveGroupName(groupName)
 	if type(groupName) ~= "string" or groupName == "" then
-		return "Guns"
+		return "Player"
 	end
 	return self._groupAliases[groupName] or groupName
 end
@@ -305,10 +305,17 @@ function SoundManager:_getConfiguredGroups()
 		merged[name] = { Volume = data.Volume }
 	end
 	for name, data in pairs(fromConfig) do
+		local resolvedName = self:_resolveGroupName(name)
+		if name ~= resolvedName then
+			continue
+		end
+		if not DEFAULT_GROUPS[resolvedName] then
+			continue
+		end
 		if type(data) == "table" then
-			merged[name] = { Volume = data.Volume or (merged[name] and merged[name].Volume) or 1 }
+			merged[resolvedName] = { Volume = data.Volume or (merged[resolvedName] and merged[resolvedName].Volume) or 1 }
 		else
-			merged[name] = { Volume = (merged[name] and merged[name].Volume) or 1 }
+			merged[resolvedName] = { Volume = (merged[resolvedName] and merged[resolvedName].Volume) or 1 }
 		end
 	end
 
@@ -339,6 +346,22 @@ function SoundManager:_ensureAllGroups()
 	end
 	for groupName in pairs(DEFAULT_GROUPS) do
 		self:_ensureGroup(groupName)
+	end
+end
+
+function SoundManager:_pruneLegacyGroups()
+	local canonical = {}
+	for groupName in pairs(DEFAULT_GROUPS) do
+		canonical[groupName] = true
+	end
+
+	for _, child in ipairs(SoundService:GetChildren()) do
+		if child:IsA("SoundGroup") then
+			local resolved = self:_resolveGroupName(child.Name)
+			if resolved ~= child.Name and canonical[resolved] then
+				child:Destroy()
+			end
+		end
 	end
 end
 
@@ -796,6 +819,7 @@ function SoundManager:Init()
 	self._initialized = true
 
 	self:_ensureAllGroups()
+	self:_pruneLegacyGroups()
 	self:PreloadSounds()
 	self:_startEnvironmentWatcher()
 end

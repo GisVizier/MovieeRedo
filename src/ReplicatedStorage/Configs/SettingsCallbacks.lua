@@ -1705,6 +1705,26 @@ local function resolveAudioVolumeScale(value, fallbackPercent)
 	return percent / 100
 end
 
+local AudioMixState = {
+	master = resolveAudioVolumeScale(SettingsConfig.getDefaultValue("Audio", "MasterVolume"), 100),
+	sfx = resolveAudioVolumeScale(SettingsConfig.getDefaultValue("Audio", "SFXVolume"), 100),
+	music = resolveAudioVolumeScale(SettingsConfig.getDefaultValue("Audio", "MusicVolume"), 40),
+	player = resolveAudioVolumeScale(SettingsConfig.getDefaultValue("Audio", "PlayerSounds"), 100),
+}
+
+local function applyAudioMix()
+	SoundService.RespectFilteringEnabled = true
+	SoundService.Volume = math.clamp(AudioMixState.master, 0, 2)
+
+	local sfx = math.clamp(AudioMixState.sfx, 0, 2)
+	local music = math.clamp(AudioMixState.music, 0, 2)
+	local player = math.clamp(AudioMixState.player, 0, 2)
+
+	SoundManager:setGroupVolume("SFX", sfx)
+	SoundManager:setGroupVolume("Music", music)
+	SoundManager:setGroupVolume("Player", player)
+end
+
 local function applyDialogueMode(value)
 	local options = {
 		[1] = { subtitles = false, voice = false },
@@ -2016,30 +2036,23 @@ SettingsCallbacks.Callbacks = {
 
 	Audio = {
 		MasterVolume = function(value, oldValue)
-			SoundService.RespectFilteringEnabled = true
-			local volume = resolveAudioVolumeScale(value, 100)
-			SoundService.Volume = math.clamp(volume, 0, 2)
+			AudioMixState.master = resolveAudioVolumeScale(value, 100)
+			applyAudioMix()
 		end,
 
 		SFXVolume = function(value, oldValue)
-			local volume = resolveAudioVolumeScale(value, 100)
-			SoundManager:setGroupVolume("SFX", volume)
-			SoundManager:setGroupVolume("Guns", volume)
-			SoundManager:setGroupVolume("Explosions", volume)
-			SoundManager:setGroupVolume("UI", volume)
+			AudioMixState.sfx = resolveAudioVolumeScale(value, 100)
+			applyAudioMix()
 		end,
 
 		MusicVolume = function(value, oldValue)
-			local volume = resolveAudioVolumeScale(value, 40)
-			SoundManager:setGroupVolume("Music", volume)
-			SoundManager:setGroupVolume("Ambience", volume)
+			AudioMixState.music = resolveAudioVolumeScale(value, 40)
+			applyAudioMix()
 		end,
 
 		PlayerSounds = function(value, oldValue)
-			local volume = resolveAudioVolumeScale(value, 100)
-			SoundManager:setGroupVolume("Voice", volume)
-			SoundManager:setGroupVolume("Movement", volume)
-			SoundManager:setGroupVolume("Guns", volume)
+			AudioMixState.player = resolveAudioVolumeScale(value, 100)
+			applyAudioMix()
 		end,
 
 		DialogueMode = function(value, oldValue)

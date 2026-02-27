@@ -38,7 +38,7 @@ local PIVOT_RANDOM_OFFSET_BOUNDS = 1
 local STACKED_VERTICAL_STEP = 0.85
 local STACKED_ACCEPT_WINDOW = 0.07
 local ADD_MAX_TEXT_SIZE = 30
-local STACKED_TEXT_SIZE = 20
+local STACKED_TEXT_SIZE = 24
 
 local DAMAGE_NUMBERS_MODE_ADD = "Add"
 local DAMAGE_NUMBERS_MODE_DISABLED = "Disabled"
@@ -586,7 +586,7 @@ function DamageNumbers:_showStackedForTarget(targetUserId, position: Vector3, da
 		state.mainText.Text = tostring(amount)
 		state.mainText.TextScaled = false
 		state.mainText.TextSize = STACKED_TEXT_SIZE
-		state.mainText.TextXAlignment = Enum.TextXAlignment.Left
+		state.mainText.TextXAlignment = Enum.TextXAlignment.Center
 	end
 	self:_playSpawnAnimation(state, false)
 

@@ -36,6 +36,7 @@ local CollectionService = game:GetService("CollectionService")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local MovementStateManager = require(Locations.Game:WaitForChild("Movement"):WaitForChild("MovementStateManager"))
 local Hitbox = require(Locations.Shared.Util:WaitForChild("Hitbox"))
 local ProjectilePhysics = require(Locations.Shared.Util:WaitForChild("ProjectilePhysics"))
@@ -168,6 +169,15 @@ ContentProvider:PreloadAsync(preloadItems)
 local activeSounds = {}
 local chargeSound = nil
 
+local function assignSoundGroup(sound: Sound?, category: string)
+	if not sound or not sound:IsA("Sound") then
+		return
+	end
+	pcall(function()
+		SoundManager:registerSound(sound, category)
+	end)
+end
+
 local function playHitVoice()
 	-- Use the Dialogue system to play the hit voice line (handles sound + subtitles)
 	Dialogue.generate("HonoredOne", "Ability", "Hit", { override = true })
@@ -183,6 +193,7 @@ local function playStartSound(viewmodelRig: any): Sound?
 	
 	local sound = startSound:Clone()
 	sound.Parent = rootPart
+	assignSoundGroup(sound, "Guns")
 	sound:Play()
 	
 	table.insert(activeSounds, sound)
@@ -203,6 +214,7 @@ local function playShootSound(parent: Instance?): Sound?
 	
 	local sound = shootSound:Clone()
 	sound.Parent = parent or Workspace
+	assignSoundGroup(sound, "Guns")
 	sound:Play()
 	
 	table.insert(activeSounds, sound)
@@ -250,6 +262,7 @@ local function playExplosionSound(position: Vector3?): Sound?
 		end)
 	end
 
+	assignSoundGroup(sound, "Explosions")
 	sound:Play()
 	table.insert(activeSounds, sound)
 
@@ -291,6 +304,7 @@ local function playBlueStartSound(parent: Instance?): Sound?
 	
 	local sound = blueStartSound:Clone()
 	sound.Parent = parent or Workspace
+	assignSoundGroup(sound, "Guns")
 	sound:Play()
 	
 	table.insert(activeSounds, sound)

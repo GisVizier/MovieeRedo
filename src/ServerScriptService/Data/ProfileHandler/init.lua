@@ -21,6 +21,40 @@ local activePeekables: { [number]: ReplicaServer.Replica } = {}
 local activeProfiles = {}
 local _updateCount = 0
 
+local function isValidUtf8(value: string): boolean
+	local ok, result = pcall(utf8.len, value)
+	return ok and result ~= nil
+end
+
+local function serializeForDataStore(value: any): any
+	local valueType = typeof(value)
+
+	if valueType == "table" then
+		local out = {}
+		for k, v in value do
+			out[k] = serializeForDataStore(v)
+		end
+		return out
+	end
+
+	if valueType == "EnumItem" then
+		return tostring(value)
+	end
+
+	if valueType == "string" then
+		if isValidUtf8(value) then
+			return value
+		end
+		return ""
+	end
+
+	if valueType == "number" or valueType == "boolean" or value == nil then
+		return value
+	end
+
+	return tostring(value)
+end
+
 local function syncPeekable(userId: number, path: { string }, value: any)
 	local Peekable = activePeekables[userId]
 	if not Peekable then
@@ -276,10 +310,11 @@ Net:ConnectServer("PlayerDataUpdate", function(player, path, value)
 		return
 	end
 	local pathStr = table.concat(path, ".")
-	replica:Set(path, value)
-	syncPeekable(player.UserId, path, value)
+	local safeValue = serializeForDataStore(value)
+	replica:Set(path, safeValue)
+	syncPeekable(player.UserId, path, safeValue)
 	_updateCount += 1
-	print("[Data] Update #" .. _updateCount, player.Name, "|", pathStr, "=", tostring(value))
+	print("[Data] Update #" .. _updateCount, player.Name, "|", pathStr, "=", tostring(safeValue))
 end)
 
 return module

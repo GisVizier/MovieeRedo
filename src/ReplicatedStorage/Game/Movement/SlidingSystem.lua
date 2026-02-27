@@ -236,7 +236,7 @@ local function getSlideSoundDefinition()
 end
 
 local function getMovementSoundGroup()
-	local existing = SoundService:FindFirstChild("Movement")
+	local existing = SoundService:FindFirstChild("Player")
 	if existing and existing:IsA("SoundGroup") then
 		return existing
 	end

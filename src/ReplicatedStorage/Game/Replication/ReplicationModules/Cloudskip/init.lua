@@ -27,6 +27,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 local Util = require(script.Parent.Util)
 
@@ -144,6 +145,9 @@ function Cloudskip:User(originUserId, data)
 			sound.Volume = info.volume
 			sound.RollOffMaxDistance = 100
 			sound.Parent = root
+			pcall(function()
+				SoundManager:registerSound(sound, "Guns")
+			end)
 			sound:Play()
 			Debris:AddItem(sound, math.max(sound.TimeLength, 3) + 0.5)
 		end

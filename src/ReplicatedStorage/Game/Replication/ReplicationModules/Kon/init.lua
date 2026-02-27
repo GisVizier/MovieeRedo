@@ -42,6 +42,7 @@ local Util = require(script.Parent.Util)
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
+local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 
 local Kon = {}
 
@@ -854,6 +855,9 @@ function Kon:trapHitVoice(originUserId, data)
 	sound.SoundId = HIT_VOICE_LINE
 	sound.Volume = 1
 	sound.Parent = root
+	pcall(function()
+		SoundManager:registerSound(sound, "Voice")
+	end)
 	sound:Play()
 	Debris:AddItem(sound, 5)
 end

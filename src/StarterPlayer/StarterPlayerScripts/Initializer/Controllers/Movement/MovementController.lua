@@ -1880,7 +1880,7 @@ function CharacterController:EnsureFallSound()
 	sound.MaxDistance = definition.MaxDistance or 30
 	sound.Looped = true
 
-	local soundGroup = game:GetService("SoundService"):FindFirstChild("Movement")
+	local soundGroup = game:GetService("SoundService"):FindFirstChild("Player")
 	if soundGroup and soundGroup:IsA("SoundGroup") then
 		sound.SoundGroup = soundGroup
 	end

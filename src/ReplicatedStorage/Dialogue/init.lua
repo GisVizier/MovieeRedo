@@ -7,6 +7,16 @@ local Signal = require(ReplicatedStorage:WaitForChild("CoreUI"):WaitForChild("Si
 local Configs = ReplicatedStorage:WaitForChild("Configs")
 local DialogueConfig = require(Configs:WaitForChild("DialogueConfig"))
 
+local SoundManager = nil
+do
+	local ok, module = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("SoundManager"))
+	end)
+	if ok then
+		SoundManager = module
+	end
+end
+
 local Dialogue = {}
 Dialogue.__index = Dialogue
 
@@ -454,6 +464,24 @@ local function waitForSound(sound: Sound, token: {[any]: any}?, maxWait: number?
 	end
 end
 
+local function applyVoiceSoundGroup(sound: Sound?)
+	if not sound or not sound:IsA("Sound") then
+		return
+	end
+
+	if SoundManager and type(SoundManager.registerSound) == "function" then
+		pcall(function()
+			SoundManager:registerSound(sound, "Voice")
+		end)
+		return
+	end
+
+	local voiceGroup = SoundService:FindFirstChild("Player")
+	if voiceGroup and voiceGroup:IsA("SoundGroup") then
+		sound.SoundGroup = voiceGroup
+	end
+end
+
 local function playSoundInstance(sound: Sound?, member: {[any]: any}?, options: {[any]: any}?, token: {[any]: any}?): Sound?
 	if not sound then
 		return nil
@@ -467,6 +495,7 @@ local function playSoundInstance(sound: Sound?, member: {[any]: any}?, options: 
 			routed = result
 		end
 		if routed then
+			applyVoiceSoundGroup(routed)
 			if token then
 				token.sound = routed
 			end
@@ -476,6 +505,7 @@ local function playSoundInstance(sound: Sound?, member: {[any]: any}?, options: 
 	local soundClone = sound:Clone()
 	local parent = getSoundParent(member, options)
 	soundClone.Parent = parent
+	applyVoiceSoundGroup(soundClone)
 
 	-- Wait for sound asset to load before playing (prevents silent playback)
 	if not soundClone.IsLoaded then

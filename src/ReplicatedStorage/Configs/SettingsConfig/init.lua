@@ -1012,28 +1012,89 @@ SettingsConfig.Categories = {
 		DisplayName = "Controls",
 		Order = 2,
 		Settings = {
-			Sprint = {
-				Name = "Sprint",
-				Description = "Keybind for sprinting to move faster while active.",
-				Order = 11,
+			DividerMovement = {
+				Name = "MOVEMENT",
+				Description = "Movement input bindings.",
+				Order = 1,
+				SettingType = "divider",
+			},
+
+			MoveForward = {
+				Name = "Walk Forward",
+				Description = "Keybind for moving forward.",
+				Order = 2,
 				SettingType = "keybind",
-				Action = "Sprint",
+				Action = "MoveForward",
 				Bind = {
-					PC = Enum.KeyCode.LeftShift,
-					PC2 = Enum.KeyCode.RightShift,
-					Console = Enum.KeyCode.ButtonL3,
+					PC = Enum.KeyCode.W,
+					PC2 = nil,
+					Console = nil,
 				},
 				DefaultBind = {
-					PC = Enum.KeyCode.LeftShift,
-					PC2 = Enum.KeyCode.RightShift,
-					Console = Enum.KeyCode.ButtonL3,
+					PC = Enum.KeyCode.W,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
+			MoveBackward = {
+				Name = "Walk Back",
+				Description = "Keybind for moving backward.",
+				Order = 3,
+				SettingType = "keybind",
+				Action = "MoveBackward",
+				Bind = {
+					PC = Enum.KeyCode.S,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.S,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
+			MoveLeft = {
+				Name = "Walk Left",
+				Description = "Keybind for moving left.",
+				Order = 4,
+				SettingType = "keybind",
+				Action = "MoveLeft",
+				Bind = {
+					PC = Enum.KeyCode.A,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.A,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
+			MoveRight = {
+				Name = "Walk Right",
+				Description = "Keybind for moving right.",
+				Order = 5,
+				SettingType = "keybind",
+				Action = "MoveRight",
+				Bind = {
+					PC = Enum.KeyCode.D,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.D,
+					PC2 = nil,
+					Console = nil,
 				},
 			},
 
 			Jump = {
 				Name = "Jump",
 				Description = "Keybind for jumping and movement tech actions.",
-				Order = 12,
+				Order = 6,
 				SettingType = "keybind",
 				Action = "Jump",
 				Bind = {
@@ -1048,10 +1109,46 @@ SettingsConfig.Categories = {
 				},
 			},
 
+			Slide = {
+				Name = "Slide",
+				Description = "Keybind for sliding.",
+				Order = 7,
+				SettingType = "keybind",
+				Action = "Slide",
+				Bind = {
+					PC = Enum.KeyCode.V,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonR3,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.V,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonR3,
+				},
+			},
+
+			Sprint = {
+				Name = "Sprint",
+				Description = "Keybind for sprinting to move faster while active.",
+				Order = 8,
+				SettingType = "keybind",
+				Action = "Sprint",
+				Bind = {
+					PC = Enum.KeyCode.LeftShift,
+					PC2 = Enum.KeyCode.RightShift,
+					Console = Enum.KeyCode.ButtonL3,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.LeftShift,
+					PC2 = Enum.KeyCode.RightShift,
+					Console = Enum.KeyCode.ButtonL3,
+				},
+			},
+
 			Crouch = {
 				Name = "Crouch",
 				Description = "Keybind for crouching to lower profile and movement noise.",
-				Order = 13,
+				Order = 9,
 				SettingType = "keybind",
 				Action = "Crouch",
 				Bind = {
@@ -1066,10 +1163,107 @@ SettingsConfig.Categories = {
 				},
 			},
 
+			DividerCombat = {
+				Name = "COMBAT",
+				Description = "Combat input bindings.",
+				Order = 20,
+				SettingType = "divider",
+			},
+
+			Fire = {
+				Name = "Fire / Attack",
+				Description = "Keybind for firing your weapon.",
+				Order = 21,
+				SettingType = "keybind",
+				Action = "Fire",
+				Bind = {
+					PC = Enum.UserInputType.MouseButton1,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonR2,
+				},
+				DefaultBind = {
+					PC = Enum.UserInputType.MouseButton1,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonR2,
+				},
+			},
+
+			Special = {
+				Name = "ADS / Special",
+				Description = "Keybind for aiming down sights and special input.",
+				Order = 22,
+				SettingType = "keybind",
+				Action = "Special",
+				Bind = {
+					PC = Enum.UserInputType.MouseButton2,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonL2,
+				},
+				DefaultBind = {
+					PC = Enum.UserInputType.MouseButton2,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonL2,
+				},
+			},
+
+			Reload = {
+				Name = "Reload",
+				Description = "Keybind for reloading your weapon.",
+				Order = 23,
+				SettingType = "keybind",
+				Action = "Reload",
+				Bind = {
+					PC = Enum.KeyCode.R,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonX,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.R,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonX,
+				},
+			},
+
+			QuickMelee = {
+				Name = "Quick Melee",
+				Description = "Keybind for quick melee attacks.",
+				Order = 24,
+				SettingType = "keybind",
+				Action = "QuickMelee",
+				Bind = {
+					PC = Enum.KeyCode.F,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonY,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.F,
+					PC2 = nil,
+					Console = Enum.KeyCode.ButtonY,
+				},
+			},
+
+			Inspect = {
+				Name = "Inspect Weapon",
+				Description = "Keybind for weapon inspect.",
+				Order = 25,
+				SettingType = "keybind",
+				Action = "Inspect",
+				Bind = {
+					PC = Enum.KeyCode.T,
+					PC2 = nil,
+					Console = nil,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.T,
+					PC2 = nil,
+					Console = nil,
+				},
+			},
+
 			Ability = {
 				Name = "Use Ability",
 				Description = "Keybind for your kit's primary ability.",
-				Order = 14,
+				Order = 26,
 				SettingType = "keybind",
 				Action = "Ability",
 				Bind = {
@@ -1087,7 +1281,7 @@ SettingsConfig.Categories = {
 			Ultimate = {
 				Name = "Use Ultimate",
 				Description = "Keybind for activating your ultimate ability.",
-				Order = 15,
+				Order = 27,
 				SettingType = "keybind",
 				Action = "Ultimate",
 				Bind = {
@@ -1105,7 +1299,7 @@ SettingsConfig.Categories = {
 			Interact = {
 				Name = "Interact",
 				Description = "Keybind for interacting with world objects and pickups.",
-				Order = 16,
+				Order = 28,
 				SettingType = "keybind",
 				Action = "Interact",
 				Bind = {
@@ -1120,40 +1314,17 @@ SettingsConfig.Categories = {
 				},
 			},
 
-			Emotes = {
-				Name = "Emote Wheel",
-				Description = "Keybind for opening the emote wheel.",
-				Order = 17,
-				SettingType = "keybind",
-				Action = "Emotes",
-				Bind = {
-					PC = Enum.KeyCode.B,
-					PC2 = nil,
-					Console = Enum.KeyCode.DPadDown,
-				},
-				DefaultBind = {
-					PC = Enum.KeyCode.B,
-					PC2 = nil,
-					Console = Enum.KeyCode.DPadDown,
-				},
-			},
-
-			EmoteWheelMode = {
-				Name = "Emote Wheel Mode",
-				Description = "Chooses whether emote wheel input is hold-to-open or toggle-on/toggle-off.",
-				Order = 18,
-				SettingType = "toggle",
-				Options = {
-					{ Display = "Hold", Value = "Hold" },
-					{ Display = "Toggle", Value = "Toggle" },
-				},
-				Default = 1,
+			DividerWeapons = {
+				Name = "WEAPONS",
+				Description = "Weapon slot and cycling bindings.",
+				Order = 40,
+				SettingType = "divider",
 			},
 
 			EquipPrimary = {
 				Name = "Equip Primary",
 				Description = "Keybind for equipping your primary weapon slot.",
-				Order = 19,
+				Order = 41,
 				SettingType = "keybind",
 				Action = "EquipPrimary",
 				Bind = {
@@ -1171,7 +1342,7 @@ SettingsConfig.Categories = {
 			EquipSecondary = {
 				Name = "Equip Secondary",
 				Description = "Keybind for equipping your secondary weapon slot.",
-				Order = 19.1,
+				Order = 42,
 				SettingType = "keybind",
 				Action = "EquipSecondary",
 				Bind = {
@@ -1189,7 +1360,7 @@ SettingsConfig.Categories = {
 			EquipMelee = {
 				Name = "Equip Melee",
 				Description = "Keybind for equipping your melee weapon slot.",
-				Order = 19.2,
+				Order = 43,
 				SettingType = "keybind",
 				Action = "EquipMelee",
 				Bind = {
@@ -1207,7 +1378,7 @@ SettingsConfig.Categories = {
 			CycleWeaponLeft = {
 				Name = "Cycle Weapon Left",
 				Description = "Keybind for cycling to the previous available weapon.",
-				Order = 19.3,
+				Order = 44,
 				SettingType = "keybind",
 				Action = "CycleWeaponLeft",
 				Bind = {
@@ -1225,8 +1396,8 @@ SettingsConfig.Categories = {
 			CycleWeaponRight = {
 				Name = "Cycle Weapon Right",
 				Description = "Keybind for cycling to the next available weapon.",
-				Order = 19.4,
-				SettingType = "slider",
+				Order = 45,
+				SettingType = "keybind",
 				Action = "CycleWeaponRight",
 				Bind = {
 					PC = nil,
@@ -1238,6 +1409,43 @@ SettingsConfig.Categories = {
 					PC2 = nil,
 					Console = Enum.KeyCode.ButtonR1,
 				},
+			},
+
+			DividerSocial = {
+				Name = "SOCIAL",
+				Description = "Social and wheel controls.",
+				Order = 60,
+				SettingType = "divider",
+			},
+
+			Emotes = {
+				Name = "Emote Wheel",
+				Description = "Keybind for opening the emote wheel.",
+				Order = 61,
+				SettingType = "keybind",
+				Action = "Emotes",
+				Bind = {
+					PC = Enum.KeyCode.B,
+					PC2 = nil,
+					Console = Enum.KeyCode.DPadDown,
+				},
+				DefaultBind = {
+					PC = Enum.KeyCode.B,
+					PC2 = nil,
+					Console = Enum.KeyCode.DPadDown,
+				},
+			},
+
+			EmoteWheelMode = {
+				Name = "Emote Wheel Mode",
+				Description = "Chooses whether emote wheel input is hold-to-open or toggle-on/toggle-off.",
+				Order = 62,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Hold", Value = "Hold" },
+					{ Display = "Toggle", Value = "Toggle" },
+				},
+				Default = 1,
 			},
 		},
 	},
@@ -1754,6 +1962,26 @@ SettingsConfig.DefaultSettings = {
 		AutoShootMode = 1,
 		AutoShootReactionTime = 25,
 		AimAssistStrength = 0.5,
+		MoveForward = {
+			PC = Enum.KeyCode.W,
+			PC2 = nil,
+			Console = nil,
+		},
+		MoveBackward = {
+			PC = Enum.KeyCode.S,
+			PC2 = nil,
+			Console = nil,
+		},
+		MoveLeft = {
+			PC = Enum.KeyCode.A,
+			PC2 = nil,
+			Console = nil,
+		},
+		MoveRight = {
+			PC = Enum.KeyCode.D,
+			PC2 = nil,
+			Console = nil,
+		},
 		Sprint = {
 			PC = Enum.KeyCode.LeftShift,
 			PC2 = Enum.KeyCode.RightShift,
@@ -1764,10 +1992,40 @@ SettingsConfig.DefaultSettings = {
 			PC2 = nil,
 			Console = Enum.KeyCode.ButtonA,
 		},
+		Slide = {
+			PC = Enum.KeyCode.V,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonR3,
+		},
 		Crouch = {
 			PC = Enum.KeyCode.LeftControl,
 			PC2 = Enum.KeyCode.C,
 			Console = Enum.KeyCode.ButtonB,
+		},
+		Fire = {
+			PC = Enum.UserInputType.MouseButton1,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonR2,
+		},
+		Special = {
+			PC = Enum.UserInputType.MouseButton2,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonL2,
+		},
+		Reload = {
+			PC = Enum.KeyCode.R,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonX,
+		},
+		QuickMelee = {
+			PC = Enum.KeyCode.F,
+			PC2 = nil,
+			Console = Enum.KeyCode.ButtonY,
+		},
+		Inspect = {
+			PC = Enum.KeyCode.T,
+			PC2 = nil,
+			Console = nil,
 		},
 		Ability = {
 			PC = Enum.KeyCode.E,

@@ -121,8 +121,43 @@ local USER_INPUT_LABEL_OVERRIDES = {
 	[Enum.UserInputType.MouseButton2] = "M2",
 	[Enum.UserInputType.MouseButton3] = "M3",
 }
+local ACTION_KEY_ALIASES = {
+	Ability = { "Ability", "ControllerAbility" },
+	QuickMelee = { "QuickMelee", "ControllerQuickMelee" },
+	Ultimate = { "Ultimate", "ControllerUltimate" },
+	Reload = { "Reload", "ControllerReload" },
+	Fire = { "Fire", "ControllerFire" },
+	Special = { "Special", "ControllerSpecial" },
+}
+local BUMPER_BIND_ACTIONS = {
+	Lb = "CycleWeaponLeft",
+	Rb = "CycleWeaponRight",
+}
+local BUMPER_FALLBACK_BINDS = {
+	Lb = Enum.KeyCode.ButtonL1,
+	Rb = Enum.KeyCode.ButtonR1,
+}
 local COUNTER_DISCONNECTED_COLOR = Color3.fromRGB(0, 0, 0)
 local COUNTER_DEAD_COLOR = Color3.fromRGB(90, 90, 90)
+local InputIcons = nil
+local InputIconsMode = "none"
+local inputIconCache = {}
+
+do
+	local shared = ReplicatedStorage:FindFirstChild("Shared")
+	local util = shared and shared:FindFirstChild("Util")
+	local inputIconsModule = util and util:FindFirstChild("InputIcons")
+	if inputIconsModule then
+		local ok, resolver = pcall(require, inputIconsModule)
+		if ok and type(resolver) == "function" then
+			InputIcons = resolver
+			InputIconsMode = "function"
+		elseif ok and type(resolver) == "table" then
+			InputIcons = resolver
+			InputIconsMode = "table"
+		end
+	end
+end
 
 local function cancelTweens(key)
 	if currentTweens[key] then
@@ -205,9 +240,146 @@ local function getScoreFromLabel(label)
 	return 0
 end
 
+local function toAssetId(asset)
+	if typeof(asset) == "number" then
+		return "rbxassetid://" .. tostring(asset)
+	end
+	if typeof(asset) ~= "string" then
+		return nil
+	end
+	if asset == "" then
+		return nil
+	end
+	if string.find(asset, "rbxassetid://", 1, true) then
+		return asset
+	end
+	if string.match(asset, "^%d+$") then
+		return "rbxassetid://" .. asset
+	end
+	return asset
+end
+
+local function normalizeBindValue(bindValue)
+	local function enumLookup(enumType, memberName)
+		if type(memberName) ~= "string" or memberName == "" then
+			return nil
+		end
+
+		local ok, value = pcall(function()
+			return enumType[memberName]
+		end)
+		if ok then
+			return value
+		end
+		return nil
+	end
+
+	if typeof(bindValue) == "EnumItem" then
+		return bindValue
+	end
+
+	if type(bindValue) == "string" then
+		local memberName = bindValue:match("Enum%.[%w_]+%.([%w_]+)$") or bindValue
+		local asKeyCode = enumLookup(Enum.KeyCode, memberName)
+		if asKeyCode then
+			return asKeyCode
+		end
+		local asInputType = enumLookup(Enum.UserInputType, memberName)
+		if asInputType then
+			return asInputType
+		end
+		return bindValue
+	end
+
+	if type(bindValue) == "table" and type(bindValue.Name) == "string" then
+		local memberName = bindValue.Name:match("Enum%.[%w_]+%.([%w_]+)$") or bindValue.Name
+		local asKeyCode = enumLookup(Enum.KeyCode, memberName)
+		if asKeyCode then
+			return asKeyCode
+		end
+		local asInputType = enumLookup(Enum.UserInputType, memberName)
+		if asInputType then
+			return asInputType
+		end
+	end
+
+	return bindValue
+end
+
+local function getBindCacheKey(bindValue)
+	local normalized = normalizeBindValue(bindValue)
+	local valueType = typeof(normalized)
+	if valueType == "EnumItem" then
+		return "enum:" .. tostring(normalized), normalized
+	end
+	if valueType == "string" then
+		return "string:" .. normalized, normalized
+	end
+	return "other:" .. tostring(normalized), normalized
+end
+
+local function getInputIconAsset(bindValue)
+	if not InputIcons or bindValue == nil then
+		return nil
+	end
+
+	local cacheKey, normalized = getBindCacheKey(bindValue)
+	local cached = inputIconCache[cacheKey]
+	if cached ~= nil then
+		return cached or nil
+	end
+
+	local image = nil
+	if InputIconsMode == "function" then
+		local ok, result = pcall(InputIcons, normalized, "Filled")
+		if ok and typeof(result) == "string" and result ~= "" then
+			image = result
+		end
+	elseif InputIconsMode == "table" then
+		local isGamepad = false
+		if typeof(normalized) == "EnumItem" and normalized.EnumType == Enum.KeyCode then
+			local keyName = normalized.Name
+			isGamepad = keyName:match("^Button") ~= nil or keyName:match("^DPad") ~= nil or keyName == "Menu"
+		end
+
+		local deviceKey = isGamepad and "Gamepad" or "Keyboard"
+		local light = InputIcons.Light
+		local dark = InputIcons.Dark
+		local fromLight = type(light) == "table" and type(light[deviceKey]) == "table" and light[deviceKey][normalized] or nil
+		local fromDark = type(dark) == "table" and type(dark[deviceKey]) == "table" and dark[deviceKey][normalized] or nil
+		if typeof(fromLight) == "string" and fromLight ~= "" then
+			image = fromLight
+		elseif typeof(fromDark) == "string" and fromDark ~= "" then
+			image = fromDark
+		end
+	end
+
+	local contentId = toAssetId(image)
+	if contentId == nil then
+		inputIconCache[cacheKey] = false
+		return nil
+	end
+
+	inputIconCache[cacheKey] = contentId
+	return contentId
+end
+
 function module:_isControllerInputActive()
 	local lastInputType = UserInputService:GetLastInputType()
 	return CONTROLLER_INPUT_TYPES[lastInputType] == true
+end
+
+function module:_getActionKeyCandidates(actionKey, isController)
+	if not isController then
+		return { actionKey }
+	end
+
+	local aliases = ACTION_KEY_ALIASES[actionKey]
+	if type(aliases) == "table" and #aliases > 0 then
+		return aliases
+	end
+
+	return { actionKey }
 end
 
 function module:_formatKeybindLabel(keybind)
@@ -230,37 +402,60 @@ function module:_formatKeybindLabel(keybind)
 	end
 
 	if type(keybind) == "string" then
-		return keybind
+		return ActionsIcon.getKeyDisplayName(keybind)
 	end
 
 	return ""
 end
 
 function module:_getActionKeyLabel(actionKey, fallback)
+	local isController = self:_isControllerInputActive()
+	local primarySlot = isController and "Console" or "PC"
+	local secondarySlot = isController and nil or "PC2"
+	local keyCandidates = self:_getActionKeyCandidates(actionKey, isController)
+
+	for _, candidateKey in ipairs(keyCandidates) do
+		local primaryBound = PlayerDataTable.getBind(candidateKey, primarySlot)
+		local primaryBoundLabel = self:_formatKeybindLabel(primaryBound)
+		if primaryBoundLabel ~= "" and primaryBoundLabel ~= "NONE" then
+			return primaryBoundLabel
+		end
+
+		if secondarySlot then
+			local secondaryBound = PlayerDataTable.getBind(candidateKey, secondarySlot)
+			local secondaryBoundLabel = self:_formatKeybindLabel(secondaryBound)
+			if secondaryBoundLabel ~= "" and secondaryBoundLabel ~= "NONE" then
+				return secondaryBoundLabel
+			end
+		end
+	end
+
 	local controls = SharedConfig and SharedConfig.Controls
 	if not controls then
 		return fallback or ""
 	end
 
-	local keybinds = self:_isControllerInputActive() and controls.CustomizableControllerKeybinds
+	local keybinds = isController and controls.CustomizableControllerKeybinds
 		or controls.CustomizableKeybinds
 	if type(keybinds) ~= "table" then
 		return fallback or ""
 	end
 
 	for _, keybindInfo in ipairs(keybinds) do
-		if keybindInfo.Key == actionKey then
-			local primaryLabel = self:_formatKeybindLabel(keybindInfo.DefaultPrimary)
-			if primaryLabel ~= "" then
-				return primaryLabel
-			end
+		for _, candidateKey in ipairs(keyCandidates) do
+			if keybindInfo.Key == candidateKey then
+				local primaryLabel = self:_formatKeybindLabel(keybindInfo.DefaultPrimary)
+				if primaryLabel ~= "" then
+					return primaryLabel
+				end
 
-			local secondaryLabel = self:_formatKeybindLabel(keybindInfo.DefaultSecondary)
-			if secondaryLabel ~= "" then
-				return secondaryLabel
-			end
+				local secondaryLabel = self:_formatKeybindLabel(keybindInfo.DefaultSecondary)
+				if secondaryLabel ~= "" then
+					return secondaryLabel
+				end
 
-			break
+				break
+			end
 		end
 	end
 
@@ -1939,6 +2134,10 @@ function module:_cacheWeaponUI()
 				self._bumperInfoFrame = infoFrame
 				self._bumperLb = lb
 				self._bumperRb = rb
+				self._bumperDefaultImages = {
+					Lb = lb and lb.Image or nil,
+					Rb = rb and rb.Image or nil,
+				}
 				-- Keep Lb/Rb hidden by default; visibility toggled by _updateBumperVisibility
 				if lb then
 					lb.Visible = false
@@ -2530,7 +2729,23 @@ function module:_isControllerActive()
 		or lastInput == Enum.UserInputType.Gamepad4
 end
 
+function module:_updateBumperIcons()
+	local defaults = self._bumperDefaultImages or {}
+	local leftBind = PlayerDataTable.getBind(BUMPER_BIND_ACTIONS.Lb, "Console") or BUMPER_FALLBACK_BINDS.Lb
+	local rightBind = PlayerDataTable.getBind(BUMPER_BIND_ACTIONS.Rb, "Console") or BUMPER_FALLBACK_BINDS.Rb
+	local leftIcon = getInputIconAsset(leftBind) or defaults.Lb
+	local rightIcon = getInputIconAsset(rightBind) or defaults.Rb
+
+	if self._bumperLb and leftIcon then
+		self._bumperLb.Image = leftIcon
+	end
+	if self._bumperRb and rightIcon then
+		self._bumperRb.Image = rightIcon
+	end
+end
+
 function module:_updateBumperVisibility()
+	self:_updateBumperIcons()
 	local isController = self:_isControllerActive()
 
 	-- Toggle Lb/Rb icons individually (the parent Info frame holds other always-visible content)
@@ -2937,6 +3152,87 @@ function module:_clearActions()
 	end
 end
 
+function module:_getActionBind(actionKey)
+	local isController = self:_isControllerInputActive()
+	local primarySlot = isController and "Console" or "PC"
+	local secondarySlot = isController and nil or "PC2"
+	local keyCandidates = self:_getActionKeyCandidates(actionKey, isController)
+
+	for _, candidateKey in ipairs(keyCandidates) do
+		local primaryBound = PlayerDataTable.getBind(candidateKey, primarySlot)
+		if primaryBound ~= nil then
+			return primaryBound
+		end
+
+		if secondarySlot then
+			local secondaryBound = PlayerDataTable.getBind(candidateKey, secondarySlot)
+			if secondaryBound ~= nil then
+				return secondaryBound
+			end
+		end
+	end
+
+	local controls = SharedConfig and SharedConfig.Controls
+	if not controls then
+		return nil
+	end
+
+	local keybinds = isController and controls.CustomizableControllerKeybinds
+		or controls.CustomizableKeybinds
+	if type(keybinds) ~= "table" then
+		return nil
+	end
+
+	for _, keybindInfo in ipairs(keybinds) do
+		for _, candidateKey in ipairs(keyCandidates) do
+			if keybindInfo.Key == candidateKey then
+				if keybindInfo.DefaultPrimary ~= nil then
+					return keybindInfo.DefaultPrimary
+				end
+				if keybindInfo.DefaultSecondary ~= nil then
+					return keybindInfo.DefaultSecondary
+				end
+				break
+			end
+		end
+	end
+
+	return nil
+end
+
+function module:_setupControlsBindingListener()
+	if self._controlsChangedDisconnect then
+		self._controlsChangedDisconnect()
+		self._controlsChangedDisconnect = nil
+	end
+
+	local watchedKeys = {
+		Ability = true,
+		ControllerAbility = true,
+		QuickMelee = true,
+		ControllerQuickMelee = true,
+		CycleWeaponLeft = true,
+		CycleWeaponRight = true,
+	}
+
+	self._controlsChangedDisconnect = PlayerDataTable.onChanged(function(category, key)
+		if category ~= "Controls" or not watchedKeys[key] then
+			return
+		end
+
+		self:_updateBumperVisibility()
+
+		local slot = self._selectedSlot
+		if not slot and self._viewedPlayer then
+			slot = self._viewedPlayer:GetAttribute("EquippedSlot") or "Primary"
+		end
+
+		if slot and slot ~= "Kit" then
+			self:_populateActions(slot)
+		end
+	end)
+end
+
 function module:_getActionList(slotType, weaponData)
 	local actions = {}
 	if not slotType or slotType == "Kit" then
@@ -2969,6 +3265,7 @@ function module:_getActionList(slotType, weaponData)
 			id = "QuickMelee",
 			label = "QUICK MELEE",
 			key = self:_getActionKeyLabel("QuickMelee", "F"),
+			bindAction = "QuickMelee",
 		})
 	end
 
@@ -2977,6 +3274,7 @@ function module:_getActionList(slotType, weaponData)
 			id = "QuickAbility",
 			label = "USE ABILITY",
 			key = self:_getActionKeyLabel("Ability", "E"),
+			bindAction = "Ability",
 		})
 	end
 
@@ -3006,10 +3304,72 @@ function module:_populateActions(slotType)
 			actionLabel.Text = action.label
 		end
 
-		local inputFrame = contentFrame and contentFrame:FindFirstChild("InputFrame")
-		local keyLabel = inputFrame and inputFrame:FindFirstChild("KeyboardImageLabel")
-		keyLabel = keyLabel and keyLabel:FindFirstChild("ActionLabel")
-		if keyLabel and keyLabel:IsA("TextLabel") then
+		local inputFrame = nil
+		local legacyInputFrame = nil
+		if contentFrame then
+			for _, child in ipairs(contentFrame:GetChildren()) do
+				if child.Name == "InputFrame" then
+					if child:IsA("ImageLabel") then
+						inputFrame = child
+						break
+					elseif child:IsA("Frame") and not legacyInputFrame then
+						legacyInputFrame = child
+					end
+				end
+			end
+		end
+		if not inputFrame then
+			inputFrame = legacyInputFrame
+		end
+		if legacyInputFrame and inputFrame ~= legacyInputFrame then
+			legacyInputFrame.Visible = false
+		end
+
+		local keyContainer = inputFrame and inputFrame:IsA("Frame") and inputFrame:FindFirstChild("KeyboardImageLabel")
+			or nil
+		local keyLabel = keyContainer and keyContainer:FindFirstChild("ActionLabel")
+		local boundInput = action.bindAction and self:_getActionBind(action.bindAction) or nil
+		local inputIcon = getInputIconAsset(boundInput)
+
+		if inputFrame and inputFrame:IsA("ImageLabel") then
+			if inputIcon then
+				inputFrame.Image = inputIcon
+				inputFrame.Visible = true
+			else
+				inputFrame.Visible = false
+			end
+		elseif keyContainer and keyContainer:IsA("ImageLabel") then
+			local iconImage = keyContainer:FindFirstChild("Icon")
+			if iconImage and not iconImage:IsA("ImageLabel") then
+				iconImage:Destroy()
+				iconImage = nil
+			end
+			if not iconImage then
+				iconImage = Instance.new("ImageLabel")
+				iconImage.Name = "Icon"
+				iconImage.AnchorPoint = Vector2.new(0.5, 0.5)
+				iconImage.BackgroundTransparency = 1
+				iconImage.BorderSizePixel = 0
+				iconImage.Position = UDim2.fromScale(0.5, 0.5)
+				iconImage.Size = UDim2.fromScale(0.85, 0.85)
+				iconImage.ZIndex = keyContainer.ZIndex + 1
+				iconImage.Parent = keyContainer
+			end
+
+			if inputIcon then
+				iconImage.Image = inputIcon
+				iconImage.Visible = true
+				if keyLabel and keyLabel:IsA("TextLabel") then
+					keyLabel.Visible = false
+				end
+			else
+				iconImage.Visible = false
+				if keyLabel and keyLabel:IsA("TextLabel") then
+					keyLabel.Visible = true
+					keyLabel.Text = action.key
+				end
+			end
+		elseif keyLabel and keyLabel:IsA("TextLabel") then
 			keyLabel.Text = action.key
 		end
 	end
@@ -3573,6 +3933,7 @@ function module:_init()
 		self:_setupWeaponConnections()
 		self:_refreshWeaponData()
 		self:_updateBumperVisibility()
+		self:_setupControlsBindingListener()
 		return
 	end
 
@@ -3584,6 +3945,7 @@ function module:_init()
 	self:_setupWeaponConnections()
 	self:_refreshWeaponData()
 	self:_setupBumperConnections()
+	self:_setupControlsBindingListener()
 end
 
 function module:show()
@@ -3647,6 +4009,10 @@ function module:_cleanup()
 	self._connections:cleanupGroup("hud_ult")
 	self._connections:cleanupGroup("hud_weapons")
 	self._connections:cleanupGroup("hud_bumpers")
+	if self._controlsChangedDisconnect then
+		self._controlsChangedDisconnect()
+		self._controlsChangedDisconnect = nil
+	end
 
 	for slotType in self._cooldownThreads do
 		self:_cancelCooldownThread(slotType)

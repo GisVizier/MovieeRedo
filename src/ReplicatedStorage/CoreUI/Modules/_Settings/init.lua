@@ -1,5 +1,6 @@
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local ContentProvider = game:GetService("ContentProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -84,11 +85,233 @@ local function toAssetId(asset)
 	return asset
 end
 
+local InputIcons = nil
+local InputIconsMode = "none"
+local inputIconCache = {}
+local inputIconPreloaded = false
+do
+	local shared = ReplicatedStorage:FindFirstChild("Shared")
+	local util = shared and shared:FindFirstChild("Util")
+	local inputIconsModule = util and util:FindFirstChild("InputIcons")
+	if inputIconsModule then
+		local ok, resolver = pcall(require, inputIconsModule)
+		if ok and type(resolver) == "function" then
+			InputIcons = resolver
+			InputIconsMode = "function"
+		elseif ok and type(resolver) == "table" then
+			InputIcons = resolver
+			InputIconsMode = "table"
+		end
+	end
+end
+
+local function normalizeBindValue(bindValue)
+	local function enumLookup(enumType, memberName)
+		if type(memberName) ~= "string" or memberName == "" then
+			return nil
+		end
+
+		local ok, value = pcall(function()
+			return enumType[memberName]
+		end)
+		if ok then
+			return value
+		end
+		return nil
+	end
+
+	local function normalizeEnumMemberName(raw)
+		if type(raw) ~= "string" then
+			return nil
+		end
+		local member = raw:match("Enum%.[%w_]+%.([%w_]+)$")
+		if member and member ~= "" then
+			return member
+		end
+		return raw
+	end
+
+	local valueType = typeof(bindValue)
+	if valueType == "EnumItem" then
+		return bindValue
+	end
+	if valueType == "string" then
+		local memberName = normalizeEnumMemberName(bindValue)
+		local asKeyCode = enumLookup(Enum.KeyCode, memberName)
+		if asKeyCode then
+			return asKeyCode
+		end
+		local asInputType = enumLookup(Enum.UserInputType, memberName)
+		if asInputType then
+			return asInputType
+		end
+	end
+	if valueType == "table" and type(bindValue.Name) == "string" then
+		local memberName = normalizeEnumMemberName(bindValue.Name)
+		local asKeyCode = enumLookup(Enum.KeyCode, memberName)
+		if asKeyCode then
+			return asKeyCode
+		end
+		local asInputType = enumLookup(Enum.UserInputType, memberName)
+		if asInputType then
+			return asInputType
+		end
+	end
+	return bindValue
+end
+
+local function getBindCacheKey(bindValue)
+	local normalized = normalizeBindValue(bindValue)
+	local valueType = typeof(normalized)
+	if valueType == "EnumItem" then
+		return "enum:" .. tostring(normalized), normalized
+	end
+	if valueType == "string" then
+		return "string:" .. normalized, normalized
+	end
+	if valueType == "number" or valueType == "boolean" then
+		return valueType .. ":" .. tostring(normalized), normalized
+	end
+	return "other:" .. tostring(normalized), normalized
+end
+
+local function getInputIconAsset(bindValue)
+	if not InputIcons then
+		return nil
+	end
+	if bindValue == nil then
+		return nil
+	end
+
+	local cacheKey, normalized = getBindCacheKey(bindValue)
+	local cached = inputIconCache[cacheKey]
+	if cached ~= nil then
+		return cached or nil
+	end
+
+	local image = nil
+	if InputIconsMode == "function" then
+		local ok, result = pcall(InputIcons, normalized, "Filled")
+		if ok and typeof(result) == "string" and result ~= "" then
+			image = result
+		end
+	elseif InputIconsMode == "table" then
+		local isGamepad = false
+		if typeof(normalized) == "EnumItem" and normalized.EnumType == Enum.KeyCode then
+			local keyName = tostring(normalized.Name)
+			isGamepad = keyName:match("^Button") ~= nil or keyName:match("^DPad") ~= nil or keyName == "Menu"
+		end
+
+		local light = InputIcons.Light
+		local dark = InputIcons.Dark
+		local deviceKey = isGamepad and "Gamepad" or "Keyboard"
+		local fromLight = type(light) == "table" and type(light[deviceKey]) == "table" and light[deviceKey][normalized] or nil
+		local fromDark = type(dark) == "table" and type(dark[deviceKey]) == "table" and dark[deviceKey][normalized] or nil
+		if typeof(fromLight) == "string" and fromLight ~= "" then
+			image = fromLight
+		elseif typeof(fromDark) == "string" and fromDark ~= "" then
+			image = fromDark
+		end
+	end
+
+	if typeof(image) ~= "string" or image == "" then
+		inputIconCache[cacheKey] = false
+		return nil
+	end
+	inputIconCache[cacheKey] = image
+	return image
+end
+
+local function collectControlBindCandidates()
+	local candidates = {}
+	local controlsCategory = SettingsConfig.Categories and SettingsConfig.Categories.Controls
+	local settings = controlsCategory and controlsCategory.Settings
+	if typeof(settings) ~= "table" then
+		return candidates
+	end
+
+	local function appendBindTable(bindTable)
+		if typeof(bindTable) ~= "table" then
+			return
+		end
+		for _, bindValue in bindTable do
+			if bindValue ~= nil then
+				table.insert(candidates, bindValue)
+			end
+		end
+	end
+
+	for settingKey, settingConfig in settings do
+		if settingConfig.SettingType == "keybind" then
+			appendBindTable(settingConfig.Bind)
+			appendBindTable(settingConfig.DefaultBind)
+			appendBindTable(PlayerDataTable.get("Controls", settingKey))
+		end
+	end
+
+	return candidates
+end
+
+local function preloadAllInputIcons()
+	if inputIconPreloaded or not InputIcons then
+		return
+	end
+	inputIconPreloaded = true
+
+	local preloadAssets = {}
+	local seenAssets = {}
+	for _, bindValue in ipairs(collectControlBindCandidates()) do
+		local iconAsset = getInputIconAsset(bindValue)
+		local contentId = toAssetId(iconAsset)
+		if contentId and not seenAssets[contentId] then
+			seenAssets[contentId] = true
+			table.insert(preloadAssets, contentId)
+		end
+	end
+
+	if #preloadAssets > 0 then
+		pcall(function()
+			ContentProvider:PreloadAsync(preloadAssets)
+		end)
+	end
+end
+
 local function keyCodeDisplay(keyCode)
 	if keyCode == nil then
 		return "-"
 	end
-	return keyCode.Name
+
+	local valueType = typeof(keyCode)
+	if valueType == "EnumItem" then
+		return keyCode.Name
+	end
+
+	if valueType == "string" then
+		if keyCode == "" then
+			return "-"
+		end
+		return keyCode
+	end
+
+	if valueType == "number" or valueType == "boolean" then
+		return tostring(keyCode)
+	end
+
+	if valueType == "table" then
+		local nameValue = keyCode.Name
+		if type(nameValue) == "string" and nameValue ~= "" then
+			return nameValue
+		end
+	end
+
+	local ok, nameValue = pcall(function()
+		return keyCode.Name
+	end)
+	if ok and type(nameValue) == "string" and nameValue ~= "" then
+		return nameValue
+	end
+
+	return "-"
 end
 
 local function clampIndex(index, count)
@@ -546,6 +769,7 @@ function module.start(export, ui)
 
 	self:_cacheUIReferences()
 	self:_cacheOriginals()
+	preloadAllInputIcons()
 
 	return self
 end
@@ -2759,9 +2983,10 @@ end
 
 function module:_setupKeybindRow(settingKey, row)
 	local slots = {
-		{ key = "PC", names = { "PC" } },
-		{ key = "PC2", names = { "PC2" } },
-		{ key = "Console", names = { "Console", "CONSOLE" } },
+		{ key = "PC", dataKey = "PC", names = { "PC" } },
+		{ key = "PC2", dataKey = "PC2", names = { "PC2" } },
+		{ key = "Console", dataKey = "Console", names = { "Console", "CONSOLE", "Controler", "Controller" } },
+		{ key = "Console2", dataKey = "Console", names = { "Controler2", "Controller2" } },
 	}
 	local slotRenderers = {}
 
@@ -2772,14 +2997,32 @@ function module:_setupKeybindRow(settingKey, row)
 		end
 
 		for slot, renderer in pairs(slotRenderers) do
-			if renderer.label then
-				renderer.label.Text = keyCodeDisplay(binds[slot])
+			local bindValue = binds[renderer.dataKey]
+			local isAwaitingThisSlot = self._awaitingKeybind
+				and self._awaitingKeybind.settingKey == settingKey
+				and self._awaitingKeybind.slotViewKey == renderer.slotKey
+
+			local iconAsset = getInputIconAsset(bindValue)
+			if renderer.icon and renderer.icon:IsA("ImageLabel") then
+				renderer.icon.Visible = (not isAwaitingThisSlot) and (iconAsset ~= nil)
+				if iconAsset then
+					renderer.icon.Image = iconAsset
+					renderer.icon.ImageTransparency = 0
+				end
+			end
+
+			if renderer.awaitingLabel and renderer.awaitingLabel:IsA("TextLabel") then
+				renderer.awaitingLabel.Visible = isAwaitingThisSlot
+				if isAwaitingThisSlot then
+					renderer.awaitingLabel.Text = "..."
+				end
+			elseif renderer.label then
+				renderer.label.Text = isAwaitingThisSlot and "..." or keyCodeDisplay(bindValue)
 			end
 		end
 	end
 
 	for _, slotData in ipairs(slots) do
-		local slotKey = slotData.key
 		local slotTarget = nil
 		for _, slotName in ipairs(slotData.names) do
 			slotTarget = row:FindFirstChild(slotName, true)
@@ -2792,9 +3035,30 @@ function module:_setupKeybindRow(settingKey, row)
 		end
 
 		local label = slotTarget:FindFirstChildWhichIsA("TextLabel", true)
-		slotRenderers[slotKey] = {
+		local awaitingLabel = slotTarget:FindFirstChild("Awaiting", true)
+		if awaitingLabel and not awaitingLabel:IsA("TextLabel") then
+			awaitingLabel = nil
+		end
+		if not awaitingLabel and label and label.Name == "Awaiting" then
+			awaitingLabel = label
+		end
+
+		local icon = slotTarget:FindFirstChild("ImageLabel", true)
+		if icon and not icon:IsA("ImageLabel") then
+			icon = nil
+		end
+		if not icon then
+			icon = slotTarget:FindFirstChildWhichIsA("ImageLabel", true)
+		end
+
+		local renderer = {
 			label = label,
+			awaitingLabel = awaitingLabel,
+			icon = icon,
+			dataKey = slotData.dataKey,
+			slotKey = slotData.key,
 		}
+		slotRenderers[slotData.key] = renderer
 
 		if slotTarget:IsA("GuiButton") then
 			self._connections:track(slotTarget, "Activated", function()
@@ -2802,7 +3066,7 @@ function module:_setupKeybindRow(settingKey, row)
 					return
 				end
 				self:_selectSetting(settingKey)
-				self:_startAwaitingKeybind(settingKey, slotKey, label)
+				self:_startAwaitingKeybind(settingKey, slotData.key, slotData.dataKey, renderer)
 			end, "settingRows")
 		else
 			self._connections:track(slotTarget, "InputBegan", function(input)
@@ -2813,7 +3077,7 @@ function module:_setupKeybindRow(settingKey, row)
 					return
 				end
 				self:_selectSetting(settingKey)
-				self:_startAwaitingKeybind(settingKey, slotKey, label)
+				self:_startAwaitingKeybind(settingKey, slotData.key, slotData.dataKey, renderer)
 			end, "settingRows")
 		end
 	end
@@ -2840,18 +3104,24 @@ function module:_applyKeybind(settingKey, slot, keyCode)
 	self:_refreshKeybindRows()
 end
 
-function module:_startAwaitingKeybind(settingKey, slot, label)
+function module:_startAwaitingKeybind(settingKey, slotViewKey, dataKey, renderer)
 	self:_stopAwaitingKeybind(true)
 
 	self._awaitingKeybind = {
 		settingKey = settingKey,
-		slot = slot,
-		label = label,
-		previousText = label and label.Text or nil,
+		slotViewKey = slotViewKey,
+		dataKey = dataKey,
+		renderer = renderer,
+		previousText = renderer and renderer.awaitingLabel and renderer.awaitingLabel.Text or nil,
 	}
 
-	if label then
-		label.Text = "..."
+	if renderer and renderer.awaitingLabel and renderer.awaitingLabel:IsA("TextLabel") then
+		renderer.awaitingLabel.Visible = true
+		renderer.awaitingLabel.Text = "..."
+	end
+
+	if renderer and renderer.icon and renderer.icon:IsA("ImageLabel") then
+		renderer.icon.Visible = false
 	end
 
 	self._connections:track(UserInputService, "InputBegan", function(input, gameProcessed)
@@ -2882,16 +3152,19 @@ function module:_startAwaitingKeybind(settingKey, slot, label)
 			return
 		end
 
-		self:_applyKeybind(self._awaitingKeybind.settingKey, self._awaitingKeybind.slot, targetKeyCode)
+		self:_applyKeybind(self._awaitingKeybind.settingKey, self._awaitingKeybind.dataKey, targetKeyCode)
 		self:_stopAwaitingKeybind(false)
 	end, "keybindCapture")
 end
 
 function module:_stopAwaitingKeybind(cancelled)
 	if self._awaitingKeybind and cancelled then
-		local label = self._awaitingKeybind.label
-		if label and self._awaitingKeybind.previousText then
-			label.Text = self._awaitingKeybind.previousText
+		local renderer = self._awaitingKeybind.renderer
+		if renderer and renderer.awaitingLabel and renderer.awaitingLabel:IsA("TextLabel") then
+			if self._awaitingKeybind.previousText then
+				renderer.awaitingLabel.Text = self._awaitingKeybind.previousText
+			end
+			renderer.awaitingLabel.Visible = false
 		end
 	end
 

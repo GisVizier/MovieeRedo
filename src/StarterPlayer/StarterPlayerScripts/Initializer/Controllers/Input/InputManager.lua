@@ -9,9 +9,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local Config = require(Locations.Shared:WaitForChild("Config"):WaitForChild("Config"))
+local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 local LogService = require(Locations.Shared.Util:WaitForChild("LogService"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local DEBUG_QUICK_MELEE_INPUT = true
+local ACTION_KEY_ALIASES = {
+	Ability = { "Ability", "ControllerAbility" },
+	QuickMelee = { "QuickMelee", "ControllerQuickMelee" },
+	Ultimate = { "Ultimate", "ControllerUltimate" },
+	Reload = { "Reload", "ControllerReload" },
+	Fire = { "Fire", "ControllerFire" },
+	Special = { "Special", "ControllerSpecial" },
+}
 
 InputManager.Movement = Vector2.new(0, 0)
 InputManager.LookDelta = Vector2.new(0, 0)
@@ -71,6 +80,133 @@ local function CheckKeybindMatch(input, keybind)
 	return input.KeyCode == keybind
 end
 
+local function normalizeEnumName(rawName)
+	if type(rawName) ~= "string" then
+		return nil
+	end
+
+	local trimmed = rawName:gsub("^%s+", ""):gsub("%s+$", "")
+	if trimmed == "" then
+		return nil
+	end
+
+	local enumKeyName = trimmed:match("^Enum%.KeyCode%.([%w_]+)$")
+	if enumKeyName then
+		return enumKeyName
+	end
+
+	local enumInputName = trimmed:match("^Enum%.UserInputType%.([%w_]+)$")
+	if enumInputName then
+		return enumInputName
+	end
+
+	local keyCodeName = trimmed:match("^KeyCode%.([%w_]+)$")
+	if keyCodeName then
+		return keyCodeName
+	end
+
+	local inputTypeName = trimmed:match("^UserInputType%.([%w_]+)$")
+	if inputTypeName then
+		return inputTypeName
+	end
+
+	return trimmed
+end
+
+local function safeEnumLookup(enumType, memberName)
+	if type(memberName) ~= "string" or memberName == "" then
+		return nil
+	end
+
+	local ok, value = pcall(function()
+		return enumType[memberName]
+	end)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+local function normalizeStoredKeybind(keybind)
+	local valueType = typeof(keybind)
+	if valueType == "EnumItem" then
+		return keybind
+	end
+
+	if valueType == "string" then
+		local normalizedName = normalizeEnumName(keybind)
+		if not normalizedName then
+			return nil
+		end
+
+		if normalizedName == "ScrollWheelUp" or normalizedName == "ScrollWheelDown" then
+			return normalizedName
+		end
+
+		local asKeyCode = safeEnumLookup(Enum.KeyCode, normalizedName)
+		if asKeyCode then
+			return asKeyCode
+		end
+
+		local asUserInputType = safeEnumLookup(Enum.UserInputType, normalizedName)
+		if asUserInputType then
+			return asUserInputType
+		end
+	end
+
+	if valueType == "table" and type(keybind.Name) == "string" then
+		return normalizeStoredKeybind(keybind.Name)
+	end
+
+	return nil
+end
+
+local function getDefaultKeybindConfig(keybindsArray, keybindKey)
+	for _, keybindInfo in ipairs(keybindsArray) do
+		if keybindInfo.Key == keybindKey then
+			return keybindInfo
+		end
+	end
+	return nil
+end
+
+local function getSavedBindsForAction(keybindKey)
+	local ok, value = pcall(PlayerDataTable.get, "Controls", keybindKey)
+	if not ok or typeof(value) ~= "table" then
+		return nil
+	end
+	return value
+end
+
+local function getActionKeyCandidates(keybindKey, isGamepadInput)
+	if not isGamepadInput then
+		return { keybindKey }
+	end
+
+	local aliases = ACTION_KEY_ALIASES[keybindKey]
+	if type(aliases) == "table" and #aliases > 0 then
+		return aliases
+	end
+
+	return { keybindKey }
+end
+
+local function getLegacyInputDefault(keybindKey, isGamepadInput)
+	local inputConfig = Config and Config.Controls and Config.Controls.Input
+	if type(inputConfig) ~= "table" then
+		return nil
+	end
+
+	if isGamepadInput and string.sub(keybindKey, 1, 10) ~= "Controller" then
+		local controllerKey = "Controller" .. keybindKey
+		if inputConfig[controllerKey] ~= nil then
+			return inputConfig[controllerKey]
+		end
+	end
+
+	return inputConfig[keybindKey]
+end
+
 local function IsGamepadInputType(inputType)
 	return inputType == Enum.UserInputType.Gamepad1
 		or inputType == Enum.UserInputType.Gamepad2
@@ -102,22 +238,54 @@ function InputManager:IsKeybind(input, keybindKey)
 	local keybindsArray = isGamepadInput and Config.Controls.CustomizableControllerKeybinds
 		or Config.Controls.CustomizableKeybinds
 
-	local defaultConfig = nil
-	for _, keybindInfo in ipairs(keybindsArray) do
-		if keybindInfo.Key == keybindKey then
-			defaultConfig = keybindInfo
-			break
+	local keyCandidates = getActionKeyCandidates(keybindKey, isGamepadInput)
+	local hasAnySavedBind = false
+
+	for _, candidateKey in ipairs(keyCandidates) do
+		local savedBinds = getSavedBindsForAction(candidateKey)
+		if savedBinds then
+			hasAnySavedBind = true
+			if isGamepadInput then
+				local consoleBind = normalizeStoredKeybind(savedBinds.Console)
+				if CheckKeybindMatch(input, consoleBind) then
+					return true
+				end
+			else
+				local primaryBind = normalizeStoredKeybind(savedBinds.PC)
+				if CheckKeybindMatch(input, primaryBind) then
+					return true
+				end
+
+				local secondaryBind = normalizeStoredKeybind(savedBinds.PC2)
+				if CheckKeybindMatch(input, secondaryBind) then
+					return true
+				end
+			end
 		end
 	end
 
-	local primaryKeybind = defaultConfig and defaultConfig.DefaultPrimary
-	if CheckKeybindMatch(input, primaryKeybind) then
-		return true
+	-- If any candidate has saved binds, do not fall back to defaults from another candidate.
+	-- This prevents stale defaults (e.g. Ability = DPadRight) from overriding remapped controller aliases.
+	if hasAnySavedBind then
+		return false
 	end
 
-	local secondaryKeybind = defaultConfig and defaultConfig.DefaultSecondary
-	if CheckKeybindMatch(input, secondaryKeybind) then
-		return true
+	for _, candidateKey in ipairs(keyCandidates) do
+		local defaultConfig = getDefaultKeybindConfig(keybindsArray, candidateKey)
+		local primaryKeybind = defaultConfig and defaultConfig.DefaultPrimary
+		if CheckKeybindMatch(input, primaryKeybind) then
+			return true
+		end
+
+		local secondaryKeybind = defaultConfig and defaultConfig.DefaultSecondary
+		if CheckKeybindMatch(input, secondaryKeybind) then
+			return true
+		end
+
+		local legacyDefault = getLegacyInputDefault(candidateKey, isGamepadInput)
+		if CheckKeybindMatch(input, legacyDefault) then
+			return true
+		end
 	end
 
 	return false
@@ -127,14 +295,24 @@ function InputManager:CheckScrollWheelKeybind(keybindKey, scrollDirection)
 	local keybindsArray = (self.InputMode == "Controller") and Config.Controls.CustomizableControllerKeybinds
 		or Config.Controls.CustomizableKeybinds
 
-	local defaultConfig = nil
-	for _, keybindInfo in ipairs(keybindsArray) do
-		if keybindInfo.Key == keybindKey then
-			defaultConfig = keybindInfo
-			break
+	local savedBinds = getSavedBindsForAction(keybindKey)
+	if savedBinds then
+		local primaryBind = normalizeStoredKeybind(savedBinds.PC)
+		if primaryBind == "ScrollWheelUp" and scrollDirection == "Up" then
+			return true
+		elseif primaryBind == "ScrollWheelDown" and scrollDirection == "Down" then
+			return true
+		end
+
+		local secondaryBind = normalizeStoredKeybind(savedBinds.PC2)
+		if secondaryBind == "ScrollWheelUp" and scrollDirection == "Up" then
+			return true
+		elseif secondaryBind == "ScrollWheelDown" and scrollDirection == "Down" then
+			return true
 		end
 	end
 
+	local defaultConfig = getDefaultKeybindConfig(keybindsArray, keybindKey)
 	local primaryKeybind = defaultConfig and defaultConfig.DefaultPrimary
 	if primaryKeybind == "ScrollWheelUp" and scrollDirection == "Up" then
 		return true
