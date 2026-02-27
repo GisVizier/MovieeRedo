@@ -52,7 +52,7 @@ LoadoutConfig.Weapons = {
 		id = "Sniper",
 		name = "Sniper",
 		description = "Long-range precision rifle with high damage.",
-		imageId = "rbxassetid://73520188248516",
+		imageId = "rbxassetid://118913007185209",
 		weaponType = "Primary",
 		rarity = "Rare",
 		instance = nil,
@@ -70,42 +70,49 @@ LoadoutConfig.Weapons = {
 			autoReloadOnEmpty = true,
 		},
 
-		speedMultiplier = 0.80,
+		speedMultiplier = 0.72,
 
 		adsFOV = 30,
 		adsSpeedMultiplier = 0.4,
 
-		damage = 80,
-		headshotMultiplier = 2.0,
-		range = 500,
-		fireRate = 50,
+		damage = 50,
+		headshotMultiplier = 3.0,
+		range = 650,
+		fireRate = 60,
 		
 		-- Wall destruction pressure (higher = bigger holes)
 		destructionPressure = 100, -- Sniper makes big holes
 		projectileSpeed = nil,
 		bulletDrop = false,
-		spread = 0.04,
-		minRange = 40,
-		maxRange = 500,
-		minDamage = 20,
+		spread = 0.11,
+		tracer = {
+			trailScale = 1.45,
+			muzzleScale = 2.7,
+		},
 		tracerColor = Color3.fromRGB(255, 200, 100),
 
 		recoil = {
-			pitchUp = 5.5,
-			yawRandom = 0.3,
-			recoverySpeed = 4,
+			pitchUp = 15.25,
+			yawRandom = 1.9,
+			recoverySpeed = 2.4,
+			adsMultiplier = 1.1,
+			kickPos = Vector3.new(0, 0, -0.16),
+			kickRot = Vector3.new(-0.2, 0.02, 0),
+			screenShakeMultiplier = 1.75,
+			screenShakeDuration = 0.12,
+			screenShakeFrequency = 18,
 		},
 
 		crosshair = {
 			type = "Default",
-			spreadX = 2.0,
-			spreadY = 2.0,
-			recoilMultiplier = 4.0,
-			-- Sniper: tight when still, EXTREMELY punishing when moving
-			crouchMult = 0.15, -- 85% reduction when crouching
-			sprintMult = 3.0, -- 200% more spread when sprinting
-			airMult = 4.0, -- 4x spread in air!
-			adsMult = 0.05, -- 95% reduction when ADS (pinpoint)
+			spreadX = 4.6,
+			spreadY = 4.6,
+			recoilMultiplier = 5.6,
+			-- Sniper: very inaccurate in hipfire, pinpoint while ADS
+			crouchMult = 0.9,
+			sprintMult = 3.2,
+			airMult = 4.0,
+			adsMult = 0.02,
 			baseGap = 10, -- Base gap
 		},
 

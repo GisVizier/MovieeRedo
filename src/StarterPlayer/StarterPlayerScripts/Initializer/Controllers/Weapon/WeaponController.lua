@@ -69,6 +69,11 @@ local DEFAULT_EQUIP_FIRE_LOCK = 0.35
 local MIN_EQUIP_FIRE_LOCK = 0.1
 local MAX_EQUIP_FIRE_LOCK = 2.5
 local SHOTGUN_SWAP_SKIP_WINDOW = 0.9
+local FIRE_SHAKE_RECOIL_TO_INTENSITY = 0.065
+local FIRE_SHAKE_MIN_THRESHOLD = 0.035
+local FIRE_SHAKE_MAX_INTENSITY = 1.05
+local FIRE_SHAKE_DEFAULT_DURATION = 0.09
+local FIRE_SHAKE_DEFAULT_FREQUENCY = 20
 
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
@@ -170,9 +175,11 @@ WeaponController._reloadFireLocked = false
 WeaponController._equipFireLockUntil = 0
 WeaponController._equipFireLockToken = 0
 WeaponController._equipBufferedShot = false
+WeaponController._reloadBufferedShot = false
 WeaponController._restoreADSAfterReload = false
 WeaponController._restoreADSReloadToken = nil
 WeaponController._isRestoringADSAfterReload = false
+WeaponController._sniperOverlayHideToken = 0
 WeaponController._lastShotWeaponId = nil
 WeaponController._lastShotTime = 0
 WeaponController._slotChangedConn = nil
@@ -417,6 +424,12 @@ function WeaponController:_connectInputs()
 				self:_stopAutoFire()
 				return
 			end
+			if self._isReloading then
+				self._reloadBufferedShot = true
+				self:_clearReloadADSRestore()
+				self:_stopAutoFire()
+				return
+			end
 			self:_onFirePressed()
 			self:_startAutoFire()
 		else
@@ -622,13 +635,24 @@ function WeaponController:_isFirstPerson()
 end
 
 function WeaponController:_onCameraModeChanged(_mode)
-	if not self._crosshair then
+	if not self:_isFirstPerson() then
+		if self:_resolveADSState(self._isADS) then
+			if self._currentActions and self._currentActions.Special and self._currentActions.Special.Cancel then
+				self._currentActions.Special.Cancel()
+			end
+			self:_disableADSAndUI()
+		else
+			ADSOverlay:End(true)
+			self:_restoreViewmodelVisible()
+		end
+		if self._crosshair then
+			self._crosshair:RemoveCrosshair()
+		end
+		UserInputService.MouseIconEnabled = true
 		return
 	end
 
-	if not self:_isFirstPerson() then
-		self._crosshair:RemoveCrosshair()
-		UserInputService.MouseIconEnabled = true
+	if not self._crosshair then
 		return
 	end
 
@@ -733,6 +757,19 @@ function WeaponController:_applyCameraRecoil()
 
 	cameraController.TargetAngleX = cameraController.TargetAngleX + pitchKick
 	cameraController.TargetAngleY = cameraController.TargetAngleY + yawKick
+
+	local screenShakeController = ServiceRegistry:GetController("ScreenShake")
+	if screenShakeController and type(screenShakeController.Shake) == "function" then
+		local shakeMultiplier = tonumber(recoilData.screenShakeMultiplier) or 1
+		local recoilMagnitude = math.abs(pitchKick) + math.abs(yawKick) * 0.5
+		local shakeIntensity = recoilMagnitude * FIRE_SHAKE_RECOIL_TO_INTENSITY * shakeMultiplier
+		if shakeIntensity >= FIRE_SHAKE_MIN_THRESHOLD then
+			shakeIntensity = math.clamp(shakeIntensity, FIRE_SHAKE_MIN_THRESHOLD, FIRE_SHAKE_MAX_INTENSITY)
+			local shakeDuration = tonumber(recoilData.screenShakeDuration) or FIRE_SHAKE_DEFAULT_DURATION
+			local shakeFrequency = tonumber(recoilData.screenShakeFrequency) or FIRE_SHAKE_DEFAULT_FREQUENCY
+			screenShakeController:Shake(shakeIntensity, shakeDuration, shakeFrequency)
+		end
+	end
 end
 
 function WeaponController:_resolveADSState(defaultState: boolean?): boolean
@@ -844,6 +881,13 @@ function WeaponController:_onReloadStateChanged(previousReloading: boolean, curr
 	end
 	if not currentReloading then
 		self._reloadFireLocked = false
+		if self._reloadBufferedShot == true then
+			self._reloadBufferedShot = false
+			self:_onFirePressed()
+			if self._isFiring then
+				self:_startAutoFire()
+			end
+		end
 		self:_tryRestoreADSAfterReload()
 	end
 end
@@ -1244,15 +1288,55 @@ function WeaponController:_applyMouseSensitivityForADS(isADS: boolean?)
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
 end
 
-function WeaponController:OnRespawnRefresh()
-	self:_clearReloadADSRestore()
-	self._isADS = false
-	self:_setADSActiveAttribute(false)
-	self:_applyMouseSensitivityForADS(false)
-	ADSOverlay:End()
+function WeaponController:_cancelScopedViewmodelHide()
+	self._sniperOverlayHideToken = (self._sniperOverlayHideToken or 0) + 1
+end
+
+function WeaponController:_restoreViewmodelVisible()
+	self:_cancelScopedViewmodelHide()
 	if self._viewmodelController then
 		self._viewmodelController:SetViewmodelHidden(false)
 	end
+end
+
+function WeaponController:_disableADSAndUI()
+	self._isADS = false
+	self:_setADSActiveAttribute(false)
+	self:_applyMouseSensitivityForADS(false)
+	self:_updateAimAssistADS(false)
+	ADSOverlay:End(true)
+	self:_restoreViewmodelVisible()
+	if self._crosshair and self._equippedWeaponId == "Sniper" then
+		self:_applyCrosshairForWeapon(self._equippedWeaponId)
+	end
+end
+
+function WeaponController:_applyScopedViewmodelVisibility(overlayKey: string?)
+	if not self._viewmodelController then
+		return
+	end
+
+	self:_cancelScopedViewmodelHide()
+	if overlayKey ~= "Sniper" then
+		self._viewmodelController:SetViewmodelHidden(false)
+		return
+	end
+
+	self._viewmodelController:SetViewmodelHidden(false)
+	local hideToken = self._sniperOverlayHideToken
+	task.delay(0.2, function()
+		if (self._sniperOverlayHideToken or 0) ~= hideToken then
+			return
+		end
+		if self._isADS then
+			self._viewmodelController:SetViewmodelHidden(true)
+		end
+	end)
+end
+
+function WeaponController:OnRespawnRefresh()
+	self:_clearReloadADSRestore()
+	self:_disableADSAndUI()
 	self:_unequipCurrentWeapon()
 	self:_initializeAmmo()
 	local slot = self._viewmodelController and self._viewmodelController:GetActiveSlot()
@@ -1263,12 +1347,11 @@ end
 
 function WeaponController:_unequipCurrentWeapon()
 	self:_clearReloadADSRestore()
+	self._reloadBufferedShot = false
 
 	-- Clean up ADS overlay & restore viewmodel
-	ADSOverlay:End()
-	if self._viewmodelController then
-		self._viewmodelController:SetViewmodelHidden(false)
-	end
+	ADSOverlay:End(true)
+	self:_restoreViewmodelVisible()
 
 	self:_clearReplicatedTrackStopWatch()
 	self:_stopAllTrackedWeaponActionSounds(true)
@@ -2545,6 +2628,7 @@ function WeaponController:Reload()
 	else
 		self:_clearReloadADSRestore()
 	end
+	self._reloadBufferedShot = false
 
 	self._isFiring = false
 	self:_stopAutoFire()
@@ -2566,13 +2650,7 @@ function WeaponController:Reload()
 	if self._currentActions.Special and self._currentActions.Special.Cancel then
 		self._currentActions.Special.Cancel()
 	end
-	self._isADS = false
-	self:_setADSActiveAttribute(false)
-	self:_applyMouseSensitivityForADS(false)
-	self:_updateAimAssistADS(false)
-	if self._viewmodelController then
-		self._viewmodelController:SetViewmodelHidden(false)
-	end
+	self:_disableADSAndUI()
 	self:_stopWeaponTracks("Reload")
 
 	-- Execute reload
@@ -2637,6 +2715,15 @@ function WeaponController:Special(isPressed)
 	-- Only allow special in FirstPerson camera mode
 	local cameraController = ServiceRegistry:GetController("CameraController")
 	if cameraController and cameraController:GetCurrentMode() ~= "FirstPerson" then
+		if self:_resolveADSState(self._isADS) then
+			if self._currentActions.Special and self._currentActions.Special.Cancel then
+				self._currentActions.Special.Cancel()
+			end
+			self:_disableADSAndUI()
+		else
+			ADSOverlay:End(true)
+			self:_restoreViewmodelVisible()
+		end
 		return
 	end
 
@@ -2655,14 +2742,7 @@ function WeaponController:Special(isPressed)
 		then
 			self._currentActions.Special.Cancel()
 		end
-		self._isADS = false
-		self:_setADSActiveAttribute(false)
-		self:_applyMouseSensitivityForADS(false)
-		self:_updateAimAssistADS(false)
-		ADSOverlay:End()
-		if self._viewmodelController then
-			self._viewmodelController:SetViewmodelHidden(false)
-		end
+		self:_disableADSAndUI()
 		return
 	end
 
@@ -2678,6 +2758,7 @@ function WeaponController:Special(isPressed)
 
 	local weaponType = self._weaponInstance and self._weaponInstance.WeaponType or "Gun"
 	local isAimableWeapon = weaponType ~= "Melee"
+	local previousADS = self:_resolveADSState(self._isADS)
 	local specialInputState = isPressed
 	if isAimableWeapon and self:_isToggleAimEnabled() then
 		if not isPressed then
@@ -2688,10 +2769,20 @@ function WeaponController:Special(isPressed)
 
 	-- Execute special
 	if self._currentActions.Special then
-		self._currentActions.Special.Execute(self._weaponInstance, specialInputState)
+		local ok = self._currentActions.Special.Execute(self._weaponInstance, specialInputState)
+		if ok == false then
+			return
+		end
 	end
 
-	self._isADS = self:_resolveADSState(specialInputState)
+	local nextADS = self:_resolveADSState(specialInputState)
+	if nextADS == previousADS then
+		if not nextADS then
+			self:_disableADSAndUI()
+		end
+		return
+	end
+	self._isADS = nextADS
 	self:_setADSActiveAttribute(self._isADS)
 	self:_applyMouseSensitivityForADS(self._isADS)
 
@@ -2700,13 +2791,17 @@ function WeaponController:Special(isPressed)
 		local slot = self:_getCurrentSlot()
 		local skinId = self:_getSkinIdForSlot(slot)
 		local overlayKey = ADSOverlay:Start(self._equippedWeaponId, skinId)
-		if overlayKey == "Sniper" and self._viewmodelController then
-			self._viewmodelController:SetViewmodelHidden(true)
-		end
+		self:_applyScopedViewmodelVisibility(overlayKey)
 	else
-		ADSOverlay:End()
-		if self._viewmodelController then
-			self._viewmodelController:SetViewmodelHidden(false)
+		self:_disableADSAndUI()
+	end
+
+	-- Sniper override: fully hide default crosshair while ADS.
+	if self._crosshair and self._equippedWeaponId == "Sniper" then
+		if self._isADS then
+			self._crosshair:RemoveCrosshair()
+		else
+			self:_applyCrosshairForWeapon(self._equippedWeaponId)
 		end
 	end
 

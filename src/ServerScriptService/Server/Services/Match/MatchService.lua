@@ -45,6 +45,12 @@ function MatchService:ClearPendingTrainingEntry(player)
 	self._pendingTrainingEntry[player.UserId] = nil
 end
 
+function MatchService:ClearTrainingLoadoutShield(player)
+	if not player then return end
+	self._pendingTrainingEntry[player.UserId] = nil
+	self:_removeTrainingLoadoutShield(player)
+end
+
 --[[
 	Adds default ForceField and invulnerability while player is picking weapons in training ground.
 	Ensures they cannot be hit during loadout selection.
@@ -95,15 +101,16 @@ function MatchService:_removeTrainingLoadoutShield(player)
 	if not player then return end
 	local userId = player.UserId
 	local data = self._trainingLoadoutShields[userId]
-	if not data then return end
 	self._trainingLoadoutShields[userId] = nil
 
-	if data.characterAddedConn then
-		data.characterAddedConn:Disconnect()
-	end
+	if data then
+		if data.characterAddedConn then
+			data.characterAddedConn:Disconnect()
+		end
 
-	if data.forceField and data.forceField.Parent then
-		data.forceField:Destroy()
+		if data.forceField and data.forceField.Parent then
+			data.forceField:Destroy()
+		end
 	end
 
 	-- Also remove any ForceField that might have been added by CharacterAdded
@@ -124,6 +131,7 @@ function MatchService:ClearPlayerState(player)
 	if not player then return end
 	local userId = player.UserId
 	self._pendingTrainingEntry[userId] = nil
+	self:_removeTrainingLoadoutShield(player)
 	player:SetAttribute("CurrentArea", nil)
 	player:SetAttribute("SelectedLoadout", nil)
 end
@@ -172,6 +180,10 @@ function MatchService:_onSubmitLoadout(player, payload)
 		player:SetAttribute("PlayerState", "Training")
 		player:SetAttribute("CurrentArea", pendingEntry.areaId)
 	end
+
+	-- Competitive flow (or stale training state): ensure no residual training shield remains.
+	self._pendingTrainingEntry[userId] = nil
+	self:_removeTrainingLoadoutShield(player)
 	-- Competitive flow: MatchManager handles round logic via its own SubmitLoadout handler
 end
 

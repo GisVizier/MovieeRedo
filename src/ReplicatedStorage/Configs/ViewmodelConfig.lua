@@ -255,7 +255,8 @@ ViewmodelConfig.Weapons = {
 
 	Sniper = {
 		ModelPath = ViewmodelConfig.Models.ByWeaponId.Sniper,
-		Offset = CFrame.new(0, -0.3, 0.7) * CFrame.Angles(math.rad(5), math.rad(0), math.rad(-9)),
+		Offset = CFrame.new(0, -0.05, 0.1),
+		ADSLerpSpeed = 7.5,
 		ADSOverlay = "Sniper", -- Scope overlay frame inside AdsGui
 		Replication = {
 			Scale = 0.5725,
@@ -272,7 +273,8 @@ ViewmodelConfig.Weapons = {
 			Inspect = "Inspect",
 			Fire = "Fire",
 			Reload = "Reload",
-			ADS = "Idle", -- Uses Idle pose for ADS (add dedicated ADS animation if available)
+			Reload2 = "Reload2",
+			ADS = "ADS",
 		},
 	},
 

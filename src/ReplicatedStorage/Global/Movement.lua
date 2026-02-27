@@ -102,8 +102,8 @@ Movement.Sliding = {
 		UphillBoost = {
 			Enabled = true,
 			SlopeThreshold = 0.14,      -- Nerfed from 0.12 (orig 0.15)
-			MinVerticalBoost = 35,      -- Nerfed from 45 (orig 30)
-			MaxVerticalBoost = 80,      -- Nerfed from 100 (orig 70)
+			MinVerticalBoost = 45,
+			MaxVerticalBoost = 100,
 			MaxSlopeAngle = 60,
 			ScalingExponent = 1.4,      -- Nerfed from 1.3 (orig 1.5)
 

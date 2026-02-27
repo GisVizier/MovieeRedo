@@ -28,17 +28,17 @@ function Inspect.Execute(weaponInstance)
 
 	Inspect._isInspecting = true
 
-	local resetOffset = viewmodelController:SetOffset(
-		CFrame.new(0.15, -0.05, -0.2) * CFrame.Angles(math.rad(15), math.rad(-20), 0)
-	)
+	-- local resetOffset = viewmodelController:SetOffset(
+	-- 	CFrame.new(0.15, -0.05, -0.2) * CFrame.Angles(math.rad(15), math.rad(-20), 0)
+	-- )
 
 	local track = viewmodelController:PlayWeaponTrack("Inspect", 0.1)
 
 	local function onComplete()
 		Inspect._isInspecting = false
-		if resetOffset then
-			resetOffset()
-		end
+		-- if resetOffset then
+		-- 	resetOffset()
+		-- end
 	end
 
 	if track then

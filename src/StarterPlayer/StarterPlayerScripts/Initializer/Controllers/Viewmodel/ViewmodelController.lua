@@ -1487,7 +1487,9 @@ function ViewmodelController:_render(dt: number)
 
 	-- Smooth ADS blend
 	local targetBlend = self._adsActive and 1 or 0
-	self._adsBlend = self._adsBlend + (targetBlend - self._adsBlend) * math.min(1, dt * ADS_LERP_SPEED)
+	local adsLerpSpeed = tonumber(cfg and cfg.ADSLerpSpeed) or ADS_LERP_SPEED
+	adsLerpSpeed = math.max(adsLerpSpeed, 0.1)
+	self._adsBlend = self._adsBlend + (targetBlend - self._adsBlend) * math.min(1, dt * adsLerpSpeed)
 	
 	-- Snap to target when close enough
 	if math.abs(self._adsBlend - targetBlend) < 0.001 then

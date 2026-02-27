@@ -319,10 +319,16 @@ end
 	Used when entering training ground from lobby.
 ]]
 function CombatResource:FullReset()
+	local wasInvulnerable = self._isInvulnerable
 	self._isDead = false
 	self._health = self._maxHealth
 	self._ultimate = 0
+	self._isInvulnerable = false
+	self._iFrameEndTime = 0
 	self:_syncAttributes()
+	if wasInvulnerable then
+		fireSignal(self.OnInvulnerabilityChanged, false)
+	end
 end
 
 -- =============================================================================

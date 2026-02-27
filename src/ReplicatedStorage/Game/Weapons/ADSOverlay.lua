@@ -168,6 +168,24 @@ function ADSOverlay:_playScopeSway(overlayFrame)
 	self._scopeSwayTween:Play()
 end
 
+function ADSOverlay:_setFrameVisibilityImmediate(frame, isVisible)
+	if not frame or not frame:IsA("GuiObject") then
+		return
+	end
+
+	if frame:IsA("CanvasGroup") then
+		frame.GroupTransparency = isVisible and 0 or 1
+	elseif frame:IsA("ImageLabel") then
+		if isVisible then
+			frame.ImageTransparency = tonumber(frame:GetAttribute("TargetImageTransparency")) or 0
+		else
+			frame.ImageTransparency = 1
+		end
+	end
+
+	frame.Visible = isVisible
+end
+
 function ADSOverlay:_fadeIn(frame)
 	self:_cancelTween()
 	frame.Visible = true
@@ -202,15 +220,19 @@ function ADSOverlay:_fadeOut(frame)
 	if frame:IsA("CanvasGroup") then
 		local tweenInfo = TweenInfo.new(FADE_OUT_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		self._activeTween = TweenService:Create(frame, tweenInfo, { GroupTransparency = 1 })
-		self._activeTween.Completed:Once(function()
-			frame.Visible = false
+		self._activeTween.Completed:Once(function(playbackState)
+			if playbackState == Enum.PlaybackState.Completed then
+				frame.Visible = false
+			end
 		end)
 		self._activeTween:Play()
 	elseif frame:IsA("ImageLabel") then
 		local tweenInfo = TweenInfo.new(FADE_OUT_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		self._activeTween = TweenService:Create(frame, tweenInfo, { ImageTransparency = 1 })
-		self._activeTween.Completed:Once(function()
-			frame.Visible = false
+		self._activeTween.Completed:Once(function(playbackState)
+			if playbackState == Enum.PlaybackState.Completed then
+				frame.Visible = false
+			end
 		end)
 		self._activeTween:Play()
 	else
@@ -227,13 +249,38 @@ function ADSOverlay:_hideActive()
 	end
 end
 
+function ADSOverlay:_hideAll(immediate)
+	local container = self:_getContainer()
+	if not container then
+		self._activeFrame = nil
+		self:_cancelTween()
+		return
+	end
+
+	self:_cancelTween()
+
+	for _, child in container:GetChildren() do
+		if child:IsA("GuiObject") then
+			if immediate then
+				self:_setFrameVisibilityImmediate(child, false)
+			else
+				self:_fadeOut(child)
+			end
+		end
+	end
+	if container:IsA("GuiObject") then
+		container.Visible = false
+	end
+
+	self._activeFrame = nil
+end
+
 -- =====================================================================
 -- PUBLIC API
 -- =====================================================================
 
 function ADSOverlay:Start(weaponId, skinId)
 	log("=== Start called ===  weaponId=", tostring(weaponId), "skinId=", tostring(skinId))
-	self:_hideActive()
 
 	local container = self:_getContainer()
 	if not container then
@@ -262,14 +309,32 @@ function ADSOverlay:Start(weaponId, skinId)
 		return
 	end
 
+	-- Never leave stale overlays visible from previous states.
+	self:_hideAll(true)
+	if container:IsA("GuiObject") then
+		container.Visible = true
+	end
+
 	self._activeFrame = frame
-	self:_fadeIn(frame)
+	if overlayKey == "Sniper" then
+		self:_setFrameVisibilityImmediate(frame, true)
+	else
+		self:_fadeIn(frame)
+	end
 	return overlayKey
 end
 
-function ADSOverlay:End()
+function ADSOverlay:End(forceImmediate)
 	log("=== End called ===")
-	self:_hideActive()
+	if forceImmediate == nil then
+		forceImmediate = true
+	end
+
+	if forceImmediate then
+		self:_hideAll(true)
+	else
+		self:_hideActive()
+	end
 end
 
 return ADSOverlay

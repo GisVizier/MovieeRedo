@@ -79,8 +79,37 @@ function MatchManager:_freezeMatchPlayers(match)
 	end
 end
 
+function MatchManager:_clearMatchPlayerProtection(player)
+	if not player then
+		return
+	end
+
+	local matchService = self._registry and self._registry:TryGet("MatchService")
+	if matchService and matchService.ClearTrainingLoadoutShield then
+		pcall(function()
+			matchService:ClearTrainingLoadoutShield(player)
+		end)
+	end
+
+	local character = player.Character
+	if character then
+		local ff = character:FindFirstChildOfClass("ForceField")
+		if ff then
+			ff:Destroy()
+		end
+	end
+
+	local combatService = self._registry and self._registry:TryGet("CombatService")
+	if combatService and combatService.SetInvulnerable then
+		pcall(function()
+			combatService:SetInvulnerable(player, false)
+		end)
+	end
+end
+
 function MatchManager:_unfreezeMatchPlayers(match)
 	for _, player in self:_getMatchPlayers(match) do
+		self:_clearMatchPlayerProtection(player)
 		player:SetAttribute("ExternalMoveMult", 1)
 		player:SetAttribute("MatchFrozen", nil)
 	end

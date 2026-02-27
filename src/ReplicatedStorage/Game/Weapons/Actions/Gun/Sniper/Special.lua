@@ -5,6 +5,8 @@ local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"
 
 local Special = {}
 Special._isADS = false
+local ADS_TRACK_FADE = 0.05
+local ADS_TRACK_SPEED = 1.5
 
 function Special.Execute(weaponInstance, isPressed)
 	if not weaponInstance then
@@ -20,6 +22,9 @@ function Special.Execute(weaponInstance, isPressed)
 			return true
 		end
 	else
+		if (isPressed and Special._isADS) or ((not isPressed) and (not Special._isADS)) then
+			return true
+		end
 		Special._isADS = isPressed
 	end
 
@@ -52,7 +57,16 @@ function Special:_enterADS(weaponInstance)
 	end
 
 	if weaponInstance.PlayWeaponTrack then
-		weaponInstance.PlayWeaponTrack("ADS", 0.15)
+		local adsTrack = weaponInstance.PlayWeaponTrack("ADS", ADS_TRACK_FADE)
+		if not adsTrack then
+			adsTrack = weaponInstance.PlayWeaponTrack("Aim", ADS_TRACK_FADE)
+		end
+		if not adsTrack then
+			adsTrack = weaponInstance.PlayWeaponTrack("Idle", ADS_TRACK_FADE)
+		end
+		if adsTrack and adsTrack.AdjustSpeed then
+			adsTrack:AdjustSpeed(ADS_TRACK_SPEED)
+		end
 	end
 end
 
@@ -69,7 +83,10 @@ function Special:_exitADS(weaponInstance)
 	end
 
 	if weaponInstance and weaponInstance.PlayWeaponTrack then
-		weaponInstance.PlayWeaponTrack("Hip", 0.15)
+		local hipTrack = weaponInstance.PlayWeaponTrack("Hip", ADS_TRACK_FADE)
+		if not hipTrack then
+			hipTrack = weaponInstance.PlayWeaponTrack("Idle", ADS_TRACK_FADE)
+		end
 	end
 end
 
