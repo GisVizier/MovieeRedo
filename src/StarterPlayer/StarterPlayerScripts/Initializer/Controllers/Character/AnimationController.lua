@@ -1316,9 +1316,14 @@ function AnimationController:_syncToCurrentMovementState()
 end
 
 function AnimationController:_getLocalTrackTable()
+	local localPlayer = Players.LocalPlayer
+	-- In lobby: always use full-body base animations regardless of weapon mode
+	if localPlayer and localPlayer:GetAttribute("InLobby") == true then
+		return self.LocalAnimationTracks, nil
+	end
+	-- In game/match: use weapon (legs-only) animations when available
 	local useWeapon = self._weaponAnimMode
 	if not useWeapon then
-		local localPlayer = Players.LocalPlayer
 		useWeapon = localPlayer and localPlayer:GetAttribute("InLobby") == false
 	end
 	if useWeapon and next(self.WeaponAnimationTracks) then
@@ -2049,7 +2054,11 @@ function AnimationController:PlayAnimationForOtherPlayer(targetPlayer, animation
 	end
 
 	-- Determine if this remote player is in weapon (legs-only) animation mode
-	local useWeaponAnims = self.OtherCharacterWeaponMode[character] == true
+	-- In lobby: always use full-body base animations regardless of weapon mode
+	local localPlayer = Players.LocalPlayer
+	local inLobby = localPlayer and localPlayer:GetAttribute("InLobby") == true
+	local useWeaponAnims = not inLobby
+		and self.OtherCharacterWeaponMode[character] == true
 		and next(self.WeaponAnimationInstances) ~= nil
 
 	-- Pick the right track cache and animation instance table
