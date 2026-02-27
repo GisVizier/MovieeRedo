@@ -984,6 +984,11 @@ function AnimationController:OnMovementStateChanged(previousState, newState, _da
 	local isGrounded = MovementStateManager:GetIsGrounded()
 	local isJumpCancelProtected = isJumpCancelProtected(self)
 
+	-- Always stop slide animation when leaving Sliding state, before any early returns
+	if previousState == "Sliding" and not isSliding then
+		self:StopSlideAnimationUpdates()
+	end
+
 	if not isGrounded and not isSliding then
 		if isJumpCancelProtected(self) then
 			return
