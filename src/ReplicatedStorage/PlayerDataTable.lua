@@ -132,6 +132,9 @@ function PlayerDataTable.init()
 
 	local defaults = SettingsConfig.DefaultSettings
 	for category, settings in defaults do
+		if mockData.Settings[category] == nil then
+			mockData.Settings[category] = {}
+		end
 		for key, value in settings do
 			mockData.Settings[category][key] = deepClone(value)
 		end
@@ -330,7 +333,8 @@ function PlayerDataTable.set(category: string, key: string, value: any): boolean
 	end
 	local categoryData = src.Settings[category]
 	if not categoryData then
-		return false
+		categoryData = {}
+		src.Settings[category] = categoryData
 	end
 	local oldValue = categoryData[key]
 	-- Always update local cache immediately so UI/preview reads are in sync

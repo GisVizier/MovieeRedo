@@ -15,6 +15,9 @@ DamageNumbers._initialized = false
 DamageNumbers._template = nil
 DamageNumbers._activeByTarget = {} -- [targetUserId] = state
 DamageNumbers._pendingByTarget = {} -- [targetUserId] = { damage, position, options, scheduled }
+DamageNumbers._stackedByTarget = {} -- [targetUserId] = { { state, basePosition } }
+DamageNumbers._stackedPendingByTarget = {} -- [targetUserId] = { entries = { { damage, position, options } }, scheduled = boolean }
+DamageNumbers._mode = "Add"
 
 local APPEAR_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local EXIT_TWEEN = TweenInfo.new(
@@ -32,6 +35,14 @@ local POP_ROTATION_MAX = 16
 local POP_IN_TWEEN = TweenInfo.new(0.075, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local POP_SETTLE_TWEEN = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PIVOT_RANDOM_OFFSET_BOUNDS = 1
+local STACKED_VERTICAL_STEP = 0.85
+local STACKED_ACCEPT_WINDOW = 0.07
+local ADD_MAX_TEXT_SIZE = 30
+local STACKED_TEXT_SIZE = 20
+
+local DAMAGE_NUMBERS_MODE_ADD = "Add"
+local DAMAGE_NUMBERS_MODE_DISABLED = "Disabled"
+local DAMAGE_NUMBERS_MODE_STACKED = "Stacked"
 
 local function isUsableTemplate(template: Instance): boolean
 	if not template:IsA("Attachment") then
@@ -109,7 +120,7 @@ local function createFallbackTemplate(): Attachment
 	mainText.Parent = frame
 
 	local sizeConstraint = Instance.new("UITextSizeConstraint")
-	sizeConstraint.MaxTextSize = 36
+	sizeConstraint.MaxTextSize = ADD_MAX_TEXT_SIZE
 	sizeConstraint.Parent = mainText
 
 	return attachment
@@ -126,6 +137,35 @@ local function getTemplate(): Attachment
 	end
 
 	return createFallbackTemplate()
+end
+
+local function normalizeMode(mode)
+	if type(mode) == "string" then
+		local lowered = string.lower(mode)
+		if lowered == "disabled" or lowered == "off" then
+			return DAMAGE_NUMBERS_MODE_DISABLED
+		end
+		if lowered == "stacked" or lowered == "list" then
+			return DAMAGE_NUMBERS_MODE_STACKED
+		end
+		return DAMAGE_NUMBERS_MODE_ADD
+	end
+
+	if type(mode) == "boolean" then
+		return mode and DAMAGE_NUMBERS_MODE_ADD or DAMAGE_NUMBERS_MODE_DISABLED
+	end
+
+	if type(mode) == "number" then
+		if mode == 1 then
+			return DAMAGE_NUMBERS_MODE_DISABLED
+		end
+		if mode == 3 then
+			return DAMAGE_NUMBERS_MODE_STACKED
+		end
+		return DAMAGE_NUMBERS_MODE_ADD
+	end
+
+	return DAMAGE_NUMBERS_MODE_ADD
 end
 
 local function cleanupState(state)
@@ -168,7 +208,20 @@ function DamageNumbers:Init()
 
 	self._template = getTemplate()
 	self._pendingByTarget = {}
+	self._stackedByTarget = {}
+	self._stackedPendingByTarget = {}
+	self._mode = DAMAGE_NUMBERS_MODE_ADD
 	self._initialized = true
+end
+
+function DamageNumbers:SetMode(mode)
+	local normalized = normalizeMode(mode)
+	if self._mode == normalized then
+		return
+	end
+
+	self._mode = normalized
+	self:ClearAll()
 end
 
 function DamageNumbers:_createState(position: Vector3)
@@ -221,6 +274,12 @@ function DamageNumbers:_createState(position: Vector3)
 		mainText.TextTransparency = 0
 		mainText.TextScaled = true
 		mainText.TextWrapped = true
+		local sizeConstraint = mainText:FindFirstChildOfClass("UITextSizeConstraint")
+		if not sizeConstraint then
+			sizeConstraint = Instance.new("UITextSizeConstraint")
+			sizeConstraint.Parent = mainText
+		end
+		sizeConstraint.MaxTextSize = ADD_MAX_TEXT_SIZE
 	end
 
 	return {
@@ -414,12 +473,159 @@ function DamageNumbers:_flushPendingTarget(targetUserId: number)
 	self:_scheduleExit(targetUserId, state)
 end
 
+function DamageNumbers:_reflowStackedTarget(targetUserId)
+	local bucket = self._stackedByTarget[targetUserId]
+	if not bucket then
+		return
+	end
+
+	local live = {}
+	for _, entry in ipairs(bucket) do
+		local state = entry and entry.state
+		if state and state.anchorPart and state.anchorPart.Parent then
+			table.insert(live, entry)
+		end
+	end
+
+	if #live == 0 then
+		self._stackedByTarget[targetUserId] = nil
+		return
+	end
+
+	self._stackedByTarget[targetUserId] = live
+	for index, entry in ipairs(live) do
+		local state = entry.state
+		if state and state.anchorPart then
+			local desired = entry.basePosition + Vector3.new(0, (index - 1) * STACKED_VERTICAL_STEP, 0)
+			state.anchorPart.CFrame = CFrame.new(desired)
+		end
+	end
+end
+
+function DamageNumbers:_removeStackedEntry(targetUserId, targetEntry)
+	local bucket = self._stackedByTarget[targetUserId]
+	if not bucket then
+		return
+	end
+
+	for i = #bucket, 1, -1 do
+		if bucket[i] == targetEntry then
+			table.remove(bucket, i)
+			break
+		end
+	end
+
+	if #bucket == 0 then
+		self._stackedByTarget[targetUserId] = nil
+	else
+		self:_reflowStackedTarget(targetUserId)
+	end
+end
+
+function DamageNumbers:_scheduleStackedExit(targetUserId, entry)
+	local state = entry and entry.state
+	if not state then
+		return
+	end
+
+	task.delay(HOLD_TIME, function()
+		local bucket = self._stackedByTarget[targetUserId]
+		if not bucket then
+			return
+		end
+
+		local stillLive = false
+		for _, liveEntry in ipairs(bucket) do
+			if liveEntry == entry then
+				stillLive = true
+				break
+			end
+		end
+		if not stillLive then
+			return
+		end
+
+		if state.moveTween then
+			state.moveTween:Cancel()
+		end
+		if state.fadeTween then
+			state.fadeTween:Cancel()
+		end
+
+		state.moveTween = TweenService:Create(state.anchorPart, EXIT_TWEEN, {
+			Position = state.anchorPart.Position + FLOAT_OFFSET,
+		})
+		state.moveTween:Play()
+
+		if state.frame and state.frame:IsA("CanvasGroup") then
+			state.fadeTween = TweenService:Create(state.frame, EXIT_TWEEN, {
+				GroupTransparency = 1,
+			})
+			state.fadeTween:Play()
+		end
+
+		task.delay(EXIT_TWEEN.Time + 0.02, function()
+			self:_removeStackedEntry(targetUserId, entry)
+			cleanupState(state)
+		end)
+	end)
+end
+
+function DamageNumbers:_showStackedForTarget(targetUserId, position: Vector3, damage: number, options)
+	local amount = math.max(0, math.floor(tonumber(damage) or 0))
+	if amount <= 0 then
+		return
+	end
+
+	local anchoredPosition = position + self:_getRandomPivotOffset()
+	local state = self:_createState(anchoredPosition)
+	state.totalDamage = amount
+
+	self:_applyStyle(state, options)
+	if state.mainText then
+		state.mainText.Text = tostring(amount)
+		state.mainText.TextScaled = false
+		state.mainText.TextSize = STACKED_TEXT_SIZE
+		state.mainText.TextXAlignment = Enum.TextXAlignment.Left
+	end
+	self:_playSpawnAnimation(state, false)
+
+	local bucket = self._stackedByTarget[targetUserId]
+	if not bucket then
+		bucket = {}
+		self._stackedByTarget[targetUserId] = bucket
+	end
+
+	local entry = {
+		state = state,
+		basePosition = position,
+	}
+	table.insert(bucket, 1, entry)
+	self:_reflowStackedTarget(targetUserId)
+	self:_scheduleStackedExit(targetUserId, entry)
+end
+
+function DamageNumbers:_flushStackedPendingTarget(targetUserId)
+	local pending = self._stackedPendingByTarget[targetUserId]
+	if not pending then
+		return
+	end
+
+	self._stackedPendingByTarget[targetUserId] = nil
+	for _, entry in ipairs(pending.entries) do
+		self:_showStackedForTarget(targetUserId, entry.position, entry.damage, entry.options)
+	end
+end
+
 function DamageNumbers:ShowForTarget(targetUserId, position: Vector3, damage: number, options)
 	if not self._initialized then
 		self:Init()
 	end
 
 	if not CombatConfig.DamageNumbers.Enabled then
+		return
+	end
+	if self._mode == DAMAGE_NUMBERS_MODE_DISABLED then
 		return
 	end
 
@@ -430,6 +636,31 @@ function DamageNumbers:ShowForTarget(targetUserId, position: Vector3, damage: nu
 
 	local addDamage = math.max(0, math.floor(tonumber(damage) or 0))
 	if addDamage <= 0 then
+		return
+	end
+
+	if self._mode == DAMAGE_NUMBERS_MODE_STACKED then
+		local pending = self._stackedPendingByTarget[targetUserId]
+		if not pending then
+			pending = {
+				entries = {},
+				scheduled = false,
+			}
+			self._stackedPendingByTarget[targetUserId] = pending
+		end
+
+		table.insert(pending.entries, {
+			damage = addDamage,
+			position = position,
+			options = options or {},
+		})
+
+		if not pending.scheduled then
+			pending.scheduled = true
+			task.delay(STACKED_ACCEPT_WINDOW, function()
+				self:_flushStackedPendingTarget(targetUserId)
+			end)
+		end
 		return
 	end
 
@@ -468,12 +699,32 @@ end
 
 function DamageNumbers:ClearTarget(targetUserId: number)
 	self._pendingByTarget[targetUserId] = nil
+	self._stackedPendingByTarget[targetUserId] = nil
 	local state = self._activeByTarget[targetUserId]
 	if not state then
+		local stacked = self._stackedByTarget[targetUserId]
+		if stacked then
+			for _, entry in ipairs(stacked) do
+				if entry and entry.state then
+					cleanupState(entry.state)
+				end
+			end
+			self._stackedByTarget[targetUserId] = nil
+		end
 		return
 	end
 	cleanupState(state)
 	self._activeByTarget[targetUserId] = nil
+
+	local stacked = self._stackedByTarget[targetUserId]
+	if stacked then
+		for _, entry in ipairs(stacked) do
+			if entry and entry.state then
+				cleanupState(entry.state)
+			end
+		end
+		self._stackedByTarget[targetUserId] = nil
+	end
 end
 
 function DamageNumbers:ClearAll()
@@ -481,9 +732,22 @@ function DamageNumbers:ClearAll()
 		self._pendingByTarget[targetUserId] = nil
 	end
 
+	for targetUserId in self._stackedPendingByTarget do
+		self._stackedPendingByTarget[targetUserId] = nil
+	end
+
 	for targetUserId, state in self._activeByTarget do
 		cleanupState(state)
 		self._activeByTarget[targetUserId] = nil
+	end
+
+	for targetUserId, bucket in self._stackedByTarget do
+		for _, entry in ipairs(bucket) do
+			if entry and entry.state then
+				cleanupState(entry.state)
+			end
+		end
+		self._stackedByTarget[targetUserId] = nil
 	end
 end
 

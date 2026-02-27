@@ -170,6 +170,9 @@ WeaponController._reloadFireLocked = false
 WeaponController._equipFireLockUntil = 0
 WeaponController._equipFireLockToken = 0
 WeaponController._equipBufferedShot = false
+WeaponController._restoreADSAfterReload = false
+WeaponController._restoreADSReloadToken = nil
+WeaponController._isRestoringADSAfterReload = false
 WeaponController._lastShotWeaponId = nil
 WeaponController._lastShotTime = 0
 WeaponController._slotChangedConn = nil
@@ -298,6 +301,9 @@ function WeaponController:Start()
 		end
 		if type(LocalPlayer:GetAttribute("ADSSensitivityScale")) ~= "number" then
 			LocalPlayer:SetAttribute("ADSSensitivityScale", ADS_SENSITIVITY_BASE_MULT)
+		end
+		if type(LocalPlayer:GetAttribute("SettingsToggleAim")) ~= "boolean" then
+			LocalPlayer:SetAttribute("SettingsToggleAim", false)
 		end
 		LocalPlayer:SetAttribute("WeaponADSActive", false)
 		self:_applyMouseSensitivityForADS(false)
@@ -743,6 +749,105 @@ function WeaponController:_resolveADSState(defaultState: boolean?): boolean
 	return fallback
 end
 
+function WeaponController:_clearReloadADSRestore()
+	self._restoreADSAfterReload = false
+	self._restoreADSReloadToken = nil
+	self._isRestoringADSAfterReload = false
+end
+
+function WeaponController:_canQueueADSRestoreAfterReload(): boolean
+	if not self:_isToggleAimEnabled() then
+		return false
+	end
+	if not self:_isActiveWeaponEquipped() then
+		return false
+	end
+	if not self._weaponInstance then
+		return false
+	end
+	if self._weaponInstance.WeaponType == "Melee" then
+		return false
+	end
+	return self:_resolveADSState(self._isADS)
+end
+
+function WeaponController:_tryRestoreADSAfterReload()
+	if self._restoreADSAfterReload ~= true then
+		return
+	end
+	if self._isReloading then
+		return
+	end
+	if self._isRestoringADSAfterReload then
+		return
+	end
+	if not self:_isToggleAimEnabled() then
+		self:_clearReloadADSRestore()
+		return
+	end
+	if not self:_isActiveWeaponEquipped() or not self._weaponInstance then
+		self:_clearReloadADSRestore()
+		return
+	end
+	if self._weaponInstance.WeaponType == "Melee" then
+		self:_clearReloadADSRestore()
+		return
+	end
+
+	local expectedReloadToken = self._restoreADSReloadToken
+	if type(expectedReloadToken) == "number" and expectedReloadToken ~= self._reloadToken then
+		self:_clearReloadADSRestore()
+		return
+	end
+
+	if self:_resolveADSState(self._isADS) then
+		self:_clearReloadADSRestore()
+		return
+	end
+
+	self._isRestoringADSAfterReload = true
+	task.defer(function()
+		if self._restoreADSAfterReload ~= true then
+			self._isRestoringADSAfterReload = false
+			return
+		end
+		if self._isReloading then
+			self:_clearReloadADSRestore()
+			return
+		end
+		if not self:_isToggleAimEnabled() then
+			self:_clearReloadADSRestore()
+			return
+		end
+		if not self:_isActiveWeaponEquipped() or not self._weaponInstance then
+			self:_clearReloadADSRestore()
+			return
+		end
+		if self._weaponInstance.WeaponType == "Melee" then
+			self:_clearReloadADSRestore()
+			return
+		end
+		if self:_resolveADSState(self._isADS) then
+			self:_clearReloadADSRestore()
+			return
+		end
+
+		self._isRestoringADSAfterReload = false
+		self:Special(true)
+		self:_clearReloadADSRestore()
+	end)
+end
+
+function WeaponController:_onReloadStateChanged(previousReloading: boolean, currentReloading: boolean)
+	if previousReloading == currentReloading then
+		return
+	end
+	if not currentReloading then
+		self._reloadFireLocked = false
+		self:_tryRestoreADSAfterReload()
+	end
+end
+
 function WeaponController:_isEquipLocked(): boolean
 	return (self._equipFireLockUntil or 0) > os.clock()
 end
@@ -1140,6 +1245,7 @@ function WeaponController:_applyMouseSensitivityForADS(isADS: boolean?)
 end
 
 function WeaponController:OnRespawnRefresh()
+	self:_clearReloadADSRestore()
 	self._isADS = false
 	self:_setADSActiveAttribute(false)
 	self:_applyMouseSensitivityForADS(false)
@@ -1156,6 +1262,8 @@ function WeaponController:OnRespawnRefresh()
 end
 
 function WeaponController:_unequipCurrentWeapon()
+	self:_clearReloadADSRestore()
+
 	-- Clean up ADS overlay & restore viewmodel
 	ADSOverlay:End()
 	if self._viewmodelController then
@@ -1723,10 +1831,12 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			return self._isReloading
 		end,
 		SetIsReloading = function(value)
+			local previousReloading = self._isReloading == true
 			self._isReloading = value == true
 			if not self._isReloading then
 				self._reloadFireLocked = false
 			end
+			self:_onReloadStateChanged(previousReloading, self._isReloading == true)
 		end,
 		GetReloadFireLocked = function()
 			return self._reloadFireLocked == true
@@ -1783,6 +1893,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 				return
 			end
 
+			local previousReloading = self._isReloading == true
 			if type(nextState.IsReloading) == "boolean" then
 				self._isReloading = nextState.IsReloading
 			end
@@ -1791,6 +1902,7 @@ function WeaponController:_buildWeaponInstance(weaponId, weaponConfig, slot)
 			elseif not self._isReloading then
 				self._reloadFireLocked = false
 			end
+			self:_onReloadStateChanged(previousReloading, self._isReloading == true)
 			if type(nextState.LastFireTime) == "number" then
 				self:_setLastFireTimeForSlot(slot, nextState.LastFireTime)
 			end
@@ -1891,6 +2003,10 @@ local currentTime = workspace:GetServerTimeNow()
 
 	if not self._currentActions or not self._currentActions.Attack then
 		return
+	end
+
+	if self._isReloading then
+		self:_clearReloadADSRestore()
 	end
 
 	-- Update aim assist firing state
@@ -2422,6 +2538,14 @@ function WeaponController:Reload()
 	end
 
 	-- Reload should stop any ongoing weapon actions first.
+	local shouldRestoreADSAfterReload = self:_canQueueADSRestoreAfterReload()
+	if shouldRestoreADSAfterReload then
+		self._restoreADSAfterReload = true
+		self._restoreADSReloadToken = nil
+	else
+		self:_clearReloadADSRestore()
+	end
+
 	self._isFiring = false
 	self:_stopAutoFire()
 	if self._currentActions.Attack and self._currentActions.Attack.Cancel then
@@ -2455,8 +2579,15 @@ function WeaponController:Reload()
 	if self._currentActions.Reload then
 		local ok, reason = self._currentActions.Reload.Execute(self._weaponInstance)
 		if ok then
+			if shouldRestoreADSAfterReload then
+				self._restoreADSReloadToken = self._reloadToken
+			end
 			LogService:Info("WEAPON", "Reload started", { weaponId = self._equippedWeaponId })
+		else
+			self:_clearReloadADSRestore()
 		end
+	else
+		self:_clearReloadADSRestore()
 	end
 end
 
@@ -2513,6 +2644,9 @@ function WeaponController:Special(isPressed)
 	self:_updateWeaponInstanceState()
 
 	if self._isReloading then
+		if isPressed then
+			self:_clearReloadADSRestore()
+		end
 		if
 			self._currentActions.Special
 			and self._currentActions.Special.IsActive
@@ -2542,12 +2676,22 @@ function WeaponController:Special(isPressed)
 		end
 	end
 
-	-- Execute special
-	if self._currentActions.Special then
-		self._currentActions.Special.Execute(self._weaponInstance, isPressed)
+	local weaponType = self._weaponInstance and self._weaponInstance.WeaponType or "Gun"
+	local isAimableWeapon = weaponType ~= "Melee"
+	local specialInputState = isPressed
+	if isAimableWeapon and self:_isToggleAimEnabled() then
+		if not isPressed then
+			return
+		end
+		specialInputState = not self:_resolveADSState(self._isADS)
 	end
 
-	self._isADS = self:_resolveADSState(isPressed)
+	-- Execute special
+	if self._currentActions.Special then
+		self._currentActions.Special.Execute(self._weaponInstance, specialInputState)
+	end
+
+	self._isADS = self:_resolveADSState(specialInputState)
 	self:_setADSActiveAttribute(self._isADS)
 	self:_applyMouseSensitivityForADS(self._isADS)
 
@@ -2569,13 +2713,21 @@ function WeaponController:Special(isPressed)
 	-- Apply Aim Assist ADS boost
 	self:_updateAimAssistADS(self._isADS)
 
-	local weaponType = self._weaponInstance and self._weaponInstance.WeaponType or "Gun"
 	if weaponType == "Gun" then
 		local trackName = self._isADS and "ADS" or "Hip"
 		self:_replicateViewmodelAction("ADS", trackName, self._isADS)
 	else
 		self:_replicateViewmodelAction("Special", "Special", isPressed)
 	end
+end
+
+function WeaponController:_isToggleAimEnabled(): boolean
+	local player = LocalPlayer or Players.LocalPlayer
+	if not player then
+		return false
+	end
+
+	return player:GetAttribute("SettingsToggleAim") == true
 end
 
 function WeaponController:_updateAimAssistADS(isADS: boolean)

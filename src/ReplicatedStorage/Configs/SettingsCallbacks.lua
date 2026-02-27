@@ -3,13 +3,16 @@ local Lighting = game:GetService("Lighting")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local AimAssistConfig = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("AimAssist"):WaitForChild("AimAssistConfig"))
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
+local CharacterLocations = require(Locations.Game:WaitForChild("Character"):WaitForChild("CharacterLocations"))
 local SoundManager = require(Locations.Shared.Util:WaitForChild("SoundManager"))
 local ServiceRegistry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("ServiceRegistry"))
 local FOVController = require(Locations.Shared.Util:WaitForChild("FOVController"))
 local SettingsConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("SettingsConfig"))
+local DialogueService = require(ReplicatedStorage:WaitForChild("Dialogue"))
 
 local SettingsCallbacks = {}
 local ADS_SENSITIVITY_BASE_MULT = 0.75
@@ -29,6 +32,22 @@ local HideHudState = {
 	moduleShowConnection = nil,
 	pendingApply = false,
 }
+local MobileArrangeState = {
+	enabled = false,
+	hiddenModules = {},
+	moduleShowConnection = nil,
+	pendingApply = false,
+}
+local TeamEnemyInkState = {
+	initialized = false,
+	refreshQueued = false,
+	highlights = {},
+	playerConnections = {},
+	globalConnections = {},
+	heartbeatConnection = nil,
+	highlightDepthConnections = {},
+	antiCheatTriggered = false,
+}
 local HUD_HIDE_ALLOWED_MODULES = {
 	["Loadout"] = true,
 	["Map"] = true,
@@ -38,8 +57,17 @@ local HUD_HIDE_ALLOWED_MODULES = {
 	["stats"] = true,
 	["Stats"] = true,
 }
+local MOBILE_ARRANGE_ALLOWED_MODULES = {
+	["_Settings"] = true,
+	["Settings"] = true,
+}
 local BRIGHTNESS_BLOOM_NAME = "_SettingsBrightnessBloom"
 local BRIGHTNESS_DEFAULT_INDEX = 3
+local TEAM_ENEMY_HIGHLIGHT_NAME = "_SettingsTeamEnemyInk"
+local TEAM_ENEMY_BASE_FILL_TRANSPARENCY = 0.9
+local TEAM_ENEMY_BASE_OUTLINE_TRANSPARENCY = 0.875
+local TEAM_COLOR_FALLBACK = Color3.fromRGB(16, 72, 255)
+local ENEMY_COLOR_FALLBACK = Color3.fromRGB(255, 0, 4)
 local BRIGHTNESS_PRESETS = {
 	[1] = {
 		exposure = -0.65,
@@ -317,7 +345,7 @@ local function applyCrosshairSettingsFromAttributes()
 				length = readNumber("SettingsCrosshairTopLineLength", baseLength, 2, 40),
 				roundness = readNumber("SettingsCrosshairTopLineRoundness", baseRoundness, 0, 20),
 				rotation = readNumber("SettingsCrosshairTopLineRotation", 0, -180, 180),
-				gap = readNumber("SettingsCrosshairTopLineGap", baseGap, 0, 50),
+				gap = readNumber("SettingsCrosshairTopLineGap", baseGap, -50, 50),
 			},
 			Bottom = {
 				color = getCrosshairColorFromSetting("BottomLineColor", player:GetAttribute("SettingsCrosshairBottomLineColor")) or mainColor,
@@ -326,7 +354,7 @@ local function applyCrosshairSettingsFromAttributes()
 				length = readNumber("SettingsCrosshairBottomLineLength", baseLength, 2, 40),
 				roundness = readNumber("SettingsCrosshairBottomLineRoundness", baseRoundness, 0, 20),
 				rotation = readNumber("SettingsCrosshairBottomLineRotation", 0, -180, 180),
-				gap = readNumber("SettingsCrosshairBottomLineGap", baseGap, 0, 50),
+				gap = readNumber("SettingsCrosshairBottomLineGap", baseGap, -50, 50),
 			},
 			Left = {
 				color = getCrosshairColorFromSetting("LeftLineColor", player:GetAttribute("SettingsCrosshairLeftLineColor")) or mainColor,
@@ -335,7 +363,7 @@ local function applyCrosshairSettingsFromAttributes()
 				length = readNumber("SettingsCrosshairLeftLineLength", baseLength, 2, 40),
 				roundness = readNumber("SettingsCrosshairLeftLineRoundness", baseRoundness, 0, 20),
 				rotation = readNumber("SettingsCrosshairLeftLineRotation", 0, -180, 180),
-				gap = readNumber("SettingsCrosshairLeftLineGap", baseGap, 0, 50),
+				gap = readNumber("SettingsCrosshairLeftLineGap", baseGap, -50, 50),
 			},
 			Right = {
 				color = getCrosshairColorFromSetting("RightLineColor", player:GetAttribute("SettingsCrosshairRightLineColor")) or mainColor,
@@ -344,7 +372,7 @@ local function applyCrosshairSettingsFromAttributes()
 				length = readNumber("SettingsCrosshairRightLineLength", baseLength, 2, 40),
 				roundness = readNumber("SettingsCrosshairRightLineRoundness", baseRoundness, 0, 20),
 				rotation = readNumber("SettingsCrosshairRightLineRotation", 0, -180, 180),
-				gap = readNumber("SettingsCrosshairRightLineGap", baseGap, 0, 50),
+				gap = readNumber("SettingsCrosshairRightLineGap", baseGap, -50, 50),
 			},
 		},
 		dotStyle = {
@@ -905,6 +933,809 @@ local function applyHideHudState(enabled)
 	setUnHideVisible(coreUi, true)
 end
 
+local function shouldKeepModuleForMobileArrange(moduleName)
+	return MOBILE_ARRANGE_ALLOWED_MODULES[moduleName] == true
+end
+
+local function disconnectMobileArrangeConnection()
+	local connection = MobileArrangeState.moduleShowConnection
+	if not connection then
+		return
+	end
+
+	if typeof(connection) == "RBXScriptConnection" then
+		connection:Disconnect()
+	elseif type(connection) == "table" and connection.disconnect then
+		connection:disconnect()
+	end
+
+	MobileArrangeState.moduleShowConnection = nil
+end
+
+local function hideModulesForMobileArrange(coreUi)
+	MobileArrangeState.hiddenModules = {}
+
+	for moduleName, _ in pairs(coreUi._modules or {}) do
+		if not shouldKeepModuleForMobileArrange(moduleName) then
+			local ui = coreUi:getUI(moduleName)
+			local wasVisible = ui and ui:IsA("GuiObject") and ui.Visible == true or false
+			local wasOpen = coreUi:isOpen(moduleName)
+
+			if wasVisible or wasOpen then
+				MobileArrangeState.hiddenModules[moduleName] = {
+					wasOpen = wasOpen,
+					wasVisible = wasVisible,
+				}
+			end
+
+			if wasOpen then
+				coreUi:hide(moduleName)
+			elseif ui and ui:IsA("GuiObject") then
+				ui.Visible = false
+			end
+		end
+	end
+
+	disconnectMobileArrangeConnection()
+	MobileArrangeState.moduleShowConnection = coreUi.onModuleShow:connect(function(moduleName)
+		if not MobileArrangeState.enabled or shouldKeepModuleForMobileArrange(moduleName) then
+			return
+		end
+
+		task.defer(function()
+			local liveCoreUi = getCoreUI()
+			if not liveCoreUi then
+				return
+			end
+
+			if liveCoreUi:isOpen(moduleName) then
+				liveCoreUi:hide(moduleName)
+			end
+
+			local liveUi = liveCoreUi:getUI(moduleName)
+			if liveUi and liveUi:IsA("GuiObject") then
+				liveUi.Visible = false
+			end
+		end)
+	end)
+end
+
+local function applyMobileArrangeButtonsState(enabled)
+	enabled = enabled == true
+	if not UserInputService.TouchEnabled then
+		enabled = false
+	end
+
+	local player = getLocalPlayer()
+	if player then
+		player:SetAttribute("SettingsArrangeMobileButtons", enabled)
+	end
+
+	if enabled ~= true and MobileArrangeState.enabled ~= true then
+		return
+	end
+
+	local coreUi = getCoreUI()
+
+	if enabled ~= true then
+		MobileArrangeState.enabled = false
+		MobileArrangeState.pendingApply = false
+		disconnectMobileArrangeConnection()
+
+		if HideHudState.enabled then
+			MobileArrangeState.hiddenModules = {}
+			return
+		end
+
+		local restoreState = MobileArrangeState.hiddenModules
+		MobileArrangeState.hiddenModules = {}
+
+		if not coreUi then
+			return
+		end
+
+		for moduleName, state in pairs(restoreState) do
+			if state.wasOpen then
+				coreUi:show(moduleName, true)
+			else
+				local ui = coreUi:getUI(moduleName)
+				if ui and ui:IsA("GuiObject") and state.wasVisible then
+					ui.Visible = true
+				end
+			end
+		end
+		return
+	end
+
+	MobileArrangeState.enabled = true
+
+	if not coreUi then
+		if not MobileArrangeState.pendingApply then
+			MobileArrangeState.pendingApply = true
+			task.spawn(function()
+				for _ = 1, 120 do
+					if not MobileArrangeState.enabled then
+						MobileArrangeState.pendingApply = false
+						return
+					end
+
+					local liveCoreUi = getCoreUI()
+					if liveCoreUi then
+						MobileArrangeState.pendingApply = false
+						applyMobileArrangeButtonsState(true)
+						return
+					end
+
+					task.wait(0.25)
+				end
+				MobileArrangeState.pendingApply = false
+			end)
+		end
+		return
+	end
+	MobileArrangeState.pendingApply = false
+
+	if coreUi:isOpen("_Settings") then
+		coreUi:hide("_Settings")
+	end
+
+	task.defer(function()
+		if not MobileArrangeState.enabled then
+			return
+		end
+		local liveCoreUi = getCoreUI()
+		if not liveCoreUi then
+			return
+		end
+		hideModulesForMobileArrange(liveCoreUi)
+	end)
+end
+
+local function disconnectConnection(connection)
+	if not connection then
+		return
+	end
+	if typeof(connection) == "RBXScriptConnection" then
+		connection:Disconnect()
+	end
+end
+
+local function disconnectConnectionList(list)
+	if type(list) ~= "table" then
+		return
+	end
+	for _, connection in ipairs(list) do
+		disconnectConnection(connection)
+	end
+	table.clear(list)
+end
+
+local function getGameplayDefault(settingKey)
+	return SettingsConfig.getDefaultValue("Gameplay", settingKey)
+end
+
+local function setLocalSettingAttribute(attributeName, value)
+	local player = getLocalPlayer()
+	if player then
+		player:SetAttribute(attributeName, value)
+	end
+end
+
+local function getLocalSettingAttribute(attributeName, fallback)
+	local player = getLocalPlayer()
+	if not player then
+		return fallback
+	end
+	local value = player:GetAttribute(attributeName)
+	if value == nil then
+		return fallback
+	end
+	return value
+end
+
+local function resolveGameplayOption(settingKey, selectedValue)
+	local setting = SettingsConfig.getSetting("Gameplay", settingKey)
+	if not setting or typeof(setting.Options) ~= "table" or #setting.Options == 0 then
+		return nil
+	end
+
+	if typeof(selectedValue) == "number" then
+		local index = math.clamp(math.floor(selectedValue + 0.5), 1, #setting.Options)
+		return setting.Options[index]
+	end
+
+	if selectedValue ~= nil then
+		local selectedText = tostring(selectedValue)
+		for _, option in ipairs(setting.Options) do
+			if typeof(option) == "table" then
+				local optionValue = option.Value
+				if optionValue ~= nil and tostring(optionValue) == selectedText then
+					return option
+				end
+				if option.Display ~= nil and tostring(option.Display) == selectedText then
+					return option
+				end
+			end
+		end
+	end
+
+	local defaultIndex = getGameplayDefault(settingKey)
+	if typeof(defaultIndex) == "number" then
+		local index = math.clamp(math.floor(defaultIndex + 0.5), 1, #setting.Options)
+		return setting.Options[index]
+	end
+
+	return setting.Options[1]
+end
+
+local function resolveTeamEnemyColor(settingKey, selectedValue, fallback)
+	local option = resolveGameplayOption(settingKey, selectedValue)
+	if option and typeof(option.Color) == "Color3" then
+		return option.Color
+	end
+
+	local value = option and option.Value
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		if lowered == "blue" then return Color3.fromRGB(16, 72, 255) end
+		if lowered == "cyan" then return Color3.fromRGB(14, 235, 255) end
+		if lowered == "green" then return Color3.fromRGB(37, 181, 11) end
+		if lowered == "yellow" then return Color3.fromRGB(255, 219, 15) end
+		if lowered == "orange" then return Color3.fromRGB(255, 125, 12) end
+		if lowered == "red" then return Color3.fromRGB(255, 0, 4) end
+		if lowered == "pink" then return Color3.fromRGB(255, 24, 213) end
+		if lowered == "purple" then return Color3.fromRGB(121, 25, 255) end
+		if lowered == "white" then return Color3.fromRGB(255, 255, 255) end
+		if lowered == "black" then return Color3.fromRGB(0, 0, 0) end
+	end
+
+	return fallback
+end
+
+local function resolveInkingMode(settingKey, selectedValue)
+	local option = resolveGameplayOption(settingKey, selectedValue)
+	local mode = option and option.Value
+	if type(mode) ~= "string" then
+		return "Hide"
+	end
+	return mode
+end
+
+local function resolveTransparencyMultiplier(settingKey, selectedValue)
+	local option = resolveGameplayOption(settingKey, selectedValue)
+	local value = option and option.Value
+	if type(value) ~= "number" then
+		return 1
+	end
+	return math.clamp(value, 0.1, 8)
+end
+
+local function resolveTeamSeeThroughWalls(selectedValue)
+	if selectedValue == nil then
+		local defaultValue = getGameplayDefault("TeamSeeThroughWalls")
+		return isSettingEnabled(defaultValue)
+	end
+	return isSettingEnabled(selectedValue)
+end
+
+local function kickForTeamEnemyAntiCheat(reason)
+	if TeamEnemyInkState.antiCheatTriggered then
+		return
+	end
+	TeamEnemyInkState.antiCheatTriggered = true
+	local localPlayer = getLocalPlayer()
+	if localPlayer then
+		localPlayer:Kick(string.format("[AntiCheat] %s", tostring(reason or "Invalid enemy highlight state")))
+	end
+end
+
+local function resolveTeamEntryUserId(entry)
+	if type(entry) == "number" then
+		return entry
+	end
+
+	if typeof(entry) == "Instance" and entry:IsA("Player") then
+		return entry.UserId
+	end
+
+	if type(entry) ~= "table" then
+		local asNumber = tonumber(entry)
+		return asNumber
+	end
+
+	local keys = { "userId", "UserId", "playerId", "PlayerId", "id", "Id" }
+	for _, key in ipairs(keys) do
+		local value = entry[key]
+		local numeric = tonumber(value)
+		if numeric then
+			return numeric
+		end
+	end
+
+	local playerValue = entry.player or entry.Player
+	if typeof(playerValue) == "Instance" and playerValue:IsA("Player") then
+		return playerValue.UserId
+	end
+
+	return nil
+end
+
+local function getHudTeamLookup()
+	local coreUi = getCoreUI()
+	if not coreUi then
+		return nil, nil
+	end
+
+	local hudModule = coreUi:getModule("HUD")
+	if not hudModule then
+		return nil, nil
+	end
+
+	local team1 = hudModule._matchTeam1
+	local team2 = hudModule._matchTeam2
+	if type(team1) ~= "table" or type(team2) ~= "table" then
+		return nil, nil
+	end
+
+	local lookup = {}
+	for _, entry in ipairs(team1) do
+		local userId = resolveTeamEntryUserId(entry)
+		if userId then
+			lookup[userId] = 1
+		end
+	end
+	for _, entry in ipairs(team2) do
+		local userId = resolveTeamEntryUserId(entry)
+		if userId then
+			lookup[userId] = 2
+		end
+	end
+
+	local localPlayer = getLocalPlayer()
+	local localTeamId = localPlayer and lookup[localPlayer.UserId] or nil
+	return lookup, localTeamId
+end
+
+local function resolveMatchAttributeTeamId(player)
+	if not player then
+		return nil
+	end
+	local attributeKeys = {
+		"MatchTeam",
+		"MatchTeamId",
+		"Team",
+		"TeamId",
+	}
+	for _, key in ipairs(attributeKeys) do
+		local value = player:GetAttribute(key)
+		if value ~= nil then
+			return tostring(value)
+		end
+	end
+	return nil
+end
+
+local function resolveIsTeammate(targetPlayer)
+	local localPlayer = getLocalPlayer()
+	if not localPlayer or not targetPlayer then
+		return nil
+	end
+	if targetPlayer == localPlayer then
+		return true
+	end
+
+	local localTeam = localPlayer.Team
+	local targetTeam = targetPlayer.Team
+	if localTeam ~= nil and targetTeam ~= nil then
+		return localTeam == targetTeam
+	end
+
+	local lookup, localTeamId = getHudTeamLookup()
+	if lookup and localTeamId ~= nil then
+		local targetTeamId = lookup[targetPlayer.UserId]
+		if targetTeamId ~= nil then
+			return targetTeamId == localTeamId
+		end
+	end
+
+	local localAttrTeam = resolveMatchAttributeTeamId(localPlayer)
+	local targetAttrTeam = resolveMatchAttributeTeamId(targetPlayer)
+	if localAttrTeam ~= nil and targetAttrTeam ~= nil then
+		return localAttrTeam == targetAttrTeam
+	end
+
+	return nil
+end
+
+local function shouldUseAlwaysOnTopForTarget(isTeammate, canSeeThroughWalls)
+	if isTeammate == true then
+		return canSeeThroughWalls == true
+	end
+	return false
+end
+
+local function getHighlightTargetModelForPlayer(targetPlayer)
+	if not targetPlayer then
+		return nil
+	end
+
+	local character = targetPlayer.Character
+	if not character or not character.Parent then
+		return nil
+	end
+
+	local rig = CharacterLocations:GetRig(character)
+	if rig and rig.Parent then
+		return rig
+	end
+
+	return character
+end
+
+local function removeTeamEnemyHighlight(targetPlayer)
+	local depthConnection = TeamEnemyInkState.highlightDepthConnections[targetPlayer]
+	if depthConnection then
+		disconnectConnection(depthConnection)
+		TeamEnemyInkState.highlightDepthConnections[targetPlayer] = nil
+	end
+
+	local highlight = TeamEnemyInkState.highlights[targetPlayer]
+	if highlight then
+		highlight:Destroy()
+		TeamEnemyInkState.highlights[targetPlayer] = nil
+	end
+
+	local character = targetPlayer and targetPlayer.Character
+	if character and character.Parent then
+		local existingOnCharacter = character:FindFirstChild(TEAM_ENEMY_HIGHLIGHT_NAME)
+		if existingOnCharacter and existingOnCharacter:IsA("Highlight") then
+			existingOnCharacter:Destroy()
+		end
+	end
+
+	local targetModel = getHighlightTargetModelForPlayer(targetPlayer)
+	if targetModel and targetModel ~= character then
+		local existingOnRig = targetModel:FindFirstChild(TEAM_ENEMY_HIGHLIGHT_NAME)
+		if existingOnRig and existingOnRig:IsA("Highlight") then
+			existingOnRig:Destroy()
+		end
+	end
+end
+
+local function shouldApplyTeamEnemyInking(localPlayer)
+	if not localPlayer then
+		return false
+	end
+	if localPlayer:GetAttribute("InLobby") == true then
+		return false
+	end
+	return true
+end
+
+local function applyTeamEnemyHighlightForPlayer(targetPlayer)
+	local localPlayer = getLocalPlayer()
+	if not localPlayer then
+		return
+	end
+
+	if targetPlayer == localPlayer then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	if not shouldApplyTeamEnemyInking(localPlayer) then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local character = targetPlayer.Character
+	if not character or not character.Parent then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local targetModel = getHighlightTargetModelForPlayer(targetPlayer)
+	if not targetModel or not targetModel.Parent then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local humanoid = targetModel:FindFirstChildOfClass("Humanoid") or character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local isTeammate = resolveIsTeammate(targetPlayer)
+	if isTeammate == nil then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local teamInkingValue = getLocalSettingAttribute("SettingsTeamInking", getGameplayDefault("TeamInking"))
+	local enemyInkingValue = getLocalSettingAttribute("SettingsEnemyInking", getGameplayDefault("EnemyInking"))
+	local styleMode = isTeammate
+		and resolveInkingMode("TeamInking", teamInkingValue)
+		or resolveInkingMode("EnemyInking", enemyInkingValue)
+
+	if styleMode == "Hide" then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local teamColorValue = getLocalSettingAttribute("SettingsTeamColor", getGameplayDefault("TeamColor"))
+	local enemyColorValue = getLocalSettingAttribute("SettingsEnemyColor", getGameplayDefault("EnemyColor"))
+	local highlightColor = isTeammate
+		and resolveTeamEnemyColor("TeamColor", teamColorValue, TEAM_COLOR_FALLBACK)
+		or resolveTeamEnemyColor("EnemyColor", enemyColorValue, ENEMY_COLOR_FALLBACK)
+
+	local teamTransValue = getLocalSettingAttribute("SettingsTeamInkTransparency", getGameplayDefault("TeamInkTransparency"))
+	local enemyTransValue = getLocalSettingAttribute("SettingsEnemyInkTransparency", getGameplayDefault("EnemyInkTransparency"))
+	local transparencyMultiplier = isTeammate
+		and resolveTransparencyMultiplier("TeamInkTransparency", teamTransValue)
+		or resolveTransparencyMultiplier("EnemyInkTransparency", enemyTransValue)
+
+	local teamSeeThroughValue = getLocalSettingAttribute("SettingsTeamSeeThroughWalls", getGameplayDefault("TeamSeeThroughWalls"))
+	local canSeeThroughWalls = isTeammate and resolveTeamSeeThroughWalls(teamSeeThroughValue)
+
+	local highlight = TeamEnemyInkState.highlights[targetPlayer]
+	if not highlight or not highlight.Parent then
+		highlight = targetModel:FindFirstChild(TEAM_ENEMY_HIGHLIGHT_NAME)
+		if not (highlight and highlight:IsA("Highlight")) then
+			highlight = Instance.new("Highlight")
+			highlight.Name = TEAM_ENEMY_HIGHLIGHT_NAME
+		end
+		TeamEnemyInkState.highlights[targetPlayer] = highlight
+	end
+
+	highlight.Adornee = targetModel
+	highlight.Parent = targetModel
+	highlight.Enabled = true
+	highlight.FillColor = highlightColor
+	highlight.OutlineColor = highlightColor
+
+	local baseFillOpacity = 1 - TEAM_ENEMY_BASE_FILL_TRANSPARENCY
+	local baseOutlineOpacity = 1 - TEAM_ENEMY_BASE_OUTLINE_TRANSPARENCY
+	local fillOpacity = math.clamp(baseFillOpacity * transparencyMultiplier, 0, 1)
+	local outlineOpacity = math.clamp(baseOutlineOpacity * transparencyMultiplier, 0, 1)
+	local fillTransparency = 1 - fillOpacity
+	local outlineTransparency = 1 - outlineOpacity
+
+	if styleMode == "Outline" then
+		fillTransparency = 1
+	elseif styleMode == "Fill" then
+		outlineTransparency = 1
+	elseif styleMode ~= "FillAndOutline" then
+		removeTeamEnemyHighlight(targetPlayer)
+		return
+	end
+
+	local useAlwaysOnTop = shouldUseAlwaysOnTopForTarget(isTeammate, canSeeThroughWalls)
+	highlight.DepthMode = useAlwaysOnTop and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+	if isTeammate == false and highlight.DepthMode == Enum.HighlightDepthMode.AlwaysOnTop then
+		kickForTeamEnemyAntiCheat("Enemy highlight through walls detected")
+		return
+	end
+
+	highlight.FillTransparency = fillTransparency
+	highlight.OutlineTransparency = outlineTransparency
+
+	local existingDepthConnection = TeamEnemyInkState.highlightDepthConnections[targetPlayer]
+	if existingDepthConnection then
+		disconnectConnection(existingDepthConnection)
+	end
+	TeamEnemyInkState.highlightDepthConnections[targetPlayer] = highlight:GetPropertyChangedSignal("DepthMode"):Connect(function()
+		if highlight.DepthMode ~= Enum.HighlightDepthMode.AlwaysOnTop then
+			return
+		end
+		local teammateNow = resolveIsTeammate(targetPlayer)
+		if teammateNow == false then
+			kickForTeamEnemyAntiCheat("Enemy highlight changed to through-walls")
+		end
+	end)
+end
+
+local function clearAllTeamEnemyHighlights()
+	for _, player in ipairs(Players:GetPlayers()) do
+		removeTeamEnemyHighlight(player)
+	end
+end
+
+local function refreshAllTeamEnemyHighlights()
+	local localPlayer = getLocalPlayer()
+	if not localPlayer then
+		return
+	end
+
+	if localPlayer:GetAttribute("InLobby") == true then
+		clearAllTeamEnemyHighlights()
+		return
+	end
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player == localPlayer then
+			removeTeamEnemyHighlight(player)
+		else
+			applyTeamEnemyHighlightForPlayer(player)
+		end
+	end
+
+	for player, highlight in pairs(TeamEnemyInkState.highlights) do
+		if player == nil or player.Parent == nil or highlight == nil or highlight.Parent == nil then
+			removeTeamEnemyHighlight(player)
+		end
+	end
+end
+
+local function queueTeamEnemyHighlightRefresh()
+	if TeamEnemyInkState.refreshQueued then
+		return
+	end
+	TeamEnemyInkState.refreshQueued = true
+	task.defer(function()
+		TeamEnemyInkState.refreshQueued = false
+		refreshAllTeamEnemyHighlights()
+	end)
+end
+
+local function cleanupTeamEnemyPlayerConnections(player)
+	local connections = TeamEnemyInkState.playerConnections[player]
+	if connections then
+		disconnectConnectionList(connections)
+		TeamEnemyInkState.playerConnections[player] = nil
+	end
+end
+
+local function bindTeamEnemyPlayer(player)
+	cleanupTeamEnemyPlayerConnections(player)
+
+	local connections = {}
+	table.insert(connections, player.CharacterAdded:Connect(function()
+		queueTeamEnemyHighlightRefresh()
+	end))
+	table.insert(connections, player.CharacterRemoving:Connect(function()
+		queueTeamEnemyHighlightRefresh()
+	end))
+	table.insert(connections, player:GetPropertyChangedSignal("Team"):Connect(function()
+		queueTeamEnemyHighlightRefresh()
+	end))
+	TeamEnemyInkState.playerConnections[player] = connections
+end
+
+local function ensureTeamEnemyInkWatchers()
+	if TeamEnemyInkState.initialized then
+		return
+	end
+	TeamEnemyInkState.initialized = true
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		bindTeamEnemyPlayer(player)
+	end
+
+	table.insert(TeamEnemyInkState.globalConnections, Players.PlayerAdded:Connect(function(player)
+		bindTeamEnemyPlayer(player)
+		queueTeamEnemyHighlightRefresh()
+	end))
+	table.insert(TeamEnemyInkState.globalConnections, Players.PlayerRemoving:Connect(function(player)
+		removeTeamEnemyHighlight(player)
+		cleanupTeamEnemyPlayerConnections(player)
+	end))
+
+	local localPlayer = getLocalPlayer()
+	if localPlayer then
+		table.insert(TeamEnemyInkState.globalConnections, localPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+			queueTeamEnemyHighlightRefresh()
+		end))
+		table.insert(TeamEnemyInkState.globalConnections, localPlayer:GetAttributeChangedSignal("InLobby"):Connect(function()
+			queueTeamEnemyHighlightRefresh()
+		end))
+	end
+
+	if TeamEnemyInkState.heartbeatConnection == nil then
+		local elapsed = 0
+		TeamEnemyInkState.heartbeatConnection = RunService.Heartbeat:Connect(function(dt)
+			elapsed += dt
+			if elapsed < 0.35 then
+				return
+			end
+			elapsed = 0
+			queueTeamEnemyHighlightRefresh()
+
+			local lp = getLocalPlayer()
+			if not lp or lp:GetAttribute("InLobby") == true then
+				clearAllTeamEnemyHighlights()
+				return
+			end
+
+			for player, highlight in pairs(TeamEnemyInkState.highlights) do
+				if player and highlight and highlight.Parent then
+					local isTeammate = resolveIsTeammate(player)
+					if isTeammate == false and highlight.DepthMode == Enum.HighlightDepthMode.AlwaysOnTop then
+						kickForTeamEnemyAntiCheat("Enemy highlight through walls detected")
+						return
+					end
+				end
+			end
+
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= lp then
+					local isTeammate = resolveIsTeammate(player)
+					if isTeammate == false then
+						local targetModel = getHighlightTargetModelForPlayer(player)
+						if targetModel then
+							for _, descendant in ipairs(targetModel:GetDescendants()) do
+								if descendant:IsA("Highlight")
+									and descendant.Enabled == true
+									and descendant.DepthMode == Enum.HighlightDepthMode.AlwaysOnTop then
+									kickForTeamEnemyAntiCheat("Enemy highlight was edited to through-walls")
+									return
+								end
+							end
+						end
+					end
+				end
+			end
+		end)
+	end
+end
+
+local function refreshMapTeamColors()
+	local coreUi = getCoreUI()
+	if not coreUi then
+		return
+	end
+
+	local mapModule = coreUi:getModule("Map")
+	if mapModule and type(mapModule._refreshTeamDisplay) == "function" then
+		pcall(function()
+			mapModule:_refreshTeamDisplay()
+		end)
+	end
+end
+
+local function applyTeamEnemyVisuals()
+	ensureTeamEnemyInkWatchers()
+	queueTeamEnemyHighlightRefresh()
+	refreshMapTeamColors()
+end
+
+local function resolveAudioVolumeScale(value, fallbackPercent)
+	local fallback = tonumber(fallbackPercent) or 100
+	local percent = clampNumber(value, 0, 200, fallback)
+	return percent / 100
+end
+
+local function applyDialogueMode(value)
+	local options = {
+		[1] = { subtitles = false, voice = false },
+		[2] = { subtitles = true, voice = true },
+		[3] = { subtitles = true, voice = false },
+		[4] = { subtitles = false, voice = true },
+	}
+
+	local selectedIndex = tonumber(value)
+	if selectedIndex then
+		selectedIndex = math.clamp(math.floor(selectedIndex + 0.5), 1, #options)
+	else
+		selectedIndex = 2
+	end
+
+	local mode = options[selectedIndex] or options[2]
+	local player = getLocalPlayer()
+	if player then
+		player:SetAttribute("SettingsDialogueMode", selectedIndex)
+		player:SetAttribute("SettingsDialogueSubtitlesEnabled", mode.subtitles)
+		player:SetAttribute("SettingsDialogueVoiceEnabled", mode.voice)
+	end
+
+	if DialogueService and type(DialogueService.setSubtitlesEnabled) == "function" then
+		DialogueService.setSubtitlesEnabled(mode.subtitles)
+	end
+	if DialogueService and type(DialogueService.setVoiceEnabled) == "function" then
+		DialogueService.setVoiceEnabled(mode.voice)
+	end
+end
+
 SettingsCallbacks.Callbacks = {
 	Gameplay = {
 		DisableShadows = function(value, oldValue)
@@ -920,7 +1751,18 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		DamageNumbers = function(value, oldValue)
-			local enabled = value == 1
+			local mode = "Add"
+			local option = resolveGameplayOption("DamageNumbers", value)
+			if option and type(option.Value) == "string" then
+				mode = option.Value
+			elseif isSettingEnabled(value) ~= true then
+				mode = "Disabled"
+			end
+
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsDamageNumbersMode", mode)
+			end
 		end,
 
 		DisableEffects = function(value, oldValue)
@@ -929,6 +1771,57 @@ SettingsCallbacks.Callbacks = {
 
 		HideHud = function(value, oldValue)
 			applyHideHudState(isSettingEnabled(value))
+		end,
+
+		ArrangeMobileButtons = function(value, oldValue)
+			applyMobileArrangeButtonsState(isSettingEnabled(value))
+		end,
+
+		ResetMobileButtons = function(value, oldValue)
+			if oldValue == nil then
+				return
+			end
+
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsMobileButtonsResetNonce", tonumber(value) or 0)
+			end
+		end,
+
+		ToggleAim = function(value, oldValue)
+			setLocalSettingAttribute("SettingsToggleAim", isSettingEnabled(value))
+		end,
+
+		ToggleCrouch = function(value, oldValue)
+			setLocalSettingAttribute("SettingsToggleCrouch", isSettingEnabled(value))
+		end,
+
+		ToggleSprint = function(value, oldValue)
+			setLocalSettingAttribute("SettingsToggleSprint", isSettingEnabled(value))
+		end,
+
+		AutoSprint = function(value, oldValue)
+			setLocalSettingAttribute("SettingsAutoSprintEnabled", isSettingEnabled(value))
+		end,
+
+		AutoSlide = function(value, oldValue)
+			setLocalSettingAttribute("SettingsAutoSlideEnabled", isSettingEnabled(value))
+		end,
+
+		EasyCycle = function(value, oldValue)
+			setLocalSettingAttribute("SettingsEasyCycleEnabled", isSettingEnabled(value))
+		end,
+
+		AutoShoot = function(value, oldValue)
+			local enabled = isSettingEnabled(value)
+			setLocalSettingAttribute("SettingsAutoShootEnabled", enabled)
+
+			local weaponController = ServiceRegistry:GetController("Weapon")
+			if weaponController and type(weaponController.SetAutoShootEnabled) == "function" then
+				weaponController:SetAutoShootEnabled(enabled)
+			else
+				AimAssistConfig.AutoShoot.Enabled = enabled
+			end
 		end,
 
 		HideMuzzleFlash = function(value, oldValue)
@@ -957,13 +1850,21 @@ SettingsCallbacks.Callbacks = {
 		HorizontalSensitivity = function(value, oldValue)
 			local player = getLocalPlayer()
 			if player then
-				local scale = clampNumber(value, 0, 100, 50) / 50
+				local clamped = clampNumber(value, 0, 100, 50)
+				local scale = clamped / 50
 				player:SetAttribute("MouseSensitivityScale", math.clamp(scale, 0.01, 4))
+				player:SetAttribute("SettingsSensitivityX", clamped)
 			end
 			applyMouseSensitivityFromSettings()
 		end,
 
 		VerticalSensitivity = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				local clamped = clampNumber(value, 0, 100, 50)
+				player:SetAttribute("SettingsSensitivityY", clamped)
+			end
+			applyMouseSensitivityFromSettings()
 		end,
 
 		ADSSensitivity = function(value, oldValue)
@@ -973,6 +1874,65 @@ SettingsCallbacks.Callbacks = {
 				player:SetAttribute("ADSSensitivityScale", math.clamp(scale, 0.01, 2))
 			end
 			applyMouseSensitivityFromSettings()
+		end,
+
+		OverallSensitivity = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				local scale = clampNumber(value, 0, 100, 50) / 50
+				player:SetAttribute("MouseSensitivityScale", math.clamp(scale, 0.01, 4))
+				player:SetAttribute("SettingsOverallSensitivity", clampNumber(value, 0, 100, 50))
+			end
+			applyMouseSensitivityFromSettings()
+		end,
+
+		ControllerSensitivity = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsControllerSensitivity", clampNumber(value, 0, 100, 50))
+			end
+		end,
+
+		MobileSensitivity = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsMobileSensitivity", clampNumber(value, 0, 100, 50))
+			end
+		end,
+
+		SensX = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsSensitivityX", clampNumber(value, 0, 100, 50))
+			end
+		end,
+
+		SensY = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsSensitivityY", clampNumber(value, 0, 100, 50))
+			end
+		end,
+
+		CameraSmoothing = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsCameraSmoothing", clampNumber(value, 0, 100, 0))
+			end
+		end,
+
+		InvertY = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsInvertY", isSettingEnabled(value))
+			end
+		end,
+
+		InvertX = function(value, oldValue)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsInvertX", isSettingEnabled(value))
+			end
 		end,
 
 		FieldOfView = function(value, oldValue)
@@ -1018,51 +1978,104 @@ SettingsCallbacks.Callbacks = {
 		end,
 
 		TeamColor = function(value, oldValue)
+			setLocalSettingAttribute("SettingsTeamColor", value)
+			applyTeamEnemyVisuals()
 		end,
 
 		EnemyColor = function(value, oldValue)
+			setLocalSettingAttribute("SettingsEnemyColor", value)
+			applyTeamEnemyVisuals()
 		end,
 
+		TeamInking = function(value, oldValue)
+			setLocalSettingAttribute("SettingsTeamInking", value)
+			applyTeamEnemyVisuals()
+		end,
+
+		EnemyInking = function(value, oldValue)
+			setLocalSettingAttribute("SettingsEnemyInking", value)
+			applyTeamEnemyVisuals()
+		end,
+
+		TeamInkTransparency = function(value, oldValue)
+			setLocalSettingAttribute("SettingsTeamInkTransparency", value)
+			applyTeamEnemyVisuals()
+		end,
+
+		EnemyInkTransparency = function(value, oldValue)
+			setLocalSettingAttribute("SettingsEnemyInkTransparency", value)
+			applyTeamEnemyVisuals()
+		end,
+
+		TeamSeeThroughWalls = function(value, oldValue)
+			setLocalSettingAttribute("SettingsTeamSeeThroughWalls", isSettingEnabled(value))
+			applyTeamEnemyVisuals()
+		end,
+
+	},
+
+	Audio = {
 		MasterVolume = function(value, oldValue)
 			SoundService.RespectFilteringEnabled = true
-			local volume = value / 100
-			SoundService.Volume = math.clamp(volume, 0, 1)
+			local volume = resolveAudioVolumeScale(value, 100)
+			SoundService.Volume = math.clamp(volume, 0, 2)
+		end,
+
+		SFXVolume = function(value, oldValue)
+			local volume = resolveAudioVolumeScale(value, 100)
+			SoundManager:setGroupVolume("SFX", volume)
+			SoundManager:setGroupVolume("Guns", volume)
+			SoundManager:setGroupVolume("Explosions", volume)
+			SoundManager:setGroupVolume("UI", volume)
 		end,
 
 		MusicVolume = function(value, oldValue)
-			local volume = value / 100
+			local volume = resolveAudioVolumeScale(value, 40)
 			SoundManager:setGroupVolume("Music", volume)
 			SoundManager:setGroupVolume("Ambience", volume)
 		end,
 
-		SFXVolume = function(value, oldValue)
-			local volume = value / 100
-			SoundManager:setGroupVolume("Guns", volume)
-			SoundManager:setGroupVolume("Explosions", volume)
+		PlayerSounds = function(value, oldValue)
+			local volume = resolveAudioVolumeScale(value, 100)
+			SoundManager:setGroupVolume("Voice", volume)
 			SoundManager:setGroupVolume("Movement", volume)
-			SoundManager:setGroupVolume("UI", volume)
+			SoundManager:setGroupVolume("Guns", volume)
 		end,
 
-		EmoteVolume = function(value, oldValue)
-			local volume = value / 100
-			SoundManager:setGroupVolume("Voice", volume)
+		DialogueMode = function(value, oldValue)
+			applyDialogueMode(value)
+		end,
+
+		AudioOcclusion = function(value, oldValue)
+			local enabled = isSettingEnabled(value)
+			local player = getLocalPlayer()
+			if player then
+				player:SetAttribute("SettingsAudioOcclusionEnabled", enabled)
+			end
+
+			if SoundManager and type(SoundManager.SetOcclusionEnabled) == "function" then
+				SoundManager:SetOcclusionEnabled(enabled)
+			elseif SoundManager and type(SoundManager.setOcclusionEnabled) == "function" then
+				SoundManager:setOcclusionEnabled(enabled)
+			end
 		end,
 	},
 
 	Controls = {
 		ToggleAim = function(value, oldValue)
-			local enabled = value == 1
+			setLocalSettingAttribute("SettingsToggleAim", isSettingEnabled(value))
 		end,
 
 		ScrollEquip = function(value, oldValue)
-			local enabled = value == 1
+			setLocalSettingAttribute("SettingsEasyCycleEnabled", isSettingEnabled(value))
 		end,
 
 		ToggleCrouch = function(value, oldValue)
-			local enabled = value == 1
+			setLocalSettingAttribute("SettingsToggleCrouch", isSettingEnabled(value))
 		end,
 
 		SprintSetting = function(value, oldValue)
+			setLocalSettingAttribute("SettingsToggleSprint", isSettingEnabled(value))
 		end,
 
 		AutoShootMode = function(value, oldValue)
@@ -1281,7 +2294,7 @@ SettingsCallbacks.Callbacks = {
 		TopLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
 		TopLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
 		TopLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
-		TopLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+		TopLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairTopLineGap", value, -50, 50, 10); applyCrosshairSettingsFromAttributes() end,
 
 		BottomLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairBottomLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
 		BottomLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
@@ -1289,7 +2302,7 @@ SettingsCallbacks.Callbacks = {
 		BottomLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
 		BottomLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
 		BottomLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
-		BottomLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+		BottomLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairBottomLineGap", value, -50, 50, 10); applyCrosshairSettingsFromAttributes() end,
 
 		LeftLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairLeftLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
 		LeftLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
@@ -1297,7 +2310,7 @@ SettingsCallbacks.Callbacks = {
 		LeftLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
 		LeftLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
 		LeftLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
-		LeftLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+		LeftLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairLeftLineGap", value, -50, 50, 10); applyCrosshairSettingsFromAttributes() end,
 
 		RightLineColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairRightLineColor", value) end; applyCrosshairSettingsFromAttributes() end,
 		RightLineOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,
@@ -1305,7 +2318,7 @@ SettingsCallbacks.Callbacks = {
 		RightLineLength = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineLength", value, 2, 40, 10); applyCrosshairSettingsFromAttributes() end,
 		RightLineRoundness = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineRoundness", value, 0, 20, 0); applyCrosshairSettingsFromAttributes() end,
 		RightLineRotation = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineRotation", value, -180, 180, 0); applyCrosshairSettingsFromAttributes() end,
-		RightLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineGap", value, 0, 50, 10); applyCrosshairSettingsFromAttributes() end,
+		RightLineGap = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairRightLineGap", value, -50, 50, 10); applyCrosshairSettingsFromAttributes() end,
 
 		DotColor = function(value, oldValue) local p = getLocalPlayer(); if p then p:SetAttribute("SettingsCrosshairDotColor", value) end; applyCrosshairSettingsFromAttributes() end,
 		DotOpacity = function(value, oldValue) setCrosshairSetting(getLocalPlayer(), "SettingsCrosshairDotOpacity", value, 0, 100, 100); applyCrosshairSettingsFromAttributes() end,

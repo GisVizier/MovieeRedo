@@ -28,6 +28,11 @@ local math_deg = math.deg
 local vector2_new = Vector2.new
 local vector3_new = Vector3.new
 local SPEED_VFX_SEND_INTERVAL = 1 / 12
+local AUTO_SLIDE_CROUCH_RETURN_REASONS = {
+	MinVelocity = true,
+	HitWall = true,
+	AirborneTimeoutStuck = true,
+}
 
 CharacterController.Character = nil
 CharacterController.PrimaryPart = nil
@@ -79,6 +84,7 @@ CharacterController.MovementInputProcessor = nil
 CharacterController.LastUpdateTime = 0
 CharacterController.MinFrameTime = 0
 CharacterController.Connection = nil
+CharacterController._isStoppingSlideManually = false
 
 -- Respawn / reset reliability
 CharacterController.RespawnRequested = false
@@ -211,12 +217,13 @@ function CharacterController:Init(registry, net)
 	-- VFXRep is now initialized early in Initializer.client.lua to prevent race conditions
 	-- where VFX events arrive before the OnClientEvent handler is connected.
 
-	MovementStateManager:ConnectToStateChange(function(previousState, newState)
-		if
-			previousState == MovementStateManager.States.Sliding
-			and newState == MovementStateManager.States.Crouching
-		then
-			self:HandleAutomaticCrouchAfterSlide()
+	MovementStateManager:ConnectToStateChange(function(previousState, newState, stateData)
+		if previousState == MovementStateManager.States.Sliding then
+			if newState == MovementStateManager.States.Crouching then
+				self:HandleAutomaticCrouchAfterSlide()
+			elseif self:_shouldReturnToCrouchAfterSlide(newState, stateData) then
+				self:HandleCrouch(true)
+			end
 		end
 	end)
 
@@ -233,6 +240,72 @@ function CharacterController:Init(registry, net)
 			end
 		end
 	end)
+end
+
+function CharacterController:_isToggleCrouchEnabled()
+	local localPlayer = Players.LocalPlayer
+	return localPlayer and localPlayer:GetAttribute("SettingsToggleCrouch") == true
+end
+
+function CharacterController:_isAutoSlideEnabled()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return false
+	end
+	return localPlayer:GetAttribute("SettingsAutoSlideEnabled") == true
+end
+
+function CharacterController:_isAutoSprintEnabled()
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return false
+	end
+
+	local value = localPlayer:GetAttribute("SettingsAutoSprintEnabled")
+	if type(value) == "boolean" then
+		return value
+	end
+
+	return true
+end
+
+function CharacterController:IsAutoSprintEnabled()
+	return self:_isAutoSprintEnabled()
+end
+
+function CharacterController:_shouldReturnToCrouchAfterSlide(newState, stateData)
+	if self._isStoppingSlideManually then
+		return false
+	end
+
+	if newState ~= MovementStateManager.States.Walking and newState ~= MovementStateManager.States.Sprinting then
+		return false
+	end
+
+	if typeof(stateData) ~= "table" or stateData.FromSlide ~= true then
+		return false
+	end
+
+	local stopReason = stateData.StopReason
+	if AUTO_SLIDE_CROUCH_RETURN_REASONS[stopReason] ~= true then
+		return false
+	end
+
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return false
+	end
+
+	if localPlayer:GetAttribute("MatchFrozen") == true then
+		return false
+	end
+
+	if not self:_isToggleCrouchEnabled() then
+		return false
+	end
+
+	local isCrouchHeld = self.InputManager and self.InputManager:IsCrouchHeld()
+	return isCrouchHeld == true
 end
 
 function CharacterController:Start()
@@ -533,7 +606,7 @@ function CharacterController:ConnectToInputs(inputManager, cameraController)
 
 		-- When starting to move with AutoSprint enabled, transition to Sprinting
 		if not wasMoving and isMoving then
-			local autoSprint = Config.Gameplay.Character.AutoSprint
+			local autoSprint = self:_isAutoSprintEnabled()
 			if autoSprint and MovementStateManager:IsWalking() then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 			end
@@ -1077,7 +1150,7 @@ function CharacterController:_handleLandingCrouchReset()
 			CrouchUtils:RemoveVisualCrouch(self.Character)
 			Net:FireServer("CrouchStateChanged", false)
 
-			local shouldRestoreSprint = Config.Gameplay.Character.AutoSprint
+			local shouldRestoreSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 			if shouldRestoreSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 			else
@@ -1859,7 +1932,7 @@ function CharacterController:HandleSprint(isSprinting)
 		return
 	end
 
-	local autoSprint = Config.Gameplay.Character.AutoSprint
+	local autoSprint = self:_isAutoSprintEnabled()
 
 	if isSprinting or autoSprint then
 		if MovementStateManager:IsWalking() then
@@ -1903,7 +1976,7 @@ function CharacterController:HandleCrouch(isCrouching)
 		end
 
 		if MovementStateManager:IsCrouching() then
-			local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+			local shouldRestoreSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 			if shouldRestoreSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 			else
@@ -1931,7 +2004,7 @@ function CharacterController:HandleCrouch(isCrouching)
 		self:StopUncrouchChecking()
 		CrouchUtils:Uncrouch(self.Character)
 
-		local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+		local shouldRestoreSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 		if shouldRestoreSprint then
 			MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 		else
@@ -1965,7 +2038,7 @@ function CharacterController:EnforceAbilityCrouchGate()
 	end
 
 	if MovementStateManager:IsCrouching() then
-		local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+		local shouldRestoreSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 		if shouldRestoreSprint then
 			MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 		else
@@ -2056,7 +2129,9 @@ function CharacterController:HandleSlideInput(isSliding)
 		end
 	else
 		if SlidingSystem.IsSliding then
+			self._isStoppingSlideManually = true
 			SlidingSystem:StopSlide(false, true, "ManualRelease")
+			self._isStoppingSlideManually = false
 		end
 		if SlidingSystem.IsSlideBuffered then
 			SlidingSystem:CancelSlideBuffer("Slide input released during buffer")
@@ -2075,7 +2150,7 @@ function CharacterController:HandleSlideInput(isSliding)
 		end
 
 		if not MovementStateManager:IsWalking() and not MovementStateManager:IsSprinting() then
-			local shouldSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+			local shouldSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 			if shouldSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 			else
@@ -2100,7 +2175,7 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 		local timeSinceLastCrouch = currentTime - self.LastCrouchTime
 		local isSprinting = MovementStateManager:IsSprinting()
 		local hasMovementInput = self.MovementInput.Magnitude > 0
-		local autoSlideEnabled = Config.Gameplay.Sliding.AutoSlide
+		local autoSlideEnabled = self:_isAutoSlideEnabled()
 
 		local shouldApplyCooldown = timeSinceLastCrouch >= (Config.Gameplay.Cooldowns.Crouch - 0.001)
 		local isCrouchCooldownActive = SlidingSystem:IsCrouchCooldownActive(self)
@@ -2127,11 +2202,15 @@ function CharacterController:HandleCrouchWithSlidePriority(isCrouching)
 	else
 		if SlidingSystem.IsSliding then
 			if CrouchUtils:IsVisuallycrouched(self.Character) and not self:CanUncrouch() then
+				self._isStoppingSlideManually = true
 				SlidingSystem:StopSlide(true, false, "ManualUncrouchRelease")
+				self._isStoppingSlideManually = false
 				self:StartUncrouchChecking()
 				return
 			else
+				self._isStoppingSlideManually = true
 				SlidingSystem:StopSlide(false, true, "ManualUncrouchRelease")
+				self._isStoppingSlideManually = false
 				self:StopUncrouchChecking()
 			end
 		elseif SlidingSystem.IsSlideBuffered then
@@ -2222,7 +2301,7 @@ function CharacterController:StartUncrouchChecking()
 		if self:CanUncrouch() then
 			CrouchUtils:Uncrouch(self.Character)
 
-			local shouldRestoreSprint = self.IsSprinting or Config.Gameplay.Character.AutoSprint
+			local shouldRestoreSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 			if shouldRestoreSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 			else
@@ -2272,7 +2351,7 @@ function CharacterController:HandleAutomaticCrouchAfterSlide()
 			CrouchUtils:RemoveVisualCrouch(self.Character)
 			Net:FireServer("CrouchStateChanged", false)
 
-			local shouldRestoreSprint = Config.Gameplay.Character.AutoSprint
+			local shouldRestoreSprint = self.IsSprinting or self:_isAutoSprintEnabled()
 			if shouldRestoreSprint then
 				MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
 			else

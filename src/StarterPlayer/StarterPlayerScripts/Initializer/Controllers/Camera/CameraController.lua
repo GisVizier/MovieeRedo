@@ -43,6 +43,56 @@ local function getCurrentCamera()
 	return workspace.CurrentCamera
 end
 
+local function getLocalPlayer()
+	return Players.LocalPlayer
+end
+
+local function getNumericPlayerAttribute(attributeName: string, defaultValue: number, minValue: number?, maxValue: number?): number
+	local player = getLocalPlayer()
+	local value = player and player:GetAttribute(attributeName)
+	local numeric = tonumber(value)
+	if numeric == nil then
+		numeric = defaultValue
+	end
+
+	if type(minValue) == "number" and type(maxValue) == "number" then
+		numeric = clamp(numeric, minValue, maxValue)
+	end
+
+	return numeric
+end
+
+local function getBooleanPlayerAttribute(attributeName: string, defaultValue: boolean): boolean
+	local player = getLocalPlayer()
+	local value = player and player:GetAttribute(attributeName)
+	if type(value) == "boolean" then
+		return value
+	end
+	return defaultValue
+end
+
+local function getLookSettings()
+	local overallScale = getNumericPlayerAttribute("SettingsOverallSensitivity", 50, 0, 100) / 50
+	local horizontalScale = getNumericPlayerAttribute("SettingsSensitivityX", 50, 0, 100) / 50
+	local verticalScale = getNumericPlayerAttribute("SettingsSensitivityY", 50, 0, 100) / 50
+	local controllerScale = getNumericPlayerAttribute("SettingsControllerSensitivity", 50, 0, 100) / 50
+	local mobileScale = getNumericPlayerAttribute("SettingsMobileSensitivity", 50, 0, 100) / 50
+	local smoothingPercent = getNumericPlayerAttribute("SettingsCameraSmoothing", 0, 0, 100)
+	local invertX = getBooleanPlayerAttribute("SettingsInvertX", false)
+	local invertY = getBooleanPlayerAttribute("SettingsInvertY", false)
+
+	return {
+		overallScale = clamp(overallScale, 0.05, 4),
+		horizontalScale = clamp(horizontalScale, 0.05, 4),
+		verticalScale = clamp(verticalScale, 0.05, 4),
+		controllerScale = clamp(controllerScale, 0.05, 4),
+		mobileScale = clamp(mobileScale, 0.05, 4),
+		smoothingPercent = smoothingPercent,
+		invertX = invertX,
+		invertY = invertY,
+	}
+end
+
 local originalDetailTransparency = {}
 local originalEffectEnabled = {}
 
@@ -389,22 +439,30 @@ function CameraController:SetupInput()
 		-- Mouse movement for camera rotation
 		if inputObject.UserInputType == Enum.UserInputType.MouseMovement then
 			local delta = inputObject.Delta
-			local sensitivity = cameraConfig.Sensitivity.Mouse
+			local lookSettings = getLookSettings()
+			local sensitivityX = cameraConfig.Sensitivity.Mouse
+				* lookSettings.overallScale
+				* lookSettings.horizontalScale
+			local sensitivityY = cameraConfig.Sensitivity.Mouse
+				* lookSettings.overallScale
+				* lookSettings.verticalScale
+			local invertXSign = lookSettings.invertX and -1 or 1
+			local invertYSign = lookSettings.invertY and -1 or 1
 
 			-- For Orbit mode, only rotate when right mouse is held
 			if self.CurrentMode == "Orbit" then
 				if self.IsOrbitDragging then
-					local targetX = self.TargetAngleX - delta.Y * sensitivity
+					local targetX = self.TargetAngleX - (delta.Y * sensitivityY * invertYSign)
 					self.TargetAngleX =
 						clamp(targetX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
-					self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
+					self.TargetAngleY = self.TargetAngleY - (delta.X * sensitivityX * invertXSign)
 				end
 			else
 				-- Shoulder and FirstPerson modes: always rotate
-				local targetX = self.TargetAngleX - delta.Y * sensitivity
+				local targetX = self.TargetAngleX - (delta.Y * sensitivityY * invertYSign)
 				self.TargetAngleX =
 					clamp(targetX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
-				self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
+				self.TargetAngleY = self.TargetAngleY - (delta.X * sensitivityX * invertXSign)
 			end
 		end
 
@@ -506,11 +564,22 @@ function CameraController:SetupTouchCamera()
 		if delta.Magnitude > 0 then
 			local lastPosition = cameraTouches[input]
 			if lastPosition then
-				local sensitivity = cameraConfig.Sensitivity.Touch
-				local targetX = self.TargetAngleX - delta.Y * sensitivity
+				local lookSettings = getLookSettings()
+				local sensitivityX = cameraConfig.Sensitivity.Touch
+					* lookSettings.overallScale
+					* lookSettings.mobileScale
+					* lookSettings.horizontalScale
+				local sensitivityY = cameraConfig.Sensitivity.Touch
+					* lookSettings.overallScale
+					* lookSettings.mobileScale
+					* lookSettings.verticalScale
+				local invertXSign = lookSettings.invertX and -1 or 1
+				local invertYSign = lookSettings.invertY and -1 or 1
+
+				local targetX = self.TargetAngleX - (delta.Y * sensitivityY * invertYSign)
 				self.TargetAngleX =
 					clamp(targetX, cameraConfig.AngleLimits.MinVertical, cameraConfig.AngleLimits.MaxVertical)
-				self.TargetAngleY = self.TargetAngleY - delta.X * sensitivity
+				self.TargetAngleY = self.TargetAngleY - (delta.X * sensitivityX * invertXSign)
 
 				-- Update aim assist touch eligibility
 				self:_updateAimAssistTouchInput()
@@ -867,6 +936,7 @@ function CameraController:UpdateCamera()
 	end
 
 	local cameraConfig = Config.Camera
+	local lookSettings = getLookSettings()
 
 	-- Update crouch state
 	self.IsCrouching = self:GetCrouchState()
@@ -878,8 +948,26 @@ function CameraController:UpdateCamera()
 
 	-- Process controller input (works in all modes)
 	if math.abs(self.RightStickX) > 0.1 or math.abs(self.RightStickY) > 0.1 then
-		local horizontalInput = -self.RightStickX * cameraConfig.Sensitivity.ControllerX * deltaTime * 60
-		local verticalInput = self.RightStickY * cameraConfig.Sensitivity.ControllerY * deltaTime * 60
+		local horizontalInput = -self.RightStickX
+			* cameraConfig.Sensitivity.ControllerX
+			* lookSettings.overallScale
+			* lookSettings.controllerScale
+			* lookSettings.horizontalScale
+			* deltaTime
+			* 60
+		local verticalInput = self.RightStickY
+			* cameraConfig.Sensitivity.ControllerY
+			* lookSettings.overallScale
+			* lookSettings.controllerScale
+			* lookSettings.verticalScale
+			* deltaTime
+			* 60
+		if lookSettings.invertX then
+			horizontalInput = -horizontalInput
+		end
+		if lookSettings.invertY then
+			verticalInput = -verticalInput
+		end
 
 		self.TargetAngleY = self.TargetAngleY + horizontalInput
 		local newAngleX = self.TargetAngleX + verticalInput
@@ -888,8 +976,26 @@ function CameraController:UpdateCamera()
 
 	-- Process mobile input
 	if math.abs(self.MobileCameraX) > 0.05 or math.abs(self.MobileCameraY) > 0.05 then
-		local horizontalInput = self.MobileCameraX * cameraConfig.Sensitivity.MobileHorizontal * deltaTime * 60
-		local verticalInput = self.MobileCameraY * cameraConfig.Sensitivity.MobileVertical * deltaTime * 60
+		local horizontalInput = self.MobileCameraX
+			* cameraConfig.Sensitivity.MobileHorizontal
+			* lookSettings.overallScale
+			* lookSettings.mobileScale
+			* lookSettings.horizontalScale
+			* deltaTime
+			* 60
+		local verticalInput = self.MobileCameraY
+			* cameraConfig.Sensitivity.MobileVertical
+			* lookSettings.overallScale
+			* lookSettings.mobileScale
+			* lookSettings.verticalScale
+			* deltaTime
+			* 60
+		if lookSettings.invertX then
+			horizontalInput = -horizontalInput
+		end
+		if lookSettings.invertY then
+			verticalInput = -verticalInput
+		end
 
 		self.TargetAngleY = self.TargetAngleY + horizontalInput
 		local newAngleX = self.TargetAngleX + verticalInput
@@ -897,7 +1003,9 @@ function CameraController:UpdateCamera()
 	end
 
 	-- Smooth camera angles
-	local angleSmoothness = cameraConfig.Smoothing.AngleSmoothness
+	local smoothingBlend = clamp(lookSettings.smoothingPercent / 100, 0, 1)
+	local angleSmoothness = cameraConfig.Smoothing.AngleSmoothness * (1 - (0.85 * smoothingBlend))
+	angleSmoothness = math.max(0.05, angleSmoothness)
 	local smoothFactor = math.exp(-angleSmoothness * deltaTime)
 
 	self.AngleX = lerp(self.TargetAngleX, self.AngleX, smoothFactor)

@@ -141,7 +141,12 @@ function SlidingBuffer:CancelSlideBuffer(reason)
 
 	local shouldRestoreSprint = false
 	if self.SlidingSystem.CharacterController then
-		local autoSprint = Config.Gameplay.Character.AutoSprint
+		local autoSprint = false
+		if self.SlidingSystem.CharacterController.IsAutoSprintEnabled then
+			autoSprint = self.SlidingSystem.CharacterController:IsAutoSprintEnabled()
+		elseif self.SlidingSystem.CharacterController._isAutoSprintEnabled then
+			autoSprint = self.SlidingSystem.CharacterController:_isAutoSprintEnabled()
+		end
 		shouldRestoreSprint = self.SlidingSystem.CharacterController.IsSprinting or autoSprint
 	end
 

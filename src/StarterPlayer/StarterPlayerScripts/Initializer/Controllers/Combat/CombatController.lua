@@ -15,6 +15,8 @@ local Workspace = game:GetService("Workspace")
 local Assets = ReplicatedStorage:WaitForChild("Assets")
 local SoundHitmarker = Assets:WaitForChild("Sounds"):WaitForChild("hitmarker")
 local SoundHeadshot  = Assets:WaitForChild("Sounds"):WaitForChild("headshot")
+local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
+local SettingsConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("SettingsConfig"))
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local DamageNumbers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("DamageNumbers"))
@@ -22,6 +24,9 @@ local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("T
 local ServiceRegistry = require(Locations.Shared.Util:WaitForChild("ServiceRegistry"))
 
 local LocalPlayer = Players.LocalPlayer
+local DAMAGE_NUMBERS_MODE_ADD = "Add"
+local DAMAGE_NUMBERS_MODE_DISABLED = "Disabled"
+local DAMAGE_NUMBERS_MODE_STACKED = "Stacked"
 
 local function toNumber(value)
 	local parsed = tonumber(value)
@@ -77,6 +82,60 @@ local function getCharacterPivotPosition(character)
 	return root and root.Position or nil
 end
 
+local function normalizeDamageNumbersMode(value)
+	if type(value) == "string" then
+		local lowered = string.lower(value)
+		if lowered == "disabled" or lowered == "off" then
+			return DAMAGE_NUMBERS_MODE_DISABLED
+		end
+		if lowered == "stacked" or lowered == "list" then
+			return DAMAGE_NUMBERS_MODE_STACKED
+		end
+		return DAMAGE_NUMBERS_MODE_ADD
+	end
+
+	if type(value) == "boolean" then
+		return value and DAMAGE_NUMBERS_MODE_ADD or DAMAGE_NUMBERS_MODE_DISABLED
+	end
+
+	if type(value) == "number" then
+		if value == 1 then
+			return DAMAGE_NUMBERS_MODE_DISABLED
+		end
+		if value == 3 then
+			return DAMAGE_NUMBERS_MODE_STACKED
+		end
+		return DAMAGE_NUMBERS_MODE_ADD
+	end
+
+	return DAMAGE_NUMBERS_MODE_ADD
+end
+
+local function resolveDamageNumbersModeFromSettingValue(settingValue)
+	local setting = SettingsConfig.getSetting("Gameplay", "DamageNumbers")
+	local options = setting and setting.Options
+	if typeof(options) == "table" and type(settingValue) == "number" then
+		local index = math.clamp(math.floor(settingValue + 0.5), 1, #options)
+		local option = options[index]
+		if option and option.Value ~= nil then
+			return normalizeDamageNumbersMode(option.Value)
+		end
+	end
+	return normalizeDamageNumbersMode(settingValue)
+end
+
+local function getDamageNumbersMode()
+	if LocalPlayer then
+		local attrMode = LocalPlayer:GetAttribute("SettingsDamageNumbersMode")
+		if attrMode ~= nil then
+			return normalizeDamageNumbersMode(attrMode)
+		end
+	end
+
+	local storedValue = PlayerDataTable.get("Gameplay", "DamageNumbers")
+	return resolveDamageNumbersModeFromSettingValue(storedValue)
+end
+
 local CombatController = {}
 
 CombatController._registry = nil
@@ -92,6 +151,13 @@ function CombatController:Init(registry, net)
 	
 	ServiceRegistry:RegisterController("Combat", self)
 	DamageNumbers:Init()
+	DamageNumbers:SetMode(getDamageNumbersMode())
+
+	if LocalPlayer then
+		LocalPlayer:GetAttributeChangedSignal("SettingsDamageNumbersMode"):Connect(function()
+			DamageNumbers:SetMode(getDamageNumbersMode())
+		end)
+	end
 	
 	-- Connect to combat events
 	self._net:ConnectClient("CombatStateUpdate", function(state)
@@ -216,6 +282,9 @@ function CombatController:_onDamageDealt(data)
 			or targetPivot
 
 		if anchorPos then
+			local numbersMode = getDamageNumbersMode()
+			DamageNumbers:SetMode(numbersMode)
+
 			local targetKey = targetUserId
 			if targetKey == nil then
 				targetKey = data.targetEntityKey
@@ -229,11 +298,13 @@ function CombatController:_onDamageDealt(data)
 				)
 			end
 
-			DamageNumbers:ShowForTarget(targetKey, anchorPos, tonumber(data.damage) or 0, {
-				isHeadshot = data.isHeadshot,
-				isCritical = data.isCritical,
-				targetUserId = targetKey,
-			})
+			if numbersMode ~= DAMAGE_NUMBERS_MODE_DISABLED then
+				DamageNumbers:ShowForTarget(targetKey, anchorPos, tonumber(data.damage) or 0, {
+					isHeadshot = data.isHeadshot,
+					isCritical = data.isCritical,
+					targetUserId = targetKey,
+				})
+			end
 		end
 
 		-- Play hitmarker sound

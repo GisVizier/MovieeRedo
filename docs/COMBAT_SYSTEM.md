@@ -310,6 +310,7 @@ CombatConfig = {
     -- Damage numbers
     DamageNumbers = {
         Enabled = true,
+        Mode = "Add",          -- "Add" | "Stacked" | "Disabled"
         HeadshotScale = 1.3,
         CriticalScale = 1.5,
         FloatSpeed = 2,
@@ -325,6 +326,11 @@ CombatConfig = {
 }
 ```
 
+`Mode` behavior:
+- `Add`: cumulative per-target popup (Fortnite-style `Cumulative`).
+- `Stacked`: separate popup per hit, stacked vertically per target (Fortnite-style `List`).
+- `Disabled`: no damage numbers shown.
+
 ---
 
 ## Network Events
@@ -334,7 +340,7 @@ CombatConfig = {
 | Event | Description | Payload |
 |-------|-------------|---------|
 | `CombatStateUpdate` | Combat state sync | `{ health, maxHealth, shield, overshield, ultimate, maxUltimate, statusEffects }` |
-| `DamageDealt` | Damage number display | `{ targetUserId, attackerUserId?, damage, isHeadshot, isCritical, isHeal?, position }` |
+| `DamageDealt` | Damage number display | `{ targetUserId, attackerUserId?, damage, isHeadshot, isCritical, isHeal?, damageNumbersMode?, position }` |
 | `StatusEffectUpdate` | Effect changes | `{ [effectId]: remainingDuration }` |
 | `PlayerKilled` | Kill notification | `{ victimUserId, killerUserId?, weaponId?, killEffect? }` |
 

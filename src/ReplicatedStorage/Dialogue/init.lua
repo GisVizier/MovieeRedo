@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local ContentProvider = game:GetService("ContentProvider")
+local Players = game:GetService("Players")
 
 local Signal = require(ReplicatedStorage:WaitForChild("CoreUI"):WaitForChild("Signal"))
 local Configs = ReplicatedStorage:WaitForChild("Configs")
@@ -16,6 +17,8 @@ Dialogue._soundCache = {}
 Dialogue._active = {}
 Dialogue._subtitleHandler = nil
 Dialogue._soundRouter = nil
+Dialogue._voiceEnabled = true
+Dialogue._subtitlesEnabled = true
 
 Dialogue.onStart = Signal.new()
 Dialogue.onLine = Signal.new()
@@ -191,6 +194,26 @@ local function getSpeakerPosition(member: {[any]: any}?): Vector3?
 	return nil
 end
 
+local function getPreferenceAttribute(name: string, fallback: boolean): boolean
+	local localPlayer = Players.LocalPlayer
+	if not localPlayer then
+		return fallback
+	end
+	local value = localPlayer:GetAttribute(name)
+	if type(value) == "boolean" then
+		return value
+	end
+	return fallback
+end
+
+local function isVoiceEnabled(): boolean
+	return getPreferenceAttribute("SettingsDialogueVoiceEnabled", Dialogue._voiceEnabled ~= false)
+end
+
+local function areSubtitlesEnabled(): boolean
+	return getPreferenceAttribute("SettingsDialogueSubtitlesEnabled", Dialogue._subtitlesEnabled ~= false)
+end
+
 local function getSoundParent(member: {[any]: any}?, options: {[any]: any}?): Instance
 	if options and options.soundParent and typeof(options.soundParent) == "Instance" then
 		return options.soundParent
@@ -351,6 +374,24 @@ function Dialogue.setSoundRouter(handler: ((Sound, {[any]: any}?, {[any]: any}?,
 	return true
 end
 
+function Dialogue.setVoiceEnabled(enabled: boolean): boolean
+	Dialogue._voiceEnabled = enabled == true
+	return true
+end
+
+function Dialogue.setSubtitlesEnabled(enabled: boolean): boolean
+	Dialogue._subtitlesEnabled = enabled == true
+	return true
+end
+
+function Dialogue.isVoiceEnabled(): boolean
+	return isVoiceEnabled()
+end
+
+function Dialogue.areSubtitlesEnabled(): boolean
+	return areSubtitlesEnabled()
+end
+
 function Dialogue.stopByKey(key: any): boolean
 	if not key then
 		return false
@@ -451,7 +492,7 @@ local function playSoundInstance(sound: Sound?, member: {[any]: any}?, options: 
 end
 
 local function fireLineEvent(line: {[any]: any}, member: {[any]: any}?, entry: {[any]: any}?, context: {[any]: any}?)
-	if line.NoSubtitle == true then
+	if line.NoSubtitle == true or areSubtitlesEnabled() ~= true then
 		return
 	end
 	local audience = "Self"
@@ -531,7 +572,11 @@ local function playSequence(sequence: {any}, members: {any}, entry: {[any]: any}
 		local sound = resolveSound(soundRef, soundFolder)
 		local lineContext = buildLineContext(member, context)
 		fireLineEvent(line, member, entry, lineContext)
-		local soundClone = playSoundInstance(sound, member, lineContext, token)
+		local voiceEnabled = isVoiceEnabled()
+		local soundClone = nil
+		if voiceEnabled then
+			soundClone = playSoundInstance(sound, member, lineContext, token)
+		end
 		if soundClone then
 			local maxWait = nil
 			if soundClone.Looped then
@@ -549,7 +594,13 @@ local function playSequence(sequence: {any}, members: {any}, entry: {[any]: any}
 				soundClone:Destroy()
 			end)
 		elseif not line.addWait or line.addWait <= 0 then
-			task.wait(5)
+			if voiceEnabled then
+				task.wait(5)
+			else
+				local dialogueText = tostring(line.DialogueText or "")
+				local subtitleDuration = math.clamp(#dialogueText * 0.04, 1.2, 3.5)
+				task.wait(subtitleDuration)
+			end
 		end
 		if line.addWait and line.addWait > 0 then
 			task.wait(line.addWait)

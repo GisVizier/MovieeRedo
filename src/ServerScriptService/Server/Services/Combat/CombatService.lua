@@ -287,6 +287,7 @@ function CombatService:ApplyDamage(
 		weaponId: string?,
 		damageType: string?,
 		skipIFrames: boolean?,
+		damageNumbersMode: string?,
 	}?
 )
 	options = options or {}
@@ -938,6 +939,7 @@ function CombatService:_broadcastDamage(
 		isHeadshot: boolean?,
 		isCritical: boolean?,
 		weaponId: string?,
+		damageNumbersMode: string?,
 	}?
 )
 	if not self._net then
@@ -993,6 +995,7 @@ function CombatService:_broadcastDamage(
 		damage = damage,
 		isHeadshot = options.isHeadshot or false,
 		isCritical = options.isCritical or false,
+		damageNumbersMode = options.damageNumbersMode,
 		position = position,
 		targetPivotPosition = targetPivotPosition,
 		sourcePosition = sourcePosition,

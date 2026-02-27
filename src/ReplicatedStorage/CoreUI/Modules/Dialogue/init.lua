@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local DialogueService = require(ReplicatedStorage:WaitForChild("Dialogue"))
 local Configs = ReplicatedStorage:WaitForChild("Configs")
@@ -147,6 +148,10 @@ end
 
 function module:_onLine(payload)
 	if not payload or not self._template then
+		return
+	end
+	local localPlayer = Players.LocalPlayer
+	if localPlayer and localPlayer:GetAttribute("SettingsDialogueSubtitlesEnabled") == false then
 		return
 	end
 	self:_show()

@@ -572,8 +572,14 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 		self.CharacterController.CameraRotationChanged = true
 	end
 
+	local transitionData = {
+		FromSlide = true,
+		StopReason = stopReason,
+		TransitionToCrouch = transitionToCrouch == true,
+	}
+
 	if transitionToCrouch then
-		MovementStateManager:TransitionTo(MovementStateManager.States.Crouching)
+		MovementStateManager:TransitionTo(MovementStateManager.States.Crouching, transitionData)
 	else
 		local CrouchUtils = require(Locations.Game:WaitForChild("Character"):WaitForChild("CrouchUtils"))
 		local Net = require(Locations.Shared:WaitForChild("Net"):WaitForChild("Net"))
@@ -587,14 +593,19 @@ function SlidingSystem:StopSlide(transitionToCrouch, _removeVisualCrouchImmediat
 
 		local shouldRestoreSprint = false
 		if self.CharacterController then
-			local autoSprint = Config.Gameplay.Character.AutoSprint
+			local autoSprint = false
+			if self.CharacterController.IsAutoSprintEnabled then
+				autoSprint = self.CharacterController:IsAutoSprintEnabled()
+			elseif self.CharacterController._isAutoSprintEnabled then
+				autoSprint = self.CharacterController:_isAutoSprintEnabled()
+			end
 			shouldRestoreSprint = self.CharacterController.IsSprinting or autoSprint
 		end
 
 		if shouldRestoreSprint then
-			MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting)
+			MovementStateManager:TransitionTo(MovementStateManager.States.Sprinting, transitionData)
 		else
-			MovementStateManager:TransitionTo(MovementStateManager.States.Walking)
+			MovementStateManager:TransitionTo(MovementStateManager.States.Walking, transitionData)
 		end
 	end
 end

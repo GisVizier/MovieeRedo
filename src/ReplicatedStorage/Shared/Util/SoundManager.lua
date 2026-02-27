@@ -216,6 +216,8 @@ SoundManager._environmentCheckInterval = 0.16
 SoundManager._environmentRayLength = 12
 SoundManager._isIndoor = false
 SoundManager._manualIndoor = nil
+SoundManager._occlusionEnabled = true
+SoundManager._environmentProcessingEnabled = true
 SoundManager._groupAliases = {
 	SFX = "Guns",
 	Weapon = "Guns",
@@ -513,7 +515,7 @@ function SoundManager:_buildPresetStack(sound, options, sourcePosition)
 	if applyEnvironment == nil then
 		applyEnvironment = category == "Explosions" or category == "Guns" or category == "SFX" or category == "Weapon"
 	end
-	if applyEnvironment then
+	if applyEnvironment and self._environmentProcessingEnabled ~= false then
 		local isIndoor = self:_getEnvironmentFlag(options and options.IsIndoor)
 		table.insert(presetStack, isIndoor and "Indoor" or "Outdoor")
 	end
@@ -598,7 +600,7 @@ function SoundManager:_finalizeAndPlay(sound, options, sourcePosition)
 		return nil
 	end
 
-	local useOcclusion = options and options.EnableOcclusion == true
+	local useOcclusion = self._occlusionEnabled ~= false and options and options.EnableOcclusion == true
 	if useOcclusion and typeof(sourcePosition) == "Vector3" then
 		options.Occluded = self:_isOccluded(sourcePosition, sound.Parent)
 	end
@@ -766,11 +768,25 @@ function SoundManager:SetGroupVolume(groupName, value)
 	if not group then
 		return
 	end
-	group.Volume = math.clamp(tonumber(value) or 1, 0, 1)
+	group.Volume = math.clamp(tonumber(value) or 1, 0, 2)
 end
 
 function SoundManager:setGroupVolume(groupName, value)
 	self:SetGroupVolume(groupName, value)
+end
+
+function SoundManager:SetOcclusionEnabled(enabled)
+	local normalized = enabled == true
+	self._occlusionEnabled = normalized
+	self._environmentProcessingEnabled = normalized
+end
+
+function SoundManager:setOcclusionEnabled(enabled)
+	self:SetOcclusionEnabled(enabled)
+end
+
+function SoundManager:IsOcclusionEnabled()
+	return self._occlusionEnabled ~= false
 end
 
 function SoundManager:Init()

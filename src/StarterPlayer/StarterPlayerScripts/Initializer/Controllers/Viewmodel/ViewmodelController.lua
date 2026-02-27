@@ -80,6 +80,7 @@ ViewmodelController._startMatchConn = nil
 ViewmodelController._attrConn = nil
 ViewmodelController._ziplineAttrConn = nil
 ViewmodelController._equipKeysConn = nil
+ViewmodelController._equipScrollConn = nil
 ViewmodelController._weaponInkingConn = nil
 ViewmodelController._weaponInkingDataDisconnect = nil
 ViewmodelController._weaponInkingHighlight = nil
@@ -211,6 +212,19 @@ local function cycleLog(message: string, data: { [string]: any }?)
 		return
 	end
 	LogService:Info("VIEWMODEL_CYCLE", message, data)
+end
+
+local function isEasyCycleEnabled(): boolean
+	if not LocalPlayer then
+		return true
+	end
+
+	local value = LocalPlayer:GetAttribute("SettingsEasyCycleEnabled")
+	if type(value) == "boolean" then
+		return value
+	end
+
+	return true
 end
 
 local function parseWeaponInkingMode(value): number
@@ -423,6 +437,42 @@ function ViewmodelController:Init(registry, net)
 					cycleLog("Cycle blocked: loadout UI visible", { direction = "Right" })
 				end
 			end
+		end)
+
+		self._equipScrollConn = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+			if input.UserInputType ~= Enum.UserInputType.MouseWheel then
+				return
+			end
+			if not isEasyCycleEnabled() then
+				return
+			end
+
+			local runtimeInputController = self._registry and self._registry:TryGet("Input")
+			local manager = runtimeInputController and runtimeInputController.Manager or nil
+
+			if gameProcessed then
+				cycleLog("Cycle blocked: mouse wheel gameProcessed", nil)
+				return
+			end
+
+			if manager then
+				if manager.IsMenuOpen or manager.IsChatFocused or manager.IsSettingsOpen then
+					cycleLog("Cycle blocked: UI/chat/settings state (wheel)", {
+						isMenuOpen = manager.IsMenuOpen == true,
+						isChatFocused = manager.IsChatFocused == true,
+						isSettingsOpen = manager.IsSettingsOpen == true,
+					})
+					return
+				end
+			end
+
+			if isLoadoutVisible() then
+				cycleLog("Cycle blocked: loadout UI visible (wheel)", nil)
+				return
+			end
+
+			local direction = input.Position.Z > 0 and -1 or 1
+			self:_cycleEquipSlot(direction)
 		end)
 
 		-- Mobile weapon wheel slot change
@@ -1602,6 +1652,10 @@ function ViewmodelController:Destroy()
 	if self._equipKeysConn then
 		self._equipKeysConn:Disconnect()
 		self._equipKeysConn = nil
+	end
+	if self._equipScrollConn then
+		self._equipScrollConn:Disconnect()
+		self._equipScrollConn = nil
 	end
 	if self._weaponInkingConn then
 		self._weaponInkingConn:Disconnect()

@@ -574,13 +574,13 @@ function CrosshairController:SetRotation(rotationDeg: number)
 	if not self._customization then
 		self._customization = table.clone(CrosshairController.Mock.customization)
 	end
-	self._customization.rotation = rotationDeg or 0
-	if self._module and self._module.ApplyCustomization then
-		self._module:ApplyCustomization(self._customization)
-		if self._reticleHidden then
-			self:_setReticleHidden(false)
-			self:_setReticleHidden(true)
-		end
+	local nextRotation = rotationDeg or 0
+	self._customization.rotation = nextRotation
+
+	-- Avoid reapplying full customization each frame from movement rotation,
+	-- because that can reset spread offsets computed in the crosshair update loop.
+	if self._frame and self._frame.Parent then
+		self._frame.Rotation = nextRotation
 	end
 end
 

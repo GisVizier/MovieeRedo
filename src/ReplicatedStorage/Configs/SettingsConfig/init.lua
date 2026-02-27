@@ -230,7 +230,7 @@ export type SettingConfig = {
 	Name: string,
 	Description: string,
 	Order: number,
-	SettingType: "toggle" | "slider" | "keybind" | "divider" | "Multile",
+	SettingType: "toggle" | "slider" | "keybind" | "divider" | "Multile" | "action",
 	Icon: string?,
 	Image: { string }?,
 	Video: string?,
@@ -238,6 +238,7 @@ export type SettingConfig = {
 	Default: number?,
 	Slider: SliderConfig?,
 	Action: string?,
+	ActionLabel: string?,
 	Bind: BindConfig?,
 	DefaultBind: BindConfig?,
 	Platforms: { DeviceType }?,
@@ -445,6 +446,564 @@ SettingsConfig.Categories = {
 					{ Display = "Disabled", Value = false, Image = "rbxassetid://133332591837085" },
 				},
 				Default = 2,
+			},
+
+			DividerTeamVisuals = {
+				Name = "TEAM VISUALS",
+				Description = "Team and enemy colors plus inking visuals.",
+				Order = 17.1,
+				SettingType = "divider",
+			},
+
+			TeamColor = {
+				Name = "Team Color",
+				Description = "Sets teammate accent color for map/UI and teammate inking.",
+				Order = 17.2,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Blue", Color = Color3.fromRGB(16, 72, 255), Value = "Blue" },
+					{ Display = "Cyan", Color = Color3.fromRGB(14, 235, 255), Value = "Cyan" },
+					{ Display = "Green", Color = Color3.fromRGB(37, 181, 11), Value = "Green" },
+					{ Display = "Yellow", Color = Color3.fromRGB(255, 219, 15), Value = "Yellow" },
+				},
+				Default = 1,
+			},
+
+			TeamInking = {
+				Name = "Teammate Inking",
+				Description = "Highlight style for teammates in match.",
+				Order = 17.3,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Hide", Value = "Hide" },
+					{ Display = "Outline", Value = "Outline" },
+					{ Display = "Fill", Value = "Fill" },
+					{ Display = "Fill And Outline", Value = "FillAndOutline" },
+				},
+				Default = 4,
+			},
+
+			TeamInkTransparency = {
+				Name = "Teammate Ink Opacity",
+				Description = "Opacity intensity for teammate inking.",
+				Order = 17.4,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Low", Value = 0.5 },
+					{ Display = "Default", Value = 1 },
+					{ Display = "High", Value = 2 },
+					{ Display = "Max", Value = 4 },
+				},
+				Default = 2,
+			},
+
+			TeamSeeThroughWalls = {
+				Name = "Teammates Through Walls",
+				Description = "Allows teammate inking to render through walls.",
+				Order = 17.5,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			EnemyColor = {
+				Name = "Enemy Color",
+				Description = "Sets enemy accent color for map/UI and enemy inking.",
+				Order = 17.6,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Red", Color = Color3.fromRGB(255, 0, 4), Value = "Red" },
+					{ Display = "Orange", Color = Color3.fromRGB(255, 125, 12), Value = "Orange" },
+					{ Display = "Pink", Color = Color3.fromRGB(255, 24, 213), Value = "Pink" },
+					{ Display = "Purple", Color = Color3.fromRGB(121, 25, 255), Value = "Purple" },
+				},
+				Default = 1,
+			},
+
+			EnemyInking = {
+				Name = "Enemy Inking",
+				Description = "Highlight style for enemies in match.",
+				Order = 17.7,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Hide", Value = "Hide" },
+					{ Display = "Outline", Value = "Outline" },
+					{ Display = "Fill", Value = "Fill" },
+					{ Display = "Fill And Outline", Value = "FillAndOutline" },
+				},
+				Default = 4,
+			},
+
+			EnemyInkTransparency = {
+				Name = "Enemy Ink Opacity",
+				Description = "Opacity intensity for enemy inking.",
+				Order = 17.8,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Low", Value = 0.5 },
+					{ Display = "Default", Value = 1 },
+					{ Display = "High", Value = 2 },
+					{ Display = "Max", Value = 4 },
+				},
+				Default = 2,
+			},
+
+			DividerGameplay = {
+				Name = "GAMEPLAY",
+				Description = "Gameplay readability and team presentation options.",
+				Order = 18,
+				SettingType = "divider",
+			},
+
+			DamageNumbers = {
+				Name = "Damage Numbers",
+				Description = "Choose how hit damage numbers are shown: Disabled, Add, or Stack.",
+				Order = 19,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Disabled", Value = "Disabled" },
+					{ Display = "Add", Value = "Add" },
+					{ Display = "Stack", Value = "Stacked" },
+				},
+				Default = 2,
+			},
+
+			DisableEffects = {
+				Name = "Disable Effects",
+				Description = "Reduces non-essential VFX to keep gameplay visuals cleaner.",
+				Order = 20,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			HideTeammateDisplay = {
+				Name = "Hide Teammate Display",
+				Description = "Hides teammate overhead display elements for less screen clutter.",
+				Order = 21,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DividerSensitivity = {
+				Name = "Sensitivity",
+				Description = "Sensitivity and camera feel settings.",
+				Order = 23.1,
+				SettingType = "divider",
+			},
+
+			OverallSensitivity = {
+				Name = "Sensitivity",
+				Description = "Overall baseline sensitivity.",
+				Order = 23.2,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 50,
+				},
+			},
+
+			ControllerSensitivity = {
+				Name = "Controler",
+				Description = "Controller look sensitivity.",
+				Order = 23.3,
+				SettingType = "slider",
+				BlockedPlatforms = { "PC", "Mobile" },
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 50,
+				},
+			},
+
+			MobileSensitivity = {
+				Name = "Mobile",
+				Description = "Mobile touch look sensitivity.",
+				Order = 23.4,
+				SettingType = "slider",
+				BlockedPlatforms = { "PC", "Console" },
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 50,
+				},
+			},
+
+			ADSSensitivity = {
+				Name = "Aiming Sensitivity",
+				Description = "Sensitivity while aiming.",
+				Order = 23.45,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 75,
+				},
+			},
+
+			SensX = {
+				Name = "Horizontal",
+				Description = "Horizontal look sensitivity.",
+				Order = 23.5,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 50,
+				},
+			},
+
+			SensY = {
+				Name = "Veritcal",
+				Description = "Vertical look sensitivity.",
+				Order = 23.6,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 50,
+				},
+			},
+
+			CameraSmoothing = {
+				Name = "Smoothing",
+				Description = "Smooths camera movement/response.",
+				Order = 23.7,
+				SettingType = "slider",
+				Slider = {
+					Max = 100,
+					Min = 0,
+					Step = 1,
+					Default = 0,
+				},
+			},
+
+			InvertY = {
+				Name = "Inverted Y",
+				Description = "Inverts vertical look input.",
+				Order = 23.8,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			InvertX = {
+				Name = "Inverted X",
+				Description = "Inverts horizontal look input.",
+				Order = 23.9,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DividerMovemnt = {
+				Name = "MOVEMNT",
+				Description = "Movement and traversal helper options.",
+				Order = 18.1,
+				SettingType = "divider",
+			},
+
+			ToggleCrouch = {
+				Name = "Toggle Crouch",
+				Description = "Press crouch once to toggle crouch on or off.",
+				Order = 18.2,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			ToggleSprint = {
+				Name = "Toggle Sprint",
+				Description = "Press sprint once to toggle sprint on or off.",
+				Order = 18.3,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			AutoSprint = {
+				Name = "Auto Sprint",
+				Description = "Automatically sprints while moving when allowed.",
+				Order = 18.4,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			AutoSlide = {
+				Name = "Auto Slide",
+				Description = "Triggers sliding behavior while sprinting and crouching.",
+				Order = 18.5,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			WallJumpAssist = {
+				Name = "Easy Wall Jump",
+				Description = "Adds assist behavior for wall jumping.",
+				Order = 18.6,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DividerCombat = {
+				Name = "COMBAT",
+				Description = "Combat control helpers.",
+				Order = 30,
+				SettingType = "divider",
+			},
+
+			ToggleAim = {
+				Name = "Toggle Aim",
+				Description = "Press aim once to ADS in and again to ADS out.",
+				Order = 31,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			EasyCycle = {
+				Name = "Easy Cycle",
+				Description = "Use scroll wheel to cycle available weapons.",
+				Order = 32,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
+			},
+
+			AimAssist = {
+				Name = "Aim Assist",
+				Description = "Aim assist toggle (kept disabled by default for now).",
+				Order = 33,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			AimAssistStrength = {
+				Name = "Aim Assist Strength",
+				Description = "Aim assist strength level.",
+				Order = 34,
+				SettingType = "slider",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				Slider = {
+					Max = 5,
+					Min = 1,
+					Step = 1,
+					Default = 3,
+				},
+			},
+
+			AutoShoot = {
+				Name = "Auto Shoot",
+				Description = "Automatically fires when valid target conditions are met.",
+				Order = 35,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DividerAbility = {
+				Name = "ABILITY",
+				Description = "Ability helper controls.",
+				Order = 40,
+				SettingType = "divider",
+			},
+
+			EasyAbility = {
+				Name = "Easy Ability",
+				Description = "Ability helper mode (disabled for now).",
+				Order = 41,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			DividerMobileLayout = {
+				Name = "MOBILE LAYOUT",
+				Description = "Arrange and reset mobile button positions and sizes.",
+				Order = 98,
+				SettingType = "divider",
+			},
+
+			ArrangeMobileButtons = {
+				Name = "Arrange Mobile Buttons",
+				Description = "Enter mobile button arrangement mode to move and resize controls.",
+				Order = 99,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 2,
+			},
+
+			ResetMobileButtons = {
+				Name = "Reset Mobile Buttons",
+				Description = "Reset all mobile button positions and sizes to default.",
+				Order = 100,
+				SettingType = "action",
+				BlockedPlatforms = { "PC", "Console" },
+				ActionLabel = "RESET",
+			},
+		},
+	},
+
+	Audio = {
+		DisplayName = "Audio",
+		Order = 4,
+		Settings = {
+			DividerMix = {
+				Name = "MIX",
+				Description = "Global mix levels for game audio groups.",
+				Order = 1,
+				SettingType = "divider",
+			},
+
+			MasterVolume = {
+				Name = "Master Volume",
+				Description = "Controls total game output volume.",
+				Order = 2,
+				SettingType = "slider",
+				Slider = {
+					Max = 200,
+					Min = 0,
+					Step = 5,
+					Default = 100,
+				},
+			},
+
+			SFXVolume = {
+				Name = "SFX Volume",
+				Description = "Controls sound effects volume.",
+				Order = 3,
+				SettingType = "slider",
+				Slider = {
+					Max = 200,
+					Min = 0,
+					Step = 5,
+					Default = 100,
+				},
+			},
+
+			MusicVolume = {
+				Name = "Music Volume",
+				Description = "Controls music and ambience volume.",
+				Order = 4,
+				SettingType = "slider",
+				Slider = {
+					Max = 200,
+					Min = 0,
+					Step = 5,
+					Default = 40,
+				},
+			},
+
+			PlayerSounds = {
+				Name = "Player Sounds",
+				Description = "Controls emote, movement, and gun audio volume.",
+				Order = 5,
+				SettingType = "slider",
+				Slider = {
+					Max = 200,
+					Min = 0,
+					Step = 5,
+					Default = 100,
+				},
+			},
+
+			DividerDialogue = {
+				Name = "DIALOGUE",
+				Description = "Dialogue subtitle and voice behavior.",
+				Order = 10,
+				SettingType = "divider",
+			},
+
+			DialogueMode = {
+				Name = "Dialogue",
+				Description = "Choose whether dialogue uses subtitles, voice, or both.",
+				Order = 11,
+				SettingType = "Multile",
+				Options = {
+					{ Display = "Disabled", Value = "Disabled" },
+					{ Display = "Subtitles + Voice", Value = "SubtitlesVoice" },
+					{ Display = "Subtitles", Value = "Subtitles" },
+					{ Display = "Voice", Value = "Voice" },
+				},
+				Default = 2,
+			},
+
+			AudioOcclusion = {
+				Name = "Audio Occlusion",
+				Description = "Enables indoor echo and obstruction processing for sounds.",
+				Order = 12,
+				SettingType = "toggle",
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
 			},
 		},
 	},
@@ -1060,7 +1619,7 @@ SettingsConfig.Categories = {
 			TopLineLength = { Name = "Top Line Length", Description = "Top line length.", Order = 55, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
 			TopLineRoundness = { Name = "Top Line Roundness", Description = "Top line roundness.", Order = 56, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
 			TopLineRotation = { Name = "Top Line Rotation", Description = "Top line rotation.", Order = 57, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
-			TopLineGap = { Name = "Top Line Gap", Description = "Top line extra gap.", Order = 58, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+			TopLineGap = { Name = "Top Line Gap", Description = "Top line extra gap.", Order = 58, SettingType = "slider", Slider = { Min = -50, Max = 50, Step = 1, Default = 10 } },
 
 			DividerAdvancedBottom = {
 				Name = "BOTTOM LINE",
@@ -1074,7 +1633,7 @@ SettingsConfig.Categories = {
 			BottomLineLength = { Name = "Bottom Line Length", Description = "Bottom line length.", Order = 63, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
 			BottomLineRoundness = { Name = "Bottom Line Roundness", Description = "Bottom line roundness.", Order = 64, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
 			BottomLineRotation = { Name = "Bottom Line Rotation", Description = "Bottom line rotation.", Order = 65, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
-			BottomLineGap = { Name = "Bottom Line Gap", Description = "Bottom line extra gap.", Order = 66, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+			BottomLineGap = { Name = "Bottom Line Gap", Description = "Bottom line extra gap.", Order = 66, SettingType = "slider", Slider = { Min = -50, Max = 50, Step = 1, Default = 10 } },
 
 			DividerAdvancedLeft = {
 				Name = "LEFT LINE",
@@ -1088,7 +1647,7 @@ SettingsConfig.Categories = {
 			LeftLineLength = { Name = "Left Line Length", Description = "Left line length.", Order = 71, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
 			LeftLineRoundness = { Name = "Left Line Roundness", Description = "Left line roundness.", Order = 72, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
 			LeftLineRotation = { Name = "Left Line Rotation", Description = "Left line rotation.", Order = 73, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
-			LeftLineGap = { Name = "Left Line Gap", Description = "Left line extra gap.", Order = 74, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+			LeftLineGap = { Name = "Left Line Gap", Description = "Left line extra gap.", Order = 74, SettingType = "slider", Slider = { Min = -50, Max = 50, Step = 1, Default = 10 } },
 
 			DividerAdvancedRight = {
 				Name = "RIGHT LINE",
@@ -1102,7 +1661,7 @@ SettingsConfig.Categories = {
 			RightLineLength = { Name = "Right Line Length", Description = "Right line length.", Order = 79, SettingType = "slider", Slider = { Min = 2, Max = 40, Step = 1, Default = 10 } },
 			RightLineRoundness = { Name = "Right Line Roundness", Description = "Right line roundness.", Order = 80, SettingType = "slider", Slider = { Min = 0, Max = 20, Step = 1, Default = 0 } },
 			RightLineRotation = { Name = "Right Line Rotation", Description = "Right line rotation.", Order = 81, SettingType = "slider", Slider = { Min = -180, Max = 180, Step = 1, Default = 0 } },
-			RightLineGap = { Name = "Right Line Gap", Description = "Right line extra gap.", Order = 82, SettingType = "slider", Slider = { Min = 0, Max = 50, Step = 1, Default = 10 } },
+			RightLineGap = { Name = "Right Line Gap", Description = "Right line extra gap.", Order = 82, SettingType = "slider", Slider = { Min = -50, Max = 50, Step = 1, Default = 10 } },
 
 			DividerAdvancedDot = {
 				Name = "DOT",
@@ -1117,7 +1676,7 @@ SettingsConfig.Categories = {
 	},
 }
 
-SettingsConfig.CategoryOrder = { "Gameplay", "Controls", "Crosshair" }
+SettingsConfig.CategoryOrder = { "Gameplay", "Controls", "Crosshair", "Audio" }
 
 SettingsConfig.BlockedKeys = {
 	Enum.KeyCode.Escape,
@@ -1133,7 +1692,7 @@ SettingsConfig.DefaultSettings = {
 		DisableTextures = 2,
 		DisableOthersWraps = 2,
 		HideMuzzleFlash = 2,
-		DamageNumbers = 1,
+		DamageNumbers = 2,
 		DisableEffects = 2,
 		HideHud = false,
 		WeaponInking = 4,
@@ -1148,11 +1707,43 @@ SettingsConfig.DefaultSettings = {
 		FieldOfViewEffects = 1,
 		ScreenShake = 1,
 		TeamColor = 1,
+		TeamInking = 4,
+		TeamInkTransparency = 2,
+		TeamSeeThroughWalls = 1,
 		EnemyColor = 1,
+		EnemyInking = 4,
+		EnemyInkTransparency = 2,
+		OverallSensitivity = 50,
+		ControllerSensitivity = 50,
+		MobileSensitivity = 50,
+		SensX = 50,
+		SensY = 50,
+		CameraSmoothing = 0,
+		InvertY = 2,
+		InvertX = 2,
+		ToggleCrouch = 2,
+		ToggleSprint = 2,
+		AutoSprint = 1,
+		AutoSlide = 2,
+		WallJumpAssist = 2,
+		ToggleAim = 2,
+		EasyCycle = 1,
+		AimAssist = 2,
+		AimAssistStrength = 3,
+		AutoShoot = 2,
+		EasyAbility = 2,
+		ArrangeMobileButtons = 2,
+		ResetMobileButtons = 0,
+		MobileButtonLayout = {},
+	},
+
+	Audio = {
 		MasterVolume = 100,
-		MusicVolume = 100,
 		SFXVolume = 100,
-		EmoteVolume = 100,
+		MusicVolume = 40,
+		PlayerSounds = 100,
+		DialogueMode = 2,
+		AudioOcclusion = 1,
 	},
 
 	Controls = {
@@ -1296,6 +1887,7 @@ SettingsConfig.Templates = {
 	KeybindUnavailable = nil,
 	KeybindDisplay = nil,
 	Reset = nil,
+	Action = nil,
 	Divider = nil,
 }
 
@@ -1332,6 +1924,8 @@ function SettingsConfig.init(templateRoot: Instance?)
 	SettingsConfig.Templates.KeybindDisplay = templatesFolder:FindFirstChild("KeybindDisplay")
 	SettingsConfig.Templates.Reset = templatesFolder:FindFirstChild("ResetTemplate")
 		or templatesFolder:FindFirstChild("Reset")
+	SettingsConfig.Templates.Action = templatesFolder:FindFirstChild("ActionTemplate")
+		or SettingsConfig.Templates.Reset
 	SettingsConfig.Templates.Divider = templatesFolder:FindFirstChild("DividerTemplate")
 		or templatesFolder:FindFirstChild("Dvdr")
 
@@ -1403,6 +1997,8 @@ function SettingsConfig.getTemplate(settingType: string): Instance?
 		return SettingsConfig.Templates.Slider
 	elseif settingType == "keybind" then
 		return SettingsConfig.Templates.Keybind or SettingsConfig.Templates.KeybindUnavailable
+	elseif settingType == "action" then
+		return SettingsConfig.Templates.Action or SettingsConfig.Templates.Reset
 	elseif settingType == "divider" then
 		return SettingsConfig.Templates.Divider
 	end

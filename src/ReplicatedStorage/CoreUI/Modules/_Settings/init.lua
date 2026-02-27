@@ -16,12 +16,12 @@ local module = {}
 module.__index = module
 
 local TAB_MAP = {
-	{ holder = "VideoHolder", categoryKey = "Gameplay" },
+	{ holder = "VideoHolder", categoryKey = "Video", sourceCategory = "Gameplay" },
 	{ holder = "PersonalHolder", categoryKey = nil },
 	{ holder = "KeybindsHolder", categoryKey = "Controls" },
-	{ holder = "GameHolder", categoryKey = "Gameplay" },
+	{ holder = "GameHolder", categoryKey = "Gameplay", sourceCategory = "Gameplay" },
 	{ holder = "CrossHairHolder", categoryKey = "Crosshair" },
-	{ holder = "AudioHolder", categoryKey = nil },
+	{ holder = "AudioHolder", categoryKey = "Audio" },
 }
 
 local DEFAULT_TAB = "VideoHolder"
@@ -289,6 +289,89 @@ local CROSSHAIR_ADVANCED_KEYS = {
 	DotOpacity = true,
 	DotRoundness = true,
 }
+
+local GAMEPLAY_ONLY_KEYS = {
+	DividerGameplay = true,
+	DamageNumbers = true,
+	DisableEffects = true,
+	HideTeammateDisplay = true,
+	DividerSensitivity = true,
+	OverallSensitivity = true,
+	ControllerSensitivity = true,
+	MobileSensitivity = true,
+	ADSSensitivity = true,
+	SensX = true,
+	SensY = true,
+	CameraSmoothing = true,
+	InvertY = true,
+	InvertX = true,
+	DividerMovemnt = true,
+	ToggleCrouch = true,
+	ToggleSprint = true,
+	AutoSprint = true,
+	AutoSlide = true,
+	WallJumpAssist = true,
+	DividerCombat = true,
+	ToggleAim = true,
+	EasyCycle = true,
+	AimAssist = true,
+	AimAssistStrength = true,
+	AutoShoot = true,
+	DividerAbility = true,
+	EasyAbility = true,
+	DividerMobileLayout = true,
+	ArrangeMobileButtons = true,
+	ResetMobileButtons = true,
+}
+
+local function getSettingsListForDisplayCategory(categoryKey)
+	if categoryKey == "Video" then
+		local baseList = SettingsConfig.getSettingsList("Gameplay")
+		local filtered = {}
+		for _, item in ipairs(baseList) do
+			if not GAMEPLAY_ONLY_KEYS[item.key] then
+				table.insert(filtered, item)
+			end
+		end
+		return filtered, "Gameplay"
+	end
+
+	if categoryKey == "Gameplay" then
+		local baseList = SettingsConfig.getSettingsList("Gameplay")
+		local filtered = {}
+		for _, item in ipairs(baseList) do
+			if GAMEPLAY_ONLY_KEYS[item.key] then
+				table.insert(filtered, item)
+			end
+		end
+		return filtered, "Gameplay"
+	end
+
+	return SettingsConfig.getSettingsList(categoryKey), categoryKey
+end
+
+local function setRowInteractionEnabled(row, enabled)
+	if not row then
+		return
+	end
+
+	local function apply(target)
+		if target:IsA("GuiButton") then
+			target.Active = enabled
+			target.AutoButtonColor = enabled
+			target.Selectable = enabled
+		elseif target:IsA("GuiObject") then
+			target.Active = enabled
+		elseif target:IsA("UIDragDetector") then
+			target.Enabled = enabled
+		end
+	end
+
+	apply(row)
+	for _, descendant in ipairs(row:GetDescendants()) do
+		apply(descendant)
+	end
+end
 
 local function getMultileControls(row)
 	if not row then
@@ -560,7 +643,7 @@ function module:_buildCrosshairPreviewCustomization()
 				length = getNumber("TopLineLength", 10, 2, 40),
 				roundness = getNumber("TopLineRoundness", 0, 0, 20),
 				rotation = getNumber("TopLineRotation", 0, -180, 180),
-				gap = getNumber("TopLineGap", gap, 0, 50),
+				gap = getNumber("TopLineGap", gap, -50, 50),
 			},
 			Bottom = {
 				color = getColorFromSetting("BottomLineColor", PlayerDataTable.get("Crosshair", "BottomLineColor")),
@@ -569,7 +652,7 @@ function module:_buildCrosshairPreviewCustomization()
 				length = getNumber("BottomLineLength", 10, 2, 40),
 				roundness = getNumber("BottomLineRoundness", 0, 0, 20),
 				rotation = getNumber("BottomLineRotation", 0, -180, 180),
-				gap = getNumber("BottomLineGap", gap, 0, 50),
+				gap = getNumber("BottomLineGap", gap, -50, 50),
 			},
 			Left = {
 				color = getColorFromSetting("LeftLineColor", PlayerDataTable.get("Crosshair", "LeftLineColor")),
@@ -578,7 +661,7 @@ function module:_buildCrosshairPreviewCustomization()
 				length = getNumber("LeftLineLength", 10, 2, 40),
 				roundness = getNumber("LeftLineRoundness", 0, 0, 20),
 				rotation = getNumber("LeftLineRotation", 0, -180, 180),
-				gap = getNumber("LeftLineGap", gap, 0, 50),
+				gap = getNumber("LeftLineGap", gap, -50, 50),
 			},
 			Right = {
 				color = getColorFromSetting("RightLineColor", PlayerDataTable.get("Crosshair", "RightLineColor")),
@@ -587,7 +670,7 @@ function module:_buildCrosshairPreviewCustomization()
 				length = getNumber("RightLineLength", 10, 2, 40),
 				roundness = getNumber("RightLineRoundness", 0, 0, 20),
 				rotation = getNumber("RightLineRotation", 0, -180, 180),
-				gap = getNumber("RightLineGap", gap, 0, 50),
+				gap = getNumber("RightLineGap", gap, -50, 50),
 			},
 		},
 		dotStyle = {
@@ -985,6 +1068,7 @@ end
 
 function module:_setupTopBar()
 	for holderName, tabData in pairs(self._tabs) do
+		local tabKey = holderName
 		local button = tabData.button
 		local hovering = false
 
@@ -992,22 +1076,22 @@ function module:_setupTopBar()
 			if not self._buttonsActive then
 				return
 			end
-			self:_selectTab(holderName)
+			self:_selectTab(tabKey)
 		end, "topbar")
 
 		self._connections:track(button, "MouseEnter", function()
-			if hovering or self._currentTab == holderName then
+			if hovering or self._currentTab == tabKey then
 				return
 			end
 			hovering = true
 
 			if tabData.button then
-				cancelTweenGroup("tab_hover_" .. holderName)
+				cancelTweenGroup("tab_hover_" .. tabKey)
 				local tween = TweenService:Create(tabData.button, TweenConfig.create("TabHover"), {
 					BackgroundTransparency = TweenConfig.Values.HoverButtonTransparency,
 				})
 				tween:Play()
-				currentTweens["tab_hover_" .. holderName] = { tween }
+				currentTweens["tab_hover_" .. tabKey] = { tween }
 			end
 		end, "topbar")
 
@@ -1016,17 +1100,17 @@ function module:_setupTopBar()
 				return
 			end
 			hovering = false
-			if self._currentTab == holderName then
+			if self._currentTab == tabKey then
 				return
 			end
 
 			if tabData.button then
-				cancelTweenGroup("tab_hover_" .. holderName)
+				cancelTweenGroup("tab_hover_" .. tabKey)
 				local tween = TweenService:Create(tabData.button, TweenConfig.create("TabHoverOut"), {
 					BackgroundTransparency = TweenConfig.Values.DeselectedButtonTransparency,
 				})
 				tween:Play()
-				currentTweens["tab_hover_" .. holderName] = { tween }
+				currentTweens["tab_hover_" .. tabKey] = { tween }
 			end
 		end, "topbar")
 	end
@@ -1157,6 +1241,7 @@ function module:_clearSettings()
 	self:_stopAwaitingKeybind(true)
 	self:_stopImageCarousel()
 	self:_stopVideo()
+	self:_hideCrosshairPreview()
 
 	for _, rowData in ipairs(self._settingRows) do
 		if rowData.row and rowData.row.Parent then
@@ -1191,7 +1276,8 @@ function module:_populateSettings(categoryKey, preferredSettingKey)
 	end
 
 	self._scrollFrame.Visible = true
-	local settingsList = SettingsConfig.getSettingsList(categoryKey)
+	local settingsList, sourceCategory = getSettingsListForDisplayCategory(categoryKey)
+	sourceCategory = sourceCategory or categoryKey
 	local firstSelectableSetting = nil
 	local lastLayoutOrder = 0
 
@@ -1204,7 +1290,7 @@ function module:_populateSettings(categoryKey, preferredSettingKey)
 		end
 
 		local available = SettingsConfig.isSettingAllowedOnDevice(settingData.config, self._deviceType)
-		local row, renderType = self:_createSettingRow(categoryKey, settingData.key, settingData.config, index, available)
+		local row, renderType = self:_createSettingRow(sourceCategory, settingData.key, settingData.config, index, available)
 		if not row then
 			continue
 		end
@@ -1215,7 +1301,7 @@ function module:_populateSettings(categoryKey, preferredSettingKey)
 			config = settingData.config,
 			renderType = renderType or settingData.config.SettingType,
 			row = row,
-			category = categoryKey,
+			category = sourceCategory,
 			available = available,
 		}
 		table.insert(self._settingRows, rowData)
@@ -1225,7 +1311,7 @@ function module:_populateSettings(categoryKey, preferredSettingKey)
 		end
 	end
 
-	local resetRow = self:_createResetRow(categoryKey, lastLayoutOrder + 1)
+	local resetRow = self:_createResetRow(sourceCategory, lastLayoutOrder + 1)
 	if resetRow then
 		table.insert(self._settingRows, {
 			key = "__reset_" .. tostring(categoryKey),
@@ -1379,6 +1465,8 @@ function module:_createSettingRow(categoryKey, settingKey, config, order, availa
 		self:_setupSliderRow(categoryKey, settingKey, config, row)
 	elseif renderType == "keybind" and available then
 		self:_setupKeybindRow(settingKey, row)
+	elseif renderType == "action" and available then
+		self:_setupActionRow(categoryKey, settingKey, config, row)
 	end
 
 	if renderType ~= "divider" and available then
@@ -1388,6 +1476,7 @@ function module:_createSettingRow(categoryKey, settingKey, config, order, availa
 	end
 
 	if not available then
+		setRowInteractionEnabled(row, false)
 		if rowBody and rowBody:IsA("Frame") then
 			rowBody.BackgroundTransparency = 1
 		end
@@ -1399,6 +1488,52 @@ function module:_createSettingRow(categoryKey, settingKey, config, order, availa
 	end
 
 	return row, renderType
+end
+
+function module:_setupActionRow(categoryKey, settingKey, config, row)
+	local actionContainer = row:FindFirstChild("Action", true)
+	local holder = actionContainer and actionContainer:FindFirstChild("HOLDER", true)
+	local holderLabel = holder and holder:FindFirstChildWhichIsA("TextLabel", true)
+	if holderLabel and holderLabel:IsA("TextLabel") then
+		holderLabel.Text = tostring(config.ActionLabel or "APPLY")
+	end
+
+	local function triggerAction()
+		if not self._buttonsActive then
+			return
+		end
+		self:_selectSetting(settingKey)
+
+		local currentValue = PlayerDataTable.get(categoryKey, settingKey)
+		local numericValue = tonumber(currentValue) or 0
+		PlayerDataTable.set(categoryKey, settingKey, numericValue + 1)
+	end
+
+	local function bindAction(target)
+		if not target then
+			return false
+		end
+		if target:IsA("GuiButton") then
+			target.Active = true
+			target.AutoButtonColor = false
+			target.Selectable = false
+			self._connections:track(target, "Activated", triggerAction, "settingRows")
+			return true
+		end
+		return false
+	end
+
+	if not bindAction(actionContainer) then
+		local button = row:FindFirstChildWhichIsA("GuiButton", true)
+		if not bindAction(button) then
+			self._connections:track(row, "InputBegan", function(input)
+				if not isPointerInput(input) then
+					return
+				end
+				triggerAction()
+			end, "settingRows")
+		end
+	end
 end
 
 function module:_setupRowSelect(settingKey, row, rowBody)
@@ -1933,6 +2068,14 @@ function module:_startImageCarousel(images)
 		return
 	end
 
+	if self._infoImageCanvas then
+		for _, child in ipairs(self._infoImageCanvas:GetChildren()) do
+			if child.Name == "NextClone" and child:IsA("ImageLabel") then
+				child:Destroy()
+			end
+		end
+	end
+
 	self._currentImageIndex = 1
 	self._infoCurrentImage.Image = images[1]
 	self._infoNextImage.Visible = false
@@ -1989,6 +2132,18 @@ function module:_stopImageCarousel()
 	if self._imageCarouselTask then
 		task.cancel(self._imageCarouselTask)
 		self._imageCarouselTask = nil
+	end
+
+	if self._infoImageCanvas then
+		for _, child in ipairs(self._infoImageCanvas:GetChildren()) do
+			if child.Name == "NextClone" and child:IsA("ImageLabel") then
+				child:Destroy()
+			end
+		end
+	end
+
+	if self._infoNextImage then
+		self._infoNextImage.Visible = false
 	end
 end
 

@@ -3,6 +3,7 @@ local InputManager = {}
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local TextChatService = game:GetService("TextChatService")
+local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -79,6 +80,16 @@ local function IsGamepadInputType(inputType)
 		or inputType == Enum.UserInputType.Gamepad6
 		or inputType == Enum.UserInputType.Gamepad7
 		or inputType == Enum.UserInputType.Gamepad8
+end
+
+local function isToggleCrouchEnabled()
+	local player = Players.LocalPlayer
+	return player and player:GetAttribute("SettingsToggleCrouch") == true
+end
+
+local function isToggleSprintEnabled()
+	local player = Players.LocalPlayer
+	return player and player:GetAttribute("SettingsToggleSprint") == true
 end
 
 function InputManager:IsKeybind(input, keybindKey)
@@ -314,13 +325,23 @@ function InputManager:_handleCoreInputBegan(input, gameProcessed)
 			self:FireCallbacks("Jump", true)
 		end
 	elseif self:IsKeybind(input, "Sprint") then
-		self.IsSprinting = true
-		self:FireCallbacks("Sprint", true)
+		if isToggleSprintEnabled() then
+			self.IsSprinting = not self.IsSprinting
+			self:FireCallbacks("Sprint", self.IsSprinting)
+		else
+			self.IsSprinting = true
+			self:FireCallbacks("Sprint", true)
+		end
 	elseif self:IsKeybind(input, "Slide") then
 		self:FireCallbacks("Slide", true)
 	elseif self:IsKeybind(input, "Crouch") then
-		self.IsCrouching = true
-		self:FireCallbacks("Crouch", true)
+		if isToggleCrouchEnabled() then
+			self.IsCrouching = not self.IsCrouching
+			self:FireCallbacks("Crouch", self.IsCrouching)
+		else
+			self.IsCrouching = true
+			self:FireCallbacks("Crouch", true)
+		end
 	elseif self:IsKeybind(input, "Ability") then
 		self:FireCallbacks("Ability", input.UserInputState)
 	elseif self:IsKeybind(input, "Ultimate") then
@@ -377,13 +398,17 @@ function InputManager:_handleCoreInputEnded(input, gameProcessed)
 			self:FireCallbacks("Jump", false)
 		end
 	elseif self:IsKeybind(input, "Sprint") then
-		self.IsSprinting = false
-		self:FireCallbacks("Sprint", false)
+		if not isToggleSprintEnabled() then
+			self.IsSprinting = false
+			self:FireCallbacks("Sprint", false)
+		end
 	elseif self:IsKeybind(input, "Slide") then
 		self:FireCallbacks("Slide", false)
 	elseif self:IsKeybind(input, "Crouch") then
-		self.IsCrouching = false
-		self:FireCallbacks("Crouch", false)
+		if not isToggleCrouchEnabled() then
+			self.IsCrouching = false
+			self:FireCallbacks("Crouch", false)
+		end
 	elseif self:IsKeybind(input, "Ability") then
 		self:FireCallbacks("Ability", input.UserInputState)
 	elseif self:IsKeybind(input, "Ultimate") then
@@ -451,12 +476,17 @@ function InputManager:SetupKeyboardMouse()
 					self:FireCallbacks("Slide", false)
 				end)
 			elseif self:CheckScrollWheelKeybind("Crouch", scrollDirection) then
-				self.IsCrouching = true
-				self:FireCallbacks("Crouch", true)
-				task.delay(0.05, function()
-					self.IsCrouching = false
-					self:FireCallbacks("Crouch", false)
-				end)
+				if isToggleCrouchEnabled() then
+					self.IsCrouching = not self.IsCrouching
+					self:FireCallbacks("Crouch", self.IsCrouching)
+				else
+					self.IsCrouching = true
+					self:FireCallbacks("Crouch", true)
+					task.delay(0.05, function()
+						self.IsCrouching = false
+						self:FireCallbacks("Crouch", false)
+					end)
+				end
 			end
 		end
 	end)

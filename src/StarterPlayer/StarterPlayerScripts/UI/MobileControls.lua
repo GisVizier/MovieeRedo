@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Util"):WaitForChild("Locations"))
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
+local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 local Controls = require(ReplicatedStorage:WaitForChild("Global"):WaitForChild("Controls"))
 local Positions = Controls.CustomizableKeybinds.DefaultPositions
 
@@ -27,6 +28,9 @@ local COLOR = Color3.new(0, 0, 0)
 local TOGGLE_COLOR = Color3.fromRGB(40, 120, 220)
 local ALPHA = 0.55
 local WHITE = Color3.new(1, 1, 1)
+local ARRANGE_SELECTED_COLOR = Color3.fromRGB(120, 180, 255)
+local ARRANGE_MIN_SCALE = 0.7
+local ARRANGE_MAX_SCALE = 1.45
 
 -- =============================================================================
 -- STATE
@@ -48,6 +52,18 @@ MobileControls.IsADSActive = false
 MobileControls._buttons = {}
 MobileControls._combatButtons = {}
 MobileControls._crouchSlideIsSlide = false -- tracks what the merged button did on press
+MobileControls._arrangeModeEnabled = false
+MobileControls._arrangeElements = {}
+MobileControls._arrangeSelectedId = nil
+MobileControls._arrangePrimaryTouch = nil
+MobileControls._arrangeSecondaryTouch = nil
+MobileControls._arrangeTouchPositions = {}
+MobileControls._arrangeDragStartTouchPos = nil
+MobileControls._arrangeDragStartTopLeft = nil
+MobileControls._arrangePinchInitialDistance = nil
+MobileControls._arrangePinchInitialScale = 1
+MobileControls._arrangeSaveQueued = false
+MobileControls._lastResetNonce = 0
 
 MobileControls.ActiveTouches = {
 	Movement = nil,
@@ -67,7 +83,498 @@ MobileControls.ActiveTouches = {
 -- =============================================================================
 function MobileControls:_isBlocked()
 	local im = self._input
-	return im and (im.IsMenuOpen or im.IsChatFocused or im.IsSettingsOpen)
+	return self._arrangeModeEnabled or (im and (im.IsMenuOpen or im.IsChatFocused or im.IsSettingsOpen))
+end
+
+function MobileControls:_isToggleCrouchEnabled()
+	return LocalPlayer and LocalPlayer:GetAttribute("SettingsToggleCrouch") == true
+end
+
+function MobileControls:_getViewportSize()
+	local camera = workspace.CurrentCamera
+	if camera then
+		return camera.ViewportSize
+	end
+	return Vector2.new(1920, 1080)
+end
+
+function MobileControls:_getParentAbsolutePosition(guiObject)
+	local parent = guiObject and guiObject.Parent
+	if parent and parent:IsA("GuiObject") then
+		return parent.AbsolutePosition
+	end
+	return Vector2.new(0, 0)
+end
+
+function MobileControls:_getArrangeElementDataById(elementId)
+	if not elementId then
+		return nil
+	end
+	for _, data in ipairs(self._arrangeElements) do
+		if data.id == elementId then
+			return data
+		end
+	end
+	return nil
+end
+
+function MobileControls:_getArrangeScaleObject(data)
+	if not data or not data.scaleable then
+		return nil
+	end
+
+	local existing = data.gui:FindFirstChild("_ArrangeScale")
+	if existing and existing:IsA("UIScale") then
+		return existing
+	end
+
+	local scale = data.gui:FindFirstChildWhichIsA("UIScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Parent = data.gui
+	end
+	scale.Name = "_ArrangeScale"
+	return scale
+end
+
+function MobileControls:_registerArrangeElement(id, gui, options)
+	if not gui then
+		return
+	end
+
+	local config = options or {}
+	local data = {
+		id = id,
+		gui = gui,
+		scaleable = config.scaleable == true,
+		minScale = config.minScale or ARRANGE_MIN_SCALE,
+		maxScale = config.maxScale or ARRANGE_MAX_SCALE,
+		defaultPosition = gui.Position,
+		defaultVisible = gui.Visible,
+		defaultScale = 1,
+	}
+
+	if data.scaleable then
+		local scaleObject = self:_getArrangeScaleObject(data)
+		data.defaultScale = (scaleObject and scaleObject.Scale) or 1
+	end
+
+	table.insert(self._arrangeElements, data)
+end
+
+function MobileControls:_rebuildArrangeElements()
+	self._arrangeElements = {}
+
+	self:_registerArrangeElement("movement_stick", self.MovementStick and self.MovementStick.Container, {
+		scaleable = false,
+	})
+	self:_registerArrangeElement("camera_stick", self.CameraStick and self.CameraStick.Container, {
+		scaleable = false,
+	})
+	self:_registerArrangeElement("emote", self._buttons and self._buttons.Emote, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("jump", self._buttons and self._buttons.Jump, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("crouch_slide", self._buttons and self._buttons.CrouchSlide, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("fire", self._buttons and self._buttons.Fire, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("ads", self._buttons and self._buttons.ADS, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("reload", self._buttons and self._buttons.Reload, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("ability", self._buttons and self._buttons.Ability, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("ultimate", self._buttons and self._buttons.Ultimate, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("weapon_slots", self._slotContainer, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("ammo_display", self._ammoDisplay, {
+		scaleable = true,
+	})
+
+	table.sort(self._arrangeElements, function(a, b)
+		local az = (a.gui and a.gui.ZIndex) or 0
+		local bz = (b.gui and b.gui.ZIndex) or 0
+		return az < bz
+	end)
+end
+
+function MobileControls:_setArrangeSelection(elementId)
+	if self._arrangeSelectedId == elementId then
+		return
+	end
+
+	local previous = self:_getArrangeElementDataById(self._arrangeSelectedId)
+	if previous and previous.gui then
+		local stroke = previous.gui:FindFirstChild("_ArrangeSelectStroke")
+		if stroke and stroke:IsA("UIStroke") then
+			stroke.Enabled = false
+		end
+	end
+
+	self._arrangeSelectedId = elementId
+
+	local current = self:_getArrangeElementDataById(elementId)
+	if not current or not current.gui then
+		return
+	end
+
+	local stroke = current.gui:FindFirstChild("_ArrangeSelectStroke")
+	if not (stroke and stroke:IsA("UIStroke")) then
+		stroke = Instance.new("UIStroke")
+		stroke.Name = "_ArrangeSelectStroke"
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Thickness = 2
+		stroke.Color = ARRANGE_SELECTED_COLOR
+		stroke.Parent = current.gui
+	end
+	stroke.Enabled = true
+end
+
+function MobileControls:_clearArrangeTouchState()
+	if self._arrangePrimaryTouch then
+		self.ClaimedTouches[self._arrangePrimaryTouch] = nil
+	end
+	if self._arrangeSecondaryTouch then
+		self.ClaimedTouches[self._arrangeSecondaryTouch] = nil
+	end
+
+	self._arrangePrimaryTouch = nil
+	self._arrangeSecondaryTouch = nil
+	self._arrangeDragStartTouchPos = nil
+	self._arrangeDragStartTopLeft = nil
+	self._arrangePinchInitialDistance = nil
+	self._arrangePinchInitialScale = 1
+end
+
+function MobileControls:_setGuiTopLeft(gui, topLeft)
+	if not gui then
+		return
+	end
+
+	local parentPos = self:_getParentAbsolutePosition(gui)
+	local absSize = gui.AbsoluteSize
+	local anchor = gui.AnchorPoint
+	local anchorX = (topLeft.X - parentPos.X) + (absSize.X * anchor.X)
+	local anchorY = (topLeft.Y - parentPos.Y) + (absSize.Y * anchor.Y)
+
+	gui.Position = UDim2.new(0, math.floor(anchorX + 0.5), 0, math.floor(anchorY + 0.5))
+end
+
+function MobileControls:_clampTopLeft(gui, topLeft)
+	if not gui then
+		return topLeft
+	end
+
+	local viewport = self:_getViewportSize()
+	local size = gui.AbsoluteSize
+
+	local maxX = math.max(0, viewport.X - size.X)
+	local maxY = math.max(0, viewport.Y - size.Y)
+
+	return Vector2.new(math.clamp(topLeft.X, 0, maxX), math.clamp(topLeft.Y, 0, maxY))
+end
+
+function MobileControls:_findArrangeElementAtPoint(point)
+	for i = #self._arrangeElements, 1, -1 do
+		local data = self._arrangeElements[i]
+		local gui = data and data.gui
+		if gui and gui.Parent and gui.Visible then
+			local pos = gui.AbsolutePosition
+			local size = gui.AbsoluteSize
+			if point.X >= pos.X and point.X <= (pos.X + size.X) and point.Y >= pos.Y and point.Y <= (pos.Y + size.Y) then
+				return data
+			end
+		end
+	end
+	return nil
+end
+
+function MobileControls:_serializeLayout()
+	local layout = {
+		version = 1,
+		elements = {},
+	}
+
+	for _, data in ipairs(self._arrangeElements) do
+		local gui = data.gui
+		if gui and gui.Parent then
+			local entry = {
+				xScale = gui.Position.X.Scale,
+				xOffset = gui.Position.X.Offset,
+				yScale = gui.Position.Y.Scale,
+				yOffset = gui.Position.Y.Offset,
+			}
+
+			if data.scaleable then
+				local scaleObject = self:_getArrangeScaleObject(data)
+				entry.scale = scaleObject and scaleObject.Scale or 1
+			end
+
+			layout.elements[data.id] = entry
+		end
+	end
+
+	return layout
+end
+
+function MobileControls:_saveLayoutNow()
+	local layout = self:_serializeLayout()
+	PlayerDataTable.set("Gameplay", "MobileButtonLayout", layout)
+end
+
+function MobileControls:_queueSaveLayout()
+	if self._arrangeSaveQueued then
+		return
+	end
+
+	self._arrangeSaveQueued = true
+	task.delay(0.2, function()
+		self._arrangeSaveQueued = false
+		self:_saveLayoutNow()
+	end)
+end
+
+function MobileControls:_applySavedLayout()
+	local saved = PlayerDataTable.get("Gameplay", "MobileButtonLayout")
+	if type(saved) ~= "table" then
+		return
+	end
+
+	local entries = saved.elements
+	if type(entries) ~= "table" then
+		entries = saved
+	end
+	if type(entries) ~= "table" then
+		return
+	end
+
+	for _, data in ipairs(self._arrangeElements) do
+		local gui = data.gui
+		local entry = entries[data.id]
+		if gui and gui.Parent and type(entry) == "table" then
+			local xScale = tonumber(entry.xScale) or gui.Position.X.Scale
+			local xOffset = tonumber(entry.xOffset) or gui.Position.X.Offset
+			local yScale = tonumber(entry.yScale) or gui.Position.Y.Scale
+			local yOffset = tonumber(entry.yOffset) or gui.Position.Y.Offset
+			gui.Position = UDim2.new(xScale, xOffset, yScale, yOffset)
+
+			if data.scaleable then
+				local scaleObject = self:_getArrangeScaleObject(data)
+				if scaleObject then
+					local scale = tonumber(entry.scale) or data.defaultScale or 1
+					scaleObject.Scale = math.clamp(scale, data.minScale, data.maxScale)
+				end
+			end
+		end
+	end
+end
+
+function MobileControls:ResetLayoutToDefaults()
+	for _, data in ipairs(self._arrangeElements) do
+		local gui = data.gui
+		if gui and gui.Parent then
+			gui.Position = data.defaultPosition
+			if data.scaleable then
+				local scaleObject = self:_getArrangeScaleObject(data)
+				if scaleObject then
+					scaleObject.Scale = data.defaultScale or 1
+				end
+			end
+		end
+	end
+
+	self:_queueSaveLayout()
+end
+
+function MobileControls:_setAllArrangeElementsVisible(visible)
+	for _, data in ipairs(self._arrangeElements) do
+		local gui = data.gui
+		if gui and gui.Parent then
+			gui.Visible = visible
+		end
+	end
+end
+
+function MobileControls:_refreshCombatVisibility()
+	if self._arrangeModeEnabled then
+		self:SetCombatMode(true)
+		self:_setAllArrangeElementsVisible(true)
+		return
+	end
+
+	local inLobby = LocalPlayer:GetAttribute("InLobby")
+	self:SetCombatMode(inLobby ~= true)
+end
+
+function MobileControls:SetArrangeMode(enabled)
+	enabled = enabled == true
+	if self._arrangeModeEnabled == enabled then
+		return
+	end
+
+	self._arrangeModeEnabled = enabled
+
+	if enabled then
+		if self.ScreenGui then
+			self.ScreenGui.Enabled = true
+		end
+		self:_setAllArrangeElementsVisible(true)
+		self:SetCombatMode(true)
+		self:ResetTouchState()
+	else
+		self:_clearArrangeTouchState()
+		self:_setArrangeSelection(nil)
+		self:ResetTouchState()
+		self:_refreshCombatVisibility()
+	end
+end
+
+function MobileControls:SetupArrangeInput()
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed or not self._arrangeModeEnabled then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+
+		local touchPos = Vector2.new(input.Position.X, input.Position.Y)
+		self._arrangeTouchPositions[input] = touchPos
+		self.ClaimedTouches[input] = "arrange_blocked"
+
+		if not self._arrangePrimaryTouch then
+			local hit = self:_findArrangeElementAtPoint(touchPos)
+			if not hit then
+				return
+			end
+
+			self:_setArrangeSelection(hit.id)
+			self._arrangePrimaryTouch = input
+			self.ClaimedTouches[input] = "arrange_primary"
+			self._arrangeDragStartTouchPos = touchPos
+			self._arrangeDragStartTopLeft = hit.gui.AbsolutePosition
+			return
+		end
+
+		if self._arrangeSecondaryTouch then
+			return
+		end
+
+		local selected = self:_getArrangeElementDataById(self._arrangeSelectedId)
+		if not selected or not selected.scaleable then
+			return
+		end
+
+		local primaryPos = self._arrangeTouchPositions[self._arrangePrimaryTouch]
+		if not primaryPos then
+			return
+		end
+
+		self._arrangeSecondaryTouch = input
+		self.ClaimedTouches[input] = "arrange_secondary"
+		self._arrangePinchInitialDistance = math.max((touchPos - primaryPos).Magnitude, 1)
+		local scaleObject = self:_getArrangeScaleObject(selected)
+		self._arrangePinchInitialScale = (scaleObject and scaleObject.Scale) or 1
+	end)
+
+	UserInputService.InputChanged:Connect(function(input, gameProcessed)
+		if gameProcessed or not self._arrangeModeEnabled then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+
+		local touchPos = Vector2.new(input.Position.X, input.Position.Y)
+		if self._arrangeTouchPositions[input] == nil then
+			return
+		end
+		self._arrangeTouchPositions[input] = touchPos
+
+		local selected = self:_getArrangeElementDataById(self._arrangeSelectedId)
+		if not selected or not selected.gui then
+			return
+		end
+
+		if self._arrangeSecondaryTouch and (input == self._arrangePrimaryTouch or input == self._arrangeSecondaryTouch) then
+			local primaryPos = self._arrangeTouchPositions[self._arrangePrimaryTouch]
+			local secondaryPos = self._arrangeTouchPositions[self._arrangeSecondaryTouch]
+			if not primaryPos or not secondaryPos then
+				return
+			end
+
+			local initialDistance = self._arrangePinchInitialDistance or 1
+			local currentDistance = math.max((secondaryPos - primaryPos).Magnitude, 1)
+			local rawScale = (self._arrangePinchInitialScale or 1) * (currentDistance / initialDistance)
+
+			local scaleObject = self:_getArrangeScaleObject(selected)
+			if scaleObject then
+				scaleObject.Scale = math.clamp(rawScale, selected.minScale, selected.maxScale)
+			end
+			return
+		end
+
+		if input == self._arrangePrimaryTouch and self._arrangeDragStartTouchPos and self._arrangeDragStartTopLeft then
+			local delta = touchPos - self._arrangeDragStartTouchPos
+			local targetTopLeft = self._arrangeDragStartTopLeft + delta
+			targetTopLeft = self:_clampTopLeft(selected.gui, targetTopLeft)
+			self:_setGuiTopLeft(selected.gui, targetTopLeft)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input, _)
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+
+		self._arrangeTouchPositions[input] = nil
+
+		if not self._arrangeModeEnabled then
+			return
+		end
+		self.ClaimedTouches[input] = nil
+
+		if input ~= self._arrangePrimaryTouch and input ~= self._arrangeSecondaryTouch then
+			return
+		end
+
+		self:_clearArrangeTouchState()
+		self:_queueSaveLayout()
+	end)
+end
+
+function MobileControls:SetupArrangeSettingsListener()
+	self._lastResetNonce = tonumber(LocalPlayer:GetAttribute("SettingsMobileButtonsResetNonce")) or 0
+
+	LocalPlayer:GetAttributeChangedSignal("SettingsArrangeMobileButtons"):Connect(function()
+		local enabled = LocalPlayer:GetAttribute("SettingsArrangeMobileButtons") == true
+		self:SetArrangeMode(enabled)
+	end)
+
+	LocalPlayer:GetAttributeChangedSignal("SettingsMobileButtonsResetNonce"):Connect(function()
+		local nonce = tonumber(LocalPlayer:GetAttribute("SettingsMobileButtonsResetNonce")) or 0
+		if nonce == self._lastResetNonce then
+			return
+		end
+		self._lastResetNonce = nonce
+		self:ResetLayoutToDefaults()
+	end)
+
+	task.defer(function()
+		local enabled = LocalPlayer:GetAttribute("SettingsArrangeMobileButtons") == true
+		self:SetArrangeMode(enabled)
+	end)
 end
 
 -- =============================================================================
@@ -79,8 +586,11 @@ function MobileControls:Init(inputManager)
 	end
 
 	self._input = inputManager
+	PlayerDataTable.init()
 
 	self:CreateMobileUI()
+	self:SetupArrangeInput()
+	self:SetupArrangeSettingsListener()
 	self:SetupLobbyListener()
 
 	if self._input then
@@ -96,8 +606,7 @@ end
 -- =============================================================================
 function MobileControls:SetupLobbyListener()
 	local function update()
-		local inLobby = LocalPlayer:GetAttribute("InLobby")
-		self:SetCombatMode(inLobby ~= true)
+		self:_refreshCombatVisibility()
 	end
 	LocalPlayer:GetAttributeChangedSignal("InLobby"):Connect(update)
 	task.defer(update)
@@ -172,6 +681,8 @@ function MobileControls:CreateMobileUI()
 	self:CreateActionCluster()
 	self:CreateWeaponSlots()
 	self:CreateMobileAmmoDisplay()
+	self:_rebuildArrangeElements()
+	self:_applySavedLayout()
 end
 
 -- =============================================================================
@@ -880,8 +1391,13 @@ function MobileControls:SetupButtonInput()
 				self._input:FireCallbacks("Slide", true)
 			else
 				self._crouchSlideIsSlide = false
-				self._input.IsCrouching = true
-				self._input:FireCallbacks("Crouch", true)
+				if self:_isToggleCrouchEnabled() then
+					self._input.IsCrouching = not self._input.IsCrouching
+					self._input:FireCallbacks("Crouch", self._input.IsCrouching)
+				else
+					self._input.IsCrouching = true
+					self._input:FireCallbacks("Crouch", true)
+				end
 			end
 			return
 		end
@@ -928,8 +1444,10 @@ function MobileControls:SetupButtonInput()
 			if self._crouchSlideIsSlide then
 				self._input:FireCallbacks("Slide", false)
 			else
-				self._input.IsCrouching = false
-				self._input:FireCallbacks("Crouch", false)
+				if not self:_isToggleCrouchEnabled() then
+					self._input.IsCrouching = false
+					self._input:FireCallbacks("Crouch", false)
+				end
 			end
 			self._crouchSlideIsSlide = false
 		elseif input == self.ActiveTouches.Ability then
