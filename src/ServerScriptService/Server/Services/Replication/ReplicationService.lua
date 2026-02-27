@@ -346,6 +346,13 @@ function ReplicationService:_playRigAnimation(player, animId)
 	if not track then
 		local animInstance = self:_getAnimInstanceForPlayer(player, animName)
 		if not animInstance then
+			-- Animation instance not found, but the animation state HAS changed.
+			-- Stop all playing tracks so the old animation doesn't persist.
+			for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+				if t.IsPlaying then
+					t:Stop(0.15)
+				end
+			end
 			return
 		end
 		tracks = self._rigAnimTracks[player]

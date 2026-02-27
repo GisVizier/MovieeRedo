@@ -407,7 +407,7 @@ function module:_updateUserLeaveAction()
 end
 
 function module:_bindInput()
-	-- HOLD to show: Tab pressed → show scoreboard, Tab released → hide it
+	-- TOGGLE: Tab pressed → toggle scoreboard visibility
 	self._connections:track(UserInputService, "InputBegan", function(input, gameProcessed)
 		if gameProcessed then
 			return
@@ -422,16 +422,8 @@ function module:_bindInput()
 		if self._matchStatus == "InGame" then
 			return
 		end
-		self:_setPanelVisible(true, true)
+		self:_setPanelVisible(not self._isPanelVisible, true)
 	end, "input")
-
-	self._connections:track(UserInputService, "InputEnded", function(input)
-		if input.KeyCode ~= TOGGLE_KEY then
-			return
-		end
-		-- Hide when Tab is released
-		self:_setPanelVisible(false, true)
-	end, "input_release")
 
 	if self._searchBox then
 		self._connections:add(self._searchBox:GetPropertyChangedSignal("Text"):Connect(function()
