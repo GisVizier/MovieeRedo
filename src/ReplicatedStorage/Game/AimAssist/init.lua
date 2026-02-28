@@ -136,20 +136,12 @@ function AimAssist:updateGamepadEligibility(keyCode: Enum.KeyCode, position: Vec
 end
 
 function AimAssist:getTouchEligibility(): boolean
-	-- Mobile-only device (phone/tablet): always eligible — cursor lock & PreferredInput
-	-- are desktop concepts that don't apply on mobile.
-	local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-	if isMobile then
+	-- Any device with touch (real mobile, tablet, emulator): always eligible.
+	if UserInputService.TouchEnabled then
 		return true
 	end
 
-	-- PC with touchscreen / hybrid: use standard timeout gate
-	if UserInputService.PreferredInput ~= Enum.PreferredInput.Touch or not self.lastActiveTouch then
-		return false
-	end
-
-	local timeout = AimAssistConfig.Input.TouchInactivityTimeout
-	return (os.clock() - self.lastActiveTouch) < timeout
+	return false
 end
 
 function AimAssist:updateTouchEligibility()
@@ -173,21 +165,19 @@ function AimAssist:isEligible(): boolean
 		return true
 	end
 
-	-- Mobile-only device: camera uses touch controls, NOT MouseBehavior.LockCenter.
-	-- CameraController explicitly skips LockCenter on touch, so isCursorLocked() is
-	-- always false on mobile. Bypass the lock check and go straight to touch eligibility.
-	local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-	if isMobile then
-		return self:getTouchEligibility()
+	-- Touch device (real mobile, tablet, or Studio emulator): always eligible.
+	-- CameraController skips LockCenter on touch so isCursorLocked() is false on mobile.
+	if UserInputService.TouchEnabled then
+		return true
 	end
 
-	-- Desktop / gamepad: require cursor lock (combat mode)
-	if not self:isCursorLocked() then
-		return false
+	-- Gamepad: eligible if gamepad is active
+	if self:getGamepadEligibility() then
+		return true
 	end
 
-	-- Check gamepad/touch eligibility
-	return self:getGamepadEligibility() or self:getTouchEligibility()
+	-- Desktop mouse: require cursor lock (combat mode)
+	return self:isCursorLocked()
 end
 
 -- =============================================================================

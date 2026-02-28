@@ -766,6 +766,28 @@ function UIController:_bootstrapUi()
 		ServiceRegistry:RegisterController("Kit", kitController)
 	end
 
+	-- Mobile/controller Settings callback (opens/closes settings from InputManager)
+	do
+		local inputController = self._registry and self._registry:TryGet("Input")
+		local inputManager = inputController and inputController.Manager
+		if inputManager then
+			inputManager:ConnectToInput("Settings", function()
+				if not self._coreUi then
+					return
+				end
+				if self._coreUi:isOpen("_Settings") then
+					safeCall(function()
+						self._coreUi:hide("_Settings")
+					end)
+				elseif self._matchMode == nil then
+					safeCall(function()
+						self._coreUi:show("_Settings")
+					end)
+				end
+			end)
+		end
+	end
+
 	-- UI event wiring
 	ui:on("EquipKitRequest", function(kitId)
 		-- During between-rounds, don't equip the kit on the server

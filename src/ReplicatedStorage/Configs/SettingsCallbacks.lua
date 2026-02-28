@@ -1832,16 +1832,76 @@ SettingsCallbacks.Callbacks = {
 			setLocalSettingAttribute("SettingsEasyCycleEnabled", isSettingEnabled(value))
 		end,
 
+		AimAssist = function(value, oldValue)
+			local enabled = isSettingEnabled(value)
+
+			-- Migration: This setting was previously blocked on all platforms (default=2).
+			-- Any mobile/controller player with saved value=2 never chose to disable it —
+			-- it's legacy data. Force-enable for touch/gamepad devices.
+			if not enabled and (UserInputService.TouchEnabled or UserInputService.GamepadEnabled) then
+				warn("[SettingsCallback] AimAssist: overriding legacy disabled value for mobile/controller")
+				enabled = true
+			end
+
+			warn(string.format("[SettingsCallback] AimAssist callback fired: value=%s -> enabled=%s", tostring(value), tostring(enabled)))
+			AimAssistConfig.Enabled = enabled
+
+			local weaponController = ServiceRegistry:GetController("Weapon")
+			if weaponController and type(weaponController.GetAimAssist) == "function" then
+				local aimAssist = weaponController:GetAimAssist()
+				if aimAssist then
+					if enabled then
+						aimAssist:enable()
+					else
+						aimAssist:disable()
+					end
+				else
+					warn("[SettingsCallback] AimAssist: aimAssist instance is nil (not yet created)")
+				end
+			else
+				warn("[SettingsCallback] AimAssist: weaponController not found or missing GetAimAssist")
+			end
+		end,
+
+		AimAssistStrength = function(value, oldValue)
+			local player = getLocalPlayer()
+			if not player then
+				return
+			end
+			local strength = tonumber(value)
+			if not strength then
+				return
+			end
+			-- Settings slider is 1-5, map to 0-1 range
+			local normalized = math.clamp((strength - 1) / 4, 0, 1)
+			player:SetAttribute("AimAssistStrength", normalized)
+		end,
+
 		AutoShoot = function(value, oldValue)
 			local enabled = isSettingEnabled(value)
+
+			-- Migration: This setting was previously blocked/defaulted to disabled.
+			-- Any mobile/controller player with saved value=2 never chose to disable it —
+			-- it's legacy data. Force-enable for touch/gamepad devices.
+			if not enabled and (UserInputService.TouchEnabled or UserInputService.GamepadEnabled) then
+				warn("[SettingsCallback] AutoShoot: overriding legacy disabled value for mobile/controller")
+				enabled = true
+			end
+
+			warn(string.format("[SettingsCallback] AutoShoot callback fired: value=%s -> enabled=%s", tostring(value), tostring(enabled)))
 			setLocalSettingAttribute("SettingsAutoShootEnabled", enabled)
 
 			local weaponController = ServiceRegistry:GetController("Weapon")
 			if weaponController and type(weaponController.SetAutoShootEnabled) == "function" then
 				weaponController:SetAutoShootEnabled(enabled)
 			else
+				warn("[SettingsCallback] AutoShoot: weaponController not found, setting config directly")
 				AimAssistConfig.AutoShoot.Enabled = enabled
 			end
+		end,
+
+		AutoFire = function(value, oldValue)
+			setLocalSettingAttribute("SettingsAutoFireEnabled", isSettingEnabled(value))
 		end,
 
 		HideMuzzleFlash = function(value, oldValue)

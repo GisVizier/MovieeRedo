@@ -5,6 +5,7 @@
 	Matches the UI structure: top row = GB/ENG + globe, bottom row = 0ms + 59 FPS.
 ]]
 
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
@@ -16,7 +17,13 @@ local FPS_GOOD = Color3.fromRGB(86, 198, 55)
 local FPS_WARNING = Color3.fromRGB(250, 220, 70)
 local FPS_BAD = Color3.fromRGB(250, 70, 70)
 
+local PING_GOOD = Color3.fromRGB(86, 198, 55)
+local PING_WARNING = Color3.fromRGB(250, 220, 70)
+local PING_BAD = Color3.fromRGB(250, 70, 70)
+
 local TWEEN_COLOR = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local PING_POLL_INTERVAL = 1 -- seconds
 
 function module.start(export, ui)
 	local self = setmetatable({}, module)
@@ -33,10 +40,12 @@ function module.start(export, ui)
 	self._fps = 60
 	self._lastFpsUpdate = 0
 	self._frameCount = 0
+	self._lastPingPoll = 0
 
 	self:_bindUi()
 	self:_bindEvents()
 	self:_startFpsLoop()
+	self:_startPingLoop()
 
 	return self
 end
@@ -46,6 +55,7 @@ function module:show()
 	self._ui.Visible = true
 	self:_bindEvents()
 	self:_startFpsLoop()
+	self:_startPingLoop()
 end
 
 function module:hide()
@@ -105,6 +115,30 @@ function module:_bindEvents()
 	end), "events")
 end
 
+function module:_startPingLoop()
+	self._connections:add(RunService.RenderStepped:Connect(function()
+		local now = os.clock()
+		if now - self._lastPingPoll < PING_POLL_INTERVAL then
+			return
+		end
+		self._lastPingPoll = now
+
+		local localPlayer = Players.LocalPlayer
+		if not localPlayer then
+			return
+		end
+
+		-- GetNetworkPing returns round-trip latency in seconds
+		local ok, rtt = pcall(localPlayer.GetNetworkPing, localPlayer)
+		if not ok or type(rtt) ~= "number" then
+			return
+		end
+
+		self._pingMs = math.floor(rtt * 1000 + 0.5)
+		self:_updatePingText()
+	end), "ping")
+end
+
 function module:_onPingUpdate(pingMs)
 	if type(pingMs) ~= "number" then
 		return
@@ -118,6 +152,18 @@ function module:_updatePingText()
 		return
 	end
 	self._pingLabel.Text = tostring(self._pingMs) .. "ms"
+
+	local targetColor = PING_GOOD
+	if self._pingMs > 150 then
+		targetColor = PING_BAD
+	elseif self._pingMs > 80 then
+		targetColor = PING_WARNING
+	end
+
+	if self._pingLabel.TextColor3 ~= targetColor then
+		local tween = TweenService:Create(self._pingLabel, TWEEN_COLOR, { TextColor3 = targetColor })
+		tween:Play()
+	end
 end
 
 function module:_onRegionUpdate(regionText)

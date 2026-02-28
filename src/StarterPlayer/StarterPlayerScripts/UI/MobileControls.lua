@@ -9,7 +9,7 @@ local Locations = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local LoadoutConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("LoadoutConfig"))
 local PlayerDataTable = require(ReplicatedStorage:WaitForChild("PlayerDataTable"))
 local Controls = require(ReplicatedStorage:WaitForChild("Global"):WaitForChild("Controls"))
-local Positions = Controls.CustomizableKeybinds.DefaultPositions
+local Positions = Controls.GetScaledPositions()
 
 local LogService = nil
 local function getLogService()
@@ -52,6 +52,8 @@ MobileControls.IsADSActive = false
 MobileControls._buttons = {}
 MobileControls._combatButtons = {}
 MobileControls._crouchSlideIsSlide = false -- tracks what the merged button did on press
+MobileControls._autoFireEnabled = false
+MobileControls._autoFireActive = false
 MobileControls._arrangeModeEnabled = false
 MobileControls._arrangeElements = {}
 MobileControls._arrangeSelectedId = nil
@@ -76,6 +78,9 @@ MobileControls.ActiveTouches = {
 	Ultimate = nil,
 	Special = nil,
 	Emote = nil,
+	QuickMelee = nil,
+	Inspect = nil,
+	CamToggle = nil,
 }
 
 -- =============================================================================
@@ -193,6 +198,18 @@ function MobileControls:_rebuildArrangeElements()
 		scaleable = true,
 	})
 	self:_registerArrangeElement("ultimate", self._buttons and self._buttons.Ultimate, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("quick_melee", self._buttons and self._buttons.QuickMelee, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("inspect", self._buttons and self._buttons.Inspect, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("cam_toggle", self._buttons and self._buttons.CamToggle, {
+		scaleable = true,
+	})
+	self:_registerArrangeElement("settings", self._buttons and self._buttons.Settings, {
 		scaleable = true,
 	})
 	self:_registerArrangeElement("weapon_slots", self._slotContainer, {
@@ -592,6 +609,8 @@ function MobileControls:Init(inputManager)
 	self:SetupArrangeInput()
 	self:SetupArrangeSettingsListener()
 	self:SetupLobbyListener()
+	self:_setupViewportListener()
+	self:_setupAutoFireListener()
 
 	if self._input then
 		self._input.IsSprinting = true
@@ -645,6 +664,16 @@ function MobileControls:ResetTouchState()
 	self.IsAutoJumping = false
 	self._crouchSlideIsSlide = false
 
+	if self._autoFireActive then
+		self._autoFireActive = false
+		if self._buttons.Fire then
+			self._buttons.Fire.BackgroundColor3 = COLOR
+		end
+		if self._input then
+			self._input:FireCallbacks("Fire", false)
+		end
+	end
+
 	if self.IsADSActive then
 		self.IsADSActive = false
 		if self._buttons.ADS then
@@ -677,6 +706,7 @@ function MobileControls:CreateMobileUI()
 
 	self:CreateMovementStick()
 	self:CreateEmoteButton()
+	self:CreateSettingsButton()
 	self:CreateCameraStick()
 	self:CreateActionCluster()
 	self:CreateWeaponSlots()
@@ -754,6 +784,54 @@ function MobileControls:CreateEmoteButton()
 end
 
 -- =============================================================================
+-- SETTINGS BUTTON (Top-left, always visible)
+-- =============================================================================
+function MobileControls:CreateSettingsButton()
+	local cfg = Positions.Settings
+	if not cfg then
+		return
+	end
+
+	local btn = self:_makeBtn("Settings", cfg)
+	self._buttons.Settings = btn
+	self:SetupSettingsButtonInput()
+end
+
+function MobileControls:SetupSettingsButtonInput()
+	local btn = self._buttons.Settings
+	if not btn or not self._input then
+		return
+	end
+
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if self:IsTouchClaimed(input) then
+			return
+		end
+		if not self:_hitTest(input, btn) then
+			return
+		end
+
+		self.ClaimedTouches[input] = "settings"
+		self._input:FireCallbacks("Settings", true)
+	end)
+
+	UserInputService.InputEnded:Connect(function(input, _)
+		if input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if self.ClaimedTouches[input] == "settings" then
+			self.ClaimedTouches[input] = nil
+		end
+	end)
+end
+
+-- =============================================================================
 -- CAMERA STICK (Right side, left of action cluster)
 -- =============================================================================
 function MobileControls:CreateCameraStick()
@@ -813,6 +891,9 @@ function MobileControls:CreateActionCluster()
 	local reload = self:_makeBtn("Reload", P.Reload)
 	local ability = self:_makeBtn("Ability", P.Ability)
 	local ultimate = self:_makeBtn("Ultimate", P.Ultimate)
+	local quickMelee = self:_makeBtn("QuickMelee", P.QuickMelee)
+	local inspect = self:_makeBtn("Inspect", P.Inspect)
+	local camToggle = self:_makeBtn("CamToggle", P.CamToggle)
 
 	self._buttons.Jump = jump
 	self._buttons.CrouchSlide = crouchSlide
@@ -821,9 +902,12 @@ function MobileControls:CreateActionCluster()
 	self._buttons.Reload = reload
 	self._buttons.Ability = ability
 	self._buttons.Ultimate = ultimate
+	self._buttons.QuickMelee = quickMelee
+	self._buttons.Inspect = inspect
+	self._buttons.CamToggle = camToggle
 
 	-- CrouchSlide stays visible in lobby (for sliding); rest are combat-only
-	self._combatButtons = { fire, ads, reload, ability, ultimate }
+	self._combatButtons = { fire, ads, reload, ability, ultimate, quickMelee, inspect, camToggle }
 
 	self:SetupButtonInput()
 end
@@ -1154,14 +1238,27 @@ end
 -- =============================================================================
 function MobileControls:_makeBtn(name, cfg)
 	local size = cfg.Size
-	local rightOff = cfg.RightOffset
 	local bottomOff = cfg.BottomOffset
 	local text = cfg.Label or ""
 
 	local b = Instance.new("TextButton")
 	b.Name = name
 	b.Size = UDim2.fromOffset(size, size)
-	b.Position = UDim2.new(1, -(rightOff + size), 1, -(bottomOff + size))
+
+	if cfg.TopOffset then
+		if cfg.RightOffset then
+			b.Position = UDim2.new(1, -(cfg.RightOffset + size), 0, cfg.TopOffset)
+		else
+			local leftOff = cfg.LeftOffset or 0
+			b.Position = UDim2.new(0, leftOff, 0, cfg.TopOffset)
+		end
+	elseif cfg.LeftOffset then
+		b.Position = UDim2.new(0, cfg.LeftOffset, 1, -(bottomOff + size))
+	else
+		local rightOff = cfg.RightOffset or 0
+		b.Position = UDim2.new(1, -(rightOff + size), 1, -(bottomOff + size))
+	end
+
 	b.BackgroundColor3 = COLOR
 	b.BackgroundTransparency = ALPHA
 	b.BorderSizePixel = 0
@@ -1172,7 +1269,42 @@ function MobileControls:_makeBtn(name, cfg)
 	b.Active = false
 	b.Parent = self.ScreenGui
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0.5, 0)
+
+	if cfg.Icon then
+		b.Text = ""
+		local iconSize = math.floor(size * 0.7)
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "_Icon"
+		icon.AnchorPoint = Vector2.new(0.5, 0.5)
+		icon.Position = UDim2.fromScale(0.5, 0.5)
+		icon.Size = UDim2.fromOffset(iconSize, iconSize)
+		icon.BackgroundTransparency = 1
+		icon.Image = cfg.Icon.Image
+		icon.ImageRectOffset = cfg.Icon.ImageRectOffset
+		icon.ImageRectSize = cfg.Icon.ImageRectSize
+		icon.Parent = b
+		b:SetAttribute("_IconRectOffset", cfg.Icon.ImageRectOffset)
+		b:SetAttribute("_IconPressedRectOffset", cfg.Icon.PressedImageRectOffset)
+	end
+
 	return b
+end
+
+function MobileControls:_setButtonPressed(btn, pressed)
+	if not btn then
+		return
+	end
+	local icon = btn:FindFirstChild("_Icon")
+	if icon and icon:IsA("ImageLabel") then
+		local normalOffset = btn:GetAttribute("_IconRectOffset")
+		local pressedOffset = btn:GetAttribute("_IconPressedRectOffset")
+		if pressed and pressedOffset then
+			icon.ImageRectOffset = pressedOffset
+		elseif normalOffset then
+			icon.ImageRectOffset = normalOffset
+		end
+	end
+	btn.BackgroundTransparency = pressed and (ALPHA - 0.15) or ALPHA
 end
 
 -- =============================================================================
@@ -1351,15 +1483,22 @@ function MobileControls:SetupButtonInput()
 		if not self.ActiveTouches.Jump and self:_hitTest(input, B.Jump) then
 			self.ActiveTouches.Jump = input
 			self.ClaimedTouches[input] = "jump"
+			self:_setButtonPressed(B.Jump, true)
 			self:StartAutoJump()
 			return
 		end
 
-		-- Fire (hold)
+		-- Fire (hold / auto-fire toggle)
 		if not self.ActiveTouches.Fire and self:_hitTest(input, B.Fire) then
 			self.ActiveTouches.Fire = input
 			self.ClaimedTouches[input] = "fire"
-			self._input:FireCallbacks("Fire", true)
+			if self._autoFireEnabled then
+				self._autoFireActive = not self._autoFireActive
+				self._input:FireCallbacks("Fire", self._autoFireActive)
+				B.Fire.BackgroundColor3 = self._autoFireActive and TOGGLE_COLOR or COLOR
+			else
+				self._input:FireCallbacks("Fire", true)
+			end
 			return
 		end
 
@@ -1417,6 +1556,30 @@ function MobileControls:SetupButtonInput()
 			self._input:FireCallbacks("Ultimate", Enum.UserInputState.Begin)
 			return
 		end
+
+		-- QuickMelee (instant)
+		if not self.ActiveTouches.QuickMelee and self:_hitTest(input, B.QuickMelee) then
+			self.ActiveTouches.QuickMelee = input
+			self.ClaimedTouches[input] = "quickmelee"
+			self._input:FireCallbacks("QuickMelee", true)
+			return
+		end
+
+		-- Inspect (toggle)
+		if not self.ActiveTouches.Inspect and self:_hitTest(input, B.Inspect) then
+			self.ActiveTouches.Inspect = input
+			self.ClaimedTouches[input] = "inspect"
+			self._input:FireCallbacks("Inspect", true)
+			return
+		end
+
+		-- Camera Toggle (instant)
+		if not self.ActiveTouches.CamToggle and self:_hitTest(input, B.CamToggle) then
+			self.ActiveTouches.CamToggle = input
+			self.ClaimedTouches[input] = "camtoggle"
+			self._input:FireCallbacks("ToggleCameraMode", true)
+			return
+		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input, _)
@@ -1427,13 +1590,16 @@ function MobileControls:SetupButtonInput()
 		if input == self.ActiveTouches.Fire then
 			self.ActiveTouches.Fire = nil
 			self.ClaimedTouches[input] = nil
-			self._input:FireCallbacks("Fire", false)
+			if not self._autoFireActive then
+				self._input:FireCallbacks("Fire", false)
+			end
 		elseif input == self.ActiveTouches.Special then
 			self.ActiveTouches.Special = nil
 			self.ClaimedTouches[input] = nil
 		elseif input == self.ActiveTouches.Jump then
 			self.ActiveTouches.Jump = nil
 			self.ClaimedTouches[input] = nil
+			self:_setButtonPressed(self._buttons.Jump, false)
 			self:StopAutoJump()
 		elseif input == self.ActiveTouches.Reload then
 			self.ActiveTouches.Reload = nil
@@ -1458,6 +1624,15 @@ function MobileControls:SetupButtonInput()
 			self.ActiveTouches.Ultimate = nil
 			self.ClaimedTouches[input] = nil
 			self._input:FireCallbacks("Ultimate", Enum.UserInputState.End)
+		elseif input == self.ActiveTouches.QuickMelee then
+			self.ActiveTouches.QuickMelee = nil
+			self.ClaimedTouches[input] = nil
+		elseif input == self.ActiveTouches.Inspect then
+			self.ActiveTouches.Inspect = nil
+			self.ClaimedTouches[input] = nil
+		elseif input == self.ActiveTouches.CamToggle then
+			self.ActiveTouches.CamToggle = nil
+			self.ClaimedTouches[input] = nil
 		end
 	end)
 end
@@ -1520,6 +1695,40 @@ function MobileControls:ResetADS()
 			self._buttons.ADS.BackgroundColor3 = COLOR
 		end
 	end
+end
+
+-- =============================================================================
+-- VIEWPORT LISTENER (responsive rescaling on rotation)
+-- =============================================================================
+function MobileControls:_setupViewportListener()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		Positions = Controls.GetScaledPositions()
+	end)
+end
+
+-- =============================================================================
+-- AUTO-FIRE SETTINGS LISTENER
+-- =============================================================================
+function MobileControls:_setupAutoFireListener()
+	self._autoFireEnabled = LocalPlayer:GetAttribute("SettingsAutoFireEnabled") == true
+
+	LocalPlayer:GetAttributeChangedSignal("SettingsAutoFireEnabled"):Connect(function()
+		local enabled = LocalPlayer:GetAttribute("SettingsAutoFireEnabled") == true
+		self._autoFireEnabled = enabled
+		if not enabled and self._autoFireActive then
+			self._autoFireActive = false
+			if self._buttons.Fire then
+				self._buttons.Fire.BackgroundColor3 = COLOR
+			end
+			if self._input then
+				self._input:FireCallbacks("Fire", false)
+			end
+		end
+	end)
 end
 
 return MobileControls

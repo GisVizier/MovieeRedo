@@ -67,15 +67,17 @@ Controls.DefaultPositions = {
 	},
 
 	-- Action cluster buttons (anchored from bottom-right)
-	--  Layout (right-anchored, from bottom up):
-	--    Row 3:         [E]  [Q]
-	--    Row 2:   [R] [ADS]  [FIRE]
-	--    Row 1:        [C/S]  [JUMP]
 	Jump = {
 		Size = 86,
 		RightOffset = 14,
 		BottomOffset = 46,
 		Label = "JUMP",
+		Icon = {
+			Image = "rbxasset://textures/ui/Input/TouchControlsSheetV2.png",
+			ImageRectOffset = Vector2.new(1, 146),
+			ImageRectSize = Vector2.new(144, 144),
+			PressedImageRectOffset = Vector2.new(146, 146),
+		},
 	},
 	CrouchSlide = {
 		Size = 48,
@@ -113,6 +115,30 @@ Controls.DefaultPositions = {
 		BottomOffset = 218,
 		Label = "Q",
 	},
+	QuickMelee = {
+		Size = 44,
+		RightOffset = 158,
+		BottomOffset = 96,
+		Label = "F",
+	},
+	Inspect = {
+		Size = 40,
+		RightOffset = 158,
+		BottomOffset = 210,
+		Label = "T",
+	},
+	CamToggle = {
+		Size = 40,
+		LeftOffset = 14,
+		BottomOffset = 260,
+		Label = "Y",
+	},
+	Settings = {
+		Size = 36,
+		RightOffset = 14,
+		TopOffset = 74,
+		Label = "P",
+	},
 
 	-- Weapon slot bar (top-right)
 	WeaponSlots = {
@@ -149,13 +175,25 @@ Controls.CustomizableKeybinds = {
 			Size = 120,
 			ThumbSize = 46,
 		},
-		Jump = { Size = 86, RightOffset = 14, BottomOffset = 46, Label = "JUMP" },
+		Jump = {
+			Size = 86, RightOffset = 14, BottomOffset = 46, Label = "JUMP",
+			Icon = {
+				Image = "rbxasset://textures/ui/Input/TouchControlsSheetV2.png",
+				ImageRectOffset = Vector2.new(1, 146),
+				ImageRectSize = Vector2.new(144, 144),
+				PressedImageRectOffset = Vector2.new(146, 146),
+			},
+		},
 		CrouchSlide = { Size = 48, RightOffset = 110, BottomOffset = 65, Label = "C" },
 		Fire = { Size = 66, RightOffset = 24, BottomOffset = 142, Label = "FIRE" },
 		ADS = { Size = 48, RightOffset = 100, BottomOffset = 151, Label = "ADS" },
 		Reload = { Size = 48, RightOffset = 158, BottomOffset = 151, Label = "R" },
 		Ability = { Size = 48, RightOffset = 33, BottomOffset = 218, Label = "E" },
 		Ultimate = { Size = 48, RightOffset = 91, BottomOffset = 218, Label = "Q" },
+		QuickMelee = { Size = 44, RightOffset = 158, BottomOffset = 96, Label = "F" },
+		Inspect = { Size = 40, RightOffset = 158, BottomOffset = 210, Label = "T" },
+		CamToggle = { Size = 40, LeftOffset = 14, BottomOffset = 260, Label = "Y" },
+		Settings = { Size = 36, RightOffset = 14, TopOffset = 74, Label = "P" },
 		WeaponSlots = {
 			Position = UDim2.new(1, -14, 0, 8),
 			ButtonWidth = 72,
@@ -424,5 +462,59 @@ Controls.CustomizableControllerKeybinds = {
 		Category = "UI",
 	},
 }
+
+-- =============================================================================
+-- RESPONSIVE SIZING
+-- =============================================================================
+function Controls.GetDeviceScale()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return 1
+	end
+	local viewport = camera.ViewportSize
+	local minAxis = math.min(viewport.X, viewport.Y)
+	if minAxis <= 500 then
+		return 0.82
+	elseif minAxis > 1000 then
+		return 1.15
+	end
+	return 1
+end
+
+local SCALED_NUMBER_KEYS = {
+	Size = true,
+	ThumbSize = true,
+	ButtonWidth = true,
+	ButtonHeight = true,
+	RightOffset = true,
+	BottomOffset = true,
+	LeftOffset = true,
+	TopOffset = true,
+	Gap = true,
+}
+
+function Controls.GetScaledPositions()
+	local scale = Controls.GetDeviceScale()
+	local defaults = Controls.CustomizableKeybinds.DefaultPositions
+	local scaled = {}
+
+	for name, entry in pairs(defaults) do
+		if type(entry) == "table" then
+			local copy = {}
+			for k, v in pairs(entry) do
+				if SCALED_NUMBER_KEYS[k] and type(v) == "number" then
+					copy[k] = math.floor(v * scale + 0.5)
+				else
+					copy[k] = v
+				end
+			end
+			scaled[name] = copy
+		else
+			scaled[name] = entry
+		end
+	end
+
+	return scaled
+end
 
 return Controls

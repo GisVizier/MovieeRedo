@@ -23,32 +23,53 @@ local DEBUG_WEAPON_CYCLE = true
 
 local LocalPlayer = Players.LocalPlayer
 
+-- Camera rotation drag spring (analysis: 2-5 degrees visual lag, spring recovery)
 local ROTATION_SENSITIVITY = -3.2
 local ROTATION_SPRING_SPEED = 18
-local ROTATION_SPRING_DAMPER = 0.85
+local ROTATION_SPRING_DAMPER = 0.78
 
+-- Movement lean (analysis: roll on strafe, primarily translational feel)
 local MOVE_SPEED_REFERENCE = 16
 local MOVE_ROLL_MAX = math.rad(16)
-local MOVE_PITCH_MAX = math.rad(8)
-local MOVE_ROTATION_FORCE = 0.85
+local MOVE_PITCH_MAX = math.rad(3) -- analysis: "2 to 3 degrees" backward pitch hip-fire
 
+-- Walk bob (analysis: figure-8, 1.5-2 cycles/sec walk, 2.5-3 sprint)
 local BOB_SPRING_SPEED = 14
-local BOB_SPRING_DAMPER = 0.85
-local BOB_FREQ = 6
-local BOB_AMP_X = 0.04
-local BOB_AMP_Y = 0.03
+local BOB_SPRING_DAMPER = 0.75
+local BOB_FREQ = 7
+local BOB_AMP_X = 0.035
+local BOB_AMP_Y = 0.055
 local VERT_SPEED_REFERENCE = 24
 local VERT_AMP_Y = 0.08
+local BOB_BLEND_SPEED = 8 -- Smooth start/stop over ~12 frames at 60fps (analysis: 10-15 frames)
 
+-- Slide tilt (analysis: 15-25 degrees roll, opposite direction, 150-200ms engage)
 local TILT_SPRING_SPEED = 12
 local TILT_SPRING_DAMPER = 0.9
-local SLIDE_ROLL = math.rad(30) -- Constant tilt to the right when sliding
+local SLIDE_ROLL = math.rad(20)
 local SLIDE_PITCH = math.rad(6)
-local SLIDE_YAW = math.rad(0) -- No yaw rotation
+local SLIDE_YAW = math.rad(0)
 local SLIDE_TUCK = Vector3.new(0.12, -0.12, 0.18)
 
+-- ADS (analysis: 150-200ms ease-out, sights locked dead center, 0 drift)
 local DEFAULT_ADS_EFFECTS_MULTIPLIER = 0.25
-local ADS_LERP_SPEED = 15
+local ADS_ROTATION_MULTIPLIER = 0     -- ZERO rotation during ADS: sights stay locked to center (analysis: "0 pixels from center")
+local ADS_BOB_MULTIPLIER = 0.12       -- Walk bob at 10-15% during ADS (analysis: "heavily reduced, 10% to 15%")
+local ADS_POSITION_MULTIPLIER = 0.1   -- Strafe sway under 10% (analysis: "minimized to under 10%")
+local ADS_MOUSE_SWAY_MULT = 0         -- Negligible (analysis: "almost entirely disabled")
+local ADS_LERP_SPEED = 13             -- 150-200ms ease-out transition (analysis: "150 to 200 ms")
+
+-- Movement positional sway (analysis: gun slides opposite, 15-20px strafe)
+local MOVE_SWAY_AMOUNT = 0.04
+local MOVE_SWAY_FORWARD = 0.02
+
+-- Mouse look sway (analysis: "primarily translational sliding left/right")
+local MOUSE_SWAY_SENSITIVITY = 0.003
+
+-- Landing impact (analysis: moderate dip, overshoot bounce, 15-20 frames)
+local LANDING_DIP = 0.12
+local LANDING_FORWARD = 0.04
+
 local WEAPON_INKING_SETTING_CATEGORY = "Gameplay"
 local WEAPON_INKING_SETTING_KEY = "WeaponInking"
 local WEAPON_INKING_ATTRIBUTE = "WeaponInkingMode"
@@ -70,8 +91,11 @@ ViewmodelController._animator = nil
 ViewmodelController._springs = nil
 ViewmodelController._prevCamCF = nil
 ViewmodelController._bobT = 0
+ViewmodelController._bobWeight = 0
 ViewmodelController._wasSliding = false
 ViewmodelController._slideTiltTarget = Vector3.zero
+ViewmodelController._wasGrounded = true
+ViewmodelController._lastVerticalVel = 0
 
 ViewmodelController._renderConn = nil
 ViewmodelController._renderBound = false
@@ -286,10 +310,38 @@ function ViewmodelController:Init(registry, net)
 	self._springs.externalPos.Damper = 0.85
 	self._springs.externalRot.Speed = 12
 	self._springs.externalRot.Damper = 0.85
+
+	-- Movement lean (target-based, replaces impulse accumulation for smooth tracking)
+	self._springs.moveLean = Spring.new(Vector3.zero)
+	self._springs.moveLean.Speed = 14
+	self._springs.moveLean.Damper = 0.92
+
+	-- Positional sway springs (Rivals-style additive effects)
+	self._springs.moveSway = Spring.new(Vector3.zero)
+	self._springs.moveSway.Speed = 10
+	self._springs.moveSway.Damper = 0.85
+
+	self._springs.mouseSway = Spring.new(Vector3.zero)
+	self._springs.mouseSway.Speed = 20
+	self._springs.mouseSway.Damper = 0.75
+
+	-- Landing (analysis: overshoot bounce → underdamped)
+	self._springs.landing = Spring.new(Vector3.zero)
+	self._springs.landing.Speed = 12
+	self._springs.landing.Damper = 0.65
+
+	-- Equip bounce (analysis: "bounces slightly past, spring bounce")
+	self._springs.equipBounce = Spring.new(Vector3.zero)
+	self._springs.equipBounce.Speed = 14
+	self._springs.equipBounce.Damper = 0.6
+
 	self._prevCamCF = nil
 	self._bobT = 0
+	self._bobWeight = 0
 	self._wasSliding = false
 	self._slideTiltTarget = Vector3.zero
+	self._wasGrounded = true
+	self._lastVerticalVel = 0
 
 	if self._net and self._net.ConnectClient then
 		self._startMatchConn = self._net:ConnectClient("MatchStart", function(_matchData)
@@ -1033,6 +1085,9 @@ function ViewmodelController:SetActiveSlot(slot: string)
 	if shouldPlayEquipAnimation and self._animator then
 		self._animator:Play("Equip", 0.1, true)
 	end
+	if shouldPlayEquipAnimation and self._springs and self._springs.equipBounce then
+		self._springs.equipBounce:Impulse(Vector3.new(0, -0.08, 0.04))
+	end
 	if self._ziplineActive and self._animator then
 		self._animator:Play("ZiplineHold", 0.05, true)
 	end
@@ -1355,17 +1410,24 @@ function ViewmodelController:_render(dt: number)
 		yawCF = CFrame.Angles(0, yaw, 0)
 	end
 
+	-- Scale impulse inputs down during ADS so springs settle (prevents jerk on ADS exit)
+	local adsInputDamp = 1 - self._adsBlend * 0.95
+
+	-- Camera rotation drag (impulse-based: gun lags behind camera turns)
 	do
 		if self._prevCamCF then
 			local diff = self._prevCamCF:ToObjectSpace(cam.CFrame)
 			local axis, angle = diff:ToAxisAngle()
 			if angle == angle then
 				local angularDisp = axis * angle
-				springs.rotation:Impulse(angularDisp * ROTATION_SENSITIVITY)
+				springs.rotation:Impulse(angularDisp * ROTATION_SENSITIVITY * adsInputDamp)
 			end
 		end
 		self._prevCamCF = cam.CFrame
+	end
 
+	-- Movement lean (target-based: spring tracks desired lean angle, no accumulation)
+	do
 		local root = getRootPart()
 		local vel = root and root.AssemblyLinearVelocity or Vector3.zero
 		local horizontal = Vector3.new(vel.X, 0, vel.Z)
@@ -1374,56 +1436,100 @@ function ViewmodelController:_render(dt: number)
 		local moveZ = math.clamp(localVel.Z / MOVE_SPEED_REFERENCE, -1, 1)
 		local roll = moveX * MOVE_ROLL_MAX
 		local pitch = -moveZ * MOVE_PITCH_MAX
-		springs.rotation:Impulse(Vector3.new(pitch, 0, roll) * MOVE_ROTATION_FORCE)
+		springs.moveLean.Target = Vector3.new(pitch, 0, roll)
 	end
 
-	local bobTarget = Vector3.zero
+	-- Walk/run bob with smooth weight blending (analysis: fades over 10-15 frames)
 	do
 		local root = getRootPart()
 		local vel = root and root.AssemblyLinearVelocity or Vector3.zero
 		local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
 		local grounded = MovementStateManager:GetIsGrounded()
-		local isMoving = grounded and speed > 0.5
 		local verticalOffset = math.clamp(vel.Y / VERT_SPEED_REFERENCE, -1, 1) * VERT_AMP_Y
+
+		-- Smooth bob weight with hysteresis (start threshold > stop threshold)
+		local isMoving = grounded and speed > 0.5
+		local targetWeight = isMoving and 1 or 0
+		local blendAlpha = 1 - math.exp(-BOB_BLEND_SPEED * dt)
+		self._bobWeight = self._bobWeight + (targetWeight - self._bobWeight) * blendAlpha
+
+		-- Keep timer advancing while moving (don't reset to 0 — let weight fade amplitude)
 		if isMoving then
 			local speedScale = math.clamp(speed / 12, 0.7, 1.7)
 			self._bobT += dt * BOB_FREQ * speedScale
-			bobTarget =
-				Vector3.new(math.sin(self._bobT) * BOB_AMP_X, math.sin(self._bobT * 2) * BOB_AMP_Y + verticalOffset, 0)
-		else
-			self._bobT = 0
-			bobTarget = Vector3.new(0, verticalOffset, 0)
 		end
+
+		local bobTarget = Vector3.new(
+			math.sin(self._bobT) * BOB_AMP_X * self._bobWeight,
+			math.sin(self._bobT * 2) * BOB_AMP_Y * self._bobWeight + verticalOffset,
+			0
+		)
 		springs.bob.Target = bobTarget
 	end
 
 	do
 		local isSliding = MovementStateManager:IsSliding()
 		if isSliding then
-			-- Continuously update tilt based on current slide direction
 			local root = getRootPart()
 			local vel = root and root.AssemblyLinearVelocity or Vector3.zero
 			local horizontal = Vector3.new(vel.X, 0, vel.Z)
-			local localDir
+			local slideDir
 			if horizontal.Magnitude > 0.1 then
-				local slideDir = horizontal.Unit
-				localDir = yawCF:VectorToObjectSpace(slideDir)
+				slideDir = horizontal.Unit
 			else
-				localDir = Vector3.new(0, 0, -1)
+				local fallback = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+				slideDir = fallback.Magnitude > 0.05 and fallback.Unit or Vector3.new(0, 0, -1)
 			end
-			local roll = -SLIDE_ROLL -- Always tilt right when sliding
+			local localDir = yawCF:VectorToObjectSpace(slideDir)
+			local side = cam.CFrame.RightVector:Dot(slideDir) >= 0 and 1 or -1
+			local roll = -SLIDE_ROLL * side
 			local pitch = -math.clamp(localDir.Z, -1, 1) * SLIDE_PITCH
 			self._slideTiltTarget = Vector3.new(pitch, SLIDE_YAW, roll)
-			
+
 			self._wasSliding = true
 			springs.tiltRot.Target = self._slideTiltTarget
-			springs.tiltPos.Target = SLIDE_TUCK
+			springs.tiltPos.Target = Vector3.new(SLIDE_TUCK.X * side, SLIDE_TUCK.Y, SLIDE_TUCK.Z)
 		else
 			self._wasSliding = false
 			self._slideTiltTarget = Vector3.zero
 			springs.tiltRot.Target = Vector3.zero
 			springs.tiltPos.Target = Vector3.zero
 		end
+	end
+
+	-- Movement positional sway (gun slides opposite to strafe direction)
+	do
+		local root = getRootPart()
+		local vel = root and root.AssemblyLinearVelocity or Vector3.zero
+		local horizontal = Vector3.new(vel.X, 0, vel.Z)
+		local localVel = yawCF:VectorToObjectSpace(horizontal)
+		local swayX = -math.clamp(localVel.X / MOVE_SPEED_REFERENCE, -1, 1) * MOVE_SWAY_AMOUNT
+		local swayZ = -math.clamp(localVel.Z / MOVE_SPEED_REFERENCE, -1, 1) * MOVE_SWAY_FORWARD
+		springs.moveSway.Target = Vector3.new(swayX, 0, swayZ)
+	end
+
+	-- Mouse look sway (gun drags behind mouse, springs back)
+	do
+		local delta = UserInputService:GetMouseDelta()
+		springs.mouseSway:Impulse(Vector3.new(
+			-delta.X * MOUSE_SWAY_SENSITIVITY * adsInputDamp,
+			-delta.Y * MOUSE_SWAY_SENSITIVITY * adsInputDamp,
+			0
+		))
+	end
+
+	-- Landing impact (dip on ground contact, proportional to fall speed)
+	do
+		local root = getRootPart()
+		local vel = root and root.AssemblyLinearVelocity or Vector3.zero
+		local grounded = MovementStateManager:GetIsGrounded()
+		if grounded and not self._wasGrounded then
+			local fallSpeed = math.abs(self._lastVerticalVel)
+			local strength = math.clamp(fallSpeed / 60, 0.1, 1.0)
+			springs.landing:Impulse(Vector3.new(0, -LANDING_DIP * strength, LANDING_FORWARD * strength))
+		end
+		self._wasGrounded = grounded
+		self._lastVerticalVel = vel.Y
 	end
 
 	local pivot = rig.Model:GetPivot()
@@ -1471,24 +1577,49 @@ function ViewmodelController:_render(dt: number)
 		return
 	end
 
-	-- Get LOCAL offsets from pivot (constant, doesn't change with model position).
+	-- ADS alignment via two attachments on the weapon model:
+	--   AimPosition = rear sight (where the player's eye goes during ADS)
+	--   LookAt      = front sight / barrel tip (defines the aiming direction)
+	--
+	-- CFrame.lookAt(rearSight, frontSight) creates a CFrame at the rear sight
+	-- looking toward the front sight. When inverted and applied to camera CFrame,
+	-- this aligns the sights perfectly to screen center — just like Rivals.
+	--
+	-- Both offsets are computed in model-local space (via ToObjectSpace) so they're
+	-- stable regardless of where the model was positioned last frame.
+
 	local hipOffset = pivot:ToObjectSpace(basePosition.WorldCFrame)
-	local adsWorldCF = aimPosition.WorldCFrame
+
+	local adsWorldCF
 	if lookAtPosition and lookAtPosition:IsA("Attachment") then
 		local aimPos = aimPosition.WorldPosition
 		local lookPos = lookAtPosition.WorldPosition
-		if (lookPos - aimPos).Magnitude > 0.001 then
-			adsWorldCF = CFrame.lookAt(aimPos, lookPos, aimPosition.WorldCFrame.UpVector)
+		local dir = lookPos - aimPos
+		if dir.Magnitude > 0.01 then
+			local upVector = aimPosition.WorldCFrame.UpVector
+			-- Guard against gimbal lock when barrel direction is nearly parallel to up
+			if math.abs(dir.Unit:Dot(upVector)) > 0.999 then
+				upVector = aimPosition.WorldCFrame.RightVector
+			end
+			adsWorldCF = CFrame.lookAt(aimPos, lookPos, upVector)
+		else
+			-- AimPosition and LookAt too close together — fall back to attachment CFrame
+			adsWorldCF = aimPosition.WorldCFrame
 		end
+	else
+		-- No LookAt attachment: use AimPosition CFrame directly.
+		-- The attachment's -Z axis (LookVector) should point along the barrel.
+		adsWorldCF = aimPosition.WorldCFrame
 	end
+
 	local adsOffset = pivot:ToObjectSpace(adsWorldCF)
 
 	-- Smooth ADS blend
 	local targetBlend = self._adsActive and 1 or 0
 	local adsLerpSpeed = tonumber(cfg and cfg.ADSLerpSpeed) or ADS_LERP_SPEED
 	adsLerpSpeed = math.max(adsLerpSpeed, 0.1)
-	self._adsBlend = self._adsBlend + (targetBlend - self._adsBlend) * math.min(1, dt * adsLerpSpeed)
-	
+	self._adsBlend = self._adsBlend + (targetBlend - self._adsBlend) * (1 - math.exp(-adsLerpSpeed * dt))
+
 	-- Snap to target when close enough
 	if math.abs(self._adsBlend - targetBlend) < 0.001 then
 		self._adsBlend = targetBlend
@@ -1501,34 +1632,58 @@ function ViewmodelController:_render(dt: number)
 	-- Smoothly remove config offset when ADS
 	local baseOffset = configOffset:Lerp(CFrame.new(), self._adsBlend)
 
-	local extPos = springs.externalPos.Position
-	local extRot = springs.externalRot.Position
-	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X, extRot.Y, extRot.Z)
+	-- ADS scaling for effects that should vanish during ADS
+	local rotFxScale = 1 - self._adsBlend -- Camera drag + recoil rotation → 0 during ADS
+	local posFxScale = 1 - (self._adsBlend * (1 - ADS_POSITION_MULTIPLIER))
+	local bobFxScale = 1 - (self._adsBlend * (1 - ADS_BOB_MULTIPLIER))
+	local mouseSwayFxScale = 1 - self._adsBlend
 
-	local fxScale = 1 - (self._adsBlend * (1 - self._adsEffectsMultiplier))
+	-- Movement lean (FULL during both hip-fire and ADS — applied before normalAlign
+	-- so it rotates the reference frame; normalAlign then compensates to keep sights centered)
+	local moveLeanPos = springs.moveLean.Position
+	local moveLeanOffset = CFrame.Angles(moveLeanPos.X, 0, moveLeanPos.Z)
 
-	local rotationOffset = CFrame.Angles(
-		springs.rotation.Position.X * fxScale, 
-		0, 
-		springs.rotation.Position.Z * fxScale
-	)
-
-	local tiltX = math.clamp(springs.tiltRot.Position.X, -SLIDE_PITCH, SLIDE_PITCH) * fxScale
+	-- Slide tilt (FULL during both hip-fire and ADS — same reason as lean above)
+	local tiltX = math.clamp(springs.tiltRot.Position.X, -SLIDE_PITCH, SLIDE_PITCH)
 	local yawAbs = math.abs(SLIDE_YAW)
-	local tiltY = math.clamp(springs.tiltRot.Position.Y, -yawAbs, yawAbs) * fxScale
-	local tiltZ = math.clamp(springs.tiltRot.Position.Z, -SLIDE_ROLL, SLIDE_ROLL) * fxScale
+	local tiltY = math.clamp(springs.tiltRot.Position.Y, -yawAbs, yawAbs)
+	local tiltZ = math.clamp(springs.tiltRot.Position.Z, -SLIDE_ROLL, SLIDE_ROLL)
 	local tiltRotOffset = CFrame.Angles(tiltX, tiltY, tiltZ)
 
-	local bobOffset = springs.bob.Position * fxScale
-	local tiltPosOffset = springs.tiltPos.Position * fxScale
-	local posOffset = bobOffset + tiltPosOffset
+	-- Recoil: position kick stays visible, rotation goes to 0 during ADS
+	local extPos = springs.externalPos.Position
+	local extRot = springs.externalRot.Position
+	local externalOffset = CFrame.new(extPos) * CFrame.Angles(extRot.X * rotFxScale, extRot.Y * rotFxScale, extRot.Z * rotFxScale)
 
-	local target = cam.CFrame 
-		* normalAlign 
-		* baseOffset 
-		* externalOffset 
-		* rotationOffset 
-		* tiltRotOffset 
+	-- Camera rotation drag (goes to 0 during ADS)
+	local rotationOffset = CFrame.Angles(
+		springs.rotation.Position.X * rotFxScale,
+		0,
+		springs.rotation.Position.Z * rotFxScale
+	)
+
+	-- Positional effects
+	local bobOffset = springs.bob.Position * bobFxScale
+	local tiltPosOffset = springs.tiltPos.Position
+	local moveSwayOffset = springs.moveSway.Position * posFxScale
+	local mouseSwayOffset = springs.mouseSway.Position * mouseSwayFxScale
+	local landingOffset = springs.landing.Position * posFxScale
+	local equipBounceOffset = springs.equipBounce.Position * (1 - self._adsBlend)
+	local posOffset = bobOffset + tiltPosOffset + moveSwayOffset + mouseSwayOffset + landingOffset + equipBounceOffset
+
+	-- CFrame composition:
+	-- 1. Lean + tilt rotate the camera frame FIRST (visible during both hip-fire and ADS)
+	-- 2. normalAlign then places sights at center of that rotated frame
+	--    → sights stay at screen center, but the whole viewmodel visually leans/tilts
+	-- 3. Everything after normalAlign is in the sight-aligned space:
+	--    recoil rotation + camera drag go to 0 during ADS, positional effects stay subtle
+	local target = cam.CFrame
+		* moveLeanOffset
+		* tiltRotOffset
+		* normalAlign
+		* baseOffset
+		* externalOffset
+		* rotationOffset
 		* CFrame.new(posOffset)
 
 	rig.Model:PivotTo(target)

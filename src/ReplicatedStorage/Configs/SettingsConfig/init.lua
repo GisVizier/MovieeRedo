@@ -822,15 +822,15 @@ SettingsConfig.Categories = {
 
 			AimAssist = {
 				Name = "Aim Assist",
-				Description = "Aim assist toggle (kept disabled by default for now).",
+				Description = "Assists aiming on mobile and console.",
 				Order = 33,
 				SettingType = "toggle",
-				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				BlockedPlatforms = { "PC" },
 				Options = {
 					{ Display = "Enabled", Value = true },
 					{ Display = "Disabled", Value = false },
 				},
-				Default = 2,
+				Default = 1,
 			},
 
 			AimAssistStrength = {
@@ -838,7 +838,7 @@ SettingsConfig.Categories = {
 				Description = "Aim assist strength level.",
 				Order = 34,
 				SettingType = "slider",
-				BlockedPlatforms = { "PC", "Mobile", "Console" },
+				BlockedPlatforms = { "PC" },
 				Slider = {
 					Max = 5,
 					Min = 1,
@@ -852,11 +852,25 @@ SettingsConfig.Categories = {
 				Description = "Automatically fires when valid target conditions are met.",
 				Order = 35,
 				SettingType = "toggle",
+				BlockedPlatforms = { "PC" },
 				Options = {
 					{ Display = "Enabled", Value = true },
 					{ Display = "Disabled", Value = false },
 				},
-				Default = 2,
+				Default = 1,
+			},
+
+			AutoFire = {
+				Name = "Auto Fire",
+				Description = "Tap fire button to toggle continuous fire on/off.",
+				Order = 36,
+				SettingType = "toggle",
+				BlockedPlatforms = { "PC", "Console" },
+				Options = {
+					{ Display = "Enabled", Value = true },
+					{ Display = "Disabled", Value = false },
+				},
+				Default = 1,
 			},
 
 			DividerAbility = {
@@ -1936,9 +1950,10 @@ SettingsConfig.DefaultSettings = {
 		WallJumpAssist = 2,
 		ToggleAim = 2,
 		EasyCycle = 1,
-		AimAssist = 2,
+		AimAssist = 1,
 		AimAssistStrength = 3,
-		AutoShoot = 2,
+		AutoShoot = 1,
+		AutoFire = 1,
 		EasyAbility = 2,
 		ArrangeMobileButtons = 2,
 		ResetMobileButtons = 0,

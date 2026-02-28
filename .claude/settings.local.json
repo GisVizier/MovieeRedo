@@ -10,7 +10,15 @@
       "Bash(node:*)",
       "mcp__robloxstudio__execute_luau",
       "mcp__robloxstudio__grep_scripts",
-      "mcp__robloxstudio__get_selection"
+      "mcp__robloxstudio__get_selection",
+      "WebSearch",
+      "mcp__robloxstudio__search_objects",
+      "WebFetch(domain:create.roblox.com)",
+      "WebFetch(domain:devforum.roblox.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:robloxarsenal.fandom.com)",
+      "WebFetch(domain:progameguides.com)",
+      "mcp__robloxstudio__edit_script_lines"
     ]
   }
 }

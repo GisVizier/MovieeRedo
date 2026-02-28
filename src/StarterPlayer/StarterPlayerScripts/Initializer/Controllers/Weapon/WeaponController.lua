@@ -270,6 +270,7 @@ function WeaponController:Init(registry, net)
 end
 
 function WeaponController:_initializeAimAssist()
+	warn("[WeaponController] _initializeAimAssist: creating AimAssist instance")
 	self._aimAssist = AimAssist.new()
 
 	-- Configure base settings
@@ -281,6 +282,9 @@ function WeaponController:_initializeAimAssist()
 
 	-- Add tagged targets (dummies, etc.)
 	self._aimAssist:addTargetTag(AimAssistConfig.TargetTags.Primary, AimAssistConfig.Defaults.TargetBones)
+	warn(string.format("[WeaponController] _initializeAimAssist: added tag '%s' with bones: %s",
+		AimAssistConfig.TargetTags.Primary,
+		table.concat(AimAssistConfig.Defaults.TargetBones, ", ")))
 
 	-- Enable debug mode if configured (shows FOV circle and target dots)
 	if AimAssistConfig.Debug then
@@ -340,16 +344,33 @@ function WeaponController:Start()
 	self:_connectMovementState()
 	self:_ensureCrosshairRotationLoop()
 
-	-- Mobile auto-shoot: fire immediately when a player/dummy is in crosshair (no ADS, no delay)
-	if UserInputService.TouchEnabled then
-		AimAssistConfig.AutoShoot.Enabled = true
+	-- Mobile/controller auto-shoot defaults (settings callbacks override later)
+	warn(string.format("[WeaponController:Start] TouchEnabled=%s GamepadEnabled=%s KeyboardEnabled=%s",
+		tostring(UserInputService.TouchEnabled),
+		tostring(UserInputService.GamepadEnabled),
+		tostring(UserInputService.KeyboardEnabled)))
+	if UserInputService.TouchEnabled or UserInputService.GamepadEnabled then
+		-- Set mobile-friendly auto-shoot defaults
 		AimAssistConfig.AutoShoot.ADSOnly = false
-		AimAssistConfig.AutoShoot.AcquisitionDelay = 0
+		AimAssistConfig.AutoShoot.AcquisitionDelay = 0.05
 		AimAssistConfig.AutoShoot.MaxAngleForAutoShoot = 8
 		AimAssistConfig.Input.TouchInactivityTimeout = 1.5
+
+		-- Respect saved user setting if present, otherwise default ON for mobile
+		local savedAutoShoot = LocalPlayer and LocalPlayer:GetAttribute("SettingsAutoShootEnabled")
+		if savedAutoShoot == false then
+			AimAssistConfig.AutoShoot.Enabled = false
+			warn("[WeaponController:Start] AutoShoot DISABLED (user saved setting)")
+		else
+			AimAssistConfig.AutoShoot.Enabled = true
+			warn("[WeaponController:Start] AutoShoot ENABLED for mobile/controller")
+		end
 	else
 		AimAssistConfig.AutoShoot.Enabled = false
+		warn("[WeaponController:Start] AutoShoot DISABLED (not touch/gamepad)")
 	end
+	warn(string.format("[WeaponController:Start] AimAssistConfig.Enabled=%s AimAssistConfig.AutoShoot.Enabled=%s",
+		tostring(AimAssistConfig.Enabled), tostring(AimAssistConfig.AutoShoot.Enabled)))
 
 	-- Initialize ammo when loadout changes
 	if LocalPlayer then
@@ -1163,24 +1184,37 @@ function WeaponController:_equipWeapon(weaponId, slot)
 end
 
 function WeaponController:_setupAimAssistForWeapon(weaponConfig)
+	warn("[WeaponController] _setupAimAssistForWeapon called")
 	if not self._aimAssist then
+		warn("[WeaponController] _setupAimAssistForWeapon: _aimAssist is nil!")
 		LogService:Warn("WEAPON", "Aim assist not initialized!")
 		return
 	end
 
 	local aimAssistConfig = weaponConfig and weaponConfig.aimAssist
+	warn(string.format("[WeaponController] aimAssistConfig exists=%s, enabled=%s",
+		tostring(aimAssistConfig ~= nil),
+		tostring(aimAssistConfig and aimAssistConfig.enabled)))
 
 	if aimAssistConfig and aimAssistConfig.enabled then
-		-- Configure from weapon settings
+		-- Configure from weapon settings (always configure so it's ready if toggled on)
 		self._aimAssist:configureFromWeapon(aimAssistConfig)
 		self._aimAssistConfig = aimAssistConfig
 
 		-- Set camera sensitivity multiplier (lower sens = gentler pull)
 		self:_updateAimAssistSensitivity()
 
-		-- Enable aim assist
-		self._aimAssist:enable()
-		self._aimAssistEnabled = true
+		-- Only enable if global setting allows it
+		warn(string.format("[WeaponController] AimAssistConfig.Enabled=%s, will %s aim assist",
+			tostring(AimAssistConfig.Enabled),
+			AimAssistConfig.Enabled and "ENABLE" or "DISABLE"))
+		if AimAssistConfig.Enabled then
+			self._aimAssist:enable()
+			self._aimAssistEnabled = true
+		else
+			self._aimAssist:disable()
+			self._aimAssistEnabled = false
+		end
 
 		-- Setup auto-shoot listener
 		self:_setupAutoShoot()
@@ -1190,8 +1224,9 @@ function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 			self._aimAssist:setDebug(true)
 		end
 
-		LogService:Info("WEAPON", "=== AIM ASSIST ENABLED ===", {
+		LogService:Info("WEAPON", "=== AIM ASSIST CONFIGURED ===", {
 			weapon = weaponConfig.id or weaponConfig.name or "Unknown",
+			globalEnabled = AimAssistConfig.Enabled,
 			range = aimAssistConfig.range,
 			fov = aimAssistConfig.fov,
 			friction = aimAssistConfig.friction,
@@ -3439,6 +3474,7 @@ end
 
 function WeaponController:_onTargetAcquisitionChanged(data)
 	local hasTarget = data.hasTarget
+	warn(string.format("[WeaponController] _onTargetAcquisitionChanged: hasTarget=%s", tostring(hasTarget)))
 
 	if hasTarget then
 		-- Target acquired - start auto-shooting if enabled
@@ -3454,11 +3490,13 @@ end
 function WeaponController:_startAutoShootIfEnabled()
 	-- Check if auto-shoot is globally enabled
 	if not AimAssistConfig.AutoShoot.Enabled then
+		warn("[WeaponController] _startAutoShootIfEnabled: BLOCKED - AutoShoot.Enabled is false")
 		return
 	end
 
 	-- Check if ADS-only mode is enabled and we're not ADS
 	if AimAssistConfig.AutoShoot.ADSOnly and not self._aimAssist.isADS then
+		warn("[WeaponController] _startAutoShootIfEnabled: BLOCKED - ADSOnly and not in ADS")
 		return
 	end
 
@@ -3466,6 +3504,8 @@ function WeaponController:_startAutoShootIfEnabled()
 	if self._autoShootConn then
 		return
 	end
+
+	warn("[WeaponController] >>> AUTO-SHOOT LOOP STARTING")
 
 	-- Start auto-shoot loop
 	self._autoShootConn = RunService.Heartbeat:Connect(function()
@@ -3510,6 +3550,7 @@ end
 
 -- Toggle auto-shoot feature on/off
 function WeaponController:SetAutoShootEnabled(enabled: boolean)
+	warn(string.format("[WeaponController] SetAutoShootEnabled(%s)", tostring(enabled)))
 	AimAssistConfig.AutoShoot.Enabled = enabled
 
 	if not enabled then
