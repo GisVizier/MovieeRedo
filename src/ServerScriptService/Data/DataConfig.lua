@@ -5,7 +5,7 @@
 
 return {
 	DataStore = {
-		StoreVersion = 1,
+		StoreVersion = 2, -- Bumped: wipe profiles for Aim Assist/Auto Shoot defaults (console/mobile = YES)
 		Disabled = false, -- Set true for Studio testing without DataStore
 	},
 }

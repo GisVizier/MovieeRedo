@@ -34,9 +34,9 @@ local DebugVisualizer = require(script.DebugVisualizer)
 
 export type EasingFunction = (number) -> number
 
-local DEBUG_LOGS = false
 local function debugLog(...)
-	if DEBUG_LOGS then
+	if AimAssistConfig.DebugLogs then
+		print("[AimAssist]", ...)
 	end
 end
 
@@ -63,6 +63,7 @@ function AimAssist:enable()
 		return
 	end
 	self.enabled = true
+	debugLog("ENABLED - render steps bound")
 
 	local bindNames = AimAssistConfig.BindNames
 
@@ -84,6 +85,7 @@ function AimAssist:disable()
 		return
 	end
 	self.enabled = false
+	debugLog("DISABLED - render steps unbound")
 
 	local bindNames = AimAssistConfig.BindNames
 
@@ -501,6 +503,25 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 	-- Check eligibility
 	local targetResult: TargetSelector.SelectTargetResult? = nil
 	local isEligible = self:isEligible()
+	-- Log eligibility changes (throttled)
+	self._lastEligibleLog = self._lastEligibleLog or 0
+	if isEligible ~= self._lastEligibleState or (tick() - self._lastEligibleLog) > 2 then
+		self._lastEligibleState = isEligible
+		self._lastEligibleLog = tick()
+		local reason = "ineligible"
+		if isEligible then
+			if self:getMouseEligibility() then
+				reason = "mouse"
+			elseif UserInputService.TouchEnabled then
+				reason = "touch"
+			elseif self:getGamepadEligibility() then
+				reason = "gamepad"
+			elseif self:isCursorLocked() then
+				reason = "cursorLocked"
+			end
+		end
+		debugLog("Eligibility:", isEligible, "| reason:", reason)
+	end
 	if isEligible then
 		targetResult = self.targetSelector:selectTarget(self.subject)
 	end
@@ -548,9 +569,18 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 
 	-- No target = no adjustment needed
 	if not targetResult then
+		self._hadTargetLastFrame = false
 		self.startingSubjectCFrame = currCFrame
 		return
 	end
+
+	-- Log when we acquire a target (first time or after losing)
+	if not self._hadTargetLastFrame then
+		debugLog("TARGET ACQUIRED:", targetResult.instance and targetResult.instance.Name or "?",
+			"| angle:", string.format("%.1f°", targetResult.angle),
+			"| distance:", string.format("%.1f", targetResult.distance), "studs")
+	end
+	self._hadTargetLastFrame = true
 
 	-- Calculate state multiplier based on ADS/Firing state
 	local stateMultiplier = self:getStateMultiplier()
@@ -604,10 +634,11 @@ function AimAssist:applyAimAssist(deltaTime: number?)
 		else
 			self.subject:PivotTo(newCFrame)
 		end
-		
-		-- Log when actually applying adjustment
-		if self._logTimer == 0 then
-			debugLog(string.format("[AimAssist] APPLIED: Rotation delta = %.3f°", rotationDelta))
+		-- Throttle apply logs
+		self._lastApplyLog = self._lastApplyLog or 0
+		if tick() - self._lastApplyLog > 0.3 then
+			self._lastApplyLog = tick()
+			debugLog("APPLIED | rotation:", string.format("%.3f°", rotationDelta), "| strength:", string.format("%.2f", adjustmentStrength))
 		end
 	end
 

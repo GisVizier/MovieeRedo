@@ -270,7 +270,6 @@ function WeaponController:Init(registry, net)
 end
 
 function WeaponController:_initializeAimAssist()
-	warn("[WeaponController] _initializeAimAssist: creating AimAssist instance")
 	self._aimAssist = AimAssist.new()
 
 	-- Configure base settings
@@ -282,9 +281,6 @@ function WeaponController:_initializeAimAssist()
 
 	-- Add tagged targets (dummies, etc.)
 	self._aimAssist:addTargetTag(AimAssistConfig.TargetTags.Primary, AimAssistConfig.Defaults.TargetBones)
-	warn(string.format("[WeaponController] _initializeAimAssist: added tag '%s' with bones: %s",
-		AimAssistConfig.TargetTags.Primary,
-		table.concat(AimAssistConfig.Defaults.TargetBones, ", ")))
 
 	-- Enable debug mode if configured (shows FOV circle and target dots)
 	if AimAssistConfig.Debug then
@@ -292,6 +288,9 @@ function WeaponController:_initializeAimAssist()
 		LogService:Info("WEAPON", "Aim Assist DEBUG MODE ENABLED - you should see FOV circle on screen")
 	end
 
+	if AimAssistConfig.DebugLogs then
+		print("[AimAssist] Initialized | AllowMouseInput=", AimAssistConfig.AllowMouseInput, "| Debug=", AimAssistConfig.Debug)
+	end
 	LogService:Info("WEAPON", "Aim Assist initialized", {
 		AllowMouseInput = AimAssistConfig.AllowMouseInput,
 		Debug = AimAssistConfig.Debug,
@@ -1184,17 +1183,19 @@ function WeaponController:_equipWeapon(weaponId, slot)
 end
 
 function WeaponController:_setupAimAssistForWeapon(weaponConfig)
-	warn("[WeaponController] _setupAimAssistForWeapon called")
 	if not self._aimAssist then
-		warn("[WeaponController] _setupAimAssistForWeapon: _aimAssist is nil!")
 		LogService:Warn("WEAPON", "Aim assist not initialized!")
+		print("[AimAssist] _setupAimAssistForWeapon: _aimAssist is nil!")
 		return
 	end
 
 	local aimAssistConfig = weaponConfig and weaponConfig.aimAssist
-	warn(string.format("[WeaponController] aimAssistConfig exists=%s, enabled=%s",
-		tostring(aimAssistConfig ~= nil),
-		tostring(aimAssistConfig and aimAssistConfig.enabled)))
+	if AimAssistConfig.DebugLogs then
+		print("[AimAssist] _setupAimAssistForWeapon: weapon=", weaponConfig and weaponConfig.id or "nil",
+			"| aimAssistConfig=", aimAssistConfig ~= nil,
+			"| enabled=", aimAssistConfig and aimAssistConfig.enabled,
+			"| globalEnabled=", AimAssistConfig.Enabled)
+	end
 
 	if aimAssistConfig and aimAssistConfig.enabled then
 		-- Configure from weapon settings (always configure so it's ready if toggled on)
@@ -1204,16 +1205,20 @@ function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 		-- Set camera sensitivity multiplier (lower sens = gentler pull)
 		self:_updateAimAssistSensitivity()
 
-		-- Only enable if global setting allows it
-		warn(string.format("[WeaponController] AimAssistConfig.Enabled=%s, will %s aim assist",
-			tostring(AimAssistConfig.Enabled),
-			AimAssistConfig.Enabled and "ENABLE" or "DISABLE"))
-		if AimAssistConfig.Enabled then
+		-- Only enable if global setting allows it and not on PC (console/mobile only)
+		local isConsoleOrMobile = UserInputService.TouchEnabled or UserInputService.GamepadEnabled
+		if AimAssistConfig.Enabled and isConsoleOrMobile then
 			self._aimAssist:enable()
 			self._aimAssistEnabled = true
+			if AimAssistConfig.DebugLogs then
+				print("[AimAssist] Weapon equipped with aim assist ON | range=", aimAssistConfig.range, "| fov=", aimAssistConfig.fov)
+			end
 		else
 			self._aimAssist:disable()
 			self._aimAssistEnabled = false
+			if AimAssistConfig.DebugLogs then
+				print("[AimAssist] Aim assist OFF (disabled in settings)")
+			end
 		end
 
 		-- Setup auto-shoot listener
@@ -1240,6 +1245,9 @@ function WeaponController:_setupAimAssistForWeapon(weaponConfig)
 			self._aimAssistEnabled = false
 			self:_cleanupAutoShoot()
 			LogService:Info("WEAPON", "Aim assist DISABLED for this weapon")
+			if AimAssistConfig.DebugLogs then
+				print("[AimAssist] Weapon has no aim assist (e.g. melee)")
+			end
 		end
 		self._aimAssistConfig = nil
 	end

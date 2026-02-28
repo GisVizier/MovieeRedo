@@ -13,11 +13,14 @@ local AimAssistConfig = {}
 AimAssistConfig.Enabled = true
 
 -- Debug mode (shows FOV cone and target dots)
--- Set to true to see the aim assist visualization
-AimAssistConfig.Debug = false  -- TESTING: Set to false for production
+-- Set to true to see the aim assist visualization and verify targets are detected
+AimAssistConfig.Debug = false
 
--- Allow aim assist for mouse users (for testing only)
-AimAssistConfig.AllowMouseInput = false  -- TESTING: Set to false for production
+-- Debug logs (prints to Output for testing - set false for production)
+AimAssistConfig.DebugLogs = false
+
+-- Allow aim assist for mouse users (PC blocked - console/mobile only)
+AimAssistConfig.AllowMouseInput = false
 
 -- Smooth pull profile: no snapping, head-first targeting with torso fallback
 AimAssistConfig.SmoothPullOnly = true
@@ -67,12 +70,14 @@ AimAssistConfig.Defaults = {
 
 	-- Centering response tuning
 	-- Response scale for the legacy centering model.
-	-- 1.0 = original speed, lower values = slightly slower pull.
+	-- 1.0 = original speed, lower values = gentler pull.
 	CenteringResponseScale = 0.85,
 	-- Hard cap on how much centering can apply in a single update.
-	CenteringMaxStep = 0.22,
+	-- Higher = stronger pull per frame (0.22 = gentle, 0.28 = moderate, 0.35 = strong)
+	CenteringMaxStep = 0.25,
 	-- Prevent extremely low smoothTime, which feels like snapping.
-	CenteringMinSmoothTime = 0.18,
+	-- Higher = slower, gentler pull (0.15 = smooth, 0.12 = snappier)
+	CenteringMinSmoothTime = 0.15,
 }
 
 -- =============================================================================
@@ -80,16 +85,16 @@ AimAssistConfig.Defaults = {
 -- =============================================================================
 AimAssistConfig.StateMultipliers = {
 	-- Idle: Just equipped, not ADS, not firing
-	Idle = 0.9,
+	Idle = 0.85,
 
 	-- ADS only: Aiming down sights
-	ADS = 1.2,
+	ADS = 1.1,
 
 	-- Firing only: Shooting but not ADS
-	Firing = 1.05,
+	Firing = 1.0,
 
 	-- ADS + Firing: Both at once (strongest, then adsBoost is applied on top)
-	ADSFiring = 1.35,
+	ADSFiring = 1.25,
 }
 
 -- =============================================================================

@@ -1835,16 +1835,18 @@ SettingsCallbacks.Callbacks = {
 		AimAssist = function(value, oldValue)
 			local enabled = isSettingEnabled(value)
 
-			-- Migration: This setting was previously blocked on all platforms (default=2).
-			-- Any mobile/controller player with saved value=2 never chose to disable it —
-			-- it's legacy data. Force-enable for touch/gamepad devices.
-			if not enabled and (UserInputService.TouchEnabled or UserInputService.GamepadEnabled) then
-				warn("[SettingsCallback] AimAssist: overriding legacy disabled value for mobile/controller")
+			-- PC: always disabled (blocked platform - console/mobile only)
+			if not UserInputService.TouchEnabled and not UserInputService.GamepadEnabled then
+				enabled = false
+			-- Console/Mobile: default YES, force-enable if legacy had disabled
+			elseif not enabled then
 				enabled = true
 			end
 
-			warn(string.format("[SettingsCallback] AimAssist callback fired: value=%s -> enabled=%s", tostring(value), tostring(enabled)))
 			AimAssistConfig.Enabled = enabled
+			if AimAssistConfig.DebugLogs then
+				print("[AimAssist] Settings: Aim Assist", enabled and "ENABLED" or "DISABLED")
+			end
 
 			local weaponController = ServiceRegistry:GetController("Weapon")
 			if weaponController and type(weaponController.GetAimAssist) == "function" then
@@ -1855,11 +1857,7 @@ SettingsCallbacks.Callbacks = {
 					else
 						aimAssist:disable()
 					end
-				else
-					warn("[SettingsCallback] AimAssist: aimAssist instance is nil (not yet created)")
 				end
-			else
-				warn("[SettingsCallback] AimAssist: weaponController not found or missing GetAimAssist")
 			end
 		end,
 
@@ -1880,15 +1878,14 @@ SettingsCallbacks.Callbacks = {
 		AutoShoot = function(value, oldValue)
 			local enabled = isSettingEnabled(value)
 
-			-- Migration: This setting was previously blocked/defaulted to disabled.
-			-- Any mobile/controller player with saved value=2 never chose to disable it —
-			-- it's legacy data. Force-enable for touch/gamepad devices.
-			if not enabled and (UserInputService.TouchEnabled or UserInputService.GamepadEnabled) then
-				warn("[SettingsCallback] AutoShoot: overriding legacy disabled value for mobile/controller")
+			-- PC: always disabled (blocked platform - console/mobile only)
+			if not UserInputService.TouchEnabled and not UserInputService.GamepadEnabled then
+				enabled = false
+			-- Console/Mobile: default YES, force-enable if legacy had disabled
+			elseif not enabled then
 				enabled = true
 			end
 
-			warn(string.format("[SettingsCallback] AutoShoot callback fired: value=%s -> enabled=%s", tostring(value), tostring(enabled)))
 			setLocalSettingAttribute("SettingsAutoShootEnabled", enabled)
 
 			local weaponController = ServiceRegistry:GetController("Weapon")

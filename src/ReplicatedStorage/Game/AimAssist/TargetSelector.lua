@@ -34,7 +34,10 @@ export type TargetEntry = {
 	points: { Vector3 },
 }
 
-local localPlayer = Players.LocalPlayer
+-- Use runtime lookup - LocalPlayer may not exist when module first loads
+local function getLocalPlayer(): Player?
+	return Players.LocalPlayer
+end
 
 local TargetSelector = {}
 TargetSelector.__index = TargetSelector
@@ -90,6 +93,7 @@ function TargetSelector:_checkLineOfSight(subject: PVInstance, target: PVInstanc
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = { subject, target }
 	
+	local localPlayer = getLocalPlayer()
 	if localPlayer and localPlayer.Character then
 		raycastParams:AddToFilter({ localPlayer.Character :: Instance })
 	end
@@ -302,6 +306,7 @@ function TargetSelector:getAllTargetPoints(): { TargetEntry }
 	end
 
 	-- Process players
+	local localPlayer = getLocalPlayer()
 	if localPlayer and self.targetPlayers then
 		local bones = self.playerBones
 

@@ -407,6 +407,7 @@ function CameraController:OnCharacterRemoving(character)
 	-- Stop camera loop
 	pcall(function()
 		RunService:UnbindFromRenderStep("MovieeV2CameraController")
+		RunService:UnbindFromRenderStep("MovieeV2CameraAimAssistSync")
 	end)
 
 	self.Character = nil
@@ -879,6 +880,27 @@ function CameraController:InitializeCameraAngles()
 	debugPrint("Camera angles initialized - AngleX:", self.AngleX, "AngleY:", self.AngleY)
 end
 
+-- Sync camera angles from the camera's current look direction.
+-- Called by AimAssist after it modifies the camera so the rotation persists
+-- (otherwise CameraController overwrites with stored angles next frame).
+function CameraController:SyncAnglesFromCamera()
+	local camera = getCurrentCamera()
+	if not camera then
+		return
+	end
+	local cameraConfig = Config.Camera
+	local lookVector = camera.CFrame.LookVector
+	self.TargetAngleY = math.deg(math.atan2(-lookVector.X, -lookVector.Z))
+	self.TargetAngleX = math.deg(math.asin(lookVector.Y))
+	self.TargetAngleX = clamp(
+		self.TargetAngleX,
+		cameraConfig.AngleLimits.MinVertical,
+		cameraConfig.AngleLimits.MaxVertical
+	)
+	self.AngleX = self.TargetAngleX
+	self.AngleY = self.TargetAngleY
+end
+
 -- =============================================================================
 -- MAIN CAMERA LOOP
 -- =============================================================================
@@ -886,6 +908,7 @@ function CameraController:StartCameraLoop()
 	-- Ensure we run AFTER any default camera scripts (RenderPriority.Camera) so nothing can overwrite us.
 	pcall(function()
 		RunService:UnbindFromRenderStep("MovieeV2CameraController")
+		RunService:UnbindFromRenderStep("MovieeV2CameraAimAssistSync")
 	end)
 
 	if self.Connection then
@@ -895,6 +918,13 @@ function CameraController:StartCameraLoop()
 
 	RunService:BindToRenderStep("MovieeV2CameraController", Enum.RenderPriority.Camera.Value + 10, function()
 		self:UpdateCamera()
+	end)
+	-- Run AFTER AimAssist (Camera+11) to sync angles from the modified camera.
+	-- Without this, CameraController overwrites aim assist next frame with stored angles.
+	RunService:BindToRenderStep("MovieeV2CameraAimAssistSync", Enum.RenderPriority.Camera.Value + 12, function()
+		if self.CurrentMode == "FirstPerson" then
+			self:SyncAnglesFromCamera()
+		end
 	end)
 end
 
