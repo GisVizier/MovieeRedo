@@ -204,7 +204,7 @@ local function applyMouseSensitivityFromSettings()
 
 	local targetSensitivity = hipSensitivity
 	if isADSActive then
-		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier * ADS_SENSITIVITY_BASE_MULT
+		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier
 	end
 
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)
@@ -1890,7 +1890,7 @@ SettingsCallbacks.Callbacks = {
 		ADSSensitivity = function(value, oldValue)
 			local player = getLocalPlayer()
 			if player then
-				local scale = clampNumber(value, 0, 100, 100) / 100
+				local scale = clampNumber(value, 0, 100, 75) / 100
 				player:SetAttribute("ADSSensitivityScale", math.clamp(scale, 0.01, 2))
 			end
 			applyMouseSensitivityFromSettings()

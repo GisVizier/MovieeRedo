@@ -1282,7 +1282,7 @@ function WeaponController:_applyMouseSensitivityForADS(isADS: boolean?)
 
 	local targetSensitivity = hipSensitivity
 	if adsActive then
-		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier * ADS_SENSITIVITY_BASE_MULT
+		targetSensitivity = hipSensitivity * adsSensitivityScale * adsSpeedMultiplier
 	end
 
 	UserInputService.MouseDeltaSensitivity = math.clamp(targetSensitivity, 0.01, 4)

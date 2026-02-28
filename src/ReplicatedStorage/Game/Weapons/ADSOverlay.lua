@@ -318,6 +318,7 @@ function ADSOverlay:Start(weaponId, skinId)
 	self._activeFrame = frame
 	if overlayKey == "Sniper" then
 		self:_setFrameVisibilityImmediate(frame, true)
+		self:_playScopeSway(frame)
 	else
 		self:_fadeIn(frame)
 	end
