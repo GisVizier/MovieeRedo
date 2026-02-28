@@ -883,8 +883,10 @@ function WeaponController:_onReloadStateChanged(previousReloading: boolean, curr
 		self._reloadFireLocked = false
 		if self._reloadBufferedShot == true then
 			self._reloadBufferedShot = false
-			self:_onFirePressed()
+			-- Only flush buffered reload shot if the fire input is still held.
+			-- Prevents a single tap during reload from firing after reload ends.
 			if self._isFiring then
+				self:_onFirePressed()
 				self:_startAutoFire()
 			end
 		end

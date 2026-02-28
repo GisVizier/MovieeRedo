@@ -29,10 +29,10 @@ local ViewmodelConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitFo
 
 local LocalPlayer = Players.LocalPlayer
 
-local FADE_IN_TIME = 0.15
+local FADE_IN_TIME = 0.35
 local FADE_OUT_TIME = 0.1
-local SCOPE_SWAY_TIME = 0.85
-local SCOPE_SWAY_OFFSET = 0.5 -- max random offset in scale
+local SCOPE_SWAY_TIME = 0.6
+local SCOPE_SWAY_OFFSET = 0.35 -- max random offset in scale
 local DEBUG = false
 
 local ADSOverlay = {}

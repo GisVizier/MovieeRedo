@@ -5,11 +5,16 @@
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("Tracers"))
 
 local WeaponFX = {}
 WeaponFX.__index = WeaponFX
+
+local HITSCAN_TRACER_SPEED_DEFAULT = 3200
+local HITSCAN_TRACER_MIN_TIME = 0.03
+local HITSCAN_TRACER_MAX_TIME = 0.1
 
 --[[
 	Finds the character model from a hit part
@@ -49,6 +54,65 @@ local function findCharacterFromPart(hitPart: BasePart): Model?
 	end
 	
 	return nil
+end
+
+local function isCharacterHit(hitData)
+	if not hitData then
+		return false
+	end
+
+	if hitData.hitPlayer ~= nil then
+		return true
+	end
+
+	if type(hitData.hitCharacterName) == "string" and hitData.hitCharacterName ~= "" then
+		return true
+	end
+
+	return findCharacterFromPart(hitData.hitPart) ~= nil
+end
+
+local function getHitscanTravelDuration(origin: Vector3, hitPosition: Vector3, weaponConfig)
+	local distance = (hitPosition - origin).Magnitude
+	local speed = weaponConfig and tonumber(weaponConfig.hitscanTracerSpeed) or HITSCAN_TRACER_SPEED_DEFAULT
+	local minTime = weaponConfig and tonumber(weaponConfig.hitscanTracerMinTime) or HITSCAN_TRACER_MIN_TIME
+	local maxTime = weaponConfig and tonumber(weaponConfig.hitscanTracerMaxTime) or HITSCAN_TRACER_MAX_TIME
+
+	if type(speed) ~= "number" or speed <= 0 then
+		speed = HITSCAN_TRACER_SPEED_DEFAULT
+	end
+	if type(minTime) ~= "number" or minTime <= 0 then
+		minTime = HITSCAN_TRACER_MIN_TIME
+	end
+	if type(maxTime) ~= "number" or maxTime < minTime then
+		maxTime = math.max(minTime, HITSCAN_TRACER_MAX_TIME)
+	end
+
+	return math.clamp(distance / speed, minTime, maxTime)
+end
+
+local function animateHitscanTracer(handle, origin: Vector3, hitPosition: Vector3, duration: number, onComplete)
+	task.spawn(function()
+		local start = os.clock()
+
+		while handle and handle.attachment and handle.attachment.Parent do
+			local alpha = (os.clock() - start) / duration
+			if alpha >= 1 then
+				break
+			end
+
+			handle.attachment.WorldPosition = origin:Lerp(hitPosition, alpha)
+			RunService.Heartbeat:Wait()
+		end
+
+		if handle and handle.attachment and handle.attachment.Parent then
+			handle.attachment.WorldPosition = hitPosition
+		end
+
+		if onComplete then
+			onComplete(handle)
+		end
+	end)
 end
 
 local function getTracerSettings(weaponConfig)
@@ -151,24 +215,41 @@ function WeaponFX:RenderBulletTracer(hitData)
 	local tracerModule = Tracers:Get(resolvedId)
 	if not tracerModule then return end
 
-	-- Muzzle flash on the gun model
-	if tracerModule.Muzzle and hitData.gunModel and not Tracers:IsMuzzleHidden() then
-		local muzzleAttachment = nil
-		if typeof(hitData.muzzleAttachment) == "Instance" and hitData.muzzleAttachment:IsA("Attachment") then
-			muzzleAttachment = hitData.muzzleAttachment
-		else
-			muzzleAttachment = Tracers:FindMuzzleAttachment(hitData.gunModel)
-		end
-		if muzzleAttachment then
-			tracerModule:Muzzle(hitData.origin, hitData.gunModel, nil, Tracers, muzzleAttachment, tracerSettings)
-		end
+	local muzzleAttachment = nil
+	if typeof(hitData.muzzleAttachment) == "Instance" and hitData.muzzleAttachment:IsA("Attachment") then
+		muzzleAttachment = hitData.muzzleAttachment
+	elseif hitData.gunModel then
+		muzzleAttachment = Tracers:FindMuzzleAttachment(hitData.gunModel)
 	end
 
-	-- World impact FX (only when we didn't hit a character)
-	local hitCharacter = findCharacterFromPart(hitData.hitPart)
-	if not hitCharacter and tracerModule.HitWorld then
-		tracerModule:HitWorld(hitData.hitPosition, hitData.hitNormal or Vector3.yAxis, hitData.hitPart, nil, Tracers)
+	local tracerOrigin = hitData.origin
+	if muzzleAttachment then
+		tracerOrigin = muzzleAttachment.WorldPosition
 	end
+
+	if tracerModule.Muzzle and hitData.gunModel and muzzleAttachment and not Tracers:IsMuzzleHidden() then
+		tracerModule:Muzzle(tracerOrigin, hitData.gunModel, nil, Tracers, muzzleAttachment, tracerSettings)
+	end
+
+	local handle = Tracers:Fire(resolvedId, tracerOrigin, hitData.gunModel, false, tracerSettings)
+	if not handle then
+		return
+	end
+
+	local didHitCharacter = isCharacterHit(hitData)
+	local duration = getHitscanTravelDuration(tracerOrigin, hitData.hitPosition, weaponConfig)
+
+	animateHitscanTracer(handle, tracerOrigin, hitData.hitPosition, duration, function(activeHandle)
+		if not activeHandle or type(activeHandle.cleanup) ~= "function" then
+			return
+		end
+
+		if not didHitCharacter then
+			Tracers:HitWorld(activeHandle, hitData.hitPosition, hitData.hitNormal or Vector3.yAxis, hitData.hitPart)
+		end
+
+		activeHandle.cleanup()
+	end)
 end
 
 --[[
