@@ -84,6 +84,7 @@ function CrosshairController.new(player: Player?)
 	self._hideReticleInADS = false
 	self._reticleHidden = false
 	self._reticleVisibilitySnapshot = {}
+	self._spreadMultiplier = 1
 
 	self:_bindCharacter()
 	self:_warmModuleCache()
@@ -318,6 +319,7 @@ function CrosshairController:ApplyCrosshair(crosshairName: string, weaponData: a
 		weaponData = self._weaponData,
 		customization = self._customization,
 		dt = 1,
+		raycastSpreadMultiplier = self._spreadMultiplier,
 		isCrouching = movementState.isCrouching,
 		isSliding = movementState.isSliding,
 		isSprinting = movementState.isSprinting,
@@ -537,6 +539,7 @@ function CrosshairController:_update(dt: number)
 		weaponData = self._weaponData,
 		customization = self._customization,
 		dt = dt,
+		raycastSpreadMultiplier = self._spreadMultiplier,
 		-- Movement state for spread modifiers
 		isCrouching = movementState.isCrouching,
 		isSliding = movementState.isSliding,
@@ -557,6 +560,15 @@ function CrosshairController:OnRecoil(recoilData: any)
 	end
 
 	self._module:OnRecoil(recoilData, self._weaponData)
+end
+
+function CrosshairController:SetSpreadMultiplier(multiplier: number?)
+	local value = tonumber(multiplier)
+	if not value or value <= 0 then
+		self._spreadMultiplier = 1
+		return
+	end
+	self._spreadMultiplier = math.max(value, 0.001)
 end
 
 function CrosshairController:SetCustomization(customizationData: any)

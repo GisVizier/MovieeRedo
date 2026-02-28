@@ -95,8 +95,7 @@ function Attack.Execute(weaponInstance, currentTime)
 		end
 	end
 	local ignoreSpread = isADS
-	local extraSpreadMultiplier = isADS and 0.2 or 3.4
-	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(ignoreSpread, extraSpreadMultiplier)
+	local hitData = weaponInstance.PerformRaycast and weaponInstance.PerformRaycast(ignoreSpread)
 	if hitData and weaponInstance.Net then
 		-- Add timestamp for packet creation
 		hitData.timestamp = now

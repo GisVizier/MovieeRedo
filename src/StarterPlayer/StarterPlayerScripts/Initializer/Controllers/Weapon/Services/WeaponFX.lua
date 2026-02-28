@@ -12,9 +12,12 @@ local Tracers = require(ReplicatedStorage:WaitForChild("Combat"):WaitForChild("T
 local WeaponFX = {}
 WeaponFX.__index = WeaponFX
 
-local HITSCAN_TRACER_SPEED_DEFAULT = 3200
-local HITSCAN_TRACER_MIN_TIME = 0.03
-local HITSCAN_TRACER_MAX_TIME = 0.1
+local HITSCAN_TRACER_SPEED_DEFAULT = 1250
+local HITSCAN_TRACER_MIN_TIME = 0.07
+local HITSCAN_TRACER_MAX_TIME = 0.22
+local HITSCAN_TRACER_VISIBILITY_MULT = 1.8
+local HITSCAN_TRACER_MIN_VIS_SCALE = 1.5
+local HITSCAN_MUZZLE_VISIBILITY_MULT = 1.35
 
 --[[
 	Finds the character model from a hit part
@@ -146,6 +149,29 @@ local function getTracerSettings(weaponConfig)
 	return settings
 end
 
+local function getHitscanTracerSettings(baseSettings, weaponConfig)
+	local settings = {
+		trailScale = (baseSettings and baseSettings.trailScale) or 1,
+		muzzleScale = baseSettings and baseSettings.muzzleScale or nil,
+	}
+
+	local configuredTrailScale = weaponConfig and tonumber(weaponConfig.hitscanTracerTrailScale) or nil
+	if configuredTrailScale and configuredTrailScale > 0 then
+		settings.trailScale = configuredTrailScale
+	else
+		settings.trailScale = math.max((settings.trailScale or 1) * HITSCAN_TRACER_VISIBILITY_MULT, HITSCAN_TRACER_MIN_VIS_SCALE)
+	end
+
+	local configuredMuzzleScale = weaponConfig and tonumber(weaponConfig.hitscanTracerMuzzleScale) or nil
+	if configuredMuzzleScale and configuredMuzzleScale > 0 then
+		settings.muzzleScale = configuredMuzzleScale
+	elseif type(settings.muzzleScale) == "number" and settings.muzzleScale > 0 then
+		settings.muzzleScale = settings.muzzleScale * HITSCAN_MUZZLE_VISIBILITY_MULT
+	end
+
+	return settings
+end
+
 function WeaponFX.new(loadoutConfig, logService)
 	local self = setmetatable({}, WeaponFX)
 	self._loadoutConfig = loadoutConfig
@@ -210,7 +236,7 @@ function WeaponFX:RenderBulletTracer(hitData)
 
 	local weaponConfig = self._loadoutConfig.getWeapon(hitData.weaponId)
 	local tracerId = weaponConfig and weaponConfig.tracerId or nil
-	local tracerSettings = getTracerSettings(weaponConfig)
+	local tracerSettings = getHitscanTracerSettings(getTracerSettings(weaponConfig), weaponConfig)
 	local resolvedId = Tracers:Resolve(tracerId, nil)
 	local tracerModule = Tracers:Get(resolvedId)
 	if not tracerModule then return end

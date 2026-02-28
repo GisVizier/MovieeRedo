@@ -57,6 +57,26 @@ local function commitState(weaponInstance, state)
 	end
 end
 
+local function setReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = state.CurrentAmmo or 0
+	state.ReloadSnapshotReserveAmmo = state.ReserveAmmo or 0
+end
+
+local function clearReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = nil
+	state.ReloadSnapshotReserveAmmo = nil
+end
+
+local function restoreReloadSnapshot(state)
+	if type(state.ReloadSnapshotCurrentAmmo) == "number" then
+		state.CurrentAmmo = state.ReloadSnapshotCurrentAmmo
+	end
+	if type(state.ReloadSnapshotReserveAmmo) == "number" then
+		state.ReserveAmmo = state.ReloadSnapshotReserveAmmo
+	end
+	clearReloadSnapshot(state)
+end
+
 local function disconnectConnection(connection)
 	if connection then
 		connection:Disconnect()
@@ -108,6 +128,7 @@ local function finishReload(ctx)
 
 	setReloadLock(weaponInstance, state, false)
 	setReloading(weaponInstance, state, false)
+	clearReloadSnapshot(state)
 	commitState(weaponInstance, state)
 	Visuals.UpdateAmmoVisibility(weaponInstance, state.CurrentAmmo or 0, clipSize)
 	clearActiveReload(false)
@@ -154,6 +175,7 @@ function Reload.Execute(weaponInstance)
 
 	local animName = ((state.CurrentAmmo or 0) <= 0) and "ReloadEmpty" or "ReloadBullets"
 
+	setReloadSnapshot(state)
 	setReloading(weaponInstance, state, true)
 	setReloadLock(weaponInstance, state, true)
 	state.ReloadStartTime = os.clock()
@@ -178,6 +200,7 @@ function Reload.Execute(weaponInstance)
 			state.ReserveAmmo = (state.ReserveAmmo or 0) - toReload
 			setReloadLock(weaponInstance, state, false)
 			setReloading(weaponInstance, state, false)
+			clearReloadSnapshot(state)
 			commitState(weaponInstance, state)
 			Visuals.UpdateAmmoVisibility(weaponInstance, state.CurrentAmmo or 0, clipSize)
 		end)
@@ -262,6 +285,7 @@ function Reload.Interrupt(weaponInstance)
 		return false, "NotReloading"
 	end
 
+	restoreReloadSnapshot(state)
 	setReloading(targetWeapon, state, false)
 	setReloadLock(targetWeapon, state, false)
 	bumpToken(targetWeapon, state)

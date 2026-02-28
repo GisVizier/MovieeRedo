@@ -56,6 +56,26 @@ local function commitState(weaponInstance, state)
 	end
 end
 
+local function setReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = state.CurrentAmmo or 0
+	state.ReloadSnapshotReserveAmmo = state.ReserveAmmo or 0
+end
+
+local function clearReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = nil
+	state.ReloadSnapshotReserveAmmo = nil
+end
+
+local function restoreReloadSnapshot(state)
+	if type(state.ReloadSnapshotCurrentAmmo) == "number" then
+		state.CurrentAmmo = state.ReloadSnapshotCurrentAmmo
+	end
+	if type(state.ReloadSnapshotReserveAmmo) == "number" then
+		state.ReserveAmmo = state.ReloadSnapshotReserveAmmo
+	end
+	clearReloadSnapshot(state)
+end
+
 local function disconnectConnection(connection)
 	if connection then
 		connection:Disconnect()
@@ -105,6 +125,7 @@ local function finishReload(ctx)
 
 	setReloadLock(weaponInstance, state, false)
 	setReloading(weaponInstance, state, false)
+	clearReloadSnapshot(state)
 	commitState(weaponInstance, state)
 	clearActiveReload(false)
 end
@@ -150,6 +171,7 @@ function Reload.Execute(weaponInstance)
 
 	local animName = ((state.CurrentAmmo or 0) <= 0) and "Reload2" or "Reload"
 
+	setReloadSnapshot(state)
 	setReloading(weaponInstance, state, true)
 	setReloadLock(weaponInstance, state, true)
 	local reloadToken = bumpToken(weaponInstance, state)
@@ -175,6 +197,7 @@ function Reload.Execute(weaponInstance)
 
 			setReloadLock(weaponInstance, state, false)
 			setReloading(weaponInstance, state, false)
+			clearReloadSnapshot(state)
 			commitState(weaponInstance, state)
 		end)
 		return true
@@ -188,6 +211,7 @@ function Reload.Execute(weaponInstance)
 		animName = animName,
 		ejectSeen = false,
 		addApplied = false,
+		finished = false,
 	}
 
 	activeReload.markerConnection = track:GetMarkerReachedSignal("Event"):Connect(function(param)
@@ -213,6 +237,7 @@ function Reload.Execute(weaponInstance)
 			ctx.addApplied = true
 			applyAddMarkerAmmo(ctx)
 		elseif marker == "_finish" then
+			ctx.finished = true
 			finishReload(ctx)
 		end
 	end)
@@ -229,8 +254,15 @@ function Reload.Execute(weaponInstance)
 		end
 
 		if getReloading(ctx.weaponInstance, ctx.state) then
-			if not ctx.addApplied then
-				applyAddMarkerAmmo(ctx)
+			-- If the reload track stops without the explicit _finish marker,
+			-- treat it as an interruption and restore pre-reload ammo.
+			if ctx.finished ~= true then
+				restoreReloadSnapshot(ctx.state)
+				setReloadLock(ctx.weaponInstance, ctx.state, false)
+				setReloading(ctx.weaponInstance, ctx.state, false)
+				commitState(ctx.weaponInstance, ctx.state)
+				clearActiveReload(false)
+				return
 			end
 			finishReload(ctx)
 		else
@@ -267,6 +299,7 @@ function Reload.Interrupt(weaponInstance)
 		return false, "NotReloading"
 	end
 
+	restoreReloadSnapshot(state)
 	setReloading(targetWeapon, state, false)
 	setReloadLock(targetWeapon, state, false)
 	bumpToken(targetWeapon, state)

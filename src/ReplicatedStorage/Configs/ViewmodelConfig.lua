@@ -50,6 +50,7 @@ ViewmodelConfig.Effects = {
 		BobBlendSpeed = 10,
 		MoveStartSpeed = 1.25,
 		MoveStopSpeed = 0.75,
+		HardStopSpeed = 0.35,
 	},
 
 	WalkBob = {

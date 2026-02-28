@@ -10,6 +10,7 @@ module.Config = {
 	baseScale = 0.6,
 	maxSpread = 50,
 	maxRecoil = 2,
+	raycastSpreadPixelScale = 380,
 }
 
 local function applyStrokeProps(instance, color, thickness, transparency)
@@ -107,6 +108,17 @@ function module:Update(dt, state)
 	local spreadAmount = self._velocitySpread + self._currentRecoil
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * 4, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * 4, 0, self.Config.maxSpread)
+	local raycastSpreadMult = math.max(tonumber(state.raycastSpreadMultiplier) or 1, 0.001)
+	local baseSpreadRadians = math.max(0, tonumber(weaponData.baseSpreadRadians) or tonumber(weaponData.baseSpread) or 0)
+	if baseSpreadRadians > 0 and raycastSpreadMult > 0 then
+		local raycastScale = math.max(tonumber(weaponData.raycastSpreadPixelScale) or self.Config.raycastSpreadPixelScale, 0.001)
+		local raycastSpreadX =
+			math.clamp((weaponData.spreadX or 1) * baseSpreadRadians * raycastSpreadMult * raycastScale, 0, self.Config.maxSpread)
+		local raycastSpreadY =
+			math.clamp((weaponData.spreadY or 1) * baseSpreadRadians * raycastSpreadMult * raycastScale, 0, self.Config.maxSpread)
+		spreadX = math.max(spreadX, raycastSpreadX)
+		spreadY = math.max(spreadY, raycastSpreadY)
+	end
 	local gap = (customization and customization.gapFromCenter) or weaponData.baseGap or 0
 	local gapOffset = math.max(gap, 0) * 2
 

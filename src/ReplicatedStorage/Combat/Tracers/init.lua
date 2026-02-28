@@ -220,16 +220,21 @@ function Tracers:ScaleFX(fxInstance: Instance, scale: number)
 		return NumberRange.new(range.Min * scale, range.Max * scale)
 	end
 
-	for _, fx in fxInstance:GetDescendants() do
+	local function scaleFxItem(fx)
 		if fx:IsA("ParticleEmitter") then
 			fx.Size = scaleNumberSequence(fx.Size)
 			fx.Speed = scaleNumberRange(fx.Speed)
 		elseif fx:IsA("Trail") then
-			fx.WidthScale = fx.WidthScale * scale
+			fx.WidthScale = scaleNumberSequence(fx.WidthScale)
 		elseif fx:IsA("Beam") then
 			fx.Width0 = fx.Width0 * scale
 			fx.Width1 = fx.Width1 * scale
 		end
+	end
+
+	scaleFxItem(fxInstance)
+	for _, fx in fxInstance:GetDescendants() do
+		scaleFxItem(fx)
 	end
 end
 

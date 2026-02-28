@@ -87,7 +87,21 @@ LoadoutConfig.Weapons = {
 		destructionPressure = 100, -- Sniper makes big holes
 		projectileSpeed = nil,
 		bulletDrop = false,
-		spread = 0.11,
+		spread = 0.085,
+		spreadFactors = {
+			speedReference = 6,
+			speedMaxBonus = 2.0,
+			adsSpeedReference = 16,
+			adsSpeedMaxBonus = 0.05,
+			hipfireMult = 2.4,
+			crouchMult = 0.45,
+			slideMult = 1.6,
+			sprintMult = 3.2,
+			airMult = 4.0,
+			adsMult = 0.02,
+			minMultiplier = 0.05,
+			maxMultiplier = 7.5,
+		},
 		tracer = {
 			trailScale = 1.45,
 			muzzleScale = 2.7,
@@ -112,7 +126,7 @@ LoadoutConfig.Weapons = {
 			spreadY = 4.6,
 			recoilMultiplier = 5.6,
 			-- Sniper: very inaccurate in hipfire, pinpoint while ADS
-			crouchMult = 0.9,
+			crouchMult = 0.45,
 			sprintMult = 3.2,
 			airMult = 4.0,
 			adsMult = 0.02,
@@ -362,8 +376,8 @@ LoadoutConfig.Weapons = {
 
 		crosshair = {
 			type = "Default",
-			spreadX = 3.5,
-			spreadY = 3.5,
+			spreadX = 1.6,
+			spreadY = 1.6,
 			recoilMultiplier = 2.0,
 			-- Movement state spread modifiers (VERY NOTICEABLE)
 			crouchMult = 0.115, -- 75% reduction when crouching
@@ -373,6 +387,7 @@ LoadoutConfig.Weapons = {
 			adsVelocitySensitivityMult = 0.45,
 			adsVelocityRecoveryMult = 0.8,
 			adsSpreadResponseMult = 0.85,
+			raycastSpreadPixelScale = 800,
 			baseGap = 10, -- Base gap for crosshair
 		},
 

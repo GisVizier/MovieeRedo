@@ -18,6 +18,7 @@ module.Config = {
 
 	spreadScale = 2.35,
 	maxSpread = 75,
+	raycastSpreadPixelScale = 420,
 
 	crouchMult = 0.5,
 	slideMult = 0.95,
@@ -213,6 +214,23 @@ function module:Update(dt, state)
 	local spreadAmount = (self._velocitySpread + self._currentRecoil) * spreadStateMult * adsSpreadResponseMult
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
+	local raycastSpreadMult = positiveMultiplier(state.raycastSpreadMultiplier, 1)
+	local baseSpreadRadians = math.max(0, tonumber(weaponData.baseSpreadRadians) or tonumber(weaponData.baseSpread) or 0)
+	if baseSpreadRadians > 0 and raycastSpreadMult > 0 then
+		local raycastScale = positiveMultiplier(weaponData.raycastSpreadPixelScale, self.Config.raycastSpreadPixelScale)
+		local raycastSpreadX = math.clamp(
+			(weaponData.spreadX or 1) * baseSpreadRadians * raycastSpreadMult * raycastScale,
+			0,
+			self.Config.maxSpread
+		)
+		local raycastSpreadY = math.clamp(
+			(weaponData.spreadY or 1) * baseSpreadRadians * raycastSpreadMult * raycastScale,
+			0,
+			self.Config.maxSpread
+		)
+		spreadX = math.max(spreadX, raycastSpreadX)
+		spreadY = math.max(spreadY, raycastSpreadY)
+	end
 	local gap = resolveGap(customization, weaponData, self.Config, state)
 	local gapOffset = math.max(gap, 0) * 2
 

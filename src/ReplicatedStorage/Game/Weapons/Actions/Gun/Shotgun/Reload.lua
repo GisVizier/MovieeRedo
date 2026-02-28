@@ -38,6 +38,26 @@ local function bumpToken(weaponInstance, state)
 	return state.ReloadToken
 end
 
+local function setReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = state.CurrentAmmo or 0
+	state.ReloadSnapshotReserveAmmo = state.ReserveAmmo or 0
+end
+
+local function clearReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = nil
+	state.ReloadSnapshotReserveAmmo = nil
+end
+
+local function restoreReloadSnapshot(state)
+	if type(state.ReloadSnapshotCurrentAmmo) == "number" then
+		state.CurrentAmmo = state.ReloadSnapshotCurrentAmmo
+	end
+	if type(state.ReloadSnapshotReserveAmmo) == "number" then
+		state.ReserveAmmo = state.ReloadSnapshotReserveAmmo
+	end
+	clearReloadSnapshot(state)
+end
+
 function Reload.Execute(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
@@ -59,6 +79,7 @@ function Reload.Execute(weaponInstance)
 		return false, "NoReserve"
 	end
 
+	setReloadSnapshot(state)
 	setReloading(weaponInstance, state, true)
 	state.ReloadStartTime = os.clock()
 	local reloadToken = bumpToken(weaponInstance, state)
@@ -108,6 +129,7 @@ function Reload.Execute(weaponInstance)
 		if playAnim then
 			playAnim("End", 0.1, true)
 		end
+		clearReloadSnapshot(state)
 		if weaponInstance.ApplyState then
 			weaponInstance.ApplyState(state)
 		end
@@ -126,6 +148,7 @@ function Reload.Interrupt(weaponInstance)
 		return false, "NotReloading"
 	end
 
+	restoreReloadSnapshot(state)
 	setReloading(weaponInstance, state, false)
 	bumpToken(weaponInstance, state)
 

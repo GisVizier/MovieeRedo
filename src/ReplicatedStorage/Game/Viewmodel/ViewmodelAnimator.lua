@@ -820,6 +820,9 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 	local vel = root and root.AssemblyLinearVelocity or Vector3.zero
 	local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
 	local speed = horizontalVel.Magnitude
+	local character = LocalPlayer and LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local inputMagnitude = humanoid and humanoid.MoveDirection.Magnitude or 0
 	dt = dt or (1 / 60)
 	local smoothCfg = ViewmodelConfig.Effects and ViewmodelConfig.Effects.MovementSmoothing or {}
 	local speedAlpha = math.clamp(expAlpha(dt, smoothCfg.SpeedSmoothness or 12), 0, 1)
@@ -831,7 +834,13 @@ function ViewmodelAnimator:_updateMovement(dt: number)
 	local target = "Idle"
 	local moveStart = smoothCfg.MoveStartSpeed or 1.25
 	local moveStop = smoothCfg.MoveStopSpeed or 0.75
-	local isMoving = self._smoothedSpeed > moveStart or (self._currentMove ~= "Idle" and self._smoothedSpeed > moveStop)
+	local hardStopSpeed = smoothCfg.HardStopSpeed or 0.35
+	local shouldHardStop = inputMagnitude < 0.05 and speed <= hardStopSpeed
+	if shouldHardStop then
+		self._smoothedSpeed = math.min(self._smoothedSpeed, speed)
+	end
+	local isMoving = (not shouldHardStop)
+		and (self._smoothedSpeed > moveStart or (self._currentMove ~= "Idle" and self._smoothedSpeed > moveStop))
 
 	if isMoving then
 		if state == MovementStateManager.States.Sprinting and self._tracks.Run then

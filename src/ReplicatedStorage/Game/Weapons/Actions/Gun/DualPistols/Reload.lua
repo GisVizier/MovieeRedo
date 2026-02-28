@@ -94,6 +94,61 @@ local function applyModeFromGunAmmo(ctx)
 	end
 end
 
+local function setReloadSnapshot(weaponInstance, state)
+	local clipSize = (weaponInstance.Config and weaponInstance.Config.clipSize) or 16
+	state.ReloadSnapshotCurrentAmmo = state.CurrentAmmo or 0
+	state.ReloadSnapshotReserveAmmo = state.ReserveAmmo or 0
+	state.ReloadSnapshotRightAmmo = DualPistolsState.GetGunAmmo(weaponInstance.Slot, "right")
+	state.ReloadSnapshotLeftAmmo = DualPistolsState.GetGunAmmo(weaponInstance.Slot, "left")
+	state.ReloadSnapshotMode = DualPistolsState.GetMode(weaponInstance.Slot)
+	state.ReloadSnapshotClipSize = clipSize
+end
+
+local function clearReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = nil
+	state.ReloadSnapshotReserveAmmo = nil
+	state.ReloadSnapshotRightAmmo = nil
+	state.ReloadSnapshotLeftAmmo = nil
+	state.ReloadSnapshotMode = nil
+	state.ReloadSnapshotClipSize = nil
+end
+
+local function restoreReloadSnapshot(weaponInstance, state)
+	local snapshotCurrent = state.ReloadSnapshotCurrentAmmo
+	local snapshotReserve = state.ReloadSnapshotReserveAmmo
+	local snapshotRight = state.ReloadSnapshotRightAmmo
+	local snapshotLeft = state.ReloadSnapshotLeftAmmo
+	local snapshotMode = state.ReloadSnapshotMode
+	local clipSize = (weaponInstance.Config and weaponInstance.Config.clipSize) or 16
+	local snapshotClipSize = tonumber(state.ReloadSnapshotClipSize) or clipSize
+	local restoredAny = false
+
+	if type(snapshotCurrent) == "number" then
+		state.CurrentAmmo = snapshotCurrent
+		restoredAny = true
+	end
+	if type(snapshotReserve) == "number" then
+		state.ReserveAmmo = snapshotReserve
+		restoredAny = true
+	end
+
+	if type(snapshotRight) == "number" and type(snapshotLeft) == "number" then
+		DualPistolsState.SetGunAmmo(weaponInstance.Slot, "right", snapshotRight, snapshotClipSize)
+		DualPistolsState.SetGunAmmo(weaponInstance.Slot, "left", snapshotLeft, snapshotClipSize)
+		restoredAny = true
+	elseif restoredAny then
+		DualPistolsState.SyncToTotal(weaponInstance.Slot, state.CurrentAmmo or 0, clipSize)
+	end
+
+	if snapshotMode == "semi" or snapshotMode == "burst" then
+		DualPistolsState.SetMode(weaponInstance.Slot, snapshotMode)
+		restoredAny = true
+	end
+
+	clearReloadSnapshot(state)
+	return restoredAny
+end
+
 function Reload.Execute(weaponInstance)
 	if not weaponInstance or not weaponInstance.State or not weaponInstance.Config then
 		return false, "InvalidInstance"
@@ -117,6 +172,7 @@ function Reload.Execute(weaponInstance)
 
 	clearActiveReload(true)
 
+	setReloadSnapshot(weaponInstance, state)
 	setReloading(weaponInstance, state, true)
 	setReloadLock(weaponInstance, state, true)
 	local reloadToken = bumpToken(weaponInstance, state)
@@ -132,6 +188,7 @@ function Reload.Execute(weaponInstance)
 	if not track then
 		setReloadLock(weaponInstance, state, false)
 		setReloading(weaponInstance, state, false)
+		clearReloadSnapshot(state)
 		commitState(weaponInstance, state)
 		return false, "NoReloadTrack"
 	end
@@ -193,6 +250,7 @@ function Reload.Execute(weaponInstance)
 			applyModeFromGunAmmo(ctx)
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
+			clearReloadSnapshot(ctx.state)
 			commitState(ctx.weaponInstance, ctx.state)
 			DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 			clearActiveReload(false)
@@ -215,6 +273,7 @@ function Reload.Execute(weaponInstance)
 			applyModeFromGunAmmo(ctx)
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
+			clearReloadSnapshot(ctx.state)
 			commitState(ctx.weaponInstance, ctx.state)
 			DualPistolsVisuals.UpdateAmmoVisibility(ctx.weaponInstance, ctx.state.CurrentAmmo or 0)
 		end
@@ -251,15 +310,17 @@ function Reload.Interrupt(weaponInstance)
 		return false, "NotReloading"
 	end
 
+	local restoredSnapshot = restoreReloadSnapshot(targetWeapon, state)
 	setReloading(targetWeapon, state, false)
 	setReloadLock(targetWeapon, state, false)
 	bumpToken(targetWeapon, state)
 	commitState(targetWeapon, state)
 	DualPistolsVisuals.UpdateAmmoVisibility(targetWeapon, state.CurrentAmmo or 0)
 
-	-- Interrupted reload still commits weapon mode from marker progress.
-	syncGunAmmo(ctx)
-	applyModeFromGunAmmo(ctx)
+	if not restoredSnapshot then
+		syncGunAmmo(ctx)
+		applyModeFromGunAmmo(ctx)
+	end
 	clearActiveReload(true)
 
 	if targetWeapon.StopActionSound then

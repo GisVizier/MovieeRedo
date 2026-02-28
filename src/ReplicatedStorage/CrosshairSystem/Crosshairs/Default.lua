@@ -26,6 +26,7 @@ module.Config = {
 	-- Final scaling
 	spreadScale = 2.0,
 	maxSpread = 90,
+	raycastSpreadPixelScale = 1800,
 
 	-- State multipliers (spread)
 	crouchMult = 0.8,
@@ -326,6 +327,24 @@ function module:Update(dt, state)
 	local spreadX = math.clamp((weaponData.spreadX or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 	local spreadY = math.clamp((weaponData.spreadY or 1) * spreadAmount * self.Config.spreadScale, 0, self.Config.maxSpread)
 
+	local raycastSpreadMult = positiveMultiplier(state.raycastSpreadMultiplier, 1)
+	local baseSpreadRadians = math.max(0, tonumber(weaponData.baseSpreadRadians) or tonumber(weaponData.baseSpread) or 0)
+	if baseSpreadRadians > 0 and raycastSpreadMult > 0 then
+		local raycastScale = positiveMultiplier(weaponData.raycastSpreadPixelScale, self.Config.raycastSpreadPixelScale)
+		local raycastSpreadX = math.clamp(
+			(weaponData.spreadX or 1) * baseSpreadRadians * raycastSpreadMult * raycastScale,
+			0,
+			self.Config.maxSpread
+		)
+		local raycastSpreadY = math.clamp(
+			(weaponData.spreadY or 1) * baseSpreadRadians * raycastSpreadMult * raycastScale,
+			0,
+			self.Config.maxSpread
+		)
+		spreadX = math.max(spreadX, raycastSpreadX)
+		spreadY = math.max(spreadY, raycastSpreadY)
+	end
+
 	local gap = resolveGap(customization, weaponData, self.Config, state)
 	local advanced = customization and customization.advancedStyleSettings == true
 	local perLine = (customization and customization.perLineStyles) or {}
@@ -365,7 +384,7 @@ function module:OnRecoil(recoilData, weaponData)
 		return
 	end
 
-	local customRecoilMult = (self._customization and self._customization.recoilSpreadMultiplier) or 1
+	local customRecoilMult = math.max((self._customization and self._customization.recoilSpreadMultiplier) or 1, 0.15)
 	local recoilDelta = amount * recoilMultiplier * customRecoilMult
 	self._currentRecoil = math.min(self._currentRecoil + recoilDelta, self.Config.maxRecoil)
 end

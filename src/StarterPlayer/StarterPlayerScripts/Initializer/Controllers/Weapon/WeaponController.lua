@@ -75,6 +75,19 @@ local FIRE_SHAKE_MAX_INTENSITY = 1.05
 local FIRE_SHAKE_DEFAULT_DURATION = 0.09
 local FIRE_SHAKE_DEFAULT_FREQUENCY = 20
 
+local function isAutoFireMode(config)
+	local fireProfile = config and config.fireProfile
+	if type(fireProfile) ~= "table" then
+		return false
+	end
+	local mode = fireProfile.mode
+	if type(mode) ~= "string" then
+		return false
+	end
+	local lowered = string.lower(mode)
+	return lowered == "auto" or lowered == "automatic"
+end
+
 local function quickMeleeLog(message, data)
 	if not DEBUG_QUICK_MELEE then
 		return
@@ -411,6 +424,7 @@ function WeaponController:_ensureCrosshairRotationLoop()
 		self._crosshairRotation = self._crosshairRotation
 			+ (self._crosshairRotationTarget - self._crosshairRotation) * alpha
 		self._crosshair:SetRotation(self._crosshairRotation)
+		self:_syncCrosshairSpreadMultiplier()
 	end)
 end
 
@@ -695,8 +709,16 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 	end
 
 	local weaponConfig = LoadoutConfig.getWeapon(weaponId)
-	local weaponData = weaponConfig and weaponConfig.crosshair or nil
-	local crosshairType = (weaponData and weaponData.type) or "Default"
+	local crosshairData = weaponConfig and weaponConfig.crosshair or nil
+	local weaponData = nil
+	if crosshairData then
+		weaponData = table.clone(crosshairData)
+		if type(weaponConfig.spreadFactors) == "table" then
+			weaponData.spreadFactors = table.clone(weaponConfig.spreadFactors)
+		end
+		weaponData.baseSpreadRadians = math.max(0, tonumber(weaponConfig.spread) or 0)
+	end
+	local crosshairType = (crosshairData and crosshairData.type) or "Default"
 	if LocalPlayer and LocalPlayer:GetAttribute("SettingsCrosshairForceDefault") == true then
 		crosshairType = "Default"
 	end
@@ -712,6 +734,7 @@ function WeaponController:_applyCrosshairForWeapon(weaponId)
 	self._crosshairRotationTarget = self:_getCrosshairBaseRotation() + self._crosshairSlidingRotation
 	self._crosshairRotation = self._crosshairRotationTarget
 	self._crosshair:SetRotation(self._crosshairRotation)
+	self:_syncCrosshairSpreadMultiplier()
 end
 
 function WeaponController:_applyCrosshairRecoil()
@@ -937,11 +960,7 @@ function WeaponController:_flushBufferedEquipShot()
 	-- For semi-auto weapons, only fire if the player is still holding the fire button.
 	-- This prevents a phantom shot when the player released fire during the equip lock.
 	if not self._isFiring then
-		local isAuto = false
-		if self._weaponInstance and self._weaponInstance.Config then
-			local fp = self._weaponInstance.Config.fireProfile
-			isAuto = fp and fp.mode == "Auto"
-		end
+		local isAuto = self._weaponInstance and isAutoFireMode(self._weaponInstance.Config) or false
 		if not isAuto then
 			return
 		end
@@ -2952,9 +2971,8 @@ function WeaponController:_startAutoFire()
 	end
 
 	local weaponConfig = self._weaponInstance.Config
-	local fireProfile = weaponConfig.fireProfile or {}
 
-	if fireProfile.mode == "Auto" then
+	if isAutoFireMode(weaponConfig) then
 		self._isAutomatic = true
 
 		self._autoFireConn = RunService.Heartbeat:Connect(function()
@@ -3186,7 +3204,7 @@ function WeaponController:_stopWeaponTracks(exceptTrackName)
 	end
 end
 
-function WeaponController:_performRaycast(weaponConfig, ignoreSpread, extraSpreadMultiplier)
+function WeaponController:_calculateRaycastSpreadMultiplier(weaponConfig, ignoreSpread, extraSpreadMultiplier)
 	local spreadMultiplier = 1
 
 	if not ignoreSpread and LocalPlayer and weaponConfig then
@@ -3278,6 +3296,42 @@ function WeaponController:_performRaycast(weaponConfig, ignoreSpread, extraSprea
 		spreadMultiplier *= externalSpread
 	end
 
+	return spreadMultiplier
+end
+
+function WeaponController:_syncCrosshairSpreadMultiplier()
+	if not self._crosshair or type(self._crosshair.SetSpreadMultiplier) ~= "function" then
+		return
+	end
+
+	if not self:_isFirstPerson() then
+		self._crosshair:SetSpreadMultiplier(1)
+		return
+	end
+
+	local weaponConfig = self._equippedWeaponId and LoadoutConfig.getWeapon(self._equippedWeaponId) or nil
+	if not weaponConfig then
+		self._crosshair:SetSpreadMultiplier(1)
+		return
+	end
+	if type(weaponConfig.spreadFactors) ~= "table" then
+		self._crosshair:SetSpreadMultiplier(1)
+		return
+	end
+
+	local spreadMultiplier = self:_calculateRaycastSpreadMultiplier(weaponConfig, false, nil)
+	self._crosshair:SetSpreadMultiplier(spreadMultiplier)
+end
+
+function WeaponController:_performRaycast(weaponConfig, ignoreSpread, extraSpreadMultiplier)
+	local spreadMultiplier = self:_calculateRaycastSpreadMultiplier(weaponConfig, ignoreSpread, extraSpreadMultiplier)
+	if self._crosshair and type(self._crosshair.SetSpreadMultiplier) == "function" then
+		if weaponConfig and type(weaponConfig.spreadFactors) == "table" then
+			self._crosshair:SetSpreadMultiplier(spreadMultiplier)
+		else
+			self._crosshair:SetSpreadMultiplier(1)
+		end
+	end
 	return WeaponRaycast.PerformRaycast(self._camera, LocalPlayer, weaponConfig, ignoreSpread, spreadMultiplier)
 end
 

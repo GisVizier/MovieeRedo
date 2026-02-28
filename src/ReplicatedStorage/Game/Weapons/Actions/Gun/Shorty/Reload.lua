@@ -70,6 +70,26 @@ local function commitState(weaponInstance, state)
 	end
 end
 
+local function setReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = state.CurrentAmmo or 0
+	state.ReloadSnapshotReserveAmmo = state.ReserveAmmo or 0
+end
+
+local function clearReloadSnapshot(state)
+	state.ReloadSnapshotCurrentAmmo = nil
+	state.ReloadSnapshotReserveAmmo = nil
+end
+
+local function restoreReloadSnapshot(state)
+	if type(state.ReloadSnapshotCurrentAmmo) == "number" then
+		state.CurrentAmmo = state.ReloadSnapshotCurrentAmmo
+	end
+	if type(state.ReloadSnapshotReserveAmmo) == "number" then
+		state.ReserveAmmo = state.ReloadSnapshotReserveAmmo
+	end
+	clearReloadSnapshot(state)
+end
+
 local function stopOtherViewmodelTracks(weaponInstance, keepName)
 	if not weaponInstance or not weaponInstance.GetViewmodelController then
 		return
@@ -134,6 +154,7 @@ function Reload.Execute(weaponInstance)
 	local animName = (missing >= 2) and "Reload2" or "Reload1"
 	local hardLockUntilFinish = animName == "Reload2"
 
+	setReloadSnapshot(state)
 	setReloading(weaponInstance, state, true)
 	setReloadLock(weaponInstance, state, hardLockUntilFinish)
 	state.ReloadStartTime = os.clock()
@@ -191,6 +212,7 @@ function Reload.Execute(weaponInstance)
 		elseif markerParam == "_finish" then
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
+			clearReloadSnapshot(ctx.state)
 			commitState(ctx.weaponInstance, ctx.state)
 			clearActiveReload(false)
 		end
@@ -210,6 +232,7 @@ function Reload.Execute(weaponInstance)
 		if getReloading(ctx.weaponInstance, ctx.state) then
 			setReloadLock(ctx.weaponInstance, ctx.state, false)
 			setReloading(ctx.weaponInstance, ctx.state, false)
+			clearReloadSnapshot(ctx.state)
 			commitState(ctx.weaponInstance, ctx.state)
 		end
 
@@ -245,6 +268,7 @@ function Reload.Interrupt(weaponInstance)
 		return false, "NotReloading"
 	end
 
+	restoreReloadSnapshot(state)
 	setReloading(targetWeapon, state, false)
 	setReloadLock(targetWeapon, state, false)
 	bumpToken(targetWeapon, state)
